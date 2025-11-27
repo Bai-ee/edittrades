@@ -108,69 +108,17 @@ export default async function handler(req, res) {
     console.log(`[Analyze] Running 4H strategy evaluation...`);
     const tradeSignal = strategyService.evaluateStrategy(symbol, analysis);
 
-    // Build clean response for API
+    // Build response matching frontend expectations (same as Express server format)
     const response = {
       symbol,
-      direction: tradeSignal.direction.toUpperCase(),
-      reason: tradeSignal.reason_summary || tradeSignal.reason || 'No setup detected',
-      valid: tradeSignal.valid,
-      confidence: parseFloat((tradeSignal.confidence || 0).toFixed(2)),
       currentPrice: parseFloat(ticker.price.toFixed(2)),
       priceChange24h: parseFloat(ticker.priceChangePercent.toFixed(2)),
+      analysis,  // Full analysis object with indicators for each timeframe
+      tradeSignal,  // Complete trade signal object from strategy engine
       timestamp: new Date().toISOString()
     };
 
-    // Add trade levels if valid signal
-    if (tradeSignal.valid && tradeSignal.direction !== 'flat') {
-      response.entryZone = {
-        min: parseFloat(tradeSignal.entry_zone.min.toFixed(2)),
-        max: parseFloat(tradeSignal.entry_zone.max.toFixed(2))
-      };
-      response.stopLoss = parseFloat(tradeSignal.stop_loss.toFixed(2));
-      response.targets = {
-        tp1: parseFloat(tradeSignal.targets[0].toFixed(2)),
-        tp2: parseFloat(tradeSignal.targets[1].toFixed(2))
-      };
-
-      // Calculate risk/reward ratios
-      const entryMid = (response.entryZone.min + response.entryZone.max) / 2;
-      const risk = Math.abs(entryMid - response.stopLoss);
-      const reward1 = Math.abs(response.targets.tp1 - entryMid);
-      const reward2 = Math.abs(response.targets.tp2 - entryMid);
-      
-      response.riskReward = {
-        tp1RR: parseFloat((reward1 / risk).toFixed(2)),
-        tp2RR: parseFloat((reward2 / risk).toFixed(2))
-      };
-
-      // Add current levels
-      response.levels = {
-        ema21: tradeSignal.ema21 ? parseFloat(tradeSignal.ema21.toFixed(2)) : null,
-        ema200: tradeSignal.ema200 ? parseFloat(tradeSignal.ema200.toFixed(2)) : null
-      };
-    }
-
-    // Add timeframe trends
-    response.timeframes = {};
-    for (const [interval, data] of Object.entries(analysis)) {
-      if (data.error) {
-        response.timeframes[interval] = { error: data.error };
-      } else {
-        response.timeframes[interval] = {
-          trend: data.indicators.analysis.trend,
-          stoch: {
-            k: data.indicators.stochRSI.k ? parseFloat(data.indicators.stochRSI.k.toFixed(2)) : null,
-            d: data.indicators.stochRSI.d ? parseFloat(data.indicators.stochRSI.d.toFixed(2)) : null,
-            condition: data.indicators.stochRSI.condition
-          },
-          pullbackState: data.indicators.analysis.pullbackState
-        };
-      }
-    }
-
-    // Log result
-    console.log(`[Analyze] Signal: ${response.direction} @ ${response.confidence} confidence`);
-
+    // Return the response (already in correct format for frontend)
     return res.status(200).json(response);
 
   } catch (error) {
