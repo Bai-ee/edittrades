@@ -151,8 +151,10 @@ h1, h2, h3, h4, h5, h6 {
   background-color: var(--color-black);
   border: var(--border-2) solid var(--color-yellow-75);
   border-radius: var(--radius-10);
-  padding: var(--spacing-6);
+  padding: 0;
   box-shadow: var(--shadow-5xl);
+  overflow: hidden;
+  width: 100%;
 }
 
 .card-dark {
@@ -186,13 +188,16 @@ h1, h2, h3, h4, h5, h6 {
 /* ========================================
  * TABLES
  * ======================================== */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .table-edittrax {
   width: 100%;
-  max-width: 100%;
   border-collapse: collapse;
   background-color: var(--color-black);
-  table-layout: fixed;
-  box-sizing: border-box;
 }
 
 .table-edittrax thead {
@@ -216,13 +221,6 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom: 1px solid var(--color-gray-760);
   color: var(--color-white);
   font-family: var(--font-mathias);
-  box-sizing: border-box;
-}
-
-.table-edittrax td[colspan] {
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
 }
 
 /* Table hover removed per user request */
@@ -266,9 +264,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--radius-md);
   padding: var(--spacing-4);
   box-shadow: var(--shadow-xl);
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
+  min-width: 0;
 }
 
 .tf-card.uptrend {
