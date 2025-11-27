@@ -217,13 +217,13 @@
         // Show readiness only if on 4h strategy
         const showReadiness = currentStrategy === '4h';
         const readinessHtml = showReadiness ? 
-          `<div class="text-xs ${readiness.class}">${readiness.text}</div>` : 
+          `<div class="text-xs ${readiness.class}" style="font-size: 0.65rem; white-space: nowrap;">${readiness.text}</div>` : 
           `<div class="text-xs status-neutral">-</div>`;
         
         const signalElement = document.getElementById(`signal-${symbol}`);
         if (signalElement) {
           signalElement.innerHTML = `
-            <div class="status-neutral">NO ${strategyName}</div>
+            <div class="status-neutral" style="font-size: 0.65rem; white-space: nowrap;">NO ${strategyName}</div>
             ${readinessHtml}
           `;
         }
@@ -419,7 +419,7 @@
         const confidence = (signal.confidence * 100).toFixed(0);
         signalHtml = `
           <div id="signal-${symbol}">
-            <div class="${dirClass}">${signal.direction.toUpperCase()}</div>
+            <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${signal.direction.toUpperCase()}</div>
             <div class="text-xs ${dirClass}">${confidence}%</div>
           </div>
         `;
@@ -427,12 +427,12 @@
         // Show readiness only if on 4h strategy (since that's what we're analyzing)
         const showReadiness = currentStrategy === '4h';
         const readinessHtml = showReadiness ? 
-          `<div class="text-xs ${readiness.class}">${readiness.text}</div>` : 
+          `<div class="text-xs ${readiness.class}" style="font-size: 0.65rem; white-space: nowrap;">${readiness.text}</div>` : 
           `<div class="text-xs status-neutral">-</div>`;
         
         signalHtml = `
           <div id="signal-${symbol}" data-symbol="${symbol}">
-            <div class="status-neutral">NO ${strategyName}</div>
+            <div class="status-neutral" style="font-size: 0.65rem; white-space: nowrap;">NO ${strategyName}</div>
             ${readinessHtml}
           </div>
         `;
