@@ -271,7 +271,7 @@
             Proof of Strategy
           </a>
           <a href="/scanner.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
-            SCAN MORE COINS
+            SCAN THE SPACE
           </a>
           <button 
             id="copyAllBtn" 
@@ -323,7 +323,7 @@
             <thead style="background-color: var(--color-yellow-75);">
               <tr>
                 <th class="px-2 py-2" style="color: black;">COIN</th>
-                <th class="px-2 py-2" style="color: black;">ENTRY PRICE</th>
+                <th class="px-2 py-2" style="color: black;">ENTRY</th>
                 <th class="px-2 py-2" style="color: black;">SIGNAL</th>
                 <th class="px-2 py-2" style="color: black;">STRATEGY</th>
                 <th class="px-2 py-2" style="color: black;">1M/5M/15M/1H/4H/1D/1W/1Mo</th>
@@ -454,15 +454,38 @@
       // Increase confidence based on alignment
       if (confirmsAlign) confidence += 0.2;
       
-      // Check if near entry zone (21 EMA)
+      // Calculate entry zone based on current price and 21 EMA
       const primaryTf = template.anchorTimeframes[0];
       const primaryData = analysis[primaryTf];
+      let entryZone = originalSignal?.entryZone || null;
+      let stopLoss = originalSignal?.stopLoss || null;
+      
       if (primaryData && primaryData.indicators && primaryData.indicators.ema) {
+        const ema21 = primaryData.indicators.ema.ema21;
+        const currentPrice = data.currentPrice;
         const distanceFrom21 = Math.abs(
-          ((data.currentPrice - primaryData.indicators.ema.ema21) / data.currentPrice) * 100
+          ((currentPrice - ema21) / currentPrice) * 100
         );
+        
         if (distanceFrom21 < 2) {
           confidence += 0.15;
+        }
+        
+        // Calculate entry zone around 21 EMA (±1%)
+        if (!entryZone) {
+          entryZone = {
+            min: ema21 * 0.99,
+            max: ema21 * 1.01
+          };
+        }
+        
+        // Calculate stop loss from swing high/low if available
+        if (!stopLoss && primaryData.indicators.swings) {
+          if (direction === 'long') {
+            stopLoss = primaryData.indicators.swings.swingLow || (currentPrice * 0.95);
+          } else {
+            stopLoss = primaryData.indicators.swings.swingHigh || (currentPrice * 1.05);
+          }
         }
       }
       
@@ -474,8 +497,8 @@
         direction: direction,
         confidence: Math.min(confidence, 0.95),
         reason: `${template.label}: ${anchorTrend}, aligned confirmation`,
-        entryZone: originalSignal?.entryZone || null,
-        stopLoss: originalSignal?.stopLoss || null,
+        entryZone: entryZone,
+        stopLoss: stopLoss,
         targets: {
           tp1: null,
           tp2: null
@@ -782,9 +805,9 @@
       
       // Coin name - spell out full names
       const coinNames = {
-        'BTCUSDT': 'Bitcoin',
-        'ETHUSDT': 'Ethereum',
-        'SOLUSDT': 'Solana'
+        'BTCUSDT': 'BITCOIN',
+        'ETHUSDT': 'ETHEREUM',
+        'SOLUSDT': 'SOLANA'
       };
       const coinName = coinNames[symbol] || symbol.replace('USDT', '');
       
@@ -864,7 +887,7 @@
           <div class="text-lg ${hasAnyTrade ? 'coin-name-has-trade' : ''}" style="color: var(--color-yellow-75);">${coinName}</div>
           <div class="entry-price-mobile" style="font-size: 0.9rem; color: var(--color-yellow-75); margin-top: 0.25rem;">${entryPriceDisplay}</div>
         </td>
-        <td class="px-2 py-3 entry-price-desktop" data-label="Entry Price:">
+        <td class="px-2 py-3 entry-price-desktop" data-label="Entry:">
           <div style="color: var(--color-yellow-75); font-size: 0.875rem;">${entryPriceDisplay}</div>
         </td>
         <td class="px-2 py-3" data-label="Signal:">
