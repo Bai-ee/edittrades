@@ -127,10 +127,6 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--shadow-2xl);
 }
 
-.btn-primary:hover {
-  background-color: var(--color-yellow-125);
-  box-shadow: var(--shadow-5xl);
-}
 
 .btn-secondary {
   background-color: var(--color-black);
@@ -139,10 +135,6 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--shadow-xl);
 }
 
-.btn-secondary:hover {
-  background-color: var(--color-blue-830);
-  box-shadow: var(--shadow-5xl);
-}
 
 /* ========================================
  * CARDS
