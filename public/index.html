@@ -55,6 +55,11 @@
     
     /* Mobile responsive table */
     @media (max-width: 768px) {
+      /* Right-justify signal confidence on mobile */
+      .signal-confidence {
+        text-align: right !important;
+      }
+      
       .table-edittrax thead {
         display: none;
       }
@@ -532,9 +537,10 @@
         // Valid trade signal - show template name, not direction
         const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
         const confidence = (templateSignal.confidence * 100).toFixed(0);
+        signalElement.style.textAlign = 'center';
         signalElement.innerHTML = `
           <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
-          <div class="text-xs ${dirClass}" style="text-align: right;">${confidence}% SURE</div>
+          <div class="text-xs ${dirClass} signal-confidence">${confidence}% SURE</div>
         `;
       } else {
         // No trade signal
@@ -543,13 +549,13 @@
         
         // Show readiness only for 4h template
         const showReadiness = templateKey === '4h';
-        const readinessHtml = showReadiness ? 
-          `<div class="text-xs ${readiness.class}" style="font-size: 0.65rem; white-space: nowrap;">${readiness.text}</div>` : 
-          `<div class="text-xs status-neutral">-</div>`;
+        const readinessClass = showReadiness ? readiness.class : 'status-neutral';
+        const readinessText = showReadiness ? readiness.text : '-';
         
+        signalElement.style.textAlign = 'center';
         signalElement.innerHTML = `
           <div class="status-neutral" style="font-size: 0.65rem; white-space: nowrap;">NO ${template.displayName}</div>
-          ${readinessHtml}
+          <div class="text-xs ${readinessClass} signal-confidence" style="font-size: 0.65rem; white-space: nowrap;">${readinessText}</div>
         `;
       }
     }
@@ -578,7 +584,7 @@
         
         // Update text content
         const baseName = strategyNames[index];
-        indicator.textContent = hasValidTrade ? `${baseName} ✓` : baseName;
+        indicator.textContent = baseName;
         
         // Update color
         if (index === activeIndex) {
@@ -775,9 +781,9 @@
         const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
         const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalHtml = `
-          <div id="signal-${symbol}">
+          <div id="signal-${symbol}" style="text-align: center;">
             <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
-            <div class="text-xs ${dirClass}" style="text-align: right;">${confidence}% SURE</div>
+            <div class="text-xs ${dirClass} signal-confidence">${confidence}% SURE</div>
           </div>
         `;
       } else {
@@ -788,10 +794,12 @@
           `<div class="text-xs ${readiness.class}" style="font-size: 0.65rem; white-space: nowrap;">${readiness.text}</div>` : 
           `<div class="text-xs status-neutral">-</div>`;
         
+        const readinessClass = showReadiness ? readiness.class : 'status-neutral';
+        const readinessText = showReadiness ? readiness.text : '-';
         signalHtml = `
-          <div id="signal-${symbol}" data-symbol="${symbol}">
+          <div id="signal-${symbol}" data-symbol="${symbol}" style="text-align: center;">
             <div class="status-neutral" style="font-size: 0.65rem; white-space: nowrap;">NO ${strategyName}</div>
-            ${readinessHtml}
+            <div class="text-xs ${readinessClass} signal-confidence" style="font-size: 0.65rem; white-space: nowrap;">${readinessText}</div>
           </div>
         `;
       }
@@ -817,21 +825,21 @@
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: transparent; color: ${currentStrategyIndex === 0 ? 'var(--color-yellow-75)' : (strategy4hSignal && strategy4hSignal.valid ? '#10b981' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
-              ${strategy4hSignal && strategy4hSignal.valid ? '4h ✓' : '4h'}
+              4h
             </div>
             <div 
               id="indicator-${symbol}-1"
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: transparent; color: ${currentStrategyIndex === 1 ? 'var(--color-yellow-75)' : (strategySwingSignal && strategySwingSignal.valid ? '#10b981' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
-              ${strategySwingSignal && strategySwingSignal.valid ? 'Swing ✓' : 'Swing'}
+              Swing
               </div>
             <div 
               id="indicator-${symbol}-2"
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: transparent; color: ${currentStrategyIndex === 2 ? 'var(--color-yellow-75)' : (strategyScalpSignal && strategyScalpSignal.valid ? '#10b981' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
-              ${strategyScalpSignal && strategyScalpSignal.valid ? 'Scalp ✓' : 'Scalp'}
+              Scalp
             </div>
           </div>
         </td>
