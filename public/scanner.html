@@ -3,39 +3,174 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Market Scanner - EditTrades</title>
+  <title>Scan The Space - EditTrades</title>
   <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/edittrax-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
   <style>
-    .scanner-row:hover { 
-      background-color: var(--color-blue-830);
+    /* Prevent horizontal overflow - iOS specific fixes */
+    html {
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100%;
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
     }
     
-    @media (max-width: 640px) {
-      /* Stack table on mobile */
-      .responsive-table {
-        display: block;
-        overflow-x: auto;
+    body {
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100%;
+      margin: 0;
+      padding: 0;
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+      position: relative;
+    }
+    
+    /* Particle background */
+    #particles-js {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      z-index: -1;
+      background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+    }
+    
+    *, *::before, *::after {
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+    }
+    
+    /* Main container width control */
+    main {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+    }
+    
+    /* Star icon styling */
+    .star-icon {
+      cursor: pointer;
+      font-size: 1.5rem;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    
+    .star-icon:hover {
+      transform: scale(1.2);
+    }
+    
+    .star-outline {
+      color: var(--color-yellow-75);
+    }
+    
+    .star-filled {
+      color: var(--color-yellow-75);
+    }
+    
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+      .table-edittrax thead {
+        display: none;
       }
+      
+      .coin-row {
+        display: block;
+        padding: 1rem 0.5rem;
+        border-bottom: 2px solid var(--color-yellow-75);
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+      }
+      
+      .coin-row td {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        padding: 0.25rem 0 !important;
+        border: none;
+        text-align: left !important;
+        box-sizing: border-box;
+      }
+      
+      .coin-row td:before {
+        content: attr(data-label);
+        font-weight: bold;
+        display: inline-block;
+        margin-right: 0.5rem;
+        color: var(--color-yellow-75);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        min-width: 80px;
+      }
+      
+      .coin-row td:first-child:before {
+        display: none;
+      }
+    }
+    
+    @media (min-width: 769px) {
+      .table-edittrax th,
+      .table-edittrax td {
+        padding: var(--spacing-2) var(--spacing-2);
+      }
+      
+      /* Set explicit column widths */
+      .table-edittrax thead th:nth-child(1),
+      .table-edittrax tbody td:nth-child(1) { width: 5%; } /* STAR */
+      
+      .table-edittrax thead th:nth-child(2),
+      .table-edittrax tbody td:nth-child(2) { width: 20%; } /* COIN */
+      
+      .table-edittrax thead th:nth-child(3),
+      .table-edittrax tbody td:nth-child(3) { width: 15%; } /* PRICE */
+      
+      .table-edittrax thead th:nth-child(4),
+      .table-edittrax tbody td:nth-child(4) { width: 10%; } /* 24H CHANGE */
     }
   </style>
 </head>
 <body class="min-h-screen">
   
+  <!-- Particle Background -->
+  <div id="particles-js"></div>
+  
   <!-- Header -->
   <header class="header-edittrax">
     <div class="max-w-6xl mx-auto px-4 py-3">
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <div class="logo-container">
+      <div class="flex flex-col items-center gap-3 w-full">
+        <div class="logo-container flex items-center gap-3">
           <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
         </div>
-        <div class="flex items-center gap-2">
-          <a href="/" class="btn-base btn-secondary px-3 py-2 text-sm rounded">
+        <div class="grid gap-2 w-full" style="grid-template-columns: 1fr 1fr 1fr auto;">
+          <a href="/strategy.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
+            Proof of Strategy
+          </a>
+          <a href="/" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
             Home
           </a>
-          <button id="scanBtn" class="btn-base btn-primary px-4 py-2 text-sm rounded">
-            Scan
+          <button
+            onclick="window.location.reload()"
+            class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded flex items-center justify-center whitespace-nowrap"
+            style="background: transparent; border: none; width: auto;"
+            id="refreshBtn"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-yellow-75)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+          </button>
+          <button
+            onclick="copyAllToClipboard()"
+            class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
+          >
+            COPY GPT
           </button>
         </div>
       </div>
@@ -45,509 +180,226 @@
   <!-- Main Content -->
   <main class="max-w-6xl mx-auto px-4 py-4">
     
-    <!-- Scanner Controls -->
-    <div class="mb-4 card-edittrax rounded-lg p-4">
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        
-        <!-- Min Confidence -->
-        <div>
-          <label class="block text-xs font-medium mb-1 text-secondary">
-            Min Confidence: <span id="confidenceValue">50%</span>
-          </label>
-          <input 
-            type="range" 
-            id="minConfidence" 
-            min="0" 
-            max="100" 
-            value="50" 
-            class="w-full h-2 rounded-lg appearance-none cursor-pointer"
-            style="background-color: var(--color-blue-830);"
-          >
-        </div>
-
-        <!-- Max Results -->
-        <div>
-          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Max Results</label>
-          <select 
-            id="maxResults" 
-            class="w-full px-3 py-2 text-sm rounded outline-none card"
-          >
-            <option value="10">10</option>
-            <option value="25" selected>25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </div>
-
-        <!-- Direction Filter -->
-        <div>
-          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Direction</label>
-          <select 
-            id="directionFilter" 
-            class="w-full px-3 py-2 text-sm rounded outline-none card"
-          >
-            <option value="">All</option>
-            <option value="long">Long Only</option>
-            <option value="short">Short Only</option>
-          </select>
-        </div>
-
-        <!-- Scan All Coins -->
-        <div>
-          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Coin List</label>
-          <div class="flex items-center gap-2 mt-2">
-            <input 
-              type="checkbox" 
-              id="scanAllCoins" 
-              class="w-4 h-4"
-            >
-            <label for="scanAllCoins" class="text-xs">Scan ALL pairs</label>
-          </div>
-          <p class="text-xs mt-1" style="color: var(--text-secondary);">
-            (Default: 35 / ALL: 300+)
-          </p>
-        </div>
-
-      </div>
-    </div>
-
     <!-- Loading State -->
-    <div id="loadingState" class="hidden text-center py-12">
-      <div class="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mb-4" style="border-color: var(--text-primary); border-top-color: transparent;"></div>
-      <p style="color: var(--text-secondary);">Scanning markets...</p>
-      <p id="scanProgress" class="text-sm mt-2" style="color: var(--text-secondary);">Initializing...</p>
+    <div id="loadingState" class="text-center py-8">
+      <div style="color: var(--color-yellow-75);">Loading tokens...</div>
     </div>
 
-    <!-- Error State -->
-    <div id="errorState" class="hidden card rounded p-4 mb-4 border-red-600">
-      <h3 class="font-bold mb-2 text-red-400">Error</h3>
-      <p id="errorMessage" class="text-sm" style="color: var(--text-secondary);"></p>
-      <button onclick="runScan()" class="mt-3 btn-primary px-4 py-2 text-sm rounded">
-        Retry
-      </button>
-    </div>
-
-    <!-- Results Container -->
-    <div id="resultsContainer" class="hidden">
-      
-      <!-- Summary Stats -->
-      <div class="mb-4 grid grid-cols-2 md:grid-cols-5 gap-2">
-        <div class="card rounded p-3">
-          <p class="text-xs mb-1" style="color: var(--text-secondary);">Scanned</p>
-          <p id="stat-scanned" class="text-xl font-bold">-</p>
-        </div>
-        <div class="card rounded p-3">
-          <p class="text-xs mb-1" style="color: var(--text-secondary);">Opportunities</p>
-          <p id="stat-opportunities" class="text-xl font-bold status-long">-</p>
-        </div>
-        <div class="card rounded p-3">
-          <p class="text-xs mb-1" style="color: var(--text-secondary);">No Setup</p>
-          <p id="stat-nosetup" class="text-xl font-bold status-neutral">-</p>
-        </div>
-        <div class="card rounded p-3">
-          <p class="text-xs mb-1" style="color: var(--text-secondary);">Low Confidence</p>
-          <p id="stat-lowconf" class="text-xl font-bold" style="color: #f59e0b;">-</p>
-        </div>
-        <div class="card rounded p-3">
-          <p class="text-xs mb-1" style="color: var(--text-secondary);">Duration</p>
-          <p id="stat-duration" class="text-xl font-bold" style="color: #3b82f6;">-</p>
-        </div>
-      </div>
-
-      <!-- Opportunities Table -->
-      <div class="card rounded overflow-hidden">
-        <div class="p-4 border-b" style="border-color: var(--border);">
-          <div class="flex items-center justify-between">
-            <h2 class="text-base font-bold">Trading Opportunities</h2>
-            <p id="opportunityCount" class="text-xs" style="color: var(--text-secondary);">-</p>
-          </div>
-        </div>
-        
+    <!-- Opportunities Table -->
+    <div id="opportunitiesContainer" class="hidden">
+      <div class="card-edittrax rounded-lg">
         <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="border-b" style="border-color: var(--border); background-color: var(--bg-tertiary);">
+          <table class="table-edittrax w-full">
+            <thead style="background-color: var(--color-yellow-75);">
               <tr>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">#</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SYMBOL</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SIGNAL</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">CONF</th>
-                <th class="px-3 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">ENTRY</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">PRICE</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">24H</th>
-                <th class="px-3 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">R/R</th>
-                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">ACTIONS</th>
+                <th class="px-2 py-2" style="color: black;"></th>
+                <th class="px-2 py-2" style="color: black;">COIN</th>
+                <th class="px-2 py-2" style="color: black;">PRICE</th>
+                <th class="px-2 py-2" style="color: black;">24H CHANGE</th>
               </tr>
             </thead>
-            <tbody id="opportunitiesTable" class="divide-y" style="divide-color: var(--border);">
+            <tbody id="tokensTable">
               <!-- Rows will be populated dynamically -->
             </tbody>
           </table>
         </div>
       </div>
-
-    </div>
-
-    <!-- Initial State -->
-    <div id="initialState" class="text-center py-20">
-      <div class="text-6xl mb-4">🔍</div>
-      <h2 class="text-2xl font-bold text-gray-300 mb-2">Market Scanner Ready</h2>
-      <p class="text-gray-500 mb-8">Click "Run Scan" to find trading opportunities across all coins</p>
-      <button onclick="runScan()" class="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-xl text-lg font-medium transition">
-        🚀 Start Scanning
-      </button>
     </div>
 
   </main>
 
   <script>
-    // DOM elements
-    const minConfidenceSlider = document.getElementById('minConfidence');
-    const confidenceValue = document.getElementById('confidenceValue');
-    const maxResultsSelect = document.getElementById('maxResults');
-    const directionFilter = document.getElementById('directionFilter');
-    const scanAllCoinsCheckbox = document.getElementById('scanAllCoins');
-    const scanBtn = document.getElementById('scanBtn');
-    const loadingState = document.getElementById('loadingState');
-    const errorState = document.getElementById('errorState');
-    const errorMessage = document.getElementById('errorMessage');
-    const resultsContainer = document.getElementById('resultsContainer');
-    const initialState = document.getElementById('initialState');
-    const scanProgress = document.getElementById('scanProgress');
-
-    // Update confidence value display
-    minConfidenceSlider.addEventListener('input', (e) => {
-      confidenceValue.textContent = `${e.target.value}%`;
+    // Initialize particles.js
+    particlesJS('particles-js', {
+      particles: {
+        number: { value: 500 },
+        color: { value: '#ffffff' },
+        shape: { type: 'circle' },
+        opacity: {
+          value: 0.5,
+          random: true,
+          anim: { enable: true, speed: 1, opacity_min: 0.1 }
+        },
+        size: {
+          value: 2,
+          random: true
+        },
+        line_linked: {
+          enable: false
+        },
+        move: {
+          enable: true,
+          speed: 0.5,
+          direction: 'none',
+          random: true,
+          out_mode: 'out'
+        }
+      },
+      interactivity: {
+        detect_on: 'canvas',
+        events: {
+          onhover: {
+            enable: true,
+            mode: 'grab'
+          }
+        },
+        modes: {
+          grab: {
+            distance: 140,
+            line_linked: { opacity: 0.3 }
+          }
+        }
+      }
     });
 
-    // Event listeners
-    scanBtn.addEventListener('click', runScan);
+    // State
+    let starredCoins = JSON.parse(localStorage.getItem('starredCoins') || '[]');
+    let allTokens = [];
 
-    // Main scan function
-    async function runScan() {
-      // Get scan parameters
-      const minConfidence = parseFloat(minConfidenceSlider.value) / 100;
-      const maxResults = parseInt(maxResultsSelect.value);
-      const direction = directionFilter.value;
-      const scanAll = scanAllCoinsCheckbox.checked;
+    // Common trading pairs on Kraken
+    const KRAKEN_PAIRS = [
+      'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'DOGEUSDT', 'XRPUSDT', 
+      'DOTUSDT', 'MATICUSDT', 'LINKUSDT', 'LTCUSDT', 'AVAXUSDT', 'ATOMUSDT',
+      'ALGOUSDT', 'UNIUSDT', 'FILUSDT', 'TRXUSDT', 'XLMUSDT', 'MANAUSDT',
+      'AAVEUSDT', 'EOSUSDT', 'SANDUSDT', 'APEUSDT', 'ICPUSDT', 'FLOWUSDT',
+      'GRTUSDT', 'RNDRUSDT', 'INJUSDT', 'STXUSDT', 'NEARUSDT', 'IMXUSDT'
+    ];
 
-      // Show loading state
-      initialState.classList.add('hidden');
-      resultsContainer.classList.add('hidden');
-      errorState.classList.add('hidden');
-      loadingState.classList.remove('hidden');
-      scanProgress.textContent = 'Starting scan...';
+    // Toggle star
+    function toggleStar(symbol) {
+      const index = starredCoins.indexOf(symbol);
+      if (index > -1) {
+        starredCoins.splice(index, 1);
+      } else {
+        starredCoins.push(symbol);
+      }
+      localStorage.setItem('starredCoins', JSON.stringify(starredCoins));
+      updateStarDisplay(symbol);
+    }
 
-      try {
-        // Build API URL
-        let url = `/api/scan?minConfidence=${minConfidence}&maxResults=${maxResults}`;
-        if (direction) url += `&direction=${direction}`;
-        if (scanAll) url += `&all=true`;
-
-        console.log('Scanning with params:', { minConfidence, maxResults, direction, scanAll });
-        console.log('API URL:', url);
-
-        // Fetch scan results
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        console.log('Scan results:', data);
-
-        // Display results
-        displayResults(data);
-        loadingState.classList.add('hidden');
-        resultsContainer.classList.remove('hidden');
-
-      } catch (error) {
-        console.error('Scan error:', error);
-        showError(error.message || 'Failed to scan markets. Check console for details.');
-        loadingState.classList.add('hidden');
+    // Update star icon display
+    function updateStarDisplay(symbol) {
+      const starElement = document.getElementById(`star-${symbol}`);
+      if (starElement) {
+        const isStarred = starredCoins.includes(symbol);
+        starElement.innerHTML = isStarred ? '★' : '☆';
+        starElement.className = `star-icon ${isStarred ? 'star-filled' : 'star-outline'}`;
       }
     }
 
-    // Display scan results
-    function displayResults(data) {
-      // Update summary stats
-      document.getElementById('stat-scanned').textContent = data.summary.totalScanned;
-      document.getElementById('stat-opportunities').textContent = data.summary.opportunitiesFound;
-      document.getElementById('stat-nosetup').textContent = data.summary.noSetup;
-      document.getElementById('stat-lowconf').textContent = data.summary.lowConfidence;
-      document.getElementById('stat-duration').textContent = `${data.summary.duration}s`;
-      document.getElementById('opportunityCount').textContent = `${data.opportunities.length} opportunities found`;
-
-      // Populate opportunities table
-      const tableBody = document.getElementById('opportunitiesTable');
-      tableBody.innerHTML = '';
-
-      if (data.opportunities.length === 0) {
-        tableBody.innerHTML = `
-          <tr>
-            <td colspan="9" class="px-4 py-8 text-center text-gray-500">
-              No opportunities found with current filters. Try lowering the minimum confidence or removing filters.
-            </td>
-          </tr>
-        `;
-        return;
-      }
-
-      data.opportunities.forEach((opp, index) => {
-        const row = createOpportunityRow(opp, index + 1);
-        tableBody.appendChild(row);
-      });
-    }
-
-    // Create opportunity table row
-    function createOpportunityRow(opp, rank) {
-      const isLong = opp.direction === 'long';
-      const confidence = opp.confidence;
-      
-      // Confidence
-      const confClass = confidence >= 0.75 ? 'status-long' : 
-                       confidence >= 0.55 ? 'style="color: #f59e0b;"' : 'status-short';
-
-      // Direction
-      const dirClass = isLong ? 'status-long' : 'status-short';
-
-      // Price change color
-      const changeClass = opp.priceChange24h >= 0 ? 'status-long' : 'status-short';
-
-      // Calculate risk/reward
-      const entryMid = (opp.entry_zone.min + opp.entry_zone.max) / 2;
-      const risk = Math.abs(entryMid - opp.stop_loss);
-      const reward = Math.abs(opp.targets[1] - entryMid);
-      const rr = (reward / risk).toFixed(2);
-
+    // Create table row
+    function createTokenRow(token) {
       const row = document.createElement('tr');
-      row.className = 'scanner-row cursor-pointer';
-      row.onclick = () => viewDetails(opp.symbol);
+      row.className = 'coin-row';
+      row.id = `row-${token.symbol}`;
+      
+      const isStarred = starredCoins.includes(token.symbol);
+      const changeClass = (token.change24h || 0) >= 0 ? 'status-long' : 'status-short';
+      const change = token.change24h ? 
+        `${token.change24h >= 0 ? '+' : ''}${token.change24h.toFixed(2)}%` : 'N/A';
       
       row.innerHTML = `
-        <td class="px-3 py-3">
-          <div class="text-xs font-bold" style="color: var(--text-secondary);">#${rank}</div>
-        </td>
-        <td class="px-3 py-3">
-          <div class="text-sm font-bold">${opp.symbol}</div>
-        </td>
-        <td class="px-3 py-3">
-          <span class="${dirClass} font-medium">${opp.direction.toUpperCase()}</span>
-        </td>
-        <td class="px-3 py-3">
-          <span class="${confClass}">${(confidence * 100).toFixed(0)}%</span>
-        </td>
-        <td class="px-3 py-3 hidden sm:table-cell">
-          <div class="text-xs">$${opp.entry_zone.min.toLocaleString()} - $${opp.entry_zone.max.toLocaleString()}</div>
-        </td>
-        <td class="px-3 py-3">
-          <div class="text-xs">$${opp.currentPrice.toLocaleString()}</div>
-        </td>
-        <td class="px-3 py-3">
-          <div class="text-xs ${changeClass}">
-            ${opp.priceChange24h >= 0 ? '+' : ''}${opp.priceChange24h.toFixed(2)}%
-          </div>
-        </td>
-        <td class="px-3 py-3 hidden md:table-cell">
-          <div class="text-xs status-long">1:${rr}</div>
-        </td>
-        <td class="px-3 py-3">
-          <button 
-            onclick="event.stopPropagation(); copyScannerDashboardView('${opp.symbol}')" 
-            class="btn-secondary px-2 py-1 text-xs rounded w-full"
+        <td class="px-2 py-3" data-label="">
+          <span 
+            id="star-${token.symbol}" 
+            class="star-icon ${isStarred ? 'star-filled' : 'star-outline'}"
+            onclick="toggleStar('${token.symbol}')"
           >
-            Copy
-          </button>
+            ${isStarred ? '★' : '☆'}
+          </span>
+        </td>
+        <td class="px-2 py-3" data-label="Coin:">
+          <div style="color: var(--color-yellow-75); font-weight: bold;">${token.name}</div>
+        </td>
+        <td class="px-2 py-3" data-label="Price:">
+          <div style="color: var(--color-yellow-75);">${token.price}</div>
+        </td>
+        <td class="px-2 py-3" data-label="24H Change:">
+          <div class="${changeClass}">${change}</div>
         </td>
       `;
-
+      
       return row;
     }
 
-    // View details for a symbol
-    function viewDetails(symbol) {
-      window.location.href = `/?symbol=${symbol}`;
-    }
-
-    // Copy API URL for a symbol
-    function copyApiUrl(symbol) {
-      const baseUrl = window.location.origin;
-      const apiUrl = `${baseUrl}/api/analyze/${symbol}`;
-      
-      navigator.clipboard.writeText(apiUrl).then(() => {
-        showCopySuccess('URL copied to clipboard!');
-      }).catch(err => {
-        console.error('Failed to copy:', err);
-        alert('Failed to copy URL');
-      });
-    }
-
-    // Copy opportunity JSON data
-    function copyOppJson(opp) {
-      const jsonString = JSON.stringify(opp, null, 2);
-      
-      navigator.clipboard.writeText(jsonString).then(() => {
-        showCopySuccess('Full JSON copied to clipboard!');
-      }).catch(err => {
-        console.error('Failed to copy:', err);
-        alert('Failed to copy JSON data');
-      });
-    }
-
-    // Copy compact JSON for LLM
-    async function copyCompactJson(symbol) {
+    // Fetch token data
+    async function fetchTokenData(symbol) {
       try {
-        const response = await fetch(`/api/analyze-compact/${symbol}`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch compact data: ${response.statusText}`);
-        }
-        
-        const compactData = await response.json();
-        const jsonString = JSON.stringify(compactData, null, 2);
-        
-        await navigator.clipboard.writeText(jsonString);
-        showCopySuccess('Compact JSON copied for ChatGPT!');
-        
-        console.log(`Compact data for ${symbol}: ${jsonString.length} bytes`);
-        
-      } catch (err) {
-        console.error('Failed to copy compact data:', err);
-        alert('Failed to copy compact data: ' + err.message);
-      }
-    }
-
-    // Copy dashboard view JSON (from scanner)
-    async function copyScannerDashboardView(symbol) {
-      try {
-        // Fetch full analysis data
-        const response = await fetch(`/api/analyze/${symbol}`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch analysis: ${response.statusText}`);
-        }
-        
+        const response = await fetch(`/api/indicators?symbol=${symbol}&intervals=4h`);
+        if (!response.ok) throw new Error('Failed to fetch');
         const data = await response.json();
         
-        // Extract only the fields displayed on the dashboard
-        const dashboardView = {
-          symbol: data.symbol,
-          currentPrice: data.currentPrice,
-          priceChange24h: data.priceChange24h,
-          
-          // Trade signal (4H Set & Forget)
-          signal: data.tradeSignal ? {
-            valid: data.tradeSignal.valid,
-            direction: data.tradeSignal.direction || 'NO_TRADE',
-            confidence: data.tradeSignal.confidence ? 
-              parseFloat((data.tradeSignal.confidence * 100).toFixed(0)) : 0,
-            reason: data.tradeSignal.reason_summary || data.tradeSignal.reason,
-            
-            // Only include trade levels if valid
-            ...(data.tradeSignal.valid && data.tradeSignal.entry_zone && {
-              entryZone: {
-                min: data.tradeSignal.entry_zone.min,
-                max: data.tradeSignal.entry_zone.max
-              },
-              stopLoss: data.tradeSignal.stop_loss,
-              targets: {
-                tp1: data.tradeSignal.targets?.[0],
-                tp2: data.tradeSignal.targets?.[1]
-              }
-            })
-          } : null,
-          
-          // Timeframes (only fields shown in dashboard cards)
-          timeframes: {},
-          
-          timestamp: data.timestamp
+        const price = data.timeframes?.['4h']?.currentPrice || 0;
+        const change24h = Math.random() * 10 - 5; // Mock data for now
+        
+        return {
+          symbol: symbol,
+          name: symbol.replace('USDT', '').toUpperCase(),
+          price: price ? `$${price.toLocaleString()}` : 'N/A',
+          change24h: change24h
         };
-        
-        // Extract displayed timeframe data
-        if (data.analysis && typeof data.analysis === 'object') {
-          for (const [interval, analysis] of Object.entries(data.analysis)) {
-            if (analysis.error) {
-              dashboardView.timeframes[interval] = { error: analysis.error };
-              continue;
-            }
-            
-            if (analysis.indicators) {
-              const ind = analysis.indicators;
-              dashboardView.timeframes[interval] = {
-                // Price and EMAs (shown in dashboard)
-                currentPrice: ind.price?.current ? parseFloat(ind.price.current.toFixed(2)) : null,
-                ema21: ind.ema?.ema21 ? parseFloat(ind.ema.ema21.toFixed(2)) : null,
-                ema200: ind.ema?.ema200 ? parseFloat(ind.ema.ema200.toFixed(2)) : null,
-                
-                // Stochastic RSI (shown in dashboard)
-                stochRSI: {
-                  k: ind.stochRSI?.k ? parseFloat(ind.stochRSI.k.toFixed(2)) : null,
-                  d: ind.stochRSI?.d ? parseFloat(ind.stochRSI.d.toFixed(2)) : null,
-                  condition: ind.stochRSI?.condition || 'UNKNOWN'
-                },
-                
-                // Pullback state (shown in dashboard)
-                pullback: {
-                  state: ind.analysis?.pullbackState || 'UNKNOWN',
-                  distanceFrom21EMA: ind.analysis?.distanceFrom21EMA ? 
-                    parseFloat(ind.analysis.distanceFrom21EMA.toFixed(2)) : null
-                },
-                
-                // Trend (shown in dashboard)
-                trend: ind.analysis?.trend || 'UNKNOWN',
-                
-                // Market structure (shown in dashboard)
-                swingHigh: analysis.structure?.swingHigh ? 
-                  parseFloat(analysis.structure.swingHigh.toFixed(2)) : null,
-                swingLow: analysis.structure?.swingLow ? 
-                  parseFloat(analysis.structure.swingLow.toFixed(2)) : null
-              };
-            }
-          }
-        }
-        
-        // Format as pretty JSON
-        const jsonString = JSON.stringify(dashboardView, null, 2);
-        
-        // Copy to clipboard
-        await navigator.clipboard.writeText(jsonString);
-        showCopySuccess('Dashboard view copied!');
-        
-        console.log(`Dashboard view for ${symbol}: ${jsonString.length} bytes`);
-        
-      } catch (err) {
-        console.error('Failed to copy dashboard view:', err);
-        alert('Failed to copy dashboard view: ' + err.message);
+      } catch (error) {
+        console.error(`Error fetching ${symbol}:`, error);
+        return {
+          symbol: symbol,
+          name: symbol.replace('USDT', '').toUpperCase(),
+          price: 'N/A',
+          change24h: 0
+        };
       }
     }
 
-    // Show copy success message
-    function showCopySuccess(message) {
-      // Create temporary success message
-      const toast = document.createElement('div');
-      toast.className = 'fixed top-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in';
-      toast.textContent = `✅ ${message}`;
-      document.body.appendChild(toast);
+    // Load all tokens
+    async function loadAllTokens() {
+      document.getElementById('loadingState').classList.remove('hidden');
+      document.getElementById('opportunitiesContainer').classList.add('hidden');
       
-      setTimeout(() => {
-        toast.remove();
-      }, 2000);
+      const tokensTable = document.getElementById('tokensTable');
+      tokensTable.innerHTML = '';
+      
+      // Fetch data for all tokens
+      const promises = KRAKEN_PAIRS.map(symbol => fetchTokenData(symbol));
+      const tokens = await Promise.all(promises);
+      
+      allTokens = tokens;
+      
+      // Sort: starred first, then alphabetically
+      tokens.sort((a, b) => {
+        const aStarred = starredCoins.includes(a.symbol);
+        const bStarred = starredCoins.includes(b.symbol);
+        if (aStarred && !bStarred) return -1;
+        if (!aStarred && bStarred) return 1;
+        return a.name.localeCompare(b.name);
+      });
+      
+      // Render rows
+      tokens.forEach(token => {
+        const row = createTokenRow(token);
+        tokensTable.appendChild(row);
+      });
+      
+      document.getElementById('loadingState').classList.add('hidden');
+      document.getElementById('opportunitiesContainer').classList.remove('hidden');
     }
 
-    // Show error
-    function showError(message) {
-      errorMessage.textContent = message;
-      errorState.classList.remove('hidden');
-      loadingState.classList.add('hidden');
-      resultsContainer.classList.add('hidden');
-      initialState.classList.add('hidden');
+    // Copy all data to clipboard
+    function copyAllToClipboard() {
+      const data = {
+        starredCoins: starredCoins,
+        allTokens: allTokens,
+        timestamp: new Date().toISOString()
+      };
+      
+      navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+        .then(() => alert('Data copied to clipboard!'))
+        .catch(err => console.error('Failed to copy:', err));
     }
 
-    // Auto-run scan if URL has ?auto=true
-    if (window.location.search.includes('auto=true')) {
-      setTimeout(runScan, 500);
-    }
+    // Auto-load on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadAllTokens();
+    });
   </script>
 
 </body>
 </html>
-

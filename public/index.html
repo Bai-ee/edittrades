@@ -306,16 +306,6 @@
         height: 32px !important;
       }
       
-      /* Stack logo and GIF vertically on mobile */
-      .logo-container {
-        flex-direction: column !important;
-        gap: 0.5rem !important;
-      }
-      
-      /* Reset GIF margin when stacked */
-      .logo-container img[src="/logos/load.gif"] {
-        margin-left: 0 !important;
-      }
       
       /* Shrink nav buttons on mobile */
       .grid[style*="grid-template-columns"] {
@@ -395,7 +385,6 @@
     <div class="max-w-6xl mx-auto px-4 py-3">
       <div class="flex flex-col items-center gap-3 w-full">
         <div class="logo-container flex items-center gap-3">
-          <img src="/logos/load.gif" alt="Loading Animation" style="width: 140px; height: auto;">
           <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
         </div>
         <div class="grid gap-2 w-full" style="grid-template-columns: 1fr 1fr 1fr auto;">
@@ -455,7 +444,7 @@
             <thead style="background-color: var(--color-yellow-75);">
               <tr>
                 <th class="px-2 py-2" style="color: black;">COIN</th>
-                <th class="px-2 py-2" style="color: black;">ENTRY</th>
+                <th class="px-2 py-2" style="color: black;">PRICE</th>
                 <th class="px-2 py-2" style="color: black;">SIGNAL</th>
                 <th class="px-2 py-2" style="color: black;">STRATEGY</th>
                 <th class="px-2 py-2" style="color: black;">1M/5M/15M/1H/4H/1D/1W/1Mo</th>
@@ -664,12 +653,17 @@
     
     // Update entry price display
     function updateEntryPrice(symbol, templateSignal) {
+      const data = scanResults[symbol];
       let entryPriceDisplay = '-';
+      
       if (templateSignal && templateSignal.valid && templateSignal.entryZone) {
         const entryMin = templateSignal.entryZone.min;
         const entryMax = templateSignal.entryZone.max;
         const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
         entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+      } else if (data && data.currentPrice) {
+        // Show current price if no entry zone
+        entryPriceDisplay = `$${data.currentPrice.toLocaleString()}`;
       }
       
       // Update mobile entry price (under coin name)
@@ -808,7 +802,9 @@
 
     // Main scan function
     async function scanMajorCoins() {
-      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      // Load starred coins from localStorage, default to major coins if none starred
+      const starredCoins = JSON.parse(localStorage.getItem('starredCoins') || '[]');
+      const symbols = starredCoins.length > 0 ? starredCoins : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
       
       // Show loading
       document.getElementById('loadingState').classList.remove('hidden');
@@ -1005,13 +1001,16 @@
         `;
       }
       
-      // Calculate entry price from current strategy
+      // Calculate entry price from current strategy, or show current price
       let entryPriceDisplay = '-';
       if (templateSignal && templateSignal.valid && templateSignal.entryZone) {
         const entryMin = templateSignal.entryZone.min;
         const entryMax = templateSignal.entryZone.max;
         const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
         entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+      } else if (data.currentPrice) {
+        // Show current price if no entry zone
+        entryPriceDisplay = `$${data.currentPrice.toLocaleString()}`;
       }
       
       row.innerHTML = `
@@ -1019,7 +1018,7 @@
           <div class="text-lg ${hasAnyTrade ? 'coin-name-has-trade' : ''}" style="color: var(--color-yellow-75);">${coinName}</div>
           <div class="entry-price-mobile" style="font-size: 0.9rem; color: var(--color-yellow-75); margin-top: 0.25rem;">${entryPriceDisplay}</div>
         </td>
-        <td class="px-2 py-3 entry-price-desktop" data-label="Entry:">
+        <td class="px-2 py-3 entry-price-desktop" data-label="Price:">
           <div style="color: var(--color-yellow-75); font-size: 0.875rem;">${entryPriceDisplay}</div>
         </td>
         <td class="px-2 py-3" data-label="Signal:">
