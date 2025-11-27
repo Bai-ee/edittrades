@@ -114,14 +114,15 @@
       <div class="card-edittrax rounded-lg overflow-hidden mb-4">
         <div class="table-container">
           <table class="table-edittrax">
-            <thead>
+            <thead style="background-color: white;">
               <tr>
-                <th class="px-2 py-2">COIN</th>
-                <th class="px-2 py-2">SIGNAL</th>
-                <th class="px-2 py-2">ACTION</th>
-                <th class="px-2 py-2 hidden sm:table-cell">PRICE</th>
-                <th class="px-2 py-2 hidden sm:table-cell">24H</th>
-                <th class="px-2 py-2 hidden md:table-cell">CONF</th>
+                <th class="px-2 py-2" style="color: black;">COIN</th>
+                <th class="px-2 py-2" style="color: black;">SIGNAL</th>
+                <th class="px-2 py-2" style="color: black;">ACTION</th>
+                <th class="px-2 py-2 hidden sm:table-cell" style="color: black;">PRICE</th>
+                <th class="px-2 py-2 hidden sm:table-cell" style="color: black;">24H</th>
+                <th class="px-2 py-2 hidden md:table-cell" style="color: black;">CONF</th>
+                <th class="px-2 py-2" style="color: black;">STRATEGY</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable">
@@ -137,6 +138,47 @@
 
   <script>
     let scanResults = {};
+    
+    // Strategy states for each symbol (default: 4-Hour)
+    const strategyStates = {
+      'BTCUSDT': '4-Hour',
+      'ETHUSDT': '4-Hour',
+      'SOLUSDT': '4-Hour'
+    };
+    
+    const strategyOptions = ['4-Hour', 'Swing', 'Scalp'];
+    
+    // Cycle through strategy states
+    function cycleStrategy(symbol) {
+      const currentState = strategyStates[symbol];
+      const currentIndex = strategyOptions.indexOf(currentState);
+      const nextIndex = (currentIndex + 1) % strategyOptions.length;
+      strategyStates[symbol] = strategyOptions[nextIndex];
+      
+      // Update button appearance
+      updateStrategyButton(symbol);
+    }
+    
+    // Update strategy button appearance
+    function updateStrategyButton(symbol) {
+      const button = document.getElementById(`strategy-${symbol}`);
+      if (!button) return;
+      
+      const state = strategyStates[symbol];
+      button.textContent = state;
+      
+      // ON state: white bg, black text
+      // OFF state: black bg, white text
+      if (state === '4-Hour') {
+        button.style.backgroundColor = 'black';
+        button.style.color = 'white';
+        button.style.borderColor = 'var(--color-yellow-75)';
+      } else {
+        button.style.backgroundColor = 'white';
+        button.style.color = 'black';
+        button.style.borderColor = 'black';
+      }
+    }
 
     // Auto-run scan on page load
     window.addEventListener('DOMContentLoaded', () => {
@@ -311,7 +353,7 @@
       
       row.innerHTML = `
         <td class="px-2 py-3">
-          <div class="font-bold">${coinName}</div>
+          <div class="font-mathias font-bold text-lg">${coinName}</div>
         </td>
         <td class="px-2 py-3">
           ${signalHtml}
@@ -341,6 +383,16 @@
         </td>
         <td class="px-2 py-3 hidden md:table-cell">
           ${confHtml}
+        </td>
+        <td class="px-2 py-3">
+          <button 
+            id="strategy-${symbol}"
+            onclick="cycleStrategy('${symbol}')"
+            class="px-3 py-1 text-xs rounded font-mathias font-bold"
+            style="background-color: black; color: white; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
+          >
+            4-Hour
+          </button>
         </td>
       `;
       
