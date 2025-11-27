@@ -10,6 +10,7 @@ import * as indicatorService from '../services/indicators.js';
 import * as strategyService from '../services/strategy.js';
 import * as candleFeatures from '../lib/candleFeatures.js';
 import * as levels from '../lib/levels.js';
+import * as advancedIndicators from '../lib/advancedIndicators.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -107,21 +108,33 @@ export default async function handler(req, res) {
         const recentCandles = (interval === '5m') ? 
           candleFeatures.getRecentCandles(candles, 5) : null;
         
+        // Calculate advanced indicators (VWAP, ATR, Bollinger, MA Stack)
+        const advancedData = advancedIndicators.calculateAllAdvanced(
+          candles,
+          indicators.price.current,
+          indicators.analysis.trend,
+          { ema21: indicators.ema.ema21, ema200: indicators.ema.ema200 },
+          interval
+        );
+        
         analysis[interval] = {
           indicators,
           structure: swingPoints,
           candleCount: candles.length,
           lastCandle: candles[candles.length - 1],
           
-          // NEW: Enhanced candle analysis
+          // Enhanced candle analysis
           candle: candleDesc,
           priceAction: priceAction,
           
-          // NEW: Support/resistance levels (4h and 1h only)
+          // Support/resistance levels (4h and 1h only)
           ...(levelsData && { levels: levelsData }),
           
-          // NEW: Recent candles for LLM context (5m only)
-          ...(recentCandles && { recentCandles: recentCandles })
+          // Recent candles for LLM context (5m only)
+          ...(recentCandles && { recentCandles: recentCandles }),
+          
+          // NEW: Advanced indicators (VWAP, ATR, Bollinger, MA Stack)
+          ...advancedData
         };
         
         console.log(`[Analyze] ✅ ${interval}: ${indicators.analysis.trend}`);

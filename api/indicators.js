@@ -9,6 +9,7 @@ import * as marketData from '../services/marketData.js';
 import * as indicatorService from '../services/indicators.js';
 import * as candleFeatures from '../lib/candleFeatures.js';
 import * as levels from '../lib/levels.js';
+import * as advancedIndicators from '../lib/advancedIndicators.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -106,6 +107,15 @@ export default async function handler(req, res) {
         const recentCandles = (interval === '5m') ? 
           candleFeatures.getRecentCandles(candles, 5) : null;
         
+        // Calculate advanced indicators (VWAP, ATR, Bollinger, MA Stack)
+        const advancedData = advancedIndicators.calculateAllAdvanced(
+          candles,
+          indicators.price.current,
+          indicators.analysis.trend,
+          { ema21: indicators.ema.ema21, ema200: indicators.ema.ema200 },
+          interval
+        );
+        
         // Extract key data points for clean API response
         timeframes[interval] = {
           currentPrice: parseFloat(indicators.price.current.toFixed(2)),
@@ -127,17 +137,20 @@ export default async function handler(req, res) {
           swingLow: swingPoints.swingLow ? parseFloat(swingPoints.swingLow.toFixed(2)) : null,
           candleCount: candles.length,
           
-          // NEW: Candle analysis
+          // Candle analysis
           candle: candleDesc,
           
-          // NEW: Price action patterns
+          // Price action patterns
           priceAction: priceAction,
           
-          // NEW: Support/resistance levels (4h and 1h only)
+          // Support/resistance levels (4h and 1h only)
           ...(levelsData && { levels: levelsData }),
           
-          // NEW: Recent candles for LLM context (5m only)
-          ...(recentCandles && { recentCandles: recentCandles })
+          // Recent candles for LLM context (5m only)
+          ...(recentCandles && { recentCandles: recentCandles }),
+          
+          // NEW: Advanced indicators (VWAP, ATR, Bollinger, MA Stack)
+          ...advancedData
         };
 
         console.log(`[Indicators] ✅ ${interval}: ${indicators.analysis.trend}`);
