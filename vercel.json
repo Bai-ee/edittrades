@@ -1,9 +1,35 @@
 {
-  "rewrites": [
-    { "source": "/api/indicators", "destination": "/api/indicators" },
-    { "source": "/api/indicators/:symbol", "destination": "/api/indicators" },
-    { "source": "/api/analyze", "destination": "/api/analyze" },
-    { "source": "/api/analyze/:symbol", "destination": "/api/analyze" },
-    { "source": "/api/scan", "destination": "/api/scan" }
+  "version": 2,
+  "builds": [
+    {
+      "src": "public/**",
+      "use": "@vercel/static"
+    },
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/analyze-compact/(.*)",
+      "dest": "/api/analyze-compact.js"
+    },
+    {
+      "src": "/api/analyze/(.*)",
+      "dest": "/api/analyze.js"
+    },
+    {
+      "src": "/api/indicators/(.*)",
+      "dest": "/api/indicators.js"
+    },
+    {
+      "src": "/api/scan",
+      "dest": "/api/scan.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
+    }
   ]
 }

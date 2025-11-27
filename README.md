@@ -142,7 +142,44 @@ GET /api/analyze/BTCUSDT
 }
 ```
 
-### 3. **Market Scanner Endpoint**
+### 3. **Compact Analysis Endpoint** 🤖 *NEW - LLM Optimized*
+
+Get streamlined analysis perfect for ChatGPT/LLM ingestion. **95% smaller** than full response.
+
+```bash
+GET /api/analyze-compact/BTCUSDT
+```
+
+**Response (2KB instead of 50KB):**
+```json
+{
+  "symbol": "BTCUSDT",
+  "price": 90690.30,
+  "change24h": 2.45,
+  "signal": {
+    "valid": true,
+    "direction": "long",
+    "confidence": 78,
+    "reason": "4h uptrend confirmed, price near entry zone",
+    "entry": { "min": 89500, "max": 90000 },
+    "stopLoss": 88200,
+    "targets": { "tp1": 91800, "tp2": 93600 },
+    "riskReward": "1:2.31"
+  },
+  "timeframes": {
+    "4h": {
+      "trend": "UPTREND",
+      "ema21": 87927.62,
+      "stoch": { "zone": "OVERSOLD", "k": 25.5 },
+      "pullback": "ENTRY_ZONE"
+    }
+  }
+}
+```
+
+**📖 Full schema:** [COMPACT_SCHEMA.md](./COMPACT_SCHEMA.md)
+
+### 4. **Market Scanner Endpoint**
 
 Scan all coins for trading opportunities.
 

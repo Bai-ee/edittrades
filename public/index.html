@@ -156,9 +156,17 @@
                 id="copyJsonBtn" 
                 onclick="copyJsonData()" 
                 class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition"
-                title="Copy full JSON response for LLM"
+                title="Copy full JSON response"
               >
-                📋 JSON
+                📋 Full
+              </button>
+              <button 
+                id="copyCompactBtn" 
+                onclick="copyCompactData()" 
+                class="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs font-medium transition"
+                title="Copy compact JSON for ChatGPT (95% smaller)"
+              >
+                🤖 LLM
               </button>
             </div>
           </div>
@@ -981,11 +989,58 @@
           btn.classList.add('bg-blue-600');
         }, 2000);
         
-        console.log('JSON data copied to clipboard!');
+        console.log('Full JSON data copied to clipboard!');
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy JSON data');
       });
+    }
+
+    // Copy compact JSON data (for LLM) to clipboard
+    async function copyCompactData() {
+      const symbol = selectedSymbol.value;
+      if (!symbol) {
+        alert('No symbol selected. Please analyze a symbol first.');
+        return;
+      }
+      
+      const btn = document.getElementById('copyCompactBtn');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '⏳...';
+      btn.disabled = true;
+      
+      try {
+        // Fetch compact version from API
+        const response = await fetch(`/api/analyze-compact/${symbol}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch compact data: ${response.statusText}`);
+        }
+        
+        const compactData = await response.json();
+        const jsonString = JSON.stringify(compactData, null, 2);
+        
+        await navigator.clipboard.writeText(jsonString);
+        
+        btn.innerHTML = '✅ Copied!';
+        btn.classList.add('bg-emerald-600');
+        btn.classList.remove('bg-green-600');
+        
+        console.log('Compact JSON data copied to clipboard!');
+        console.log(`Size: ${jsonString.length} bytes (vs ${JSON.stringify(currentData).length} bytes full)`);
+        
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.classList.remove('bg-emerald-600');
+          btn.classList.add('bg-green-600');
+          btn.disabled = false;
+        }, 2000);
+        
+      } catch (err) {
+        console.error('Failed to copy compact data:', err);
+        alert('Failed to copy compact data: ' + err.message);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
     }
 
     // Auto-refresh every 5 minutes (optional)

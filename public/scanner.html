@@ -371,13 +371,20 @@
             >
               🔗
             </button>
-            <button 
-              onclick="event.stopPropagation(); copyOppJson(${JSON.stringify(opp).replace(/"/g, '&quot;')})" 
-              class="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs font-medium transition"
-              title="Copy JSON data"
-            >
-              📋
-            </button>
+              <button 
+                onclick="event.stopPropagation(); copyOppJson(${JSON.stringify(opp).replace(/"/g, '&quot;')})" 
+                class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition"
+                title="Copy full JSON data"
+              >
+                📋
+              </button>
+              <button 
+                onclick="event.stopPropagation(); copyCompactJson('${opp.symbol}')" 
+                class="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs font-medium transition"
+                title="Copy compact JSON for ChatGPT"
+              >
+                🤖
+              </button>
           </div>
         </td>
       `;
@@ -408,11 +415,33 @@
       const jsonString = JSON.stringify(opp, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
-        showCopySuccess('JSON data copied to clipboard!');
+        showCopySuccess('Full JSON copied to clipboard!');
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy JSON data');
       });
+    }
+
+    // Copy compact JSON for LLM
+    async function copyCompactJson(symbol) {
+      try {
+        const response = await fetch(`/api/analyze-compact/${symbol}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch compact data: ${response.statusText}`);
+        }
+        
+        const compactData = await response.json();
+        const jsonString = JSON.stringify(compactData, null, 2);
+        
+        await navigator.clipboard.writeText(jsonString);
+        showCopySuccess('Compact JSON copied for ChatGPT!');
+        
+        console.log(`Compact data for ${symbol}: ${jsonString.length} bytes`);
+        
+      } catch (err) {
+        console.error('Failed to copy compact data:', err);
+        alert('Failed to copy compact data: ' + err.message);
+      }
     }
 
     // Show copy success message
