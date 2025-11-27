@@ -534,7 +534,7 @@
         const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalElement.innerHTML = `
           <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
-          <div class="text-xs ${dirClass}">${confidence}% SURE</div>
+          <div class="text-xs ${dirClass}" style="text-align: right;">${confidence}% SURE</div>
         `;
       } else {
         // No trade signal
@@ -563,6 +563,7 @@
       const strategySwingSignal = evaluateTemplateSignal(symbol, 'Swing');
       const strategyScalpSignal = evaluateTemplateSignal(symbol, 'Scalp');
       const strategySignals = [strategy4hSignal, strategySwingSignal, strategyScalpSignal];
+      const strategyNames = ['4h', 'Swing', 'Scalp'];
       
       // Update each indicator
       strategyOptions.forEach((option, index) => {
@@ -571,21 +572,24 @@
         
         const hasValidTrade = strategySignals[index] && strategySignals[index].valid;
         
-        if (hasValidTrade) {
-          // Green background for valid trade
-          indicator.style.backgroundColor = '#10b981';
-          indicator.style.color = index === activeIndex ? 'var(--color-yellow-75)' : 'white';
-          indicator.style.borderColor = 'var(--color-yellow-75)';
-        } else if (index === activeIndex) {
-          // ON state: yellow-75 text, transparent background
-          indicator.style.backgroundColor = 'transparent';
+        // Always transparent background
+        indicator.style.backgroundColor = 'transparent';
+        indicator.style.borderColor = 'var(--color-yellow-75)';
+        
+        // Update text content
+        const baseName = strategyNames[index];
+        indicator.textContent = hasValidTrade ? `${baseName} ✓` : baseName;
+        
+        // Update color
+        if (index === activeIndex) {
+          // ON state: yellow-75 text
           indicator.style.color = 'var(--color-yellow-75)';
-          indicator.style.borderColor = 'var(--color-yellow-75)';
+        } else if (hasValidTrade) {
+          // Has trade: green text
+          indicator.style.color = '#10b981';
         } else {
-          // OFF state: grey text, yellow-75 border, transparent background
-          indicator.style.backgroundColor = 'transparent';
+          // OFF state: grey text
           indicator.style.color = '#6b7280';
-          indicator.style.borderColor = 'var(--color-yellow-75)';
         }
       });
     }
@@ -773,7 +777,7 @@
         signalHtml = `
           <div id="signal-${symbol}">
             <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
-            <div class="text-xs ${dirClass}">${confidence}% SURE</div>
+            <div class="text-xs ${dirClass}" style="text-align: right;">${confidence}% SURE</div>
           </div>
         `;
       } else {
@@ -811,23 +815,23 @@
             <div 
               id="indicator-${symbol}-0"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: ${strategy4hSignal && strategy4hSignal.valid ? '#10b981' : 'transparent'}; color: ${currentStrategyIndex === 0 ? 'var(--color-yellow-75)' : (strategy4hSignal && strategy4hSignal.valid ? 'white' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: transparent; color: ${currentStrategyIndex === 0 ? 'var(--color-yellow-75)' : (strategy4hSignal && strategy4hSignal.valid ? '#10b981' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
-              4h
+              ${strategy4hSignal && strategy4hSignal.valid ? '4h ✓' : '4h'}
             </div>
             <div 
               id="indicator-${symbol}-1"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: ${strategySwingSignal && strategySwingSignal.valid ? '#10b981' : 'transparent'}; color: ${currentStrategyIndex === 1 ? 'var(--color-yellow-75)' : (strategySwingSignal && strategySwingSignal.valid ? 'white' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: transparent; color: ${currentStrategyIndex === 1 ? 'var(--color-yellow-75)' : (strategySwingSignal && strategySwingSignal.valid ? '#10b981' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
-              Swing
+              ${strategySwingSignal && strategySwingSignal.valid ? 'Swing ✓' : 'Swing'}
               </div>
             <div 
               id="indicator-${symbol}-2"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: ${strategyScalpSignal && strategyScalpSignal.valid ? '#10b981' : 'transparent'}; color: ${currentStrategyIndex === 2 ? 'var(--color-yellow-75)' : (strategyScalpSignal && strategyScalpSignal.valid ? 'white' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: transparent; color: ${currentStrategyIndex === 2 ? 'var(--color-yellow-75)' : (strategyScalpSignal && strategyScalpSignal.valid ? '#10b981' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
-              Scalp
+              ${strategyScalpSignal && strategyScalpSignal.valid ? 'Scalp ✓' : 'Scalp'}
             </div>
           </div>
         </td>
@@ -846,7 +850,7 @@
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
             >
-              COPY GPT
+              COPY
             </button>
           </div>
         </td>
