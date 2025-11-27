@@ -155,6 +155,9 @@
       <div class="flex items-center justify-between">
         <h1 class="text-lg font-bold">Trading Scanner</h1>
         <div class="flex items-center gap-2">
+          <a href="/strategy.html" class="btn-secondary px-3 py-2 text-sm rounded">
+            Trading Strategy
+          </a>
           <button 
             id="refreshBtn" 
             onclick="scanMajorCoins()"
@@ -216,10 +219,10 @@
               <tr>
                 <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">COIN</th>
                 <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SIGNAL</th>
+                <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">ACTION</th>
                 <th class="px-2 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">PRICE</th>
                 <th class="px-2 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">24H</th>
                 <th class="px-2 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">CONF</th>
-                <th class="px-2 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">ACTION</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable" class="divide-y" style="divide-color: var(--border);">
@@ -414,17 +417,8 @@
         <td class="px-2 py-3">
           ${signalHtml}
         </td>
-        <td class="px-2 py-3 hidden sm:table-cell">
-          <div class="text-xs">${price}</div>
-        </td>
-        <td class="px-2 py-3 hidden sm:table-cell">
-          <div class="text-xs ${changeClass}">${change}</div>
-        </td>
-        <td class="px-2 py-3 hidden md:table-cell">
-          ${confHtml}
-        </td>
         <td class="px-2 py-3">
-          <div class="flex gap-1 justify-center">
+          <div class="flex gap-1">
             <button 
               onclick="toggleDetails('${symbol}')"
               class="btn-secondary px-2 py-1 text-xs rounded"
@@ -439,6 +433,15 @@
               Copy
             </button>
           </div>
+        </td>
+        <td class="px-2 py-3 hidden sm:table-cell">
+          <div class="text-xs">${price}</div>
+        </td>
+        <td class="px-2 py-3 hidden sm:table-cell">
+          <div class="text-xs ${changeClass}">${change}</div>
+        </td>
+        <td class="px-2 py-3 hidden md:table-cell">
+          ${confHtml}
         </td>
       `;
       
@@ -477,8 +480,8 @@
       detailsRow.className = 'details-row';
       detailsRow.id = `details-${symbol}`;
       
-      // Create detailed timeframe cards - ALL TIMEFRAMES
-      const timeframes = ['1M', '1w', '1d', '4h', '1h', '15m', '5m', '1m'];
+      // Create detailed timeframe cards - ALL TIMEFRAMES (1m first, 1 Month last)
+      const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d', '1w', '1M'];
       const tfCards = timeframes.map(tf => {
         const analysis = data.analysis?.[tf];
         if (!analysis || analysis.error || !analysis.indicators) {
@@ -496,10 +499,13 @@
         const stochCurl = detectStochCurl(ind.stochRSI);
         const stochZone = getStochZone(ind.stochRSI?.k);
         
+        // Display name for timeframe (spell out Month)
+        const tfDisplay = tf === '1M' ? '1 MONTH' : tf.toUpperCase();
+        
         return `
           <div class="tf-card ${trendClass}">
             <div class="flex items-center justify-between mb-3">
-              <p class="text-sm font-bold">${tf.toUpperCase()}</p>
+              <p class="text-sm font-bold">${tfDisplay}</p>
               <span class="text-xs px-2 py-0.5 rounded ${trend === 'UPTREND' ? 'status-long' : trend === 'DOWNTREND' ? 'status-short' : 'status-neutral'}" style="background-color: var(--bg-tertiary);">${trendBadge}</span>
             </div>
             
@@ -525,8 +531,8 @@
                   <span class="text-xs px-1 py-0.5 rounded ${getStochColor(ind.stochRSI?.condition)}" style="background-color: var(--bg-tertiary);">${ind.stochRSI?.condition || 'N/A'}</span>
                 </div>
                 <div class="flex justify-between mb-1">
-                  <span class="${stochCurl.color} font-medium">${stochCurl.text}</span>
                   <span class="text-xs" style="color: var(--text-secondary);">${stochZone}</span>
+                  <span class="${stochCurl.color} font-medium">${stochCurl.text}</span>
                 </div>
                 <div class="flex justify-between text-xs" style="color: var(--text-secondary);">
                   <span>%K: ${ind.stochRSI?.k ? ind.stochRSI.k.toFixed(0) : 'N/A'}</span>
