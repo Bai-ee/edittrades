@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Market Scanner - Snapshot TradingView</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .pulse-slow { animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    .scanner-row:hover { background-color: rgba(59, 130, 246, 0.1); }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  
+  <!-- Header -->
+  <header class="bg-gray-800 border-b border-gray-700 shadow-lg">
+    <div class="container mx-auto px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-white">🔍 Market Scanner</h1>
+          <p class="text-sm text-gray-400">Find ready-to-trade opportunities across all coins</p>
+        </div>
+        <div class="flex items-center gap-4">
+          <a href="/" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition">
+            📊 Dashboard
+          </a>
+          <button id="scanBtn" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+            🔍 Run Scan
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="container mx-auto px-6 py-8">
+    
+    <!-- Scanner Controls -->
+    <div class="mb-8 bg-gray-800 rounded-xl p-6 border border-gray-700">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        
+        <!-- Min Confidence -->
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-2">
+            Min Confidence: <span id="confidenceValue" class="text-white">50%</span>
+          </label>
+          <input 
+            type="range" 
+            id="minConfidence" 
+            min="0" 
+            max="100" 
+            value="50" 
+            class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+          >
+        </div>
+
+        <!-- Max Results -->
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-2">Max Results</label>
+          <select 
+            id="maxResults" 
+            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white"
+          >
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+
+        <!-- Direction Filter -->
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-2">Direction</label>
+          <select 
+            id="directionFilter" 
+            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white"
+          >
+            <option value="">All</option>
+            <option value="long">Long Only 📈</option>
+            <option value="short">Short Only 📉</option>
+          </select>
+        </div>
+
+        <!-- Scan All Coins -->
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-2">Coin List</label>
+          <div class="flex items-center gap-2">
+            <input 
+              type="checkbox" 
+              id="scanAllCoins" 
+              class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+            >
+            <label for="scanAllCoins" class="text-sm text-gray-300">Scan ALL Kraken pairs</label>
+          </div>
+          <p class="text-xs text-gray-500 mt-1">
+            (Default: ~35 curated coins, ALL: 300+ pairs)
+          </p>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="hidden text-center py-12">
+      <div class="inline-block w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p class="text-gray-400 text-lg mb-2">Scanning markets...</p>
+      <p id="scanProgress" class="text-gray-500 text-sm">Initializing...</p>
+    </div>
+
+    <!-- Error State -->
+    <div id="errorState" class="hidden bg-red-900/30 border border-red-500 rounded-xl p-6 mb-8">
+      <h3 class="text-red-400 font-bold text-lg mb-2">❌ Error</h3>
+      <p id="errorMessage" class="text-gray-300"></p>
+    </div>
+
+    <!-- Results Container -->
+    <div id="resultsContainer" class="hidden">
+      
+      <!-- Summary Stats -->
+      <div class="mb-8 grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <p class="text-sm text-gray-400 mb-1">Scanned</p>
+          <p id="stat-scanned" class="text-2xl font-bold text-white">-</p>
+        </div>
+        <div class="bg-green-900/30 rounded-xl p-4 border border-green-700">
+          <p class="text-sm text-gray-400 mb-1">Opportunities</p>
+          <p id="stat-opportunities" class="text-2xl font-bold text-green-400">-</p>
+        </div>
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <p class="text-sm text-gray-400 mb-1">No Setup</p>
+          <p id="stat-nosetup" class="text-2xl font-bold text-gray-500">-</p>
+        </div>
+        <div class="bg-yellow-900/30 rounded-xl p-4 border border-yellow-700">
+          <p class="text-sm text-gray-400 mb-1">Low Confidence</p>
+          <p id="stat-lowconf" class="text-2xl font-bold text-yellow-400">-</p>
+        </div>
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <p class="text-sm text-gray-400 mb-1">Duration</p>
+          <p id="stat-duration" class="text-2xl font-bold text-blue-400">-</p>
+        </div>
+      </div>
+
+      <!-- Opportunities Table -->
+      <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+        <div class="p-6 border-b border-gray-700">
+          <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold text-white">🎯 Trading Opportunities</h2>
+            <p id="opportunityCount" class="text-sm text-gray-400">-</p>
+          </div>
+        </div>
+        
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="bg-gray-900 border-b border-gray-700">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">#</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Symbol</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Direction</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Confidence</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Entry Zone</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Current Price</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">24h Change</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Risk/Reward</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="opportunitiesTable" class="divide-y divide-gray-700">
+              <!-- Rows will be populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Initial State -->
+    <div id="initialState" class="text-center py-20">
+      <div class="text-6xl mb-4">🔍</div>
+      <h2 class="text-2xl font-bold text-gray-300 mb-2">Market Scanner Ready</h2>
+      <p class="text-gray-500 mb-8">Click "Run Scan" to find trading opportunities across all coins</p>
+      <button onclick="runScan()" class="px-8 py-4 bg-blue-600 hover:bg-blue-700 rounded-xl text-lg font-medium transition">
+        🚀 Start Scanning
+      </button>
+    </div>
+
+  </main>
+
+  <script>
+    // DOM elements
+    const minConfidenceSlider = document.getElementById('minConfidence');
+    const confidenceValue = document.getElementById('confidenceValue');
+    const maxResultsSelect = document.getElementById('maxResults');
+    const directionFilter = document.getElementById('directionFilter');
+    const scanAllCoinsCheckbox = document.getElementById('scanAllCoins');
+    const scanBtn = document.getElementById('scanBtn');
+    const loadingState = document.getElementById('loadingState');
+    const errorState = document.getElementById('errorState');
+    const errorMessage = document.getElementById('errorMessage');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const initialState = document.getElementById('initialState');
+    const scanProgress = document.getElementById('scanProgress');
+
+    // Update confidence value display
+    minConfidenceSlider.addEventListener('input', (e) => {
+      confidenceValue.textContent = `${e.target.value}%`;
+    });
+
+    // Event listeners
+    scanBtn.addEventListener('click', runScan);
+
+    // Main scan function
+    async function runScan() {
+      // Get scan parameters
+      const minConfidence = parseFloat(minConfidenceSlider.value) / 100;
+      const maxResults = parseInt(maxResultsSelect.value);
+      const direction = directionFilter.value;
+      const scanAll = scanAllCoinsCheckbox.checked;
+
+      // Show loading state
+      initialState.classList.add('hidden');
+      resultsContainer.classList.add('hidden');
+      errorState.classList.add('hidden');
+      loadingState.classList.remove('hidden');
+      scanProgress.textContent = 'Starting scan...';
+
+      try {
+        // Build API URL
+        let url = `/api/scan?minConfidence=${minConfidence}&maxResults=${maxResults}`;
+        if (direction) url += `&direction=${direction}`;
+        if (scanAll) url += `&all=true`;
+
+        console.log('Scanning with params:', { minConfidence, maxResults, direction, scanAll });
+        console.log('API URL:', url);
+
+        // Fetch scan results
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('Scan results:', data);
+
+        // Display results
+        displayResults(data);
+        loadingState.classList.add('hidden');
+        resultsContainer.classList.remove('hidden');
+
+      } catch (error) {
+        console.error('Scan error:', error);
+        showError(error.message || 'Failed to scan markets. Check console for details.');
+        loadingState.classList.add('hidden');
+      }
+    }
+
+    // Display scan results
+    function displayResults(data) {
+      // Update summary stats
+      document.getElementById('stat-scanned').textContent = data.summary.totalScanned;
+      document.getElementById('stat-opportunities').textContent = data.summary.opportunitiesFound;
+      document.getElementById('stat-nosetup').textContent = data.summary.noSetup;
+      document.getElementById('stat-lowconf').textContent = data.summary.lowConfidence;
+      document.getElementById('stat-duration').textContent = `${data.summary.duration}s`;
+      document.getElementById('opportunityCount').textContent = `${data.opportunities.length} opportunities found`;
+
+      // Populate opportunities table
+      const tableBody = document.getElementById('opportunitiesTable');
+      tableBody.innerHTML = '';
+
+      if (data.opportunities.length === 0) {
+        tableBody.innerHTML = `
+          <tr>
+            <td colspan="9" class="px-4 py-8 text-center text-gray-500">
+              No opportunities found with current filters. Try lowering the minimum confidence or removing filters.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      data.opportunities.forEach((opp, index) => {
+        const row = createOpportunityRow(opp, index + 1);
+        tableBody.appendChild(row);
+      });
+    }
+
+    // Create opportunity table row
+    function createOpportunityRow(opp, rank) {
+      const isLong = opp.direction === 'long';
+      const confidence = opp.confidence;
+      
+      // Confidence badge
+      let confidenceClass = '';
+      if (confidence >= 0.75) {
+        confidenceClass = 'bg-green-900/50 text-green-300';
+      } else if (confidence >= 0.55) {
+        confidenceClass = 'bg-yellow-900/50 text-yellow-300';
+      } else {
+        confidenceClass = 'bg-red-900/50 text-red-300';
+      }
+
+      // Direction badge
+      const directionClass = isLong ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400';
+      const directionIcon = isLong ? '📈' : '📉';
+
+      // Price change color
+      const priceChangeClass = opp.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400';
+
+      // Calculate risk/reward
+      const entryMid = (opp.entry_zone.min + opp.entry_zone.max) / 2;
+      const risk = Math.abs(entryMid - opp.stop_loss);
+      const reward = Math.abs(opp.targets[1] - entryMid); // Use TP2 for RR
+      const rr = (reward / risk).toFixed(2);
+
+      const row = document.createElement('tr');
+      row.className = 'scanner-row cursor-pointer transition-colors';
+      row.onclick = () => viewDetails(opp.symbol);
+      
+      row.innerHTML = `
+        <td class="px-4 py-4 whitespace-nowrap">
+          <div class="text-sm font-bold text-gray-400">#${rank}</div>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <div class="text-sm font-bold text-white">${opp.symbol}</div>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <span class="px-3 py-1 rounded-full text-xs font-bold ${directionClass}">
+            ${directionIcon} ${opp.direction.toUpperCase()}
+          </span>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <span class="px-3 py-1 rounded-full text-xs font-bold ${confidenceClass}">
+            ${(confidence * 100).toFixed(0)}%
+          </span>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <div class="text-sm font-mono text-blue-400">
+            $${opp.entry_zone.min.toLocaleString()} - $${opp.entry_zone.max.toLocaleString()}
+          </div>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <div class="text-sm font-mono text-white">$${opp.currentPrice.toLocaleString()}</div>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <div class="text-sm font-bold ${priceChangeClass}">
+            ${opp.priceChange24h >= 0 ? '+' : ''}${opp.priceChange24h.toFixed(2)}%
+          </div>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <div class="text-sm font-mono text-green-400">1:${rr}</div>
+        </td>
+        <td class="px-4 py-4 whitespace-nowrap">
+          <button 
+            onclick="event.stopPropagation(); viewDetails('${opp.symbol}')" 
+            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition"
+          >
+            View Details
+          </button>
+        </td>
+      `;
+
+      return row;
+    }
+
+    // View details for a symbol
+    function viewDetails(symbol) {
+      window.location.href = `/?symbol=${symbol}`;
+    }
+
+    // Show error
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorState.classList.remove('hidden');
+      loadingState.classList.add('hidden');
+      resultsContainer.classList.add('hidden');
+      initialState.classList.add('hidden');
+    }
+
+    // Auto-run scan if URL has ?auto=true
+    if (window.location.search.includes('auto=true')) {
+      setTimeout(runScan, 500);
+    }
+  </script>
+
+</body>
+</html>
+

@@ -1,0 +1,22 @@
+{
+  "name": "snapshot-tradingview",
+  "version": "1.0.0",
+  "description": "4-hour trading strategy automation with TradingView-style analysis",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["trading", "crypto", "binance", "technical-analysis"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.2",
+    "technicalindicators": "^3.1.0",
+    "cors": "^2.8.5"
+  }
+}
+
+

@@ -1,0 +1,60 @@
+{
+  "version": 2,
+  "buildCommand": "npm install",
+  "devCommand": "node server.js",
+  "installCommand": "npm install",
+  "framework": null,
+  "outputDirectory": "public",
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/indicators",
+      "destination": "/api/indicators.js"
+    },
+    {
+      "source": "/api/indicators/:symbol",
+      "destination": "/api/indicators.js"
+    },
+    {
+      "source": "/api/analyze",
+      "destination": "/api/analyze.js"
+    },
+    {
+      "source": "/api/analyze/:symbol",
+      "destination": "/api/analyze.js"
+    },
+    {
+      "source": "/api/scan",
+      "destination": "/api/scan.js"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Credentials",
+          "value": "true"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET,OPTIONS,POST"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version"
+        }
+      ]
+    }
+  ]
+}
+
