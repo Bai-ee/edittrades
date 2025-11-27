@@ -210,6 +210,17 @@ GET /api/scan?minConfidence=0.6&maxResults=10&direction=long
 
 **Full API documentation:** [DEPLOYMENT.md#api-documentation](./DEPLOYMENT.md#-api-documentation)
 
+### 📊 Dashboard View JSON
+
+Export your analysis in a **compact, readable format** that matches exactly what you see on screen.
+
+- **📊 View Button** - Copies dashboard view as JSON (~2-3KB)
+- **Auto-syncs** - Automatically includes new fields as we enhance the tool
+- **All timeframes** - Includes 4h, 1h, 15m, 5m analysis
+- **Perfect for** - Sharing analysis, documentation, trading journals
+
+**Full documentation:** [DASHBOARD_VIEW_JSON.md](./DASHBOARD_VIEW_JSON.md)
+
 ---
 
 ## 🏗️ Architecture

@@ -385,6 +385,13 @@
               >
                 🤖
               </button>
+              <button 
+                onclick="event.stopPropagation(); copyScannerDashboardView('${opp.symbol}')" 
+                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-medium transition"
+                title="Copy dashboard view JSON"
+              >
+                📊
+              </button>
           </div>
         </td>
       `;
@@ -441,6 +448,109 @@
       } catch (err) {
         console.error('Failed to copy compact data:', err);
         alert('Failed to copy compact data: ' + err.message);
+      }
+    }
+
+    // Copy dashboard view JSON (from scanner)
+    async function copyScannerDashboardView(symbol) {
+      try {
+        // Fetch full analysis data
+        const response = await fetch(`/api/analyze/${symbol}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch analysis: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        // Extract only the fields displayed on the dashboard
+        const dashboardView = {
+          symbol: data.symbol,
+          currentPrice: data.currentPrice,
+          priceChange24h: data.priceChange24h,
+          
+          // Trade signal (4H Set & Forget)
+          signal: data.tradeSignal ? {
+            valid: data.tradeSignal.valid,
+            direction: data.tradeSignal.direction || 'NO_TRADE',
+            confidence: data.tradeSignal.confidence ? 
+              parseFloat((data.tradeSignal.confidence * 100).toFixed(0)) : 0,
+            reason: data.tradeSignal.reason_summary || data.tradeSignal.reason,
+            
+            // Only include trade levels if valid
+            ...(data.tradeSignal.valid && data.tradeSignal.entry_zone && {
+              entryZone: {
+                min: data.tradeSignal.entry_zone.min,
+                max: data.tradeSignal.entry_zone.max
+              },
+              stopLoss: data.tradeSignal.stop_loss,
+              targets: {
+                tp1: data.tradeSignal.targets?.[0],
+                tp2: data.tradeSignal.targets?.[1]
+              }
+            })
+          } : null,
+          
+          // Timeframes (only fields shown in dashboard cards)
+          timeframes: {},
+          
+          timestamp: data.timestamp
+        };
+        
+        // Extract displayed timeframe data
+        if (data.analysis && typeof data.analysis === 'object') {
+          for (const [interval, analysis] of Object.entries(data.analysis)) {
+            if (analysis.error) {
+              dashboardView.timeframes[interval] = { error: analysis.error };
+              continue;
+            }
+            
+            if (analysis.indicators) {
+              const ind = analysis.indicators;
+              dashboardView.timeframes[interval] = {
+                // Price and EMAs (shown in dashboard)
+                currentPrice: ind.price?.current ? parseFloat(ind.price.current.toFixed(2)) : null,
+                ema21: ind.ema?.ema21 ? parseFloat(ind.ema.ema21.toFixed(2)) : null,
+                ema200: ind.ema?.ema200 ? parseFloat(ind.ema.ema200.toFixed(2)) : null,
+                
+                // Stochastic RSI (shown in dashboard)
+                stochRSI: {
+                  k: ind.stochRSI?.k ? parseFloat(ind.stochRSI.k.toFixed(2)) : null,
+                  d: ind.stochRSI?.d ? parseFloat(ind.stochRSI.d.toFixed(2)) : null,
+                  condition: ind.stochRSI?.condition || 'UNKNOWN'
+                },
+                
+                // Pullback state (shown in dashboard)
+                pullback: {
+                  state: ind.analysis?.pullbackState || 'UNKNOWN',
+                  distanceFrom21EMA: ind.analysis?.distanceFrom21EMA ? 
+                    parseFloat(ind.analysis.distanceFrom21EMA.toFixed(2)) : null
+                },
+                
+                // Trend (shown in dashboard)
+                trend: ind.analysis?.trend || 'UNKNOWN',
+                
+                // Market structure (shown in dashboard)
+                swingHigh: analysis.structure?.swingHigh ? 
+                  parseFloat(analysis.structure.swingHigh.toFixed(2)) : null,
+                swingLow: analysis.structure?.swingLow ? 
+                  parseFloat(analysis.structure.swingLow.toFixed(2)) : null
+              };
+            }
+          }
+        }
+        
+        // Format as pretty JSON
+        const jsonString = JSON.stringify(dashboardView, null, 2);
+        
+        // Copy to clipboard
+        await navigator.clipboard.writeText(jsonString);
+        showCopySuccess('Dashboard view copied!');
+        
+        console.log(`Dashboard view for ${symbol}: ${jsonString.length} bytes`);
+        
+      } catch (err) {
+        console.error('Failed to copy dashboard view:', err);
+        alert('Failed to copy dashboard view: ' + err.message);
       }
     }
 
