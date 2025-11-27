@@ -133,7 +133,13 @@
         gap: 0;
       }
       
-      .coin-row td:nth-child(3) button,
+      /* EditTrades button needs more space */
+      .coin-row td:nth-child(3) button {
+        flex: 0 0 auto;
+        min-width: 80px;
+      }
+      
+      /* Indicator buttons share remaining space */
       .coin-row td:nth-child(3) div[id^="indicator-"] {
         flex: 1;
         min-width: 0;
