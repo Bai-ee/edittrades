@@ -109,24 +109,33 @@
       .table-edittrax tbody td:nth-child(2) { 
         width: 8%; 
         overflow: visible;
-      } /* ENTRY */
+        text-align: center;
+      } /* PRICE */
       
       .table-edittrax thead th:nth-child(3),
-      .table-edittrax tbody td:nth-child(3) { width: 15%; } /* SIGNAL */
-      
-      .table-edittrax thead th:nth-child(3) { text-align: center; } /* Center SIGNAL header */
+      .table-edittrax tbody td:nth-child(3) { 
+        width: 15%;
+        text-align: center;
+      } /* SIGNAL */
       
       .table-edittrax thead th:nth-child(4),
-      .table-edittrax tbody td:nth-child(4) { width: 30%; } /* STRATEGY */
+      .table-edittrax tbody td:nth-child(4) { 
+        width: 30%;
+        text-align: center;
+      } /* STRATEGY */
       
       .table-edittrax thead th:nth-child(5),
-      .table-edittrax tbody td:nth-child(5) { width: 30%; } /* ACTION/TIMEFRAMES */
+      .table-edittrax tbody td:nth-child(5) { 
+        width: 30%;
+        text-align: center;
+      } /* ACTION/TIMEFRAMES */
       
-      /* Ensure flex containers respect column width */
+      /* Ensure flex containers respect column width and are centered */
       .table-edittrax tbody td:nth-child(4) .flex,
       .table-edittrax tbody td:nth-child(5) .flex {
         width: 100%;
         max-width: 100%;
+        justify-content: center;
       }
       
       /* Reduce gap between action buttons */
