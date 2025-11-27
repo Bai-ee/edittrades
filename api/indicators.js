@@ -10,6 +10,8 @@ import * as indicatorService from '../services/indicators.js';
 import * as candleFeatures from '../lib/candleFeatures.js';
 import * as levels from '../lib/levels.js';
 import * as advancedIndicators from '../lib/advancedIndicators.js';
+import * as volumeAnalysis from '../lib/volumeAnalysis.js';
+import * as confluenceScoring from '../lib/confluenceScoring.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -116,23 +118,29 @@ export default async function handler(req, res) {
           interval
         );
         
-        // Extract key data points for clean API response
-        timeframes[interval] = {
+        // Calculate volume analysis
+        const volumeData = volumeAnalysis.calculateVolumeAnalysis(candles);
+        
+        // Build timeframe data object (will be used for confluence scoring)
+        const tfData = {
           currentPrice: parseFloat(indicators.price.current.toFixed(2)),
+          trend: indicators.analysis.trend,
           ema21: indicators.ema.ema21 ? parseFloat(indicators.ema.ema21.toFixed(2)) : null,
           ema200: indicators.ema.ema200 ? parseFloat(indicators.ema.ema200.toFixed(2)) : null,
+          distanceFrom21EMA: indicators.analysis.distanceFrom21EMA !== null 
+            ? parseFloat(indicators.analysis.distanceFrom21EMA.toFixed(2)) 
+            : null,
           stoch: {
             k: indicators.stochRSI.k ? parseFloat(indicators.stochRSI.k.toFixed(2)) : null,
             d: indicators.stochRSI.d ? parseFloat(indicators.stochRSI.d.toFixed(2)) : null,
             condition: indicators.stochRSI.condition
           },
           pullback: {
-            distanceFrom21: indicators.analysis.distanceFrom21EMA !== null 
+            state: indicators.analysis.pullbackState,
+            distanceFrom21EMA: indicators.analysis.distanceFrom21EMA !== null 
               ? parseFloat(indicators.analysis.distanceFrom21EMA.toFixed(2)) 
-              : null,
-            state: indicators.analysis.pullbackState
+              : null
           },
-          trend: indicators.analysis.trend,
           swingHigh: swingPoints.swingHigh ? parseFloat(swingPoints.swingHigh.toFixed(2)) : null,
           swingLow: swingPoints.swingLow ? parseFloat(swingPoints.swingLow.toFixed(2)) : null,
           candleCount: candles.length,
@@ -149,9 +157,19 @@ export default async function handler(req, res) {
           // Recent candles for LLM context (5m only)
           ...(recentCandles && { recentCandles: recentCandles }),
           
-          // NEW: Advanced indicators (VWAP, ATR, Bollinger, MA Stack)
-          ...advancedData
+          // Advanced indicators (VWAP, ATR, Bollinger, MA Stack)
+          ...advancedData,
+          
+          // Volume analysis (if available)
+          ...(volumeData && { volume: volumeData })
         };
+        
+        // Calculate confluence scores
+        const confluenceScores = confluenceScoring.calculateConfluence(tfData);
+        tfData.confluence = confluenceScores;
+        
+        // Store complete timeframe data
+        timeframes[interval] = tfData;
 
         console.log(`[Indicators] ✅ ${interval}: ${indicators.analysis.trend}`);
       } catch (err) {

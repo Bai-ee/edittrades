@@ -11,6 +11,8 @@ import * as strategyService from '../services/strategy.js';
 import * as candleFeatures from '../lib/candleFeatures.js';
 import * as levels from '../lib/levels.js';
 import * as advancedIndicators from '../lib/advancedIndicators.js';
+import * as volumeAnalysis from '../lib/volumeAnalysis.js';
+import * as confluenceScoring from '../lib/confluenceScoring.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -117,6 +119,27 @@ export default async function handler(req, res) {
           interval
         );
         
+        // Calculate volume analysis
+        const volumeData = volumeAnalysis.calculateVolumeAnalysis(candles);
+        
+        // Build complete timeframe data (for confluence calculation)
+        const tfData = {
+          trend: indicators.analysis.trend,
+          ema21: indicators.ema.ema21,
+          ema200: indicators.ema.ema200,
+          candle: candleDesc,
+          priceAction: priceAction,
+          pullback: {
+            state: indicators.analysis.pullbackState,
+            distanceFrom21EMA: indicators.analysis.distanceFrom21EMA
+          },
+          stoch: indicators.stochRSI,
+          ...advancedData
+        };
+        
+        // Calculate confluence scores
+        const confluenceScores = confluenceScoring.calculateConfluence(tfData);
+        
         analysis[interval] = {
           indicators,
           structure: swingPoints,
@@ -133,8 +156,14 @@ export default async function handler(req, res) {
           // Recent candles for LLM context (5m only)
           ...(recentCandles && { recentCandles: recentCandles }),
           
-          // NEW: Advanced indicators (VWAP, ATR, Bollinger, MA Stack)
-          ...advancedData
+          // Advanced indicators (VWAP, ATR, Bollinger, MA Stack)
+          ...advancedData,
+          
+          // Volume analysis (if available)
+          ...(volumeData && { volume: volumeData }),
+          
+          // Confluence scoring
+          confluence: confluenceScores
         };
         
         console.log(`[Analyze] ✅ ${interval}: ${indicators.analysis.trend}`);
