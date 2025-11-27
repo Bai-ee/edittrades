@@ -75,28 +75,28 @@
   <!-- Header -->
   <header class="header-edittrax">
     <div class="max-w-6xl mx-auto px-4 py-3">
-      <div class="flex items-center justify-between flex-wrap gap-3">
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
         <div class="logo-container">
           <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <a href="/strategy.html" class="btn-base btn-secondary px-3 py-2 text-sm rounded">
+        <div class="grid grid-cols-4 gap-2 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center">
+          <a href="/strategy.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
             Strategy
           </a>
           <button 
             id="refreshBtn" 
             onclick="scanMajorCoins()"
-            class="btn-base btn-secondary px-3 py-2 text-sm rounded"
+            class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
           >
             Refresh
           </button>
-          <a href="/scanner.html" class="btn-base btn-secondary px-3 py-2 text-sm rounded">
+          <a href="/scanner.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
             Scanner
           </a>
           <button 
             id="copyAllBtn" 
             onclick="copyAllCoins()"
-            class="btn-base btn-primary px-3 py-2 text-sm rounded"
+            class="btn-base btn-primary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
           >
             COPY GPT
           </button>
