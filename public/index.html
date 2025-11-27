@@ -528,7 +528,71 @@
       const template = tradeTemplates[templateKey];
       const analysis = data.analysis;
       
-      // Check anchor timeframe trends
+      // CRITICAL: Check 4H trend first (gatekeeper for ALL trades per text file)
+      const tf4h = analysis['4h'];
+      if (!tf4h || !tf4h.indicators || !tf4h.indicators.analysis) {
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: 'No 4H data available',
+          confidence: 0
+        };
+      }
+      
+      const trend4h = tf4h.indicators.analysis.trend;
+      
+      // Block ALL trades if 4H is FLAT (text file rule: "4H must show clear direction")
+      if (trend4h === 'FLAT') {
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: '4H trend is FLAT - no trade allowed per strategy rules',
+          confidence: 0
+        };
+      }
+      
+      // For SCALP: Require 4H AND 1H both have clear trends (text file: "4H+1H as gatekeepers")
+      if (templateKey === 'Scalp') {
+        const tf1h = analysis['1h'];
+        if (!tf1h || !tf1h.indicators || !tf1h.indicators.analysis) {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            reason: 'No 1H data for scalp confirmation',
+            confidence: 0
+          };
+        }
+        
+        const trend1h = tf1h.indicators.analysis.trend;
+        if (trend1h === 'FLAT') {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            reason: 'Scalp blocked: 1H trend is FLAT',
+            confidence: 0
+          };
+        }
+        
+        // Check 4H and 1H are aligned
+        if (trend4h === 'UPTREND' && trend1h === 'DOWNTREND') {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            reason: 'Scalp blocked: 4H/1H trends not aligned',
+            confidence: 0
+          };
+        }
+        if (trend4h === 'DOWNTREND' && trend1h === 'UPTREND') {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            reason: 'Scalp blocked: 4H/1H trends not aligned',
+            confidence: 0
+          };
+        }
+      }
+      
+      // Check anchor timeframe trends (now that 4H gatekeeper passed)
       let anchorTrend = null;
       for (const tf of template.anchorTimeframes) {
         const tfData = analysis[tf];
@@ -580,10 +644,42 @@
       
       // For Swing/Scalp, create a basic signal
       const direction = anchorTrend === 'UPTREND' ? 'long' : 'short';
-      let confidence = 0.5; // Base confidence
+      let confidence = 0.3; // Lowered base confidence (was 0.5)
       
-      // Increase confidence based on alignment
-      if (confirmsAlign) confidence += 0.2;
+      // Check pullback state on 4H (critical for entry validity)
+      const pullbackState4h = tf4h.indicators.analysis.pullbackState;
+      if (pullbackState4h === 'OVEREXTENDED') {
+        // Price too far from 21 EMA - block trade per text file
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: 'Price OVEREXTENDED from 4H 21 EMA - no entry',
+          confidence: 0
+        };
+      }
+      
+      // Increase confidence based on pullback state
+      if (pullbackState4h === 'ENTRY_ZONE') {
+        confidence += 0.25;  // Perfect entry zone
+      } else if (pullbackState4h === 'RETRACING') {
+        confidence += 0.10;  // Approaching, but not perfect
+      }
+      
+      // Increase confidence based on confirmation alignment
+      if (confirmsAlign) confidence += 0.15;
+      
+      // Check stoch alignment for additional confidence
+      const stoch4h = tf4h.indicators.stochRSI;
+      if (stoch4h && stoch4h.condition) {
+        if (direction === 'long' && stoch4h.condition === 'BULLISH') {
+          confidence += 0.10;
+        } else if (direction === 'short' && stoch4h.condition === 'BEARISH') {
+          confidence += 0.10;
+        } else if (stoch4h.condition !== 'NEUTRAL') {
+          // Stoch fighting the trade direction
+          confidence -= 0.15;
+        }
+      }
       
       // Calculate entry zone based on current price and 21 EMA
       const primaryTf = template.anchorTimeframes[0];
@@ -599,8 +695,15 @@
           ((currentPrice - ema21) / currentPrice) * 100
         );
         
-        if (distanceFrom21 < 2) {
+        // Only give bonus if very close to EMA
+        if (distanceFrom21 < 0.5) {
           confidence += 0.15;
+        } else if (distanceFrom21 < 1.5) {
+          confidence += 0.08;
+        }
+        // If distance > 2%, reduce confidence
+        else if (distanceFrom21 > 2.5) {
+          confidence -= 0.10;
         }
         
         // Calculate entry zone around 21 EMA (±0.4%)
@@ -644,8 +747,19 @@
         }
       }
       
-      // Cap confidence at template minimum
-      confidence = Math.max(confidence, template.minConfidence);
+      // DO NOT force confidence to minimum - let validation reject low confidence trades
+      // Clamp confidence between 0 and 1
+      confidence = Math.max(0, Math.min(confidence, 0.95));
+      
+      // If confidence below minimum, return NO TRADE
+      if (confidence < template.minConfidence) {
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: `Confidence ${(confidence * 100).toFixed(0)}% below minimum ${(template.minConfidence * 100).toFixed(0)}% for ${templateKey}`,
+          confidence: confidence
+        };
+      }
       
       // Calculate targets based on R:R ratios and entry/SL
       const entryMid = (entryZone.min + entryZone.max) / 2;
@@ -662,11 +776,11 @@
         entryMid - (risk * template.rrTargets[1]);
       
       return {
-        valid: confidence >= template.minConfidence,
+        valid: true,  // Already validated above
         direction: direction,
-        setupType: templateKey,  // Added: setup type
-        confidence: Math.min(confidence, 0.95),
-        reason: `${template.label}: ${anchorTrend}, aligned confirmation`,
+        setupType: templateKey,
+        confidence: confidence,  // Already clamped above
+        reason: `${template.label}: ${anchorTrend}, confidence ${(confidence * 100).toFixed(0)}%`,
         entryZone: entryZone,
         stopLoss: stopLoss,
         invalidationLevel: invalidationLevel,  // Added: HTF/LTF invalidation
