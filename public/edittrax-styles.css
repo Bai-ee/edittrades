@@ -148,9 +148,9 @@ h1, h2, h3, h4, h5, h6 {
  * CARDS
  * ======================================== */
 .card-edittrax {
-  background-color: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background-color: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: var(--border-2) solid var(--color-yellow-75);
   border-radius: var(--radius-10);
   padding: 0;
@@ -198,7 +198,7 @@ h1, h2, h3, h4, h5, h6 {
 .table-edittrax {
   width: 100%;
   border-collapse: collapse;
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: rgba(0, 0, 0, 0.1);
 }
 
 .table-edittrax thead {
