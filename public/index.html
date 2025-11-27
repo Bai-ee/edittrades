@@ -316,8 +316,13 @@
       row.className = `coin-row ${tradeClass}`;
       row.id = `row-${symbol}`;
       
-      // Coin name
-      const coinName = symbol.replace('USDT', '');
+      // Coin name - spell out full names
+      const coinNames = {
+        'BTCUSDT': 'Bitcoin',
+        'ETHUSDT': 'Ethereum',
+        'SOLUSDT': 'Solana'
+      };
+      const coinName = coinNames[symbol] || symbol.replace('USDT', '');
       
       // Price and change
       const price = data.currentPrice ? `$${data.currentPrice.toLocaleString()}` : 'N/A';
@@ -361,14 +366,16 @@
           <div class="flex gap-1">
             <button 
               onclick="toggleDetails('${symbol}')"
-              class="btn-secondary px-2 py-1 text-xs rounded"
+              class="px-3 py-1 text-xs font-mathias font-bold rounded"
+              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
               id="toggle-${symbol}"
             >
               Details
             </button>
             <button 
               onclick="copyCoinView('${symbol}')"
-              class="btn-secondary px-2 py-1 text-xs rounded"
+              class="px-3 py-1 text-xs font-mathias font-bold rounded"
+              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
             >
               Copy
             </button>
@@ -387,29 +394,29 @@
           <div class="flex" style="gap: 0;">
             <button 
               onclick="cycleStrategy('${symbol}')"
-              class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); border-radius: 4px 0 0 4px; transition: all 0.3s; white-space: nowrap;"
+              class="px-3 py-1 text-xs font-mathias font-bold"
+              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); border-radius: 4px 0 0 4px; transition: all 0.3s; white-space: nowrap; min-width: 70px;"
             >
               EditTrax
             </button>
             <div 
               id="indicator-${symbol}-0"
-              class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: white; border: 2px solid white; border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center;"
+              class="px-3 py-1 text-xs font-mathias font-bold"
+              style="background-color: transparent; color: white; border: 2px solid white; border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               4h
             </div>
             <div 
               id="indicator-${symbol}-1"
-              class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: #6b7280; border: 2px solid white; border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center;"
+              class="px-3 py-1 text-xs font-mathias font-bold"
+              style="background-color: transparent; color: #6b7280; border: 2px solid white; border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               Swing
             </div>
             <div 
               id="indicator-${symbol}-2"
-              class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: #6b7280; border: 2px solid white; border-left: none; border-radius: 0 4px 4px 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center;"
+              class="px-3 py-1 text-xs font-mathias font-bold"
+              style="background-color: transparent; color: #6b7280; border: 2px solid white; border-left: none; border-radius: 0 4px 4px 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               Scalp
             </div>

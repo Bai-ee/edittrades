@@ -202,9 +202,10 @@ h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-mathias);
   color: var(--color-yellow-75);
   text-align: left;
-  font-size: 0.75rem;
+  font-size: 1rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+  font-weight: bold;
 }
 
 .table-edittrax td {
