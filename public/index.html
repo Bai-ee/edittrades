@@ -90,9 +90,16 @@
           >
             Refresh
           </button>
-          <a href="/scanner.html" class="btn-base btn-primary px-3 py-2 text-sm rounded">
+          <a href="/scanner.html" class="btn-base btn-secondary px-3 py-2 text-sm rounded">
             Scanner
           </a>
+          <button 
+            id="copyAllBtn" 
+            onclick="copyAllCoins()"
+            class="btn-base btn-primary px-3 py-2 text-sm rounded"
+          >
+            COPY GPT
+          </button>
         </div>
       </div>
     </div>
@@ -119,17 +126,6 @@
     <!-- Results Container -->
     <div id="resultsContainer" class="hidden">
       
-      <!-- Summary Header -->
-      <div class="mb-4 flex items-center justify-center">
-        <button 
-          id="copyAllBtn" 
-          onclick="copyAllCoins()"
-          class="btn-base btn-primary px-4 py-2 text-sm rounded-md"
-        >
-          Copy All
-        </button>
-      </div>
-
       <!-- Opportunities Table -->
       <div class="card-edittrax rounded-lg overflow-hidden mb-4">
         <div class="table-container">
