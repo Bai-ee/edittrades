@@ -81,7 +81,9 @@ async function fetchFromKraken(symbol, interval, limit = 500) {
       '15m': 15,
       '1h': 60,
       '4h': 240,
-      '1d': 1440
+      '1d': 1440,
+      '1w': 10080,      // 7 days
+      '1M': 21600       // 15 days (Kraken's max)
     }[interval] || 60;
 
     const response = await axios.get('https://api.kraken.com/0/public/OHLC', {
