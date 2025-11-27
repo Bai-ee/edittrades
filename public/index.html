@@ -97,7 +97,7 @@
       
       .coin-row td:first-child {
         width: auto;
-        font-size: 1.25rem;
+        font-size: 2.5rem;
         padding-right: 1rem !important;
       }
       
@@ -122,6 +122,11 @@
       
       .coin-row td:nth-child(2) div[id^="signal-"] > div:last-child {
         font-size: 1rem !important;
+      }
+      
+      /* Green coin name when trade is available */
+      .coin-name-has-trade {
+        color: #10b981 !important;
       }
       
       /* Strategy on its own row */
@@ -528,7 +533,7 @@
         const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
         const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalElement.innerHTML = `
-          <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName}</div>
+          <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
           <div class="text-xs ${dirClass}">${confidence}% SURE</div>
         `;
       } else {
@@ -751,6 +756,11 @@
       const strategySwingSignal = evaluateTemplateSignal(symbol, 'Swing');
       const strategyScalpSignal = evaluateTemplateSignal(symbol, 'Scalp');
       
+      // Check if ANY strategy has a valid trade for coin name color
+      const hasAnyTrade = (strategy4hSignal && strategy4hSignal.valid) || 
+                          (strategySwingSignal && strategySwingSignal.valid) || 
+                          (strategyScalpSignal && strategyScalpSignal.valid);
+      
       // Evaluate signal based on current template
       const template = tradeTemplates[currentStrategy];
       const templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
@@ -762,7 +772,7 @@
         const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalHtml = `
           <div id="signal-${symbol}">
-            <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName}</div>
+            <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
             <div class="text-xs ${dirClass}">${confidence}% SURE</div>
           </div>
         `;
@@ -784,7 +794,7 @@
       
       row.innerHTML = `
         <td class="px-2 py-3" data-label="">
-          <div class="text-lg" style="color: var(--color-yellow-75);">${coinName}</div>
+          <div class="text-lg ${hasAnyTrade ? 'coin-name-has-trade' : ''}" style="color: var(--color-yellow-75);">${coinName}</div>
         </td>
         <td class="px-2 py-3" data-label="Signal:">
           ${signalHtml}
