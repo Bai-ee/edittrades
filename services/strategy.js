@@ -95,40 +95,71 @@ function calculateEntryZone(ema21, direction) {
 
 /**
  * Calculate stop loss and take profit levels
+ * UPDATED: Now uses setupType-conditional stop loss logic per text file
+ * - Swing: Uses HTF (3D/1D) invalidation levels
+ * - Scalp: Uses LTF (5m/15m) structure
+ * - 4H: Uses 4H swing levels
+ * 
  * @param {number} entryPrice - Entry price (mid of zone)
  * @param {string} direction - 'long' or 'short'
- * @param {Object} structure - Swing high and low
+ * @param {Object} allStructures - Structures from all timeframes { '3d': {...}, '1d': {...}, '4h': {...}, '15m': {...}, '5m': {...} }
+ * @param {string} setupType - 'Swing', 'Scalp', or '4h'
+ * @param {Array<number>} rrTargets - R:R multiples for TP1, TP2 [1.0, 2.0] or [3.0, 5.0]
  * @returns {Object} SL and TP levels
  */
-function calculateSLTP(entryPrice, direction, structure) {
-  const { swingHigh, swingLow } = structure;
-  const buffer = 0.003; // 0.3% buffer as per PRD (0.1-0.3%)
+function calculateSLTP(entryPrice, direction, allStructures, setupType = '4h', rrTargets = [1.0, 2.0]) {
+  const buffer = 0.003; // 0.3% buffer
   
-  let stopLoss, tp1, tp2;
+  let stopLoss, structure;
+  
+  // Select appropriate timeframe structure based on setup type
+  if (setupType === 'Swing') {
+    // Swing trades: Use HTF invalidation (3D or 1D)
+    structure = allStructures['3d'] || allStructures['1d'] || allStructures['4h'];
+  } else if (setupType === 'Scalp') {
+    // Scalp trades: Use LTF invalidation (5m or 15m)
+    structure = allStructures['5m'] || allStructures['15m'] || allStructures['4h'];
+  } else {
+    // 4H trades: Use 4H structure
+    structure = allStructures['4h'] || allStructures['1d'];
+  }
+  
+  const { swingHigh, swingLow } = structure;
   
   if (direction === 'long') {
     // SL below swing low
     stopLoss = swingLow ? swingLow * (1 - buffer) : entryPrice * 0.97;
     const risk = entryPrice - stopLoss;
     
-    // TP at 1:1 and 1:2 RR
-    tp1 = entryPrice + risk;
-    tp2 = entryPrice + (risk * 2);
+    // TP based on R:R targets from template
+    const tp1 = entryPrice + (risk * rrTargets[0]);
+    const tp2 = entryPrice + (risk * rrTargets[1]);
+    
+    return {
+      stopLoss,
+      targets: [tp1, tp2],
+      riskAmount: risk,
+      setupType: setupType,
+      invalidationLevel: swingLow || (entryPrice * 0.97)
+    };
     
   } else { // short
     // SL above swing high
     stopLoss = swingHigh ? swingHigh * (1 + buffer) : entryPrice * 1.03;
     const risk = stopLoss - entryPrice;
     
-    // TP at 1:1 and 1:2 RR
-    tp1 = entryPrice - risk;
-    tp2 = entryPrice - (risk * 2);
+    // TP based on R:R targets from template
+    const tp1 = entryPrice - (risk * rrTargets[0]);
+    const tp2 = entryPrice - (risk * rrTargets[1]);
+    
+    return {
+      stopLoss,
+      targets: [tp1, tp2],
+      riskAmount: risk,
+      setupType: setupType,
+      invalidationLevel: swingHigh || (entryPrice * 1.03)
+    };
   }
-  
-  return {
-    stopLoss,
-    targets: [tp1, tp2]
-  };
 }
 
 /**
@@ -245,16 +276,21 @@ function buildReasonSummary(analysis, direction, confidence) {
 /**
  * Main strategy evaluation function
  * Implements PRD Sections 3.1, 3.2, 3.3, 3.4
+ * UPDATED: Now accepts setupType for conditional stop loss logic
  * @param {string} symbol - Trading symbol
  * @param {Object} multiTimeframeData - Analysis for all timeframes
+ * @param {string} setupType - 'Swing', 'Scalp', or '4h' (default '4h')
  * @returns {Object} Trade signal object
  */
-export function evaluateStrategy(symbol, multiTimeframeData) {
+export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
   const analysis = multiTimeframeData;
+  const tf3d = analysis['3d'];
+  const tf1d = analysis['1d'];
   const tf4h = analysis['4h'];
   const tf1h = analysis['1h'];
   const tf15m = analysis['15m'];
   const tf5m = analysis['5m'];
+  const tf1m = analysis['1m'];
   
   // Must have at least 4h data
   if (!tf4h || !tf4h.indicators) {
@@ -364,10 +400,24 @@ export function evaluateStrategy(symbol, multiTimeframeData) {
     };
   }
   
-  // Calculate entry zone, SL, TP
+  // Gather all timeframe structures for conditional stop loss
+  const allStructures = {
+    '3d': tf3d?.structure || { swingHigh: null, swingLow: null },
+    '1d': tf1d?.structure || { swingHigh: null, swingLow: null },
+    '4h': tf4h.structure,
+    '15m': tf15m?.structure || { swingHigh: null, swingLow: null },
+    '5m': tf5m?.structure || { swingHigh: null, swingLow: null }
+  };
+  
+  // Determine R:R targets based on setup type
+  const rrTargets = setupType === 'Swing' ? [3.0, 5.0] : 
+                    setupType === 'Scalp' ? [1.5, 2.5] : 
+                    [1.0, 2.0];
+  
+  // Calculate entry zone, SL, TP with setupType-conditional logic
   const entryZone = calculateEntryZone(ema21, direction);
   const entryMid = (entryZone.min + entryZone.max) / 2;
-  const sltp = calculateSLTP(entryMid, direction, tf4h.structure);
+  const sltp = calculateSLTP(entryMid, direction, allStructures, setupType, rrTargets);
   
   // Calculate confidence score
   const confidence = calculateConfidence(analysis, direction);
@@ -394,15 +444,22 @@ export function evaluateStrategy(symbol, multiTimeframeData) {
   return {
     symbol,
     direction,
+    setupType: setupType,  // Added: Type of setup (Swing, Scalp, 4h)
     entry_zone: {
       min: parseFloat(entryZone.min.toFixed(2)),
       max: parseFloat(entryZone.max.toFixed(2))
     },
     stop_loss: parseFloat(sltp.stopLoss.toFixed(2)),
+    invalidation_level: parseFloat(sltp.invalidationLevel.toFixed(2)),  // Added: HTF/LTF invalidation
     targets: [
       parseFloat(sltp.targets[0].toFixed(2)),
       parseFloat(sltp.targets[1].toFixed(2))
     ],
+    risk_reward: {
+      tp1RR: rrTargets[0],
+      tp2RR: rrTargets[1]
+    },
+    risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),  // Added: Dollar risk per unit
     confidence: parseFloat(confidence.toFixed(2)),
     reason_summary: reasonSummary,
     trend: trendObj,

@@ -497,24 +497,24 @@
         displayName: '4 HOUR'
       },
       'Swing': {
-        label: 'Daily / 4H Swing',
-        anchorTimeframes: ['1d', '4h'],
+        label: '3D / 1D / 4H Swing',
+        anchorTimeframes: ['3d', '1d', '4h'],
         confirmTimeframes: ['1h'],
-        entryTimeframes: ['15m'],
+        entryTimeframes: ['15m', '5m'],
         minConfidence: 0.75,
         maxLeverage: 10,
-        rrTargets: [2.0, 3.0],
+        rrTargets: [3.0, 5.0],  // Minimum 3R as per text file
         maxHoldCandles: { '4h': 20 },
         displayName: 'SWING'
       },
       'Scalp': {
-        label: '15m / 5m Scalp',
-        anchorTimeframes: ['1h', '15m'],
-        confirmTimeframes: ['15m'],
-        entryTimeframes: ['5m'],
+        label: '4H+1H → 15m/5m Scalp',
+        anchorTimeframes: ['4h', '1h'],  // Both required as gatekeepers
+        confirmTimeframes: ['15m', '5m'],  // Both must be in ENTRY_ZONE
+        entryTimeframes: ['5m', '1m'],    // 1m as noise filter
         minConfidence: 0.65,
         maxLeverage: 25,
-        rrTargets: [1.0, 1.5],
+        rrTargets: [1.5, 2.5],  // Updated to match text file (1.5R-3R)
         maxHoldCandles: { '5m': 12 },
         displayName: 'SCALP'
       }
@@ -590,6 +590,7 @@
       const primaryData = analysis[primaryTf];
       let entryZone = originalSignal?.entryZone || null;
       let stopLoss = originalSignal?.stopLoss || null;
+      let invalidationLevel = originalSignal?.invalidationLevel || null;
       
       if (primaryData && primaryData.indicators && primaryData.indicators.ema) {
         const ema21 = primaryData.indicators.ema.ema21;
@@ -602,20 +603,43 @@
           confidence += 0.15;
         }
         
-        // Calculate entry zone around 21 EMA (±1%)
+        // Calculate entry zone around 21 EMA (±0.4%)
         if (!entryZone) {
           entryZone = {
-            min: ema21 * 0.99,
-            max: ema21 * 1.01
+            min: ema21 * 0.996,
+            max: ema21 * 1.004
           };
         }
         
-        // Calculate stop loss from swing high/low if available
-        if (!stopLoss && primaryData.indicators.swings) {
-          if (direction === 'long') {
-            stopLoss = primaryData.indicators.swings.swingLow || (currentPrice * 0.95);
-      } else {
-            stopLoss = primaryData.indicators.swings.swingHigh || (currentPrice * 1.05);
+        // Calculate stop loss using setupType-conditional logic (matching text file)
+        if (!stopLoss) {
+          let slStructure = null;
+          
+          if (templateKey === 'Swing') {
+            // Swing: Use HTF (3D or 1D) structure
+            slStructure = analysis['3d']?.indicators?.swings || 
+                         analysis['1d']?.indicators?.swings || 
+                         analysis['4h']?.indicators?.swings;
+          } else if (templateKey === 'Scalp') {
+            // Scalp: Use LTF (5m or 15m) structure
+            slStructure = analysis['5m']?.indicators?.swings || 
+                         analysis['15m']?.indicators?.swings || 
+                         analysis['4h']?.indicators?.swings;
+          } else {
+            // 4H: Use 4H structure
+            slStructure = analysis['4h']?.indicators?.swings;
+          }
+          
+          if (slStructure) {
+            if (direction === 'long') {
+              stopLoss = slStructure.swingLow || (currentPrice * 0.95);
+              invalidationLevel = slStructure.swingLow;
+            } else {
+              stopLoss = slStructure.swingHigh || (currentPrice * 1.05);
+              invalidationLevel = slStructure.swingHigh;
+            }
+          } else {
+            stopLoss = direction === 'long' ? (currentPrice * 0.95) : (currentPrice * 1.05);
           }
         }
       }
@@ -623,21 +647,38 @@
       // Cap confidence at template minimum
       confidence = Math.max(confidence, template.minConfidence);
       
+      // Calculate targets based on R:R ratios and entry/SL
+      const entryMid = (entryZone.min + entryZone.max) / 2;
+      const risk = direction === 'long' ? 
+        (entryMid - stopLoss) : 
+        (stopLoss - entryMid);
+      
+      const tp1 = direction === 'long' ? 
+        entryMid + (risk * template.rrTargets[0]) : 
+        entryMid - (risk * template.rrTargets[0]);
+      
+      const tp2 = direction === 'long' ? 
+        entryMid + (risk * template.rrTargets[1]) : 
+        entryMid - (risk * template.rrTargets[1]);
+      
       return {
         valid: confidence >= template.minConfidence,
         direction: direction,
+        setupType: templateKey,  // Added: setup type
         confidence: Math.min(confidence, 0.95),
         reason: `${template.label}: ${anchorTrend}, aligned confirmation`,
         entryZone: entryZone,
         stopLoss: stopLoss,
+        invalidationLevel: invalidationLevel,  // Added: HTF/LTF invalidation
         targets: {
-          tp1: null,
-          tp2: null
+          tp1: tp1 ? parseFloat(tp1.toFixed(2)) : null,
+          tp2: tp2 ? parseFloat(tp2.toFixed(2)) : null
         },
         riskReward: {
           tp1RR: template.rrTargets[0],
           tp2RR: template.rrTargets[1]
-        }
+        },
+        riskAmount: risk ? parseFloat(risk.toFixed(2)) : null  // Added: dollar risk
       };
     }
     
@@ -826,9 +867,9 @@
       try {
         scanResults = {};
         
-        // Fetch all coins in parallel with expanded timeframes
+        // Fetch all coins in parallel with expanded timeframes (including 3D for swing trades)
         const promises = symbols.map(symbol => 
-          fetch(`/api/analyze/${symbol}?intervals=1M,1w,1d,4h,1h,15m,5m,1m`)
+          fetch(`/api/analyze/${symbol}?intervals=1M,1w,3d,1d,4h,1h,15m,5m,1m`)
             .then(res => {
               if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
               return res.json();

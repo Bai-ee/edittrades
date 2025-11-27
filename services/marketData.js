@@ -60,13 +60,44 @@ const INTERVAL_TO_MINUTES = {
   '30m': 30,
   '1h': 60,
   '4h': 240,
-  '1d': 1440
+  '1d': 1440,
+  '3d': 4320,   // 3 days
+  '1w': 10080,
+  '1M': 43200   // ~30 days
 };
+
+/**
+ * Aggregate 1D candles into 3D candles
+ * @param {Array} dailyCandles - Array of 1D OHLCV candles
+ * @returns {Array} Array of 3D OHLCV candles
+ */
+function aggregate3DayCandles(dailyCandles) {
+  const threeDayCandles = [];
+  
+  for (let i = 0; i < dailyCandles.length; i += 3) {
+    const chunk = dailyCandles.slice(i, i + 3);
+    if (chunk.length === 0) continue;
+    
+    // Aggregate 3 days into 1 candle
+    const aggregated = {
+      timestamp: chunk[0].timestamp,
+      open: chunk[0].open,
+      high: Math.max(...chunk.map(c => c.high)),
+      low: Math.min(...chunk.map(c => c.low)),
+      close: chunk[chunk.length - 1].close,
+      volume: chunk.reduce((sum, c) => sum + c.volume, 0)
+    };
+    
+    threeDayCandles.push(aggregated);
+  }
+  
+  return threeDayCandles;
+}
 
 /**
  * Fetch OHLCV data from Kraken
  * @param {string} symbol - Trading pair (e.g., 'BTCUSDT')
- * @param {string} interval - Timeframe (1m, 5m, 15m, 1h, 4h)
+ * @param {string} interval - Timeframe (1m, 5m, 15m, 1h, 4h, 1d, 3d)
  * @param {number} limit - Number of candles to fetch
  * @returns {Promise<Array>} Array of OHLCV objects
  */
@@ -75,6 +106,12 @@ async function fetchFromKraken(symbol, interval, limit = 500) {
     const krakenSymbol = SYMBOL_MAP[symbol]?.kraken || 'XBTUSD';
     
     // Kraken interval mapping
+    // For 3d, fetch daily data and aggregate
+    if (interval === '3d') {
+      const dailyData = await fetchFromKraken(symbol, '1d', limit * 3);
+      return aggregate3DayCandles(dailyData);
+    }
+    
     const krakenInterval = {
       '1m': 1,
       '5m': 5,

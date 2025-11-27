@@ -59,10 +59,10 @@ export default async function handler(req, res) {
     // Parse intervals from query
     const { intervals } = req.query;
 
-    // Parse intervals (default to strategy requirements)
+    // Parse intervals (default to strategy requirements - now includes 3D for swing trades)
     const intervalList = intervals 
       ? intervals.split(',').map(i => i.trim()) 
-      : ['4h', '1h', '15m', '5m'];
+      : ['3d', '1d', '4h', '1h', '15m', '5m', '1m'];
 
     console.log(`[Analyze] Processing ${symbol} for intervals: ${intervalList.join(', ')}`);
 
