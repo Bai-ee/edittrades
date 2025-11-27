@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trading Strategy & Backtest Results</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    /* Dark theme matching main site */
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #1a1a1a;
+      --bg-tertiary: #2a2a2a;
+      --text-primary: #f5f5f5;
+      --text-secondary: #a0a0a0;
+      --border: #333333;
+      --accent-long: #10b981;
+      --accent-short: #ef4444;
+      --accent-neutral: #6b7280;
+    }
+    
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    
+    .card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border);
+    }
+    
+    .btn-primary {
+      background-color: var(--text-primary);
+      color: var(--bg-primary);
+      border: 1px solid var(--text-primary);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--text-secondary);
+      border-color: var(--text-secondary);
+    }
+    
+    .stat-card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+    }
+    
+    .stat-positive { color: var(--accent-long); }
+    .stat-negative { color: var(--accent-short); }
+    .stat-neutral { color: var(--accent-neutral); }
+  </style>
+</head>
+<body class="min-h-screen">
+  
+  <!-- Header -->
+  <header class="border-b" style="border-color: var(--border); background-color: var(--bg-secondary);">
+    <div class="max-w-6xl mx-auto px-4 py-3">
+      <div class="flex items-center justify-between">
+        <h1 class="text-lg font-bold">Trading Strategy & Backtest</h1>
+        <div class="flex items-center gap-2">
+          <a href="/" class="btn-primary px-3 py-2 text-sm rounded">
+            ← Home
+          </a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    
+    <!-- Strategy Overview -->
+    <section class="mb-8">
+      <h2 class="text-2xl font-bold mb-4">4-Hour "Set & Forget" Strategy</h2>
+      <div class="card rounded-lg p-6 mb-4">
+        <h3 class="text-xl font-semibold mb-3">Strategy Philosophy</h3>
+        <p class="mb-4" style="color: var(--text-secondary);">
+          This is a <strong>trend-following, pullback-entry system</strong> designed for the 4-hour timeframe on BTCUSDT. 
+          The strategy combines multi-timeframe analysis (4h, 1h, 15m, 5m) with precise entry timing based on EMA structure, 
+          Stochastic RSI momentum, and swing-based risk management.
+        </p>
+        <p style="color: var(--text-secondary);">
+          The goal is to catch <strong>high-probability moves</strong> in the direction of the prevailing trend, entering on 
+          pullbacks to the 21 EMA with confirmation from multiple timeframes.
+        </p>
+      </div>
+    </section>
+
+    <!-- Strategy Rules -->
+    <section class="mb-8">
+      <h2 class="text-2xl font-bold mb-4">Entry Rules</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        
+        <!-- Long Setup -->
+        <div class="card rounded-lg p-6">
+          <h3 class="text-lg font-semibold mb-3 stat-positive">LONG Setup</h3>
+          <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
+            <li>✅ <strong>4H Trend:</strong> UPTREND (price above 21 & 200 EMA)</li>
+            <li>✅ <strong>4H Pullback:</strong> Price retracing to 21 EMA (not overextended)</li>
+            <li>✅ <strong>4H Stoch RSI:</strong> Oversold or starting to curl up</li>
+            <li>✅ <strong>1H Trend:</strong> Aligned with 4H or at least neutral</li>
+            <li>✅ <strong>15M Stoch:</strong> Showing bullish momentum</li>
+            <li>✅ <strong>5M Entry:</strong> Stoch curl up + close above 21 EMA</li>
+            <li>✅ <strong>SL:</strong> Below recent 4H swing low</li>
+            <li>✅ <strong>TP:</strong> 1R to 2R (based on SL distance)</li>
+          </ul>
+        </div>
+        
+        <!-- Short Setup -->
+        <div class="card rounded-lg p-6">
+          <h3 class="text-lg font-semibold mb-3 stat-negative">SHORT Setup</h3>
+          <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
+            <li>✅ <strong>4H Trend:</strong> DOWNTREND (price below 21 & 200 EMA)</li>
+            <li>✅ <strong>4H Pullback:</strong> Price retracing to 21 EMA (not overextended)</li>
+            <li>✅ <strong>4H Stoch RSI:</strong> Overbought or starting to curl down</li>
+            <li>✅ <strong>1H Trend:</strong> Aligned with 4H or at least neutral</li>
+            <li>✅ <strong>15M Stoch:</strong> Showing bearish momentum</li>
+            <li>✅ <strong>5M Entry:</strong> Stoch curl down + close below 21 EMA</li>
+            <li>✅ <strong>SL:</strong> Above recent 4H swing high</li>
+            <li>✅ <strong>TP:</strong> 1R to 2R (based on SL distance)</li>
+          </ul>
+        </div>
+      </div>
+      
+      <div class="card rounded-lg p-6">
+        <h3 class="text-lg font-semibold mb-3">Key Filters (NO TRADE if...)</h3>
+        <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
+          <li>❌ 4H trend is <strong>FLAT</strong> (sideways/choppy market)</li>
+          <li>❌ Price is <strong>OVEREXTENDED</strong> from 21 EMA (>3% away)</li>
+          <li>❌ Stoch RSI conditions not aligned across timeframes</li>
+          <li>❌ Already in an open position (one trade at a time)</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Backtest Results -->
+    <section class="mb-8">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-2xl font-bold">Backtest Results</h2>
+        <button 
+          id="runBacktestBtn"
+          onclick="promptBacktest()"
+          class="btn-primary px-4 py-2 text-sm rounded"
+        >
+          Run Backtest
+        </button>
+      </div>
+      
+      <!-- Loading State -->
+      <div id="loadingState" class="hidden card rounded-lg p-12 text-center">
+        <div class="inline-block w-12 h-12 border-4 border-t-transparent rounded-full animate-spin mb-4" style="border-color: var(--text-primary); border-top-color: transparent;"></div>
+        <p style="color: var(--text-secondary);">Loading backtest results...</p>
+      </div>
+      
+      <!-- No Results State -->
+      <div id="noResultsState" class="card rounded-lg p-12 text-center">
+        <p class="text-lg mb-4" style="color: var(--text-secondary);">No backtest results available yet.</p>
+        <p class="text-sm mb-6" style="color: var(--text-secondary);">
+          Run the backtest using: <code class="bg-gray-800 px-2 py-1 rounded">npm run backtest:btc4h</code>
+        </p>
+        <p class="text-xs" style="color: var(--text-secondary);">
+          Results will be saved to <code>backtests/results/btc-4h-backtest.json</code>
+        </p>
+      </div>
+      
+      <!-- Results Display -->
+      <div id="resultsDisplay" class="hidden">
+        
+        <!-- Summary Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Total Trades</p>
+            <p class="text-2xl font-bold" id="statTotalTrades">-</p>
+          </div>
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Win Rate</p>
+            <p class="text-2xl font-bold" id="statWinRate">-</p>
+          </div>
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Avg R</p>
+            <p class="text-2xl font-bold" id="statAvgR">-</p>
+          </div>
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Total R</p>
+            <p class="text-2xl font-bold" id="statTotalR">-</p>
+          </div>
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Wins</p>
+            <p class="text-2xl font-bold stat-positive" id="statWins">-</p>
+          </div>
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Losses</p>
+            <p class="text-2xl font-bold stat-negative" id="statLosses">-</p>
+          </div>
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Profit Factor</p>
+            <p class="text-2xl font-bold" id="statProfitFactor">-</p>
+          </div>
+          <div class="stat-card">
+            <p class="text-xs mb-1" style="color: var(--text-secondary);">Max Drawdown</p>
+            <p class="text-2xl font-bold stat-negative" id="statMaxDD">-</p>
+          </div>
+        </div>
+        
+        <!-- Equity Curve Chart -->
+        <div class="card rounded-lg p-6 mb-6">
+          <h3 class="text-lg font-semibold mb-4">Equity Curve (Cumulative R)</h3>
+          <canvas id="equityChart" width="400" height="150"></canvas>
+        </div>
+        
+        <!-- Trade Distribution -->
+        <div class="card rounded-lg p-6 mb-6">
+          <h3 class="text-lg font-semibold mb-4">Trade Distribution</h3>
+          <canvas id="distributionChart" width="400" height="150"></canvas>
+        </div>
+        
+        <!-- Recent Trades Table -->
+        <div class="card rounded-lg p-6">
+          <h3 class="text-lg font-semibold mb-4">Recent Trades (Last 10)</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="border-b" style="border-color: var(--border);">
+                <tr>
+                  <th class="px-3 py-2 text-left text-xs" style="color: var(--text-secondary);">DATE</th>
+                  <th class="px-3 py-2 text-left text-xs" style="color: var(--text-secondary);">DIR</th>
+                  <th class="px-3 py-2 text-left text-xs" style="color: var(--text-secondary);">ENTRY</th>
+                  <th class="px-3 py-2 text-left text-xs" style="color: var(--text-secondary);">EXIT</th>
+                  <th class="px-3 py-2 text-left text-xs" style="color: var(--text-secondary);">TYPE</th>
+                  <th class="px-3 py-2 text-left text-xs" style="color: var(--text-secondary);">R</th>
+                </tr>
+              </thead>
+              <tbody id="tradesTableBody" class="divide-y" style="divide-color: var(--border);">
+                <!-- Populated by JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Best Practices -->
+    <section class="mb-8">
+      <h2 class="text-2xl font-bold mb-4">Best Practices</h2>
+      <div class="card rounded-lg p-6">
+        <ul class="space-y-3 text-sm" style="color: var(--text-secondary);">
+          <li>
+            <strong style="color: var(--text-primary);">1. Wait for the Setup</strong><br>
+            Don't force trades. Wait for all timeframe conditions to align.
+          </li>
+          <li>
+            <strong style="color: var(--text-primary);">2. Respect the 21 EMA</strong><br>
+            The 21 EMA on 4H is your trend guide. Price should be near it for entries, not far away.
+          </li>
+          <li>
+            <strong style="color: var(--text-primary);">3. Use Swing Points for SL/TP</strong><br>
+            Stop loss goes beyond recent swing high/low. This gives the trade room to breathe.
+          </li>
+          <li>
+            <strong style="color: var(--text-primary);">4. One Trade at a Time</strong><br>
+            Don't pyramid or overlap positions. Focus on quality over quantity.
+          </li>
+          <li>
+            <strong style="color: var(--text-primary);">5. Risk Management</strong><br>
+            Risk no more than 1-2% of capital per trade. The strategy's edge comes from consistent execution.
+          </li>
+          <li>
+            <strong style="color: var(--text-primary);">6. Trust the Process</strong><br>
+            Not every trade will win. Follow the system even after losses. The edge plays out over 50+ trades.
+          </li>
+        </ul>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    let backtestData = null;
+    let equityChart = null;
+    let distributionChart = null;
+
+    // Load backtest results on page load
+    window.addEventListener('DOMContentLoaded', loadBacktestResults);
+
+    async function loadBacktestResults() {
+      document.getElementById('loadingState').classList.remove('hidden');
+      document.getElementById('noResultsState').classList.add('hidden');
+      
+      try {
+        const response = await fetch('/backtests/results/btc-4h-backtest.json');
+        
+        if (!response.ok) {
+          throw new Error('No results file found');
+        }
+        
+        backtestData = await response.json();
+        displayResults(backtestData);
+        
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('noResultsState').classList.add('hidden');
+        document.getElementById('resultsDisplay').classList.remove('hidden');
+        
+      } catch (error) {
+        console.log('No backtest results available:', error.message);
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('noResultsState').classList.remove('hidden');
+      }
+    }
+
+    function displayResults(data) {
+      const summary = data.summary;
+      
+      // Update stats
+      document.getElementById('statTotalTrades').textContent = summary.totalTrades;
+      document.getElementById('statWinRate').textContent = `${summary.winRate}%`;
+      document.getElementById('statAvgR').textContent = `${summary.avgR}R`;
+      document.getElementById('statTotalR').textContent = `${summary.totalR}R`;
+      document.getElementById('statWins').textContent = summary.wins;
+      document.getElementById('statLosses').textContent = summary.losses;
+      document.getElementById('statProfitFactor').textContent = summary.profitFactor.toFixed(2);
+      document.getElementById('statMaxDD').textContent = `${summary.maxDrawdown}R`;
+      
+      // Color code based on performance
+      const avgREl = document.getElementById('statAvgR');
+      avgREl.className = summary.avgR > 0 ? 'text-2xl font-bold stat-positive' : 'text-2xl font-bold stat-negative';
+      
+      const totalREl = document.getElementById('statTotalR');
+      totalREl.className = summary.totalR > 0 ? 'text-2xl font-bold stat-positive' : 'text-2xl font-bold stat-negative';
+      
+      // Build equity curve
+      const trades = data.trades;
+      let cumulative = 0;
+      const equityData = [0]; // Start at 0
+      const labels = ['Start'];
+      
+      trades.forEach((trade, i) => {
+        cumulative += trade.rMultiple;
+        equityData.push(cumulative);
+        labels.push(`T${i + 1}`);
+      });
+      
+      // Draw equity curve chart
+      const ctx = document.getElementById('equityChart').getContext('2d');
+      if (equityChart) equityChart.destroy();
+      
+      equityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Cumulative R',
+            data: equityData,
+            borderColor: 'rgb(16, 185, 129)',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            tension: 0.1,
+            fill: true
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              grid: { color: '#333' },
+              ticks: { color: '#a0a0a0' }
+            },
+            x: {
+              grid: { color: '#333' },
+              ticks: { 
+                color: '#a0a0a0',
+                maxTicksLimit: 10
+              }
+            }
+          }
+        }
+      });
+      
+      // Trade distribution chart
+      const rBuckets = {};
+      trades.forEach(t => {
+        const bucket = Math.floor(t.rMultiple * 2) / 2; // 0.5R buckets
+        rBuckets[bucket] = (rBuckets[bucket] || 0) + 1;
+      });
+      
+      const sortedBuckets = Object.keys(rBuckets).sort((a, b) => parseFloat(a) - parseFloat(b));
+      const distributionLabels = sortedBuckets.map(b => `${b}R`);
+      const distributionData = sortedBuckets.map(b => rBuckets[b]);
+      const distributionColors = sortedBuckets.map(b => parseFloat(b) >= 0 ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)');
+      
+      const ctx2 = document.getElementById('distributionChart').getContext('2d');
+      if (distributionChart) distributionChart.destroy();
+      
+      distributionChart = new Chart(ctx2, {
+        type: 'bar',
+        data: {
+          labels: distributionLabels,
+          datasets: [{
+            label: '# of Trades',
+            data: distributionData,
+            backgroundColor: distributionColors,
+            borderColor: distributionColors.map(c => c.replace('0.7', '1')),
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            y: {
+              grid: { color: '#333' },
+              ticks: { color: '#a0a0a0', stepSize: 1 }
+            },
+            x: {
+              grid: { color: '#333' },
+              ticks: { color: '#a0a0a0' }
+            }
+          }
+        }
+      });
+      
+      // Populate trades table (last 10)
+      const recentTrades = trades.slice(-10).reverse();
+      const tbody = document.getElementById('tradesTableBody');
+      tbody.innerHTML = '';
+      
+      recentTrades.forEach(trade => {
+        const row = document.createElement('tr');
+        const date = new Date(trade.entryTime).toISOString().split('T')[0];
+        const dirClass = trade.direction === 'long' ? 'stat-positive' : 'stat-negative';
+        const rClass = trade.rMultiple > 0 ? 'stat-positive' : trade.rMultiple < 0 ? 'stat-negative' : 'stat-neutral';
+        
+        row.innerHTML = `
+          <td class="px-3 py-2 text-xs">${date}</td>
+          <td class="px-3 py-2 text-xs ${dirClass}">${trade.direction.toUpperCase()}</td>
+          <td class="px-3 py-2 text-xs">$${trade.entryPrice.toFixed(0)}</td>
+          <td class="px-3 py-2 text-xs">$${trade.exitPrice.toFixed(0)}</td>
+          <td class="px-3 py-2 text-xs">${trade.exitType}</td>
+          <td class="px-3 py-2 text-xs ${rClass} font-bold">${trade.rMultiple.toFixed(2)}R</td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    function promptBacktest() {
+      alert('To run the backtest:\n\n1. Open a terminal\n2. cd to the project directory\n3. Run: npm run backtest:btc4h\n\nResults will be saved and displayed here automatically.');
+    }
+  </script>
+
+</body>
+</html>
+
