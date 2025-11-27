@@ -332,14 +332,14 @@
         const dirClass = signal.direction === 'long' ? 'status-long' : 'status-short';
         signalHtml = `
           <div>
-            <div class="${dirClass} font-bold">${signal.direction.toUpperCase()}</div>
+            <div class="${dirClass}">${signal.direction.toUpperCase()}</div>
             <div class="text-xs ${dirClass}">${readiness.text}</div>
           </div>
         `;
       } else {
         signalHtml = `
           <div>
-            <div class="status-neutral font-medium">NO TRADE</div>
+            <div class="status-neutral">NO TRADE</div>
             <div class="text-xs ${readiness.class}">${readiness.text}</div>
           </div>
         `;
@@ -352,7 +352,7 @@
       
       row.innerHTML = `
         <td class="px-2 py-3">
-          <div class="font-mathias font-bold text-lg">${coinName}</div>
+          <div class="text-lg">${coinName}</div>
         </td>
         <td class="px-2 py-3">
           ${signalHtml}
