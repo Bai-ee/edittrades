@@ -2,6 +2,15 @@
 
 ## [Latest] - 2025-11-27
 
+### 📊 Added - Dashboard View JSON Copy Button
+- **New Button**: 📊 View - Copies exactly what's displayed on dashboard as compact JSON
+- **Auto-syncs**: Automatically includes any new fields we add to the dashboard
+- **Size**: ~2-3KB (smaller than full API, includes all timeframes unlike LLM compact)
+- **Use Cases**: Sharing analysis, trading journals, documentation, historical review
+- **Documentation**: `DASHBOARD_VIEW_JSON.md` with examples and field reference
+
+## [Previous] - 2025-11-27
+
 ### 🤖 Added - Compact API for LLM/ChatGPT Integration
 - **New Endpoint**: `/api/analyze-compact/{symbol}` - Streamlined API response optimized for LLM ingestion
 - **Size Reduction**: 99.75% smaller (470 bytes vs 192KB) - perfect for ChatGPT token limits
