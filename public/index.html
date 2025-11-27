@@ -129,7 +129,6 @@
                 <th class="px-2 py-2" style="color: black;">SIGNAL</th>
                 <th class="px-2 py-2" style="color: black;">ACTION</th>
                 <th class="px-2 py-2 hidden sm:table-cell" style="color: black;">PRICE</th>
-                <th class="px-2 py-2 hidden sm:table-cell" style="color: black;">24H</th>
                 <th class="px-2 py-2 hidden md:table-cell" style="color: black;">CONF</th>
                 <th class="px-2 py-2" style="color: black;">STRATEGY</th>
               </tr>
@@ -388,10 +387,10 @@
           </div>
         </td>
         <td class="px-2 py-3 hidden sm:table-cell">
-          <div class="text-xs">${price}</div>
-        </td>
-        <td class="px-2 py-3 hidden sm:table-cell">
-          <div class="text-xs ${changeClass}">${change}</div>
+          <div class="flex flex-col gap-0.5">
+            <div class="text-xs">${price}</div>
+            <div class="text-xs ${changeClass}">${change}</div>
+          </div>
         </td>
         <td class="px-2 py-3 hidden md:table-cell">
           ${confHtml}
@@ -559,7 +558,7 @@
       }).join('');
       
       detailsRow.innerHTML = `
-        <td colspan="7">
+        <td colspan="6">
           <div class="details-content-wrapper">
             <div class="tf-grid">
               ${tfCards}
