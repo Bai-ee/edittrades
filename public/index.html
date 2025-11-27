@@ -263,9 +263,15 @@
         height: 32px !important;
       }
       
-      /* Adjust loading GIF position on mobile */
+      /* Stack logo and GIF vertically on mobile */
+      .logo-container {
+        flex-direction: column !important;
+        gap: 0.5rem !important;
+      }
+      
+      /* Reset GIF margin when stacked */
       .logo-container img[src="/logos/load.gif"] {
-        margin-left: -30px;
+        margin-left: 0 !important;
       }
       
       /* Shrink nav buttons on mobile */
