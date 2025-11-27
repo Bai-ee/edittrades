@@ -2,6 +2,17 @@
 
 ## [Latest] - 2025-11-27
 
+### 🚀 Auto-Run Homepage + Detailed Table View
+- **Auto-Scan on Load**: Homepage automatically scans BTC, ETH, SOL on page load (no button click needed)
+- **Detailed Table View**: Shows full trading info (price, signal, confidence, entry, stop loss, targets, timeframes)
+- **Responsive Columns**: Hide less important columns on mobile (Entry on SM, Stop on MD, Targets on LG)
+- **Click Row for Details**: Click any row to see full analysis in popup
+- **Individual Copy**: Copy button for each coin in table
+- **Copy All**: Export all 3 coins together
+- **Unified UI**: Scanner page now matches homepage styling
+- **Parallel Fetching**: All 3 coins fetched simultaneously (~3-4 seconds total)
+- **Timeframe Badges**: Compact indicators showing trend for 4h, 1h, 15m, 5m
+
 ### 🎨 Major UI Redesign - Mobile-First Dark Theme
 - **New Homepage**: Single-button scan for BTC, ETH, SOL
 - **Dark Theme**: Pure black/off-white color scheme, no gradients or glows
