@@ -6,30 +6,68 @@
   <title>Market Scanner - Snapshot TradingView</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    @keyframes pulse-slow {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.6; }
+    /* Mobile-first dark theme - no gradients or glows */
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #1a1a1a;
+      --bg-tertiary: #2a2a2a;
+      --text-primary: #f5f5f5;
+      --text-secondary: #a0a0a0;
+      --border: #333333;
+      --accent-long: #10b981;
+      --accent-short: #ef4444;
+      --accent-neutral: #6b7280;
     }
-    .pulse-slow { animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-    .scanner-row:hover { background-color: rgba(59, 130, 246, 0.1); }
+    
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    
+    /* Remove all gradients and glows */
+    * {
+      box-shadow: none !important;
+    }
+    
+    .card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border);
+    }
+    
+    .scanner-row:hover { 
+      background-color: var(--bg-tertiary);
+    }
+    
+    @media (max-width: 640px) {
+      body {
+        font-size: 14px;
+      }
+      
+      /* Stack table on mobile */
+      .responsive-table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
   </style>
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen">
+<body class="min-h-screen">
   
   <!-- Header -->
-  <header class="bg-gray-800 border-b border-gray-700 shadow-lg">
-    <div class="container mx-auto px-6 py-4">
+  <header class="border-b" style="border-color: var(--border); background-color: var(--bg-secondary);">
+    <div class="max-w-6xl mx-auto px-4 py-3">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-white">🔍 Market Scanner</h1>
-          <p class="text-sm text-gray-400">Find ready-to-trade opportunities across all coins</p>
+          <h1 class="text-lg font-bold">Market Scanner</h1>
+          <p class="text-xs hidden sm:block" style="color: var(--text-secondary);">Find trading opportunities</p>
         </div>
-        <div class="flex items-center gap-4">
-          <a href="/" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-medium transition">
-            📊 Dashboard
+        <div class="flex items-center gap-2">
+          <a href="/" class="px-3 py-2 text-sm font-medium transition card rounded">
+            Home
           </a>
-          <button id="scanBtn" class="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
-            🔍 Run Scan
+          <button id="scanBtn" class="px-4 py-2 text-sm font-medium transition rounded" style="background-color: var(--text-primary); color: var(--bg-primary);">
+            Scan
           </button>
         </div>
       </div>
@@ -37,16 +75,16 @@
   </header>
 
   <!-- Main Content -->
-  <main class="container mx-auto px-6 py-8">
+  <main class="max-w-6xl mx-auto px-4 py-4">
     
     <!-- Scanner Controls -->
-    <div class="mb-8 bg-gray-800 rounded-xl p-6 border border-gray-700">
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+    <div class="mb-4 card rounded p-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         
         <!-- Min Confidence -->
         <div>
-          <label class="block text-sm font-medium text-gray-400 mb-2">
-            Min Confidence: <span id="confidenceValue" class="text-white">50%</span>
+          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+            Min Confidence: <span id="confidenceValue">50%</span>
           </label>
           <input 
             type="range" 
@@ -54,16 +92,17 @@
             min="0" 
             max="100" 
             value="50" 
-            class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+            class="w-full h-2 rounded-lg appearance-none cursor-pointer"
+            style="background-color: var(--bg-tertiary);"
           >
         </div>
 
         <!-- Max Results -->
         <div>
-          <label class="block text-sm font-medium text-gray-400 mb-2">Max Results</label>
+          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Max Results</label>
           <select 
             id="maxResults" 
-            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white"
+            class="w-full px-3 py-2 text-sm rounded outline-none card"
           >
             <option value="10">10</option>
             <option value="25" selected>25</option>
@@ -74,30 +113,30 @@
 
         <!-- Direction Filter -->
         <div>
-          <label class="block text-sm font-medium text-gray-400 mb-2">Direction</label>
+          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Direction</label>
           <select 
             id="directionFilter" 
-            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white"
+            class="w-full px-3 py-2 text-sm rounded outline-none card"
           >
             <option value="">All</option>
-            <option value="long">Long Only 📈</option>
-            <option value="short">Short Only 📉</option>
+            <option value="long">Long Only</option>
+            <option value="short">Short Only</option>
           </select>
         </div>
 
         <!-- Scan All Coins -->
         <div>
-          <label class="block text-sm font-medium text-gray-400 mb-2">Coin List</label>
-          <div class="flex items-center gap-2">
+          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Coin List</label>
+          <div class="flex items-center gap-2 mt-2">
             <input 
               type="checkbox" 
               id="scanAllCoins" 
-              class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500"
+              class="w-4 h-4"
             >
-            <label for="scanAllCoins" class="text-sm text-gray-300">Scan ALL Kraken pairs</label>
+            <label for="scanAllCoins" class="text-xs">Scan ALL pairs</label>
           </div>
-          <p class="text-xs text-gray-500 mt-1">
-            (Default: ~35 curated coins, ALL: 300+ pairs)
+          <p class="text-xs mt-1" style="color: var(--text-secondary);">
+            (Default: 35 / ALL: 300+)
           </p>
         </div>
 

@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snapshot TradingView - 4H Strategy Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .pulse-slow { animation: pulse-slow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    
+    .trend-up { color: #10b981; }
+    .trend-down { color: #ef4444; }
+    .trend-flat { color: #6b7280; }
+    
+    .bg-trend-up { background-color: rgba(16, 185, 129, 0.1); border-color: #10b981; }
+    .bg-trend-down { background-color: rgba(239, 68, 68, 0.1); border-color: #ef4444; }
+    .bg-trend-flat { background-color: rgba(107, 114, 128, 0.1); border-color: #6b7280; }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  
+  <!-- Header -->
+  <header class="bg-gray-800 border-b border-gray-700 shadow-lg">
+    <div class="container mx-auto px-6 py-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-bold text-white">📊 Snapshot TradingView</h1>
+          <p class="text-sm text-gray-400">4-Hour Strategy Automation Dashboard</p>
+        </div>
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2">
+            <div id="statusIndicator" class="w-3 h-3 bg-green-500 rounded-full pulse-slow"></div>
+            <span class="text-sm text-gray-400">Live</span>
+          </div>
+          <a href="/scanner.html" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition">
+            🔍 Market Scanner
+          </a>
+          <button id="refreshBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition">
+            🔄 Refresh
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="container mx-auto px-6 py-8">
+    
+    <!-- Symbol Selector -->
+    <div class="mb-8 bg-gray-800 rounded-xl p-6 border border-gray-700">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="md:col-span-2">
+          <div class="flex items-center justify-between mb-2">
+            <label class="block text-sm font-medium text-gray-400">Trading Pair</label>
+            <div class="flex gap-2">
+              <button 
+                id="loadAllCoinsBtn" 
+                class="text-xs px-2 py-1 bg-purple-700 hover:bg-purple-600 rounded text-white transition"
+                title="Load ALL available coins from Kraken"
+              >
+                🌐 Load All Coins
+              </button>
+              <button 
+                id="showFavoritesBtn" 
+                class="text-xs px-2 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-white transition"
+                title="Show only favorites"
+              >
+                ⭐ Favorites
+              </button>
+            </div>
+          </div>
+          <div class="relative">
+            <input 
+              type="text" 
+              id="symbolSearch" 
+              placeholder="Search crypto (e.g., Bitcoin, BTC, ETH...)" 
+              class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-white"
+              autocomplete="off"
+            >
+            <div id="symbolDropdown" class="hidden absolute z-50 w-full mt-2 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-h-96 overflow-y-auto">
+              <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-2 flex gap-2">
+                <select id="sortBy" class="flex-1 text-xs px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white">
+                  <option value="name">Sort: A-Z</option>
+                  <option value="favorites">Sort: Favorites First</option>
+                </select>
+                <span class="text-xs text-gray-400 px-2 py-1" id="coinCount">0 coins</span>
+              </div>
+              <div id="symbolList" class="py-2">
+                <!-- Symbol options will be populated here -->
+              </div>
+            </div>
+            <input type="hidden" id="selectedSymbol" value="BTCUSDT">
+          </div>
+          <p class="text-xs text-gray-500 mt-1">
+            Selected: <span id="selectedSymbolDisplay" class="text-blue-400 font-medium">Bitcoin (BTCUSDT)</span>
+          </p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-2">Timeframes</label>
+          <select 
+            id="timeframeSelect" 
+            class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-white"
+          >
+            <option value="4h,1h,15m,5m">4h, 1h, 15m, 5m</option>
+            <option value="4h,1h">4h, 1h only</option>
+            <option value="4h">4h only</option>
+            <option value="1h,15m,5m,3m,1m">All Lower TFs</option>
+          </select>
+        </div>
+        <div class="flex items-end">
+          <button 
+            id="analyzeBtn" 
+            class="w-full px-6 py-2 bg-green-600 hover:bg-green-700 rounded-lg font-medium transition"
+          >
+            📈 Analyze
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="hidden text-center py-12">
+      <div class="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p class="text-gray-400">Fetching data from Binance...</p>
+    </div>
+
+    <!-- Error State -->
+    <div id="errorState" class="hidden bg-red-900/30 border border-red-500 rounded-xl p-6 mb-8">
+      <h3 class="text-red-400 font-bold text-lg mb-2">❌ Error</h3>
+      <p id="errorMessage" class="text-gray-300"></p>
+    </div>
+
+    <!-- Results Container -->
+    <div id="resultsContainer" class="hidden">
+      
+      <!-- Current Price Card -->
+      <div class="mb-8 bg-gradient-to-br from-blue-900/30 to-purple-900/30 rounded-xl p-6 border border-blue-700/50 shadow-xl">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div>
+            <p class="text-sm text-gray-400 mb-1">Symbol</p>
+            <div class="flex items-center gap-2 flex-wrap">
+              <p id="currentSymbol" class="text-2xl font-bold text-white">-</p>
+              <button 
+                id="copyApiBtn" 
+                onclick="copyApiEndpoint()" 
+                class="px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs font-medium transition"
+                title="Copy API endpoint URL"
+              >
+                🔗 URL
+              </button>
+              <button 
+                id="copyJsonBtn" 
+                onclick="copyJsonData()" 
+                class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition"
+                title="Copy full JSON response"
+              >
+                📋 Full
+              </button>
+              <button 
+                id="copyCompactBtn" 
+                onclick="copyCompactData()" 
+                class="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs font-medium transition"
+                title="Copy compact JSON for ChatGPT (95% smaller)"
+              >
+                🤖 LLM
+              </button>
+              <button 
+                id="copyDashboardBtn" 
+                onclick="copyDashboardView()" 
+                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-medium transition"
+                title="Copy dashboard view as compact JSON"
+              >
+                📊 View
+              </button>
+            </div>
+          </div>
+          <div>
+            <p class="text-sm text-gray-400 mb-1">Current Price</p>
+            <p id="currentPrice" class="text-2xl font-bold text-green-400">-</p>
+          </div>
+          <div>
+            <p class="text-sm text-gray-400 mb-1">24h Change</p>
+            <p id="priceChange24h" class="text-2xl font-bold">-</p>
+          </div>
+          <div>
+            <p class="text-sm text-gray-400 mb-1">Last Update</p>
+            <p id="lastUpdate" class="text-sm text-gray-300">-</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4H TRADE SIGNAL CARD - Main Strategy Output -->
+      <div id="tradeSignalCard" class="mb-8"></div>
+
+      <!-- Multi-Timeframe Analysis -->
+      <div id="timeframeAnalysis" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Timeframe cards will be inserted here dynamically -->
+      </div>
+
+    </div>
+
+    <!-- Initial State -->
+    <div id="initialState" class="text-center py-20">
+      <div class="text-6xl mb-4">📊</div>
+      <h2 class="text-2xl font-bold text-gray-300 mb-2">Ready to Analyze</h2>
+      <p class="text-gray-500">Enter a symbol and click "Analyze" to get started</p>
+      <div class="mt-8 flex justify-center gap-4">
+        <button onclick="quickAnalyze('BTCUSDT')" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-600 transition">
+          BTC
+        </button>
+        <button onclick="quickAnalyze('ETHUSDT')" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-600 transition">
+          ETH
+        </button>
+        <button onclick="quickAnalyze('SOLUSDT')" class="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg border border-gray-600 transition">
+          SOL
+        </button>
+      </div>
+      
+      <!-- Debug Info -->
+      <div class="mt-12 max-w-md mx-auto bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+        <p class="text-xs text-gray-500 mb-2">🔧 Debug Info</p>
+        <button onclick="testConnection()" class="text-xs px-3 py-1 bg-blue-700 hover:bg-blue-600 rounded text-white transition">
+          Test API Connection
+        </button>
+        <div id="debugInfo" class="text-xs text-left text-gray-400 mt-2"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-gray-800 border-t border-gray-700 mt-16 py-6">
+    <div class="container mx-auto px-6 text-center text-gray-400 text-sm">
+      <p>Powered by Binance API • No API key required • Free & Open Source</p>
+      <p class="mt-2">Technical Indicators: 21 EMA, 200 EMA, Stochastic RSI</p>
+    </div>
+  </footer>
+
+  <script>
+    // Check if opened from file:// instead of http://
+    if (window.location.protocol === 'file:') {
+      alert('⚠️ IMPORTANT: Do not open this file directly!\n\nInstead, access it through the server:\nhttp://localhost:3000\n\nMake sure the server is running with: npm start');
+      document.body.innerHTML = `
+        <div style="padding: 40px; text-align: center; font-family: system-ui;">
+          <h1 style="color: #ef4444; font-size: 48px;">⚠️</h1>
+          <h2 style="color: #1f2937;">Wrong Access Method</h2>
+          <p style="color: #6b7280; margin: 20px 0;">You opened this file directly. This won't work due to CORS restrictions.</p>
+          <div style="background: #fef3c7; border: 2px solid #f59e0b; border-radius: 8px; padding: 20px; margin: 20px auto; max-width: 600px; text-align: left;">
+            <h3 style="color: #92400e; margin-top: 0;">✅ Correct Way:</h3>
+            <ol style="color: #78350f;">
+              <li><strong>Open Terminal</strong></li>
+              <li>Navigate to project: <code>cd /Users/bballi/Documents/Repos/snapshot_tradingview</code></li>
+              <li>Start server: <code>npm start</code></li>
+              <li>Open browser to: <a href="http://localhost:3000" style="color: #1d4ed8;">http://localhost:3000</a></li>
+            </ol>
+          </div>
+          <p style="margin-top: 30px;"><a href="http://localhost:3000" style="background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">🚀 Go to http://localhost:3000</a></p>
+        </div>
+      `;
+      throw new Error('Must access via http://localhost:3000');
+    }
+
+    // State management
+    let currentData = null;
+
+    // DOM elements
+    const symbolSearch = document.getElementById('symbolSearch');
+    const selectedSymbol = document.getElementById('selectedSymbol');
+    const selectedSymbolDisplay = document.getElementById('selectedSymbolDisplay');
+    const symbolDropdown = document.getElementById('symbolDropdown');
+    const symbolList = document.getElementById('symbolList');
+    const timeframeSelect = document.getElementById('timeframeSelect');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const loadingState = document.getElementById('loadingState');
+    const errorState = document.getElementById('errorState');
+    const errorMessage = document.getElementById('errorMessage');
+    const resultsContainer = document.getElementById('resultsContainer');
+    const initialState = document.getElementById('initialState');
+    const timeframeAnalysis = document.getElementById('timeframeAnalysis');
+
+    // Global symbols list
+    let availableSymbols = [];
+    let allSymbols = []; // Store all symbols when fetched
+    let showingFavoritesOnly = false;
+    
+    // Favorites management (stored in localStorage)
+    function getFavorites() {
+      const favs = localStorage.getItem('favoriteSymbols');
+      return favs ? JSON.parse(favs) : [];
+    }
+    
+    function saveFavorites(favorites) {
+      localStorage.setItem('favoriteSymbols', JSON.stringify(favorites));
+    }
+    
+    function isFavorite(symbol) {
+      return getFavorites().includes(symbol);
+    }
+    
+    function toggleFavorite(symbol) {
+      const favorites = getFavorites();
+      const index = favorites.indexOf(symbol);
+      if (index > -1) {
+        favorites.splice(index, 1);
+      } else {
+        favorites.push(symbol);
+      }
+      saveFavorites(favorites);
+      // Re-render list to update stars
+      const currentSearch = symbolSearch.value;
+      filterSymbols(currentSearch);
+    }
+
+    // Event listeners
+    analyzeBtn.addEventListener('click', analyze);
+    refreshBtn.addEventListener('click', analyze);
+    
+    // Symbol search and dropdown
+    symbolSearch.addEventListener('focus', () => {
+      symbolDropdown.classList.remove('hidden');
+      filterSymbols('');
+    });
+    
+    symbolSearch.addEventListener('input', (e) => {
+      filterSymbols(e.target.value);
+    });
+    
+    symbolSearch.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        symbolDropdown.classList.add('hidden');
+        analyze();
+      }
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#symbolSearch') && !e.target.closest('#symbolDropdown')) {
+        symbolDropdown.classList.add('hidden');
+      }
+    });
+    
+    // Load all coins button
+    document.getElementById('loadAllCoinsBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('loadAllCoinsBtn');
+      btn.textContent = '⏳ Loading...';
+      btn.disabled = true;
+      await loadSymbols(true); // Pass true to fetch all
+      btn.textContent = '✅ All Loaded!';
+      setTimeout(() => {
+        btn.textContent = '🌐 Load All Coins';
+        btn.disabled = false;
+      }, 2000);
+    });
+    
+    // Show favorites button
+    document.getElementById('showFavoritesBtn').addEventListener('click', () => {
+      showingFavoritesOnly = !showingFavoritesOnly;
+      const btn = document.getElementById('showFavoritesBtn');
+      if (showingFavoritesOnly) {
+        btn.textContent = '📋 Show All';
+        btn.classList.remove('bg-yellow-700', 'hover:bg-yellow-600');
+        btn.classList.add('bg-blue-700', 'hover:bg-blue-600');
+        filterSymbols(symbolSearch.value);
+      } else {
+        btn.textContent = '⭐ Favorites';
+        btn.classList.remove('bg-blue-700', 'hover:bg-blue-600');
+        btn.classList.add('bg-yellow-700', 'hover:bg-yellow-600');
+        filterSymbols(symbolSearch.value);
+      }
+    });
+    
+    // Sort dropdown
+    document.getElementById('sortBy').addEventListener('change', (e) => {
+      filterSymbols(symbolSearch.value);
+    });
+
+    // Load available symbols on page load
+    async function loadSymbols(fetchAll = false) {
+      try {
+        const url = fetchAll ? '/api/symbols?all=true' : '/api/symbols';
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (fetchAll) {
+          allSymbols = data.symbols;
+          availableSymbols = allSymbols;
+          console.log(`🌐 Loaded ALL ${availableSymbols.length} trading pairs from Kraken!`);
+        } else {
+          availableSymbols = data.symbols;
+          console.log(`Loaded ${availableSymbols.length} curated trading pairs`);
+        }
+        
+        renderSymbolList(availableSymbols);
+        updateCoinCount(availableSymbols.length);
+      } catch (error) {
+        console.error('Failed to load symbols:', error);
+        availableSymbols = [
+          { symbol: 'BTCUSDT', name: 'Bitcoin' },
+          { symbol: 'ETHUSDT', name: 'Ethereum' },
+          { symbol: 'SOLUSDT', name: 'Solana' }
+        ];
+        renderSymbolList(availableSymbols);
+        updateCoinCount(availableSymbols.length);
+      }
+    }
+    
+    // Update coin count display
+    function updateCoinCount(count) {
+      document.getElementById('coinCount').textContent = `${count} coins`;
+    }
+
+    // Render symbol list in dropdown
+    function renderSymbolList(symbols) {
+      symbolList.innerHTML = '';
+      
+      if (symbols.length === 0) {
+        symbolList.innerHTML = '<div class="px-4 py-2 text-gray-500 text-sm">No symbols found</div>';
+        updateCoinCount(0);
+        return;
+      }
+      
+      // Apply sorting
+      const sortBy = document.getElementById('sortBy').value;
+      let sorted = [...symbols];
+      
+      if (sortBy === 'favorites') {
+        const favorites = getFavorites();
+        sorted.sort((a, b) => {
+          const aFav = favorites.includes(a.symbol) ? 0 : 1;
+          const bFav = favorites.includes(b.symbol) ? 0 : 1;
+          if (aFav !== bFav) return aFav - bFav;
+          return a.name.localeCompare(b.name);
+        });
+      } else {
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+      }
+      
+      sorted.forEach(sym => {
+        const isFav = isFavorite(sym.symbol);
+        const item = document.createElement('div');
+        item.className = 'px-4 py-2 hover:bg-gray-700 cursor-pointer flex justify-between items-center text-sm transition group';
+        item.innerHTML = `
+          <div class="flex items-center gap-2 flex-1" data-select>
+            <button class="star-btn text-lg hover:scale-125 transition" data-symbol="${sym.symbol}" title="Toggle favorite">
+              ${isFav ? '⭐' : '☆'}
+            </button>
+            <div>
+              <span class="font-medium text-white">${sym.name}</span>
+              <span class="text-gray-400 ml-2 text-xs">${sym.symbol}</span>
+            </div>
+          </div>
+          <span class="text-xs text-gray-500">${sym.symbol.replace('USDT', '/USDT')}</span>
+        `;
+        
+        // Click on star to toggle favorite
+        const starBtn = item.querySelector('.star-btn');
+        starBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleFavorite(sym.symbol);
+        });
+        
+        // Click elsewhere to select
+        item.addEventListener('click', (e) => {
+          if (!e.target.classList.contains('star-btn')) {
+            selectSymbol(sym);
+          }
+        });
+        
+        symbolList.appendChild(item);
+      });
+      
+      updateCoinCount(sorted.length);
+    }
+
+    // Filter symbols based on search
+    function filterSymbols(searchTerm) {
+      const term = searchTerm.toLowerCase();
+      let symbolsToFilter = availableSymbols;
+      
+      // Filter by favorites if that mode is active
+      if (showingFavoritesOnly) {
+        const favorites = getFavorites();
+        symbolsToFilter = availableSymbols.filter(sym => favorites.includes(sym.symbol));
+      }
+      
+      // Then filter by search term
+      const filtered = symbolsToFilter.filter(sym => 
+        sym.name.toLowerCase().includes(term) ||
+        sym.symbol.toLowerCase().includes(term)
+      );
+      
+      renderSymbolList(filtered);
+    }
+
+    // Select a symbol
+    function selectSymbol(sym) {
+      selectedSymbol.value = sym.symbol;
+      selectedSymbolDisplay.textContent = `${sym.name} (${sym.symbol})`;
+      symbolSearch.value = sym.name;
+      symbolDropdown.classList.add('hidden');
+      console.log(`Selected: ${sym.name} (${sym.symbol})`);
+    }
+
+    // Main analysis function
+    async function analyze() {
+      const symbol = selectedSymbol.value.trim().toUpperCase();
+      const intervals = timeframeSelect.value;
+
+      if (!symbol) {
+        showError('Please enter a symbol (e.g., BTCUSDT)');
+        return;
+      }
+
+      // Show loading state
+      initialState.classList.add('hidden');
+      resultsContainer.classList.add('hidden');
+      errorState.classList.add('hidden');
+      loadingState.classList.remove('hidden');
+
+      try {
+        // Fetch complete analysis with trade signal
+        console.log(`Fetching: /api/analyze/${symbol}?intervals=${intervals}`);
+        const response = await fetch(`/api/analyze/${symbol}?intervals=${intervals}`);
+        
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('Data received:', data);
+        console.log('Trade Signal:', data.tradeSignal);
+        console.log('Analysis object:', data.analysis);
+        console.log('Analysis type:', typeof data.analysis);
+        console.log('Analysis keys:', data.analysis ? Object.keys(data.analysis) : 'null/undefined');
+
+        currentData = data;
+        displayResults(data);
+        loadingState.classList.add('hidden');
+        resultsContainer.classList.remove('hidden');
+
+      } catch (error) {
+        console.error('Error details:', error);
+        showError(error.message || 'Failed to fetch data. Check console for details.');
+        loadingState.classList.add('hidden');
+      }
+    }
+
+    // Display results
+    function displayResults(data) {
+      // Update current price section
+      document.getElementById('currentSymbol').textContent = data.symbol;
+      document.getElementById('currentPrice').textContent = `$${data.currentPrice.toLocaleString()}`;
+      
+      const priceChange = data.priceChange24h;
+      const priceChangeEl = document.getElementById('priceChange24h');
+      priceChangeEl.textContent = `${priceChange >= 0 ? '+' : ''}${priceChange.toFixed(2)}%`;
+      priceChangeEl.className = `text-2xl font-bold ${priceChange >= 0 ? 'text-green-400' : 'text-red-400'}`;
+      
+      document.getElementById('lastUpdate').textContent = new Date(data.timestamp).toLocaleTimeString();
+
+      // Display trade signal (most important!)
+      displayTradeSignal(data.tradeSignal);
+
+      // Display timeframe analysis
+      timeframeAnalysis.innerHTML = '';
+      
+      // Add null check to prevent mobile errors
+      if (data.analysis && typeof data.analysis === 'object') {
+        for (const [interval, analysis] of Object.entries(data.analysis)) {
+          if (analysis.error) {
+            continue; // Skip errored timeframes
+          }
+
+          const card = createTimeframeCard(interval, analysis);
+          timeframeAnalysis.appendChild(card);
+        }
+      } else {
+        console.warn('No analysis data available:', data);
+        timeframeAnalysis.innerHTML = '<div class="col-span-2 text-center text-gray-500 p-8">No timeframe analysis available</div>';
+      }
+    }
+
+    // Display trade signal card
+    function displayTradeSignal(signal) {
+      const container = document.getElementById('tradeSignalCard');
+      
+      if (!signal || !signal.valid) {
+        // No trade signal
+        container.innerHTML = `
+          <div class="bg-gray-800 rounded-xl p-6 border-2 border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-bold text-white">🎯 4H Set & Forget Signal</h2>
+              <span class="px-4 py-2 rounded-full text-sm font-bold bg-gray-700 text-gray-300">
+                NO TRADE
+              </span>
+            </div>
+            <p class="text-gray-400 text-lg">${signal?.reason || 'Waiting for setup...'}</p>
+            ${signal?.trend ? `
+              <div class="mt-4 text-sm text-gray-500">
+                Trend: 4h ${signal.trend['4h']} | 1h ${signal.trend['1h']}
+              </div>
+            ` : ''}
+          </div>
+        `;
+        return;
+      }
+
+      // Valid trade signal!
+      const isLong = signal.direction === 'long';
+      const isShort = signal.direction === 'short';
+      const confidence = signal.confidence;
+      
+      // Confidence badge
+      let confidenceBadge = '';
+      let confidenceColor = '';
+      if (confidence >= 0.75) {
+        confidenceBadge = '🟢 HIGH';
+        confidenceColor = 'bg-green-900/50 text-green-300 border-green-500';
+      } else if (confidence >= 0.55) {
+        confidenceBadge = '🟡 MEDIUM';
+        confidenceColor = 'bg-yellow-900/50 text-yellow-300 border-yellow-500';
+      } else {
+        confidenceBadge = '🔴 LOW';
+        confidenceColor = 'bg-red-900/50 text-red-300 border-red-500';
+      }
+
+      // Direction color
+      const directionColor = isLong ? 'text-green-400' : 'text-red-400';
+      const bgGradient = isLong 
+        ? 'from-green-900/20 to-emerald-900/20 border-green-700' 
+        : 'from-red-900/20 to-rose-900/20 border-red-700';
+
+      container.innerHTML = `
+        <div class="bg-gradient-to-br ${bgGradient} rounded-xl p-8 border-2 shadow-2xl">
+          <!-- Header -->
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-3xl font-bold text-white">🎯 4H Set & Forget Signal</h2>
+            <div class="flex gap-3">
+              <span class="px-4 py-2 rounded-full text-lg font-bold ${directionColor} bg-gray-900/50 border-2 ${isLong ? 'border-green-500' : 'border-red-500'}">
+                ${signal.direction.toUpperCase()} ${isLong ? '📈' : '📉'}
+              </span>
+              <span class="px-4 py-2 rounded-full text-sm font-bold ${confidenceColor} border-2">
+                ${confidenceBadge} ${(confidence * 100).toFixed(0)}%
+              </span>
+            </div>
+          </div>
+
+          <!-- Summary -->
+          <div class="bg-gray-900/70 rounded-lg p-4 mb-6 border border-gray-700">
+            <p class="text-lg text-gray-200">${signal.reason_summary}</p>
+          </div>
+
+          <!-- Trading Levels Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <!-- Entry Zone -->
+            <div class="bg-gray-900/50 rounded-lg p-4 border border-blue-700">
+              <p class="text-xs text-gray-400 mb-2">ENTRY ZONE</p>
+              <p class="text-sm text-blue-300 font-mono">$${signal.entry_zone.min.toLocaleString()}</p>
+              <p class="text-xs text-gray-500">to</p>
+              <p class="text-sm text-blue-300 font-mono">$${signal.entry_zone.max.toLocaleString()}</p>
+            </div>
+
+            <!-- Stop Loss -->
+            <div class="bg-gray-900/50 rounded-lg p-4 border border-red-700">
+              <p class="text-xs text-gray-400 mb-2">STOP LOSS</p>
+              <p class="text-lg text-red-400 font-mono font-bold">$${signal.stop_loss.toLocaleString()}</p>
+              <p class="text-xs text-gray-500 mt-1">
+                ${Math.abs(((signal.stop_loss - signal.currentPrice) / signal.currentPrice) * 100).toFixed(2)}% risk
+              </p>
+            </div>
+
+            <!-- Target 1 -->
+            <div class="bg-gray-900/50 rounded-lg p-4 border border-green-700">
+              <p class="text-xs text-gray-400 mb-2">TARGET 1 (1:1)</p>
+              <p class="text-lg text-green-400 font-mono font-bold">$${signal.targets[0].toLocaleString()}</p>
+              <p class="text-xs text-gray-500 mt-1">
+                ${Math.abs(((signal.targets[0] - signal.currentPrice) / signal.currentPrice) * 100).toFixed(2)}% profit
+              </p>
+            </div>
+
+            <!-- Target 2 -->
+            <div class="bg-gray-900/50 rounded-lg p-4 border border-green-700">
+              <p class="text-xs text-gray-400 mb-2">TARGET 2 (1:2)</p>
+              <p class="text-lg text-green-400 font-mono font-bold">$${signal.targets[1].toLocaleString()}</p>
+              <p class="text-xs text-gray-500 mt-1">
+                ${Math.abs(((signal.targets[1] - signal.currentPrice) / signal.currentPrice) * 100).toFixed(2)}% profit
+              </p>
+            </div>
+          </div>
+
+          <!-- Additional Info -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <!-- Current Levels -->
+            <div class="bg-gray-900/30 rounded-lg p-3">
+              <p class="text-gray-400 text-xs mb-2">Current Levels</p>
+              <div class="space-y-1">
+                <div class="flex justify-between">
+                  <span class="text-gray-500">Price:</span>
+                  <span class="text-white font-mono">$${signal.currentPrice.toLocaleString()}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500">21 EMA:</span>
+                  <span class="text-blue-400 font-mono">$${signal.ema21.toLocaleString()}</span>
+                </div>
+                ${signal.ema200 ? `
+                  <div class="flex justify-between">
+                    <span class="text-gray-500">200 EMA:</span>
+                    <span class="text-purple-400 font-mono">$${signal.ema200.toLocaleString()}</span>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+
+            <!-- Trend Alignment -->
+            <div class="bg-gray-900/30 rounded-lg p-3">
+              <p class="text-gray-400 text-xs mb-2">Trend Alignment</p>
+              <div class="space-y-1">
+                <div class="flex justify-between">
+                  <span class="text-gray-500">4h:</span>
+                  <span class="${getTrendColor(signal.trend['4h'])}">${signal.trend['4h']}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500">1h:</span>
+                  <span class="${getTrendColor(signal.trend['1h'])}">${signal.trend['1h']}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500">15m:</span>
+                  <span class="${getTrendColor(signal.trend['15m'])}">${signal.trend['15m']}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Stoch Status -->
+            <div class="bg-gray-900/30 rounded-lg p-3">
+              <p class="text-gray-400 text-xs mb-2">Stochastic RSI</p>
+              <div class="space-y-1">
+                ${signal.stoch['4h'] ? `
+                  <div class="flex justify-between">
+                    <span class="text-gray-500">4h:</span>
+                    <span class="text-gray-300">${signal.stoch['4h'].zone} ${signal.stoch['4h'].curl}</span>
+                  </div>
+                ` : ''}
+                ${signal.stoch['1h'] ? `
+                  <div class="flex justify-between">
+                    <span class="text-gray-500">1h:</span>
+                    <span class="text-gray-300">${signal.stoch['1h'].zone} ${signal.stoch['1h'].curl}</span>
+                  </div>
+                ` : ''}
+                ${signal.stoch['15m'] ? `
+                  <div class="flex justify-between">
+                    <span class="text-gray-500">15m:</span>
+                    <span class="text-gray-300">${signal.stoch['15m'].zone} ${signal.stoch['15m'].curl}</span>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+
+          <!-- Timestamp -->
+          <div class="mt-4 text-xs text-gray-500 text-right">
+            Generated: ${new Date(signal.timestamp).toLocaleString()}
+          </div>
+        </div>
+      `;
+    }
+
+    // Helper: Get trend color
+    function getTrendColor(trend) {
+      if (trend === 'uptrend' || trend === 'up') return 'text-green-400 font-bold';
+      if (trend === 'downtrend' || trend === 'down') return 'text-red-400 font-bold';
+      return 'text-gray-400';
+    }
+
+    // Create timeframe card
+    function createTimeframeCard(interval, analysis) {
+      const { indicators, structure } = analysis;
+      const trend = indicators.analysis.trend;
+      const trendClass = trend === 'UPTREND' ? 'trend-up' : trend === 'DOWNTREND' ? 'trend-down' : 'trend-flat';
+      const bgClass = trend === 'UPTREND' ? 'bg-trend-up' : trend === 'DOWNTREND' ? 'bg-trend-down' : 'bg-trend-flat';
+
+      const card = document.createElement('div');
+      card.className = `bg-gray-800 rounded-xl p-6 border-2 ${bgClass}`;
+      
+      card.innerHTML = `
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-bold text-white">${interval.toUpperCase()}</h3>
+          <span class="px-3 py-1 rounded-full text-sm font-bold ${trendClass}">
+            ${trend}
+          </span>
+        </div>
+
+        <div class="space-y-3">
+          <!-- Price -->
+          <div class="flex justify-between items-center">
+            <span class="text-gray-400">Current Price</span>
+            <span class="font-mono font-bold text-white">$${indicators.price.current.toFixed(2)}</span>
+          </div>
+
+          <!-- 21 EMA -->
+          <div class="flex justify-between items-center">
+            <span class="text-gray-400">21 EMA</span>
+            <span class="font-mono font-bold ${indicators.ema.ema21 ? 'text-blue-400' : 'text-gray-600'}">
+              ${indicators.ema.ema21 ? '$' + indicators.ema.ema21.toFixed(2) : 'N/A'}
+            </span>
+          </div>
+
+          <!-- 200 EMA -->
+          <div class="flex justify-between items-center">
+            <span class="text-gray-400">200 EMA</span>
+            <span class="font-mono font-bold ${indicators.ema.ema200 ? 'text-purple-400' : 'text-gray-600'}">
+              ${indicators.ema.ema200 ? '$' + indicators.ema.ema200.toFixed(2) : 'N/A'}
+            </span>
+          </div>
+
+          <!-- Stochastic RSI -->
+          <div class="border-t border-gray-700 pt-3 mt-3">
+            <div class="flex justify-between items-center mb-2">
+              <span class="text-gray-400">Stoch RSI</span>
+              <span class="text-xs px-2 py-1 rounded ${getStochColor(indicators.stochRSI.condition)}">
+                ${indicators.stochRSI.condition}
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span class="text-gray-500">%K:</span>
+                <span class="font-mono ml-1 ${indicators.stochRSI.k ? 'text-white' : 'text-gray-600'}">
+                  ${indicators.stochRSI.k ? indicators.stochRSI.k.toFixed(2) : 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span class="text-gray-500">%D:</span>
+                <span class="font-mono ml-1 ${indicators.stochRSI.d ? 'text-white' : 'text-gray-600'}">
+                  ${indicators.stochRSI.d ? indicators.stochRSI.d.toFixed(2) : 'N/A'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pullback State -->
+          <div class="border-t border-gray-700 pt-3 mt-3">
+            <div class="flex justify-between items-center">
+              <span class="text-gray-400">Pullback State</span>
+              <span class="text-xs px-2 py-1 rounded ${getPullbackColor(indicators.analysis.pullbackState)}">
+                ${indicators.analysis.pullbackState}
+              </span>
+            </div>
+            ${indicators.analysis.distanceFrom21EMA !== null ? `
+              <div class="text-xs text-gray-500 mt-1">
+                Distance from 21 EMA: ${indicators.analysis.distanceFrom21EMA.toFixed(2)}%
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Market Structure -->
+          ${structure.swingHigh && structure.swingLow ? `
+            <div class="border-t border-gray-700 pt-3 mt-3 text-sm">
+              <div class="flex justify-between">
+                <span class="text-gray-400">Swing High</span>
+                <span class="font-mono text-green-400">$${structure.swingHigh.toFixed(2)}</span>
+              </div>
+              <div class="flex justify-between mt-1">
+                <span class="text-gray-400">Swing Low</span>
+                <span class="font-mono text-red-400">$${structure.swingLow.toFixed(2)}</span>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      return card;
+    }
+
+    // Helper functions for styling
+    function getStochColor(condition) {
+      const colors = {
+        'OVERBOUGHT': 'bg-red-900/50 text-red-300',
+        'OVERSOLD': 'bg-green-900/50 text-green-300',
+        'BULLISH': 'bg-green-800/50 text-green-200',
+        'BEARISH': 'bg-red-800/50 text-red-200',
+        'NEUTRAL': 'bg-gray-700 text-gray-300'
+      };
+      return colors[condition] || colors['NEUTRAL'];
+    }
+
+    function getPullbackColor(state) {
+      const colors = {
+        'ENTRY_ZONE': 'bg-green-900/50 text-green-300',
+        'OVEREXTENDED': 'bg-yellow-900/50 text-yellow-300',
+        'RETRACING': 'bg-blue-900/50 text-blue-300',
+        'UNKNOWN': 'bg-gray-700 text-gray-400'
+      };
+      return colors[state] || colors['UNKNOWN'];
+    }
+
+    // Show error
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorState.classList.remove('hidden');
+      loadingState.classList.add('hidden');
+      resultsContainer.classList.add('hidden');
+      initialState.classList.add('hidden');
+    }
+
+    // Quick analyze function
+    function quickAnalyze(symbolStr) {
+      const sym = availableSymbols.find(s => s.symbol === symbolStr);
+      if (sym) {
+        selectSymbol(sym);
+        analyze();
+      } else {
+        selectedSymbol.value = symbolStr;
+        symbolSearch.value = symbolStr;
+        analyze();
+      }
+    }
+
+    // Initialize: Load symbols on page load
+    loadSymbols();
+
+    // Test connection function
+    async function testConnection() {
+      const debugEl = document.getElementById('debugInfo');
+      debugEl.innerHTML = 'Testing...';
+      
+      try {
+        // Test health endpoint
+        const healthRes = await fetch('/health');
+        const health = await healthRes.json();
+        debugEl.innerHTML = `✅ Server: ${health.status}<br>`;
+        
+        // Test ticker endpoint
+        const tickerRes = await fetch('/api/ticker/BTCUSDT');
+        const ticker = await tickerRes.json();
+        debugEl.innerHTML += `✅ API: Working<br>`;
+        debugEl.innerHTML += `✅ BTC Price: $${ticker.price.toLocaleString()}<br>`;
+        debugEl.innerHTML += `<span class="text-green-400">All systems operational!</span>`;
+      } catch (error) {
+        debugEl.innerHTML = `❌ Error: ${error.message}<br>`;
+        debugEl.innerHTML += `<span class="text-red-400">Check console (F12) for details</span>`;
+        console.error('Connection test failed:', error);
+      }
+    }
+
+    // Copy API endpoint URL to clipboard
+    function copyApiEndpoint() {
+      const symbol = selectedSymbol.value;
+      const intervals = timeframeSelect.value;
+      const baseUrl = window.location.origin;
+      const apiUrl = `${baseUrl}/api/analyze/${symbol}?intervals=${intervals}`;
+      
+      navigator.clipboard.writeText(apiUrl).then(() => {
+        const btn = document.getElementById('copyApiBtn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Copied!';
+        btn.classList.add('bg-green-600');
+        btn.classList.remove('bg-purple-600');
+        
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.classList.remove('bg-green-600');
+          btn.classList.add('bg-purple-600');
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy URL');
+      });
+    }
+
+    // Copy full JSON data to clipboard
+    function copyJsonData() {
+      if (!currentData) {
+        alert('No data to copy. Please analyze a symbol first.');
+        return;
+      }
+      
+      // Format JSON nicely for readability
+      const jsonString = JSON.stringify(currentData, null, 2);
+      
+      navigator.clipboard.writeText(jsonString).then(() => {
+        const btn = document.getElementById('copyJsonBtn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Copied!';
+        btn.classList.add('bg-green-600');
+        btn.classList.remove('bg-blue-600');
+        
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.classList.remove('bg-green-600');
+          btn.classList.add('bg-blue-600');
+        }, 2000);
+        
+        console.log('Full JSON data copied to clipboard!');
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy JSON data');
+      });
+    }
+
+    // Copy compact JSON data (for LLM) to clipboard
+    async function copyCompactData() {
+      const symbol = selectedSymbol.value;
+      if (!symbol) {
+        alert('No symbol selected. Please analyze a symbol first.');
+        return;
+      }
+      
+      const btn = document.getElementById('copyCompactBtn');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '⏳...';
+      btn.disabled = true;
+      
+      try {
+        // Fetch compact version from API
+        const response = await fetch(`/api/analyze-compact/${symbol}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch compact data: ${response.statusText}`);
+        }
+        
+        const compactData = await response.json();
+        const jsonString = JSON.stringify(compactData, null, 2);
+        
+        await navigator.clipboard.writeText(jsonString);
+        
+        btn.innerHTML = '✅ Copied!';
+        btn.classList.add('bg-emerald-600');
+        btn.classList.remove('bg-green-600');
+        
+        console.log('Compact JSON data copied to clipboard!');
+        console.log(`Size: ${jsonString.length} bytes (vs ${JSON.stringify(currentData).length} bytes full)`);
+        
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.classList.remove('bg-emerald-600');
+          btn.classList.add('bg-green-600');
+          btn.disabled = false;
+        }, 2000);
+        
+      } catch (err) {
+        console.error('Failed to copy compact data:', err);
+        alert('Failed to copy compact data: ' + err.message);
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
+    }
+
+    // Copy dashboard view as compact JSON (only displayed fields)
+    function copyDashboardView() {
+      if (!currentData) {
+        alert('No data to copy. Please analyze a symbol first.');
+        return;
+      }
+      
+      const btn = document.getElementById('copyDashboardBtn');
+      const originalText = btn.innerHTML;
+      
+      try {
+        // Extract only the fields displayed on the dashboard
+        const dashboardView = {
+          symbol: currentData.symbol,
+          currentPrice: currentData.currentPrice,
+          priceChange24h: currentData.priceChange24h,
+          
+          // Trade signal (4H Set & Forget)
+          signal: currentData.tradeSignal ? {
+            valid: currentData.tradeSignal.valid,
+            direction: currentData.tradeSignal.direction || 'NO_TRADE',
+            confidence: currentData.tradeSignal.confidence ? 
+              parseFloat((currentData.tradeSignal.confidence * 100).toFixed(0)) : 0,
+            reason: currentData.tradeSignal.reason_summary || currentData.tradeSignal.reason,
+            
+            // Only include trade levels if valid
+            ...(currentData.tradeSignal.valid && currentData.tradeSignal.entry_zone && {
+              entryZone: {
+                min: currentData.tradeSignal.entry_zone.min,
+                max: currentData.tradeSignal.entry_zone.max
+              },
+              stopLoss: currentData.tradeSignal.stop_loss,
+              targets: {
+                tp1: currentData.tradeSignal.targets?.[0],
+                tp2: currentData.tradeSignal.targets?.[1]
+              }
+            })
+          } : null,
+          
+          // Timeframes (only fields shown in dashboard cards)
+          timeframes: {},
+          
+          timestamp: currentData.timestamp
+        };
+        
+        // Extract displayed timeframe data
+        if (currentData.analysis && typeof currentData.analysis === 'object') {
+          for (const [interval, analysis] of Object.entries(currentData.analysis)) {
+            if (analysis.error) {
+              dashboardView.timeframes[interval] = { error: analysis.error };
+              continue;
+            }
+            
+            if (analysis.indicators) {
+              const ind = analysis.indicators;
+              dashboardView.timeframes[interval] = {
+                // Price and EMAs (shown in dashboard)
+                currentPrice: ind.price?.current ? parseFloat(ind.price.current.toFixed(2)) : null,
+                ema21: ind.ema?.ema21 ? parseFloat(ind.ema.ema21.toFixed(2)) : null,
+                ema200: ind.ema?.ema200 ? parseFloat(ind.ema.ema200.toFixed(2)) : null,
+                
+                // Stochastic RSI (shown in dashboard)
+                stochRSI: {
+                  k: ind.stochRSI?.k ? parseFloat(ind.stochRSI.k.toFixed(2)) : null,
+                  d: ind.stochRSI?.d ? parseFloat(ind.stochRSI.d.toFixed(2)) : null,
+                  condition: ind.stochRSI?.condition || 'UNKNOWN'
+                },
+                
+                // Pullback state (shown in dashboard)
+                pullback: {
+                  state: ind.analysis?.pullbackState || 'UNKNOWN',
+                  distanceFrom21EMA: ind.analysis?.distanceFrom21EMA ? 
+                    parseFloat(ind.analysis.distanceFrom21EMA.toFixed(2)) : null
+                },
+                
+                // Trend (shown in dashboard)
+                trend: ind.analysis?.trend || 'UNKNOWN',
+                
+                // Market structure (shown in dashboard)
+                swingHigh: analysis.structure?.swingHigh ? 
+                  parseFloat(analysis.structure.swingHigh.toFixed(2)) : null,
+                swingLow: analysis.structure?.swingLow ? 
+                  parseFloat(analysis.structure.swingLow.toFixed(2)) : null
+              };
+            }
+          }
+        }
+        
+        // Format as pretty JSON
+        const jsonString = JSON.stringify(dashboardView, null, 2);
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(jsonString).then(() => {
+          btn.innerHTML = '✅ Copied!';
+          btn.classList.add('bg-purple-600');
+          btn.classList.remove('bg-indigo-600');
+          
+          console.log('Dashboard view copied to clipboard!');
+          console.log(`Dashboard JSON size: ${jsonString.length} bytes`);
+          
+          setTimeout(() => {
+            btn.innerHTML = originalText;
+            btn.classList.remove('bg-purple-600');
+            btn.classList.add('bg-indigo-600');
+          }, 2000);
+        }).catch(err => {
+          console.error('Failed to copy:', err);
+          alert('Failed to copy dashboard view');
+        });
+        
+      } catch (err) {
+        console.error('Failed to create dashboard view:', err);
+        alert('Failed to copy dashboard view: ' + err.message);
+      }
+    }
+
+    // Auto-refresh every 5 minutes (optional)
+    // setInterval(() => {
+    //   if (currentData) {
+    //     analyze();
+    //   }
+    // }, 5 * 60 * 1000);
+  </script>
+
+</body>
+</html>
+
