@@ -83,31 +83,31 @@
           <a href="/strategy.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
             Strategy
           </a>
-          <button 
+              <button 
             id="refreshBtn" 
             onclick="scanMajorCoins()"
             class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
           >
             Refresh
-          </button>
+              </button>
           <a href="/scanner.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
             Scanner
           </a>
-          <button 
+              <button 
             id="copyAllBtn" 
             onclick="copyAllCoins()"
             class="btn-base btn-primary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
           >
             COPY GPT
-          </button>
-        </div>
-      </div>
-    </div>
+              </button>
+            </div>
+          </div>
+              </div>
   </header>
 
   <!-- Main Content -->
   <main class="max-w-6xl mx-auto px-4 py-4" style="width: 100%; box-sizing: border-box; overflow-x: hidden;">
-    
+
     <!-- Loading State -->
     <div id="loadingState" class="text-center py-12">
       <div class="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mb-4" style="border-color: var(--text-primary); border-top-color: transparent;"></div>
@@ -130,7 +130,7 @@
       <div class="card-edittrax rounded-lg overflow-hidden mb-4">
         <div class="table-container">
           <table class="table-edittrax">
-            <thead style="background-color: var(--color-white);">
+            <thead style="background-color: var(--color-yellow-75);">
               <tr>
                 <th class="px-2 py-2" style="color: black;">COIN</th>
                 <th class="px-2 py-2" style="color: black;">SIGNAL</th>
@@ -145,7 +145,7 @@
         </div>
       </div>
 
-    </div>
+      </div>
 
   </main>
 
@@ -222,13 +222,13 @@
         if (!indicator) return;
         
         if (index === activeIndex) {
-          // ON state: white text
-          indicator.style.color = 'var(--color-white)';
-          indicator.style.borderColor = 'var(--color-white)';
+          // ON state: yellow-75 text
+          indicator.style.color = 'var(--color-yellow-75)';
+          indicator.style.borderColor = 'var(--color-yellow-75)';
         } else {
-          // OFF state: grey text, white border
+          // OFF state: grey text, yellow-75 border
           indicator.style.color = '#6b7280';
-          indicator.style.borderColor = 'var(--color-white)';
+          indicator.style.borderColor = 'var(--color-yellow-75)';
         }
       });
     }
@@ -432,28 +432,28 @@
             <button 
               onclick="cycleStrategy('${symbol}')"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: var(--color-white); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md) 0 0 var(--radius-md); transition: all 0.3s; white-space: nowrap; min-width: 70px;"
+              style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md) 0 0 var(--radius-md); transition: all 0.3s; white-space: nowrap; min-width: 70px;"
             >
               EditTrax
             </button>
             <div 
               id="indicator-${symbol}-0"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: var(--color-white); border: 2px solid var(--color-white); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: transparent; color: var(--color-yellow-75); border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               4h
             </div>
             <div 
               id="indicator-${symbol}-1"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: #6b7280; border: 2px solid var(--color-white); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: transparent; color: #6b7280; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               Swing
             </div>
             <div 
               id="indicator-${symbol}-2"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: #6b7280; border: 2px solid var(--color-white); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: transparent; color: #6b7280; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               Scalp
             </div>
@@ -464,7 +464,7 @@
             <button 
               onclick="toggleDetails('${symbol}')"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: var(--color-white); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
+              style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
               id="toggle-${symbol}"
             >
               Details
@@ -472,7 +472,7 @@
             <button 
               onclick="copyCoinView('${symbol}')"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: var(--color-white); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
+              style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
             >
               Copy
             </button>
@@ -542,38 +542,38 @@
             <div class="flex items-center justify-between mb-3">
               <p class="text-sm font-bold">${tfDisplay}</p>
               <span class="text-xs px-2 py-0.5 rounded ${trend === 'UPTREND' ? 'status-long' : trend === 'DOWNTREND' ? 'status-short' : 'status-neutral'}" style="background-color: var(--bg-tertiary);">${trendBadge}</span>
-            </div>
-            
+          </div>
+
             <div class="space-y-2 text-xs">
-              <div class="flex justify-between">
+                <div class="flex justify-between">
                 <span style="color: var(--text-secondary);">Current Price</span>
                 <span class="font-bold">${ind.price?.current ? '$' + ind.price.current.toLocaleString() : 'N/A'}</span>
-              </div>
+                </div>
               
-              <div class="flex justify-between">
+                <div class="flex justify-between">
                 <span style="color: var(--text-secondary);">21 EMA</span>
                 <span class="font-bold">${ind.ema?.ema21 ? '$' + ind.ema.ema21.toLocaleString() : 'N/A'}</span>
-              </div>
+                </div>
               
-              <div class="flex justify-between">
+                  <div class="flex justify-between">
                 <span style="color: var(--text-secondary);">200 EMA</span>
                 <span class="font-bold">${ind.ema?.ema200 ? '$' + ind.ema.ema200.toLocaleString() : 'N/A'}</span>
-              </div>
+                  </div>
               
               <div class="border-t pt-2" style="border-color: var(--border);">
                 <div class="flex justify-between mb-1">
                   <span style="color: var(--text-secondary);">Stoch RSI</span>
                   <span class="text-xs px-1 py-0.5 rounded ${getStochColor(ind.stochRSI?.condition)}" style="background-color: var(--bg-tertiary);">${ind.stochRSI?.condition || 'N/A'}</span>
-                </div>
+              </div>
                 <div class="flex justify-between mb-1">
                   <span class="text-xs" style="color: var(--text-secondary);">${stochZone}</span>
                   <span class="${stochCurl.color} font-medium">${stochCurl.text}</span>
-                </div>
+            </div>
                 <div class="flex justify-between text-xs" style="color: var(--text-secondary);">
                   <span>%K: ${ind.stochRSI?.k ? ind.stochRSI.k.toFixed(0) : 'N/A'}</span>
                   <span>%D: ${ind.stochRSI?.d ? ind.stochRSI.d.toFixed(0) : 'N/A'}</span>
                 </div>
-              </div>
+                </div>
               
               <div class="border-t pt-2" style="border-color: var(--border);">
                 <div class="flex justify-between mb-1">
@@ -583,28 +583,28 @@
                 ${ind.analysis?.distanceFrom21EMA !== null && ind.analysis?.distanceFrom21EMA !== undefined ? `
                   <div class="text-xs" style="color: var(--text-secondary);">
                     Distance from 21 EMA: ${ind.analysis.distanceFrom21EMA.toFixed(2)}%
-                  </div>
-                ` : ''}
               </div>
-              
+                ` : ''}
+            </div>
+
               ${analysis.structure?.swingHigh || analysis.structure?.swingLow ? `
                 <div class="border-t pt-2" style="border-color: var(--border);">
                   ${analysis.structure.swingHigh ? `
-                    <div class="flex justify-between">
+                  <div class="flex justify-between">
                       <span style="color: var(--text-secondary);">Swing High</span>
                       <span class="font-bold">$${analysis.structure.swingHigh.toLocaleString()}</span>
-                    </div>
-                  ` : ''}
+                  </div>
+                ` : ''}
                   ${analysis.structure.swingLow ? `
-                    <div class="flex justify-between">
+                  <div class="flex justify-between">
                       <span style="color: var(--text-secondary);">Swing Low</span>
                       <span class="font-bold">$${analysis.structure.swingLow.toLocaleString()}</span>
-                    </div>
-                  ` : ''}
-                </div>
-              ` : ''}
+                  </div>
+                ` : ''}
+                  </div>
+                ` : ''}
+              </div>
             </div>
-          </div>
         `;
       }).join('');
       
@@ -613,8 +613,8 @@
           <div class="details-content-wrapper">
             <div class="tf-grid">
               ${tfCards}
-            </div>
           </div>
+        </div>
         </td>
       `;
       
