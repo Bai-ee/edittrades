@@ -1355,11 +1355,12 @@
         timeframes: {}
       };
       
-      // Signal
+      // Signal - NOW INCLUDES ALL NORMALIZED FIELDS
       if (data.tradeSignal) {
         view.signal = {
           valid: data.tradeSignal.valid,
           direction: data.tradeSignal.direction || 'NO_TRADE',
+          setupType: data.tradeSignal.setupType || '4h',  // NEW: Swing/Scalp/4h
           confidence: data.tradeSignal.confidence ? 
             parseFloat((data.tradeSignal.confidence * 100).toFixed(0)) : 0,
           reason: data.tradeSignal.reason_summary || data.tradeSignal.reason
@@ -1371,14 +1372,20 @@
             max: data.tradeSignal.entry_zone.max
           };
           view.signal.stopLoss = data.tradeSignal.stop_loss;
+          view.signal.invalidationLevel = data.tradeSignal.invalidation_level;  // NEW: HTF/LTF invalidation
           view.signal.targets = {
             tp1: data.tradeSignal.targets?.[0],
             tp2: data.tradeSignal.targets?.[1]
           };
+          view.signal.riskReward = {  // NEW: Dynamic R:R ratios
+            tp1RR: data.tradeSignal.risk_reward?.tp1RR || 1.0,
+            tp2RR: data.tradeSignal.risk_reward?.tp2RR || 2.0
+          };
+          view.signal.riskAmount = data.tradeSignal.risk_amount;  // NEW: Dollar risk per unit
         }
       }
       
-      // Timeframes
+      // Timeframes - Includes all fetched intervals (1M, 1w, 3d, 1d, 4h, 1h, 15m, 5m, 1m)
       if (data.analysis) {
         for (const [interval, analysis] of Object.entries(data.analysis)) {
           if (analysis.error || !analysis.indicators) {
