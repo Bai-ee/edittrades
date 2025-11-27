@@ -392,25 +392,23 @@
       border-radius: var(--radius-md);
       box-sizing: border-box;
       backdrop-filter: blur(10px);
+      position: relative;
+      overflow: hidden;
     }
     
     .tf-card.uptrend {
-      border-color: rgba(34, 197, 94, 0.5);
-      animation: glowGreen 2.5s ease-in-out infinite;
+      border-color: rgba(34, 197, 94, 0.6);
       box-shadow: 
-        0 0 10px rgba(34, 197, 94, 0.3),
-        0 0 20px rgba(34, 197, 94, 0.2),
-        0 0 30px rgba(34, 197, 94, 0.1),
+        0 0 15px rgba(34, 197, 94, 0.3),
+        0 0 30px rgba(34, 197, 94, 0.2),
         inset 0 0 20px rgba(34, 197, 94, 0.05);
     }
     
     .tf-card.downtrend {
-      border-color: rgba(239, 68, 68, 0.5);
-      animation: glowRed 2.5s ease-in-out infinite;
+      border-color: rgba(239, 68, 68, 0.6);
       box-shadow: 
-        0 0 10px rgba(239, 68, 68, 0.3),
-        0 0 20px rgba(239, 68, 68, 0.2),
-        0 0 30px rgba(239, 68, 68, 0.1),
+        0 0 15px rgba(239, 68, 68, 0.3),
+        0 0 30px rgba(239, 68, 68, 0.2),
         inset 0 0 20px rgba(239, 68, 68, 0.05);
     }
     
@@ -418,95 +416,92 @@
       border-color: rgba(156, 163, 175, 0.3);
     }
     
-    /* Pulsating glow animations */
-    @keyframes glowGreen {
-      0%, 100% {
-        box-shadow: 
-          0 0 10px rgba(34, 197, 94, 0.3),
-          0 0 20px rgba(34, 197, 94, 0.2),
-          0 0 30px rgba(34, 197, 94, 0.1),
-          inset 0 0 20px rgba(34, 197, 94, 0.05);
-        border-color: rgba(34, 197, 94, 0.5);
+    /* Rotating glow streak effect */
+    .tf-card.uptrend::before,
+    .tf-card.downtrend::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 200%;
+      height: 200%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      animation: rotateGlow 8s linear infinite;
+      z-index: 0;
+    }
+    
+    .tf-card.uptrend::before {
+      background: conic-gradient(
+        from 0deg at 50% 50%,
+        transparent 0deg,
+        transparent 60deg,
+        rgba(34, 197, 94, 0.4) 90deg,
+        rgba(34, 197, 94, 0.6) 120deg,
+        rgba(34, 197, 94, 0.4) 150deg,
+        transparent 180deg,
+        transparent 360deg
+      );
+      filter: blur(20px);
+    }
+    
+    .tf-card.downtrend::before {
+      background: conic-gradient(
+        from 0deg at 50% 50%,
+        transparent 0deg,
+        transparent 60deg,
+        rgba(239, 68, 68, 0.4) 90deg,
+        rgba(239, 68, 68, 0.6) 120deg,
+        rgba(239, 68, 68, 0.4) 150deg,
+        transparent 180deg,
+        transparent 360deg
+      );
+      filter: blur(20px);
+    }
+    
+    /* Ensure card content is above the glow */
+    .tf-card > * {
+      position: relative;
+      z-index: 1;
+    }
+    
+    /* Smooth rotation animation */
+    @keyframes rotateGlow {
+      0% {
+        transform: translate(-50%, -50%) rotate(0deg);
       }
-      50% {
-        box-shadow: 
-          0 0 20px rgba(34, 197, 94, 0.6),
-          0 0 35px rgba(34, 197, 94, 0.4),
-          0 0 50px rgba(34, 197, 94, 0.3),
-          0 0 70px rgba(34, 197, 94, 0.2),
-          inset 0 0 30px rgba(34, 197, 94, 0.1);
-        border-color: rgba(34, 197, 94, 0.8);
+      100% {
+        transform: translate(-50%, -50%) rotate(360deg);
       }
     }
     
-    @keyframes glowRed {
-      0%, 100% {
-        box-shadow: 
-          0 0 10px rgba(239, 68, 68, 0.3),
-          0 0 20px rgba(239, 68, 68, 0.2),
-          0 0 30px rgba(239, 68, 68, 0.1),
-          inset 0 0 20px rgba(239, 68, 68, 0.05);
-        border-color: rgba(239, 68, 68, 0.5);
-      }
-      50% {
-        box-shadow: 
-          0 0 20px rgba(239, 68, 68, 0.6),
-          0 0 35px rgba(239, 68, 68, 0.4),
-          0 0 50px rgba(239, 68, 68, 0.3),
-          0 0 70px rgba(239, 68, 68, 0.2),
-          inset 0 0 30px rgba(239, 68, 68, 0.1);
-        border-color: rgba(239, 68, 68, 0.8);
-      }
-    }
-    
-    /* Enhance status badges with subtle glow */
+    /* Subtle static glow on text elements */
     .tf-card.uptrend .status-long {
-      text-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+      text-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
     }
     
     .tf-card.downtrend .status-short {
-      text-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+      text-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
     }
     
-    /* Add pulsating glow to trend badge and title */
-    .tf-card.uptrend > div:first-child > span {
-      animation: textGlowGreen 2.5s ease-in-out infinite;
-    }
-    
-    .tf-card.downtrend > div:first-child > span {
-      animation: textGlowRed 2.5s ease-in-out infinite;
-    }
-    
+    /* Colored titles for trend cards */
     .tf-card.uptrend > div:first-child > p {
       color: rgba(34, 197, 94, 1);
-      animation: textGlowGreen 2.5s ease-in-out infinite;
+      text-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
     }
     
     .tf-card.downtrend > div:first-child > p {
       color: rgba(239, 68, 68, 1);
-      animation: textGlowRed 2.5s ease-in-out infinite;
+      text-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
     }
     
-    @keyframes textGlowGreen {
-      0%, 100% {
-        text-shadow: 0 0 5px rgba(34, 197, 94, 0.4);
-      }
-      50% {
-        text-shadow: 
-          0 0 10px rgba(34, 197, 94, 0.8),
-          0 0 20px rgba(34, 197, 94, 0.6);
-      }
+    /* Trend badge subtle glow */
+    .tf-card.uptrend > div:first-child > span {
+      text-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
     }
     
-    @keyframes textGlowRed {
-      0%, 100% {
-        text-shadow: 0 0 5px rgba(239, 68, 68, 0.4);
-      }
-      50% {
-        text-shadow: 
-          0 0 10px rgba(239, 68, 68, 0.8),
-          0 0 20px rgba(239, 68, 68, 0.6);
-      }
+    .tf-card.downtrend > div:first-child > span {
+      text-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
     }
   </style>
 </head>
