@@ -77,6 +77,34 @@
       border-left-color: var(--accent-short);
     }
     
+    .details-row {
+      display: none;
+      background-color: var(--bg-tertiary);
+    }
+    
+    .details-row.expanded {
+      display: table-row;
+    }
+    
+    .tf-card {
+      background-color: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 0.375rem;
+      padding: 0.75rem;
+    }
+    
+    .tf-card.uptrend {
+      border-left: 3px solid var(--accent-long);
+    }
+    
+    .tf-card.downtrend {
+      border-left: 3px solid var(--accent-short);
+    }
+    
+    .tf-card.flat {
+      border-left: 3px solid var(--accent-neutral);
+    }
+    
     @media (max-width: 640px) {
       body {
         font-size: 14px;
@@ -160,7 +188,8 @@
                 <th class="px-3 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">STOP</th>
                 <th class="px-3 py-2 text-left text-xs font-medium hidden lg:table-cell" style="color: var(--text-secondary);">TARGETS</th>
                 <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">TF</th>
-                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">ACTION</th>
+                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">DETAILS</th>
+                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">COPY</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable" class="divide-y" style="divide-color: var(--border);">
@@ -238,7 +267,9 @@
         const data = scanResults[symbol];
         if (data) {
           const row = createCoinRow(symbol, data);
+          const detailsRow = createDetailsRow(symbol, data);
           tableBody.appendChild(row);
+          tableBody.appendChild(detailsRow);
         }
       });
     }
@@ -252,6 +283,7 @@
         (signal.direction === 'long' ? 'has-trade-long' : 'has-trade-short') : '';
       
       row.className = `coin-row ${tradeClass}`;
+      row.id = `row-${symbol}`;
       
       // Coin name
       const coinName = symbol.replace('USDT', '');
@@ -331,6 +363,15 @@
         </td>
         <td class="px-3 py-3">
           <button 
+            onclick="toggleDetails('${symbol}')"
+            class="btn-secondary px-2 py-1 text-xs rounded w-full"
+            id="toggle-${symbol}"
+          >
+            Show
+          </button>
+        </td>
+        <td class="px-3 py-3">
+          <button 
             onclick="copyCoinView('${symbol}')"
             class="btn-secondary px-2 py-1 text-xs rounded w-full"
           >
@@ -339,40 +380,144 @@
         </td>
       `;
       
-      // Make row clickable to view details (optional)
-      row.style.cursor = 'pointer';
-      row.addEventListener('click', (e) => {
-        // Don't trigger if clicking the copy button
-        if (!e.target.closest('button')) {
-          showCoinDetails(symbol, data);
-        }
-      });
-      
       return row;
     }
 
-    // Show coin details modal/alert
-    function showCoinDetails(symbol, data) {
-      const signal = data.tradeSignal;
-      let message = `${symbol}\n\nPrice: $${data.currentPrice?.toLocaleString()}\n24h Change: ${data.priceChange24h?.toFixed(2)}%\n\n`;
+    // Create details row with full timeframe breakdown
+    function createDetailsRow(symbol, data) {
+      const detailsRow = document.createElement('tr');
+      detailsRow.className = 'details-row';
+      detailsRow.id = `details-${symbol}`;
       
-      if (signal && signal.valid) {
-        message += `SIGNAL: ${signal.direction.toUpperCase()}\n`;
-        message += `Confidence: ${(signal.confidence * 100).toFixed(0)}%\n`;
-        message += `Reason: ${signal.reason_summary || signal.reason}\n\n`;
-        if (signal.entry_zone) {
-          message += `Entry: $${signal.entry_zone.min.toLocaleString()} - $${signal.entry_zone.max.toLocaleString()}\n`;
-          message += `Stop Loss: $${signal.stop_loss.toLocaleString()}\n`;
-          message += `Target 1: $${signal.targets[0].toLocaleString()}\n`;
-          message += `Target 2: $${signal.targets[1].toLocaleString()}\n`;
+      // Create detailed timeframe cards
+      const timeframes = ['4h', '1h', '15m', '5m'];
+      const tfCards = timeframes.map(tf => {
+        const analysis = data.analysis?.[tf];
+        if (!analysis || analysis.error || !analysis.indicators) {
+          return `<div class="tf-card"><p class="text-sm font-bold mb-2">${tf.toUpperCase()}</p><p class="text-xs" style="color: var(--text-secondary);">No data</p></div>`;
         }
-      } else {
-        message += `SIGNAL: NO TRADE\n`;
-        message += `Reason: ${signal?.reason || 'No valid setup'}\n`;
-      }
+        
+        const ind = analysis.indicators;
+        const trend = ind.analysis?.trend || 'UNKNOWN';
+        const trendClass = trend === 'UPTREND' ? 'uptrend' : 
+                          trend === 'DOWNTREND' ? 'downtrend' : 'flat';
+        const trendBadge = trend === 'UPTREND' ? 'UPTREND' : 
+                          trend === 'DOWNTREND' ? 'DOWNTREND' : 'FLAT';
+        
+        return `
+          <div class="tf-card ${trendClass}">
+            <div class="flex items-center justify-between mb-3">
+              <p class="text-sm font-bold">${tf.toUpperCase()}</p>
+              <span class="text-xs px-2 py-0.5 rounded ${trend === 'UPTREND' ? 'status-long' : trend === 'DOWNTREND' ? 'status-short' : 'status-neutral'}" style="background-color: var(--bg-tertiary);">${trendBadge}</span>
+            </div>
+            
+            <div class="space-y-2 text-xs">
+              <div class="flex justify-between">
+                <span style="color: var(--text-secondary);">Current Price</span>
+                <span class="font-bold">${ind.price?.current ? '$' + ind.price.current.toLocaleString() : 'N/A'}</span>
+              </div>
+              
+              <div class="flex justify-between">
+                <span style="color: var(--text-secondary);">21 EMA</span>
+                <span class="font-bold" style="color: #3b82f6;">${ind.ema?.ema21 ? '$' + ind.ema.ema21.toLocaleString() : 'N/A'}</span>
+              </div>
+              
+              <div class="flex justify-between">
+                <span style="color: var(--text-secondary);">200 EMA</span>
+                <span class="font-bold" style="color: #a855f7;">${ind.ema?.ema200 ? '$' + ind.ema.ema200.toLocaleString() : 'N/A'}</span>
+              </div>
+              
+              <div class="border-t pt-2" style="border-color: var(--border);">
+                <div class="flex justify-between mb-1">
+                  <span style="color: var(--text-secondary);">Stoch RSI</span>
+                  <span class="text-xs px-1 py-0.5 rounded ${getStochColor(ind.stochRSI?.condition)}" style="background-color: var(--bg-tertiary);">${ind.stochRSI?.condition || 'N/A'}</span>
+                </div>
+                <div class="flex justify-between">
+                  <span style="color: var(--text-secondary);">%K: ${ind.stochRSI?.k ? ind.stochRSI.k.toFixed(2) : 'N/A'}</span>
+                  <span style="color: var(--text-secondary);">%D: ${ind.stochRSI?.d ? ind.stochRSI.d.toFixed(2) : 'N/A'}</span>
+                </div>
+              </div>
+              
+              <div class="border-t pt-2" style="border-color: var(--border);">
+                <div class="flex justify-between mb-1">
+                  <span style="color: var(--text-secondary);">Pullback State</span>
+                  <span class="text-xs px-1 py-0.5 rounded ${getPullbackColor(ind.analysis?.pullbackState)}" style="background-color: var(--bg-tertiary);">${ind.analysis?.pullbackState || 'N/A'}</span>
+                </div>
+                ${ind.analysis?.distanceFrom21EMA !== null && ind.analysis?.distanceFrom21EMA !== undefined ? `
+                  <div class="text-xs" style="color: var(--text-secondary);">
+                    Distance from 21 EMA: ${ind.analysis.distanceFrom21EMA.toFixed(2)}%
+                  </div>
+                ` : ''}
+              </div>
+              
+              ${analysis.structure?.swingHigh || analysis.structure?.swingLow ? `
+                <div class="border-t pt-2" style="border-color: var(--border);">
+                  ${analysis.structure.swingHigh ? `
+                    <div class="flex justify-between">
+                      <span style="color: var(--text-secondary);">Swing High</span>
+                      <span class="font-bold status-long">$${analysis.structure.swingHigh.toLocaleString()}</span>
+                    </div>
+                  ` : ''}
+                  ${analysis.structure.swingLow ? `
+                    <div class="flex justify-between">
+                      <span style="color: var(--text-secondary);">Swing Low</span>
+                      <span class="font-bold status-short">$${analysis.structure.swingLow.toLocaleString()}</span>
+                    </div>
+                  ` : ''}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
       
-      alert(message);
+      detailsRow.innerHTML = `
+        <td colspan="11" class="px-3 py-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            ${tfCards}
+          </div>
+        </td>
+      `;
+      
+      return detailsRow;
     }
+
+    // Helper functions for styling
+    function getStochColor(condition) {
+      const colors = {
+        'OVERBOUGHT': 'status-short',
+        'OVERSOLD': 'status-long',
+        'BULLISH': 'status-long',
+        'BEARISH': 'status-short',
+        'NEUTRAL': 'status-neutral'
+      };
+      return colors[condition] || 'status-neutral';
+    }
+
+    function getPullbackColor(state) {
+      const colors = {
+        'ENTRY_ZONE': 'status-long',
+        'OVEREXTENDED': 'style="color: #f59e0b;"',
+        'RETRACING': 'style="color: #3b82f6;"',
+        'UNKNOWN': 'status-neutral'
+      };
+      return colors[state] || 'status-neutral';
+    }
+
+    // Toggle details row
+    function toggleDetails(symbol) {
+      const detailsRow = document.getElementById(`details-${symbol}`);
+      const button = document.getElementById(`toggle-${symbol}`);
+      
+      if (detailsRow.classList.contains('expanded')) {
+        detailsRow.classList.remove('expanded');
+        button.textContent = 'Show';
+      } else {
+        detailsRow.classList.add('expanded');
+        button.textContent = 'Hide';
+      }
+    }
+
 
     // Copy single coin view
     function copyCoinView(symbol) {
