@@ -382,6 +382,29 @@
       max-width: 100%;
       box-sizing: border-box;
     }
+    
+    /* Timeframe cards */
+    .tf-card {
+      width: 100%;
+      padding: 1rem;
+      background-color: black;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-md);
+      box-sizing: border-box;
+      backdrop-filter: blur(10px);
+    }
+    
+    .tf-card.uptrend {
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+    
+    .tf-card.downtrend {
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+    
+    .tf-card.flat {
+      border-color: rgba(156, 163, 175, 0.3);
+    }
   </style>
 </head>
 <body class="min-h-screen">
@@ -1283,7 +1306,7 @@
       detailsRow.id = `details-${symbol}`;
       
       // Create detailed timeframe cards - ALL TIMEFRAMES (1m first, 1 Month last)
-      const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d', '1w', '1M'];
+      const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w', '1M'];
       const tfCards = timeframes.map(tf => {
         const analysis = data.analysis?.[tf];
         if (!analysis || analysis.error || !analysis.indicators) {
@@ -1301,8 +1324,10 @@
         const stochCurl = detectStochCurl(ind.stochRSI);
         const stochZone = getStochZone(ind.stochRSI?.k);
         
-        // Display name for timeframe (spell out Month)
-        const tfDisplay = tf === '1M' ? '1 MONTH' : tf.toUpperCase();
+        // Display name for timeframe (spell out Month, 3 Day)
+        const tfDisplay = tf === '1M' ? '1 MONTH' : 
+                         tf === '3d' ? '3 DAY' : 
+                         tf.toUpperCase();
         
         return `
           <div class="tf-card ${trendClass}">
