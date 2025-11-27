@@ -149,6 +149,8 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--shadow-5xl);
   overflow: hidden;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .card-dark {
@@ -165,6 +167,10 @@ h1, h2, h3, h4, h5, h6 {
 .header-edittrax {
   background-color: transparent;
   padding: var(--spacing-4);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .logo-container {
@@ -189,8 +195,11 @@ h1, h2, h3, h4, h5, h6 {
 
 .table-edittrax {
   width: 100%;
+  max-width: 100%;
   border-collapse: collapse;
   background-color: rgba(0, 0, 0, 0.1);
+  table-layout: fixed;
+  box-sizing: border-box;
 }
 
 .table-edittrax thead {
@@ -214,6 +223,10 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom: 1px solid var(--color-gray-760);
   color: var(--color-white);
   font-family: var(--font-mathias);
+  box-sizing: border-box;
+  overflow: hidden;
+  max-width: 100%;
+  word-wrap: break-word;
 }
 
 /* Table hover removed per user request */
