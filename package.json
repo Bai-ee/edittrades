@@ -1,7 +1,7 @@
 {
-  "name": "snapshot-tradingview",
-  "version": "1.0.0",
-  "description": "4-hour trading strategy automation with TradingView-style analysis",
+  "name": "edittrades",
+  "version": "2.0.0",
+  "description": "EditTrades - Professional 4H trading strategy scanner with multi-timeframe analysis",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -13,9 +13,11 @@
     "trading",
     "crypto",
     "binance",
-    "technical-analysis"
+    "technical-analysis",
+    "edittrades",
+    "edittrax"
   ],
-  "author": "",
+  "author": "EditTrades <edittrax@protonmail.com>",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.2",

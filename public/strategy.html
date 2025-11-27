@@ -3,66 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Strategy & Backtest Results</title>
+  <title>Trading Strategy & Backtest - EditTrades</title>
+  <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    /* Dark theme matching main site */
-    :root {
-      --bg-primary: #0a0a0a;
-      --bg-secondary: #1a1a1a;
-      --bg-tertiary: #2a2a2a;
-      --text-primary: #f5f5f5;
-      --text-secondary: #a0a0a0;
-      --border: #333333;
-      --accent-long: #10b981;
-      --accent-short: #ef4444;
-      --accent-neutral: #6b7280;
-    }
-    
-    body {
-      background-color: var(--bg-primary);
-      color: var(--text-primary);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-    
-    .card {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border);
-    }
-    
-    .btn-primary {
-      background-color: var(--text-primary);
-      color: var(--bg-primary);
-      border: 1px solid var(--text-primary);
-    }
-    
-    .btn-primary:hover {
-      background-color: var(--text-secondary);
-      border-color: var(--text-secondary);
-    }
-    
-    .stat-card {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 0.5rem;
-      padding: 1.5rem;
-    }
-    
-    .stat-positive { color: var(--accent-long); }
-    .stat-negative { color: var(--accent-short); }
-    .stat-neutral { color: var(--accent-neutral); }
-  </style>
+  <link rel="stylesheet" href="/edittrax-styles.css">
 </head>
 <body class="min-h-screen">
   
   <!-- Header -->
-  <header class="border-b" style="border-color: var(--border); background-color: var(--bg-secondary);">
+  <header class="header-edittrax">
     <div class="max-w-6xl mx-auto px-4 py-3">
-      <div class="flex items-center justify-between">
-        <h1 class="text-lg font-bold">Trading Strategy & Backtest</h1>
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="logo-container">
+          <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
+          <span class="font-mathias text-xl text-primary uppercase">Strategy & Backtest</span>
+        </div>
         <div class="flex items-center gap-2">
-          <a href="/" class="btn-primary px-3 py-2 text-sm rounded">
+          <a href="/" class="btn-base btn-primary px-3 py-2 text-sm rounded">
             ← Home
           </a>
         </div>

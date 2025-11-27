@@ -3,47 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Market Scanner - Snapshot TradingView</title>
+  <title>Market Scanner - EditTrades</title>
+  <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/edittrax-styles.css">
   <style>
-    /* Mobile-first dark theme - no gradients or glows */
-    :root {
-      --bg-primary: #0a0a0a;
-      --bg-secondary: #1a1a1a;
-      --bg-tertiary: #2a2a2a;
-      --text-primary: #f5f5f5;
-      --text-secondary: #a0a0a0;
-      --border: #333333;
-      --accent-long: #10b981;
-      --accent-short: #ef4444;
-      --accent-neutral: #6b7280;
-    }
-    
-    body {
-      background-color: var(--bg-primary);
-      color: var(--text-primary);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-    
-    /* Remove all gradients and glows */
-    * {
-      box-shadow: none !important;
-    }
-    
-    .card {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border);
-    }
-    
     .scanner-row:hover { 
-      background-color: var(--bg-tertiary);
+      background-color: var(--color-blue-830);
     }
     
     @media (max-width: 640px) {
-      body {
-        font-size: 14px;
-      }
-      
       /* Stack table on mobile */
       .responsive-table {
         display: block;
@@ -55,18 +24,21 @@
 <body class="min-h-screen">
   
   <!-- Header -->
-  <header class="border-b" style="border-color: var(--border); background-color: var(--bg-secondary);">
+  <header class="header-edittrax">
     <div class="max-w-6xl mx-auto px-4 py-3">
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-lg font-bold">Market Scanner</h1>
-          <p class="text-xs hidden sm:block" style="color: var(--text-secondary);">Find trading opportunities</p>
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="logo-container">
+          <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
+          <div class="flex flex-col">
+            <span class="font-mathias text-xl text-primary uppercase">Market Scanner</span>
+            <p class="text-xs text-secondary hidden sm:block">Find trading opportunities</p>
+          </div>
         </div>
         <div class="flex items-center gap-2">
-          <a href="/" class="px-3 py-2 text-sm font-medium transition card rounded">
+          <a href="/" class="btn-base btn-secondary px-3 py-2 text-sm rounded">
             Home
           </a>
-          <button id="scanBtn" class="px-4 py-2 text-sm font-medium transition rounded" style="background-color: var(--text-primary); color: var(--bg-primary);">
+          <button id="scanBtn" class="btn-base btn-primary px-4 py-2 text-sm rounded">
             Scan
           </button>
         </div>
@@ -78,12 +50,12 @@
   <main class="max-w-6xl mx-auto px-4 py-4">
     
     <!-- Scanner Controls -->
-    <div class="mb-4 card rounded p-4">
+    <div class="mb-4 card-edittrax rounded-lg p-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         
         <!-- Min Confidence -->
         <div>
-          <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+          <label class="block text-xs font-medium mb-1 text-secondary">
             Min Confidence: <span id="confidenceValue">50%</span>
           </label>
           <input 
@@ -93,7 +65,7 @@
             max="100" 
             value="50" 
             class="w-full h-2 rounded-lg appearance-none cursor-pointer"
-            style="background-color: var(--bg-tertiary);"
+            style="background-color: var(--color-blue-830);"
           >
         </div>
 
