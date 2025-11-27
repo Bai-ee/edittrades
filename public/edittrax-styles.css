@@ -213,9 +213,7 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--color-white);
 }
 
-.table-edittrax tr:hover {
-  background-color: var(--color-blue-830);
-}
+/* Table hover removed per user request */
 
 /* ========================================
  * TRADING SPECIFIC
@@ -225,9 +223,7 @@ h1, h2, h3, h4, h5, h6 {
   transition: background-color 0.2s;
 }
 
-.coin-row:hover {
-  background-color: var(--color-blue-830);
-}
+/* Coin row hover removed per user request */
 
 .coin-row.has-trade-long {
   border-left-color: var(--accent-long);
