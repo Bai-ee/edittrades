@@ -60,13 +60,7 @@
       }
       
       .coin-row {
-        display: grid;
-        grid-template-columns: 1fr;
-        grid-template-areas:
-          "coin"
-          "signal-strategy"
-          "action";
-        gap: 0.5rem;
+        display: block;
         padding: 1rem 0.5rem;
         border-bottom: 2px solid var(--color-yellow-75);
       }
@@ -87,10 +81,14 @@
         text-transform: uppercase;
       }
       
+      /* Coin name and Signal on same row */
       .coin-row td:first-child {
-        grid-area: coin;
+        display: inline-block;
+        width: 50%;
         font-size: 1.25rem;
-        margin-bottom: 0.5rem;
+        vertical-align: top;
+        box-sizing: border-box;
+        padding-right: 0.25rem !important;
       }
       
       .coin-row td:first-child:before {
@@ -98,22 +96,22 @@
       }
       
       .coin-row td:nth-child(2) {
-        grid-area: signal-strategy;
         display: inline-block;
         width: 50%;
-        float: left;
+        vertical-align: top;
+        box-sizing: border-box;
+        padding-left: 0.25rem !important;
       }
       
+      /* Strategy on its own row */
       .coin-row td:nth-child(3) {
-        grid-area: signal-strategy;
-        display: inline-block;
-        width: 50%;
-        float: right;
+        display: block;
+        clear: both;
       }
       
+      /* Action buttons on their own row */
       .coin-row td:nth-child(4) {
-        grid-area: action;
-        clear: both;
+        display: block;
       }
       
       .coin-row td:nth-child(4) .flex {
@@ -197,14 +195,14 @@
           <a href="/scanner.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
             SCAN MORE COINS
           </a>
-          <button 
+              <button 
             id="copyAllBtn" 
             onclick="copyAllCoins()"
             class="btn-base btn-primary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
           >
             COPY GPT
-          </button>
-          <button 
+              </button>
+              <button 
             id="refreshBtn" 
             onclick="scanMajorCoins()"
             class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded whitespace-nowrap"
@@ -213,10 +211,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
             </svg>
-          </button>
-        </div>
-      </div>
-    </div>
+              </button>
+            </div>
+          </div>
+              </div>
   </header>
 
   <!-- Main Content -->
