@@ -137,9 +137,7 @@
             <thead style="background-color: white;">
               <tr>
                 <th class="px-2 py-2" style="color: black;">COIN</th>
-                <th class="px-2 py-2 hidden sm:table-cell" style="color: black;">PRICE</th>
                 <th class="px-2 py-2" style="color: black;">SIGNAL</th>
-                <th class="px-2 py-2 hidden md:table-cell" style="color: black;">CONF</th>
                 <th class="px-2 py-2" style="color: black;">STRATEGY</th>
                 <th class="px-2 py-2" style="color: black;">ACTION</th>
               </tr>
@@ -175,6 +173,38 @@
       
       // Update indicator appearance
       updateStrategyIndicators(symbol);
+      
+      // Update signal text if NO TRADE
+      updateSignalText(symbol);
+    }
+    
+    // Update signal text based on current strategy
+    function updateSignalText(symbol) {
+      const data = scanResults[symbol];
+      if (!data) return;
+      
+      const signal = data.tradeSignal;
+      const hasValidTrade = signal && signal.valid;
+      
+      // Only update if NO TRADE
+      if (!hasValidTrade) {
+        const currentStrategyIndex = strategyStates[symbol] || 0;
+        const currentStrategy = strategyOptions[currentStrategyIndex];
+        const strategyNames = {
+          '4h': '4 HOUR',
+          'Swing': 'SWING',
+          'Scalp': 'SCALP'
+        };
+        const strategyName = strategyNames[currentStrategy] || '4 HOUR';
+        
+        const signalElement = document.getElementById(`signal-${symbol}`);
+        if (signalElement) {
+          signalElement.innerHTML = `
+            <div class="status-neutral">NO ${strategyName}</div>
+            <div class="text-xs status-neutral">-</div>
+          `;
+        }
+      }
     }
     
     // Update strategy indicator appearance
@@ -346,46 +376,42 @@
       const change = data.priceChange24h ? 
         `${data.priceChange24h >= 0 ? '+' : ''}${data.priceChange24h.toFixed(2)}%` : 'N/A';
       
-      // Signal readiness
-      const readiness = calculateSignalReadiness(data);
+      // Get current strategy for this symbol
+      const currentStrategyIndex = strategyStates[symbol] || 0;
+      const currentStrategy = strategyOptions[currentStrategyIndex];
+      const strategyNames = {
+        '4h': '4 HOUR',
+        'Swing': 'SWING',
+        'Scalp': 'SCALP'
+      };
+      const strategyName = strategyNames[currentStrategy] || '4 HOUR';
+      
+      // Signal with confidence
       let signalHtml;
       if (hasValidTrade) {
         const dirClass = signal.direction === 'long' ? 'status-long' : 'status-short';
+        const confidence = (signal.confidence * 100).toFixed(0);
         signalHtml = `
-          <div>
+          <div id="signal-${symbol}">
             <div class="${dirClass}">${signal.direction.toUpperCase()}</div>
-            <div class="text-xs ${dirClass}">${readiness.text}</div>
+            <div class="text-xs ${dirClass}">${confidence}%</div>
           </div>
         `;
       } else {
         signalHtml = `
-          <div>
-            <div class="status-neutral">NO TRADE</div>
-            <div class="text-xs ${readiness.class}">${readiness.text}</div>
+          <div id="signal-${symbol}">
+            <div class="status-neutral">NO ${strategyName}</div>
+            <div class="text-xs status-neutral">-</div>
           </div>
         `;
       }
-      
-      // Confidence
-      const confHtml = hasValidTrade ? 
-        `<span class="${signal.direction === 'long' ? 'status-long' : 'status-short'}">${(signal.confidence * 100).toFixed(0)}%</span>` : 
-        `<span class="status-neutral">-</span>`;
       
       row.innerHTML = `
         <td class="px-2 py-3">
           <div class="text-lg">${coinName}</div>
         </td>
-        <td class="px-2 py-3 hidden sm:table-cell">
-          <div class="flex flex-col gap-0.5">
-            <div>${price}</div>
-            <div class="text-xs ${changeClass}">${change}</div>
-          </div>
-        </td>
         <td class="px-2 py-3">
           ${signalHtml}
-        </td>
-        <td class="px-2 py-3 hidden md:table-cell">
-          ${confHtml}
         </td>
         <td class="px-2 py-3">
           <div class="flex" style="gap: 0;">
@@ -569,7 +595,7 @@
       }).join('');
       
       detailsRow.innerHTML = `
-        <td colspan="6">
+        <td colspan="4">
           <div class="details-content-wrapper">
             <div class="tf-grid">
               ${tfCards}
