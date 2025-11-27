@@ -316,6 +316,141 @@
     
     const strategyOptions = ['4h', 'Swing', 'Scalp'];
     
+    // Trade Templates Configuration
+    const tradeTemplates = {
+      '4h': {
+        label: '4H Set & Forget',
+        anchorTimeframes: ['4h'],
+        confirmTimeframes: ['1h'],
+        entryTimeframes: ['15m', '5m'],
+        minConfidence: 0.7,
+        maxLeverage: 50,
+        rrTargets: [1.0, 2.0],
+        maxTradesPerDay: 1,
+        displayName: '4 HOUR'
+      },
+      'Swing': {
+        label: 'Daily / 4H Swing',
+        anchorTimeframes: ['1d', '4h'],
+        confirmTimeframes: ['1h'],
+        entryTimeframes: ['15m'],
+        minConfidence: 0.75,
+        maxLeverage: 10,
+        rrTargets: [2.0, 3.0],
+        maxHoldCandles: { '4h': 20 },
+        displayName: 'SWING'
+      },
+      'Scalp': {
+        label: '15m / 5m Scalp',
+        anchorTimeframes: ['1h', '15m'],
+        confirmTimeframes: ['15m'],
+        entryTimeframes: ['5m'],
+        minConfidence: 0.65,
+        maxLeverage: 25,
+        rrTargets: [1.0, 1.5],
+        maxHoldCandles: { '5m': 12 },
+        displayName: 'SCALP'
+      }
+    };
+    
+    // Evaluate signal based on template
+    function evaluateTemplateSignal(symbol, templateKey) {
+      const data = scanResults[symbol];
+      if (!data || !data.analysis) return null;
+      
+      const template = tradeTemplates[templateKey];
+      const analysis = data.analysis;
+      
+      // Check anchor timeframe trends
+      let anchorTrend = null;
+      for (const tf of template.anchorTimeframes) {
+        const tfData = analysis[tf];
+        if (tfData && tfData.indicators && tfData.indicators.analysis) {
+          const trend = tfData.indicators.analysis.trend;
+          if (trend && trend !== 'FLAT') {
+            anchorTrend = trend;
+            break;
+          }
+        }
+      }
+      
+      if (!anchorTrend) {
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: `No clear trend on ${template.anchorTimeframes.join('/')} anchor`,
+          confidence: 0
+        };
+      }
+      
+      // Check confirmation timeframes alignment
+      let confirmsAlign = true;
+      for (const tf of template.confirmTimeframes) {
+        const tfData = analysis[tf];
+        if (tfData && tfData.indicators && tfData.indicators.analysis) {
+          const trend = tfData.indicators.analysis.trend;
+          if (trend && trend !== anchorTrend && trend !== 'FLAT') {
+            confirmsAlign = false;
+            break;
+          }
+        }
+      }
+      
+      if (!confirmsAlign) {
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: `Confirmation timeframes don't align with ${anchorTrend}`,
+          confidence: 0
+        };
+      }
+      
+      // If we have a valid 4h trade signal, use it
+      const originalSignal = data.tradeSignal;
+      if (originalSignal && originalSignal.valid && templateKey === '4h') {
+        return originalSignal;
+      }
+      
+      // For Swing/Scalp, create a basic signal
+      const direction = anchorTrend === 'UPTREND' ? 'long' : 'short';
+      let confidence = 0.5; // Base confidence
+      
+      // Increase confidence based on alignment
+      if (confirmsAlign) confidence += 0.2;
+      
+      // Check if near entry zone (21 EMA)
+      const primaryTf = template.anchorTimeframes[0];
+      const primaryData = analysis[primaryTf];
+      if (primaryData && primaryData.indicators && primaryData.indicators.ema) {
+        const distanceFrom21 = Math.abs(
+          ((data.currentPrice - primaryData.indicators.ema.ema21) / data.currentPrice) * 100
+        );
+        if (distanceFrom21 < 2) {
+          confidence += 0.15;
+        }
+      }
+      
+      // Cap confidence at template minimum
+      confidence = Math.max(confidence, template.minConfidence);
+      
+      return {
+        valid: confidence >= template.minConfidence,
+        direction: direction,
+        confidence: Math.min(confidence, 0.95),
+        reason: `${template.label}: ${anchorTrend}, aligned confirmation`,
+        entryZone: originalSignal?.entryZone || null,
+        stopLoss: originalSignal?.stopLoss || null,
+        targets: {
+          tp1: null,
+          tp2: null
+        },
+        riskReward: {
+          tp1RR: template.rrTargets[0],
+          tp2RR: template.rrTargets[1]
+        }
+      };
+    }
+    
     // Cycle through strategy states
     function cycleStrategy(symbol) {
       const currentIndex = strategyStates[symbol];
@@ -325,8 +460,12 @@
       // Update indicator appearance
       updateStrategyIndicators(symbol);
       
-      // Update signal text if NO TRADE
-      updateSignalText(symbol);
+      // Re-evaluate signal based on new template
+      const templateKey = strategyOptions[nextIndex];
+      const templateSignal = evaluateTemplateSignal(symbol, templateKey);
+      
+      // Update signal display with template-specific evaluation
+      updateSignalForTemplate(symbol, templateKey, templateSignal);
     }
     
     // Update signal text based on current strategy
@@ -364,6 +503,40 @@
             ${readinessHtml}
           `;
         }
+      }
+    }
+    
+    // Update signal display based on template evaluation
+    function updateSignalForTemplate(symbol, templateKey, templateSignal) {
+      if (!templateSignal) return;
+      
+      const template = tradeTemplates[templateKey];
+      const signalElement = document.getElementById(`signal-${symbol}`);
+      if (!signalElement) return;
+      
+      if (templateSignal.valid) {
+        // Valid trade signal
+        const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
+        const confidence = (templateSignal.confidence * 100).toFixed(0);
+        signalElement.innerHTML = `
+          <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${templateSignal.direction.toUpperCase()}</div>
+          <div class="text-xs ${dirClass}">${confidence}%</div>
+        `;
+      } else {
+        // No trade signal
+        const data = scanResults[symbol];
+        const readiness = calculateSignalReadiness(data);
+        
+        // Show readiness only for 4h template
+        const showReadiness = templateKey === '4h';
+        const readinessHtml = showReadiness ? 
+          `<div class="text-xs ${readiness.class}" style="font-size: 0.65rem; white-space: nowrap;">${readiness.text}</div>` : 
+          `<div class="text-xs status-neutral">-</div>`;
+        
+        signalElement.innerHTML = `
+          <div class="status-neutral" style="font-size: 0.65rem; white-space: nowrap;">NO ${template.displayName}</div>
+          ${readinessHtml}
+        `;
       }
     }
     
