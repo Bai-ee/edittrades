@@ -2,6 +2,19 @@
 
 ## [Latest] - 2025-11-27
 
+### 📊 Expandable Detailed Timeframe Analysis
+- **Show/Hide Details**: Click "Show" button on any coin to expand full timeframe breakdown
+- **4 Detailed Cards**: Each timeframe (4h, 1h, 15m, 5m) displays:
+  - Current Price
+  - 21 EMA & 200 EMA
+  - Stoch RSI (%K, %D, condition)
+  - Pullback State (with distance from 21 EMA)
+  - Swing High & Swing Low
+  - Trend badge (color-coded border)
+- **Responsive Grid**: 1 column on mobile, 2 on tablet, 4 on desktop
+- **Color Indicators**: Green border for uptrend, red for downtrend, gray for flat
+- **Collapsible**: Click "Hide" to collapse details and keep table compact
+
 ### 🚀 Auto-Run Homepage + Detailed Table View
 - **Auto-Scan on Load**: Homepage automatically scans BTC, ETH, SOL on page load (no button click needed)
 - **Detailed Table View**: Shows full trading info (price, signal, confidence, entry, stop loss, targets, timeframes)
