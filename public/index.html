@@ -419,12 +419,12 @@
               
               <div class="flex justify-between">
                 <span style="color: var(--text-secondary);">21 EMA</span>
-                <span class="font-bold" style="color: #3b82f6;">${ind.ema?.ema21 ? '$' + ind.ema.ema21.toLocaleString() : 'N/A'}</span>
+                <span class="font-bold">${ind.ema?.ema21 ? '$' + ind.ema.ema21.toLocaleString() : 'N/A'}</span>
               </div>
               
               <div class="flex justify-between">
                 <span style="color: var(--text-secondary);">200 EMA</span>
-                <span class="font-bold" style="color: #a855f7;">${ind.ema?.ema200 ? '$' + ind.ema.ema200.toLocaleString() : 'N/A'}</span>
+                <span class="font-bold">${ind.ema?.ema200 ? '$' + ind.ema.ema200.toLocaleString() : 'N/A'}</span>
               </div>
               
               <div class="border-t pt-2" style="border-color: var(--border);">
@@ -455,13 +455,13 @@
                   ${analysis.structure.swingHigh ? `
                     <div class="flex justify-between">
                       <span style="color: var(--text-secondary);">Swing High</span>
-                      <span class="font-bold status-long">$${analysis.structure.swingHigh.toLocaleString()}</span>
+                      <span class="font-bold">$${analysis.structure.swingHigh.toLocaleString()}</span>
                     </div>
                   ` : ''}
                   ${analysis.structure.swingLow ? `
                     <div class="flex justify-between">
                       <span style="color: var(--text-secondary);">Swing Low</span>
-                      <span class="font-bold status-short">$${analysis.structure.swingLow.toLocaleString()}</span>
+                      <span class="font-bold">$${analysis.structure.swingLow.toLocaleString()}</span>
                     </div>
                   ` : ''}
                 </div>

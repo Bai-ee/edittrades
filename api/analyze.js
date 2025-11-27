@@ -8,6 +8,8 @@
 import * as marketData from '../services/marketData.js';
 import * as indicatorService from '../services/indicators.js';
 import * as strategyService from '../services/strategy.js';
+import * as candleFeatures from '../lib/candleFeatures.js';
+import * as levels from '../lib/levels.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -86,11 +88,40 @@ export default async function handler(req, res) {
         const indicators = indicatorService.calculateAllIndicators(candles);
         const swingPoints = indicatorService.detectSwingPoints(candles, 20);
         
+        // Get last 2 candles for enriched analysis
+        const latestCandle = candles[candles.length - 1];
+        const previousCandle = candles[candles.length - 2];
+        
+        // Describe current candle
+        const candleDesc = candleFeatures.describeCandle(latestCandle, indicators.ema.ema21);
+        
+        // Detect price action patterns
+        const priceAction = candleFeatures.detectPriceAction(latestCandle, previousCandle);
+        
+        // Compute support/resistance levels (for 4h and 1h only)
+        const shouldComputeLevels = ['4h', '1h'].includes(interval);
+        const levelsData = shouldComputeLevels ? 
+          levels.computeLevels(candles, indicators.price.current, swingPoints) : null;
+        
+        // Get recent candles for trigger timeframe (5m)
+        const recentCandles = (interval === '5m') ? 
+          candleFeatures.getRecentCandles(candles, 5) : null;
+        
         analysis[interval] = {
           indicators,
           structure: swingPoints,
           candleCount: candles.length,
-          lastCandle: candles[candles.length - 1]
+          lastCandle: candles[candles.length - 1],
+          
+          // NEW: Enhanced candle analysis
+          candle: candleDesc,
+          priceAction: priceAction,
+          
+          // NEW: Support/resistance levels (4h and 1h only)
+          ...(levelsData && { levels: levelsData }),
+          
+          // NEW: Recent candles for LLM context (5m only)
+          ...(recentCandles && { recentCandles: recentCandles })
         };
         
         console.log(`[Analyze] ✅ ${interval}: ${indicators.analysis.trend}`);
