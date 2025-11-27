@@ -90,6 +90,24 @@
     }
     .entry-price-desktop {
       display: table-cell;
+      max-width: 100px;
+      width: 100px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    /* Minimize gaps on desktop */
+    @media (min-width: 769px) {
+      .table-edittrax th,
+      .table-edittrax td {
+        padding: var(--spacing-2) var(--spacing-2);
+      }
+      
+      /* Reduce gap between action buttons */
+      .flex.gap-1 {
+        gap: 0.25rem;
+      }
     }
     
     @media (max-width: 768px) {
