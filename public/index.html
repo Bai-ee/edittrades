@@ -803,9 +803,11 @@
 
     // Main scan function
     async function scanMajorCoins() {
-      // Load starred coins from localStorage, default to major coins if none starred
+      // Always show BTC, ETH, SOL plus any additional starred coins
+      const defaults = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
       const starredCoins = JSON.parse(localStorage.getItem('starredCoins') || '[]');
-      const symbols = starredCoins.length > 0 ? starredCoins : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      // Combine defaults with starred coins, remove duplicates
+      const symbols = [...new Set([...defaults, ...starredCoins])];
       
       // Show loading
       document.getElementById('loadingState').classList.remove('hidden');
