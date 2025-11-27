@@ -197,11 +197,20 @@
         };
         const strategyName = strategyNames[currentStrategy] || '4 HOUR';
         
+        // Calculate readiness
+        const readiness = calculateSignalReadiness(data);
+        
+        // Show readiness only if on 4h strategy
+        const showReadiness = currentStrategy === '4h';
+        const readinessHtml = showReadiness ? 
+          `<div class="text-xs ${readiness.class}">${readiness.text}</div>` : 
+          `<div class="text-xs status-neutral">-</div>`;
+        
         const signalElement = document.getElementById(`signal-${symbol}`);
         if (signalElement) {
           signalElement.innerHTML = `
             <div class="status-neutral">NO ${strategyName}</div>
-            <div class="text-xs status-neutral">-</div>
+            ${readinessHtml}
           `;
         }
       }
@@ -386,6 +395,9 @@
       };
       const strategyName = strategyNames[currentStrategy] || '4 HOUR';
       
+      // Signal readiness
+      const readiness = calculateSignalReadiness(data);
+      
       // Signal with confidence
       let signalHtml;
       if (hasValidTrade) {
@@ -398,10 +410,16 @@
           </div>
         `;
       } else {
+        // Show readiness only if on 4h strategy (since that's what we're analyzing)
+        const showReadiness = currentStrategy === '4h';
+        const readinessHtml = showReadiness ? 
+          `<div class="text-xs ${readiness.class}">${readiness.text}</div>` : 
+          `<div class="text-xs status-neutral">-</div>`;
+        
         signalHtml = `
-          <div id="signal-${symbol}">
+          <div id="signal-${symbol}" data-symbol="${symbol}">
             <div class="status-neutral">NO ${strategyName}</div>
-            <div class="text-xs status-neutral">-</div>
+            ${readinessHtml}
           </div>
         `;
       }
