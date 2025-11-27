@@ -18,8 +18,19 @@
       display: table-row;
     }
     
+    .details-row td {
+      width: 100%;
+      max-width: 100%;
+    }
+    
+    .details-row .tf-grid {
+      width: 100%;
+      max-width: 100%;
+    }
+    
     .details-row .tf-card {
       width: 100%;
+      max-width: 100%;
     }
     
     /* Table container responsive */
@@ -34,6 +45,8 @@
       grid-template-columns: 1fr;
       gap: 1rem;
       width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     
     @media (min-width: 768px) {
@@ -53,6 +66,8 @@
     .tf-grid .tf-card {
       min-width: 0;
       width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
     }
   </style>
 </head>
@@ -556,8 +571,8 @@
       }).join('');
       
       detailsRow.innerHTML = `
-        <td colspan="6" class="px-2 py-4">
-          <div class="tf-grid">
+        <td colspan="6" class="py-4" style="padding-left: 0.5rem; padding-right: 0.5rem; width: 100%; box-sizing: border-box;">
+          <div class="tf-grid" style="width: 100%; max-width: 100%; box-sizing: border-box;">
             ${tfCards}
           </div>
         </td>
