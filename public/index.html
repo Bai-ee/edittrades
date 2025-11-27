@@ -105,9 +105,44 @@
       border-left: 3px solid var(--accent-neutral);
     }
     
+    /* Mobile-first responsive adjustments */
     @media (max-width: 640px) {
       body {
-        font-size: 14px;
+        font-size: 12px;
+      }
+      
+      table {
+        font-size: 11px;
+      }
+      
+      .px-3 {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+      }
+    }
+    
+    /* Ensure table doesn't overflow on mobile */
+    .table-container {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Stack timeframe cards vertically */
+    .tf-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+    
+    @media (min-width: 768px) {
+      .tf-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    
+    @media (min-width: 1024px) {
+      .tf-grid {
+        grid-template-columns: repeat(4, 1fr);
       }
     }
   </style>
@@ -175,21 +210,16 @@
 
       <!-- Opportunities Table -->
       <div class="card rounded overflow-hidden mb-4">
-        <div class="overflow-x-auto">
+        <div class="table-container">
           <table class="w-full text-sm">
             <thead class="border-b" style="border-color: var(--border); background-color: var(--bg-tertiary);">
               <tr>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">COIN</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">PRICE</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">24H</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SIGNAL</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">CONF</th>
-                <th class="px-3 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">ENTRY</th>
-                <th class="px-3 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">STOP</th>
-                <th class="px-3 py-2 text-left text-xs font-medium hidden lg:table-cell" style="color: var(--text-secondary);">TARGETS</th>
-                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">TF</th>
-                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">DETAILS</th>
-                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">COPY</th>
+                <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">COIN</th>
+                <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SIGNAL</th>
+                <th class="px-2 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">PRICE</th>
+                <th class="px-2 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">24H</th>
+                <th class="px-2 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">CONF</th>
+                <th class="px-2 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">ACTION</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable" class="divide-y" style="divide-color: var(--border);">
@@ -223,9 +253,9 @@
       try {
         scanResults = {};
         
-        // Fetch all coins in parallel
+        // Fetch all coins in parallel with expanded timeframes
         const promises = symbols.map(symbol => 
-          fetch(`/api/analyze/${symbol}?intervals=4h,1h,15m,5m`)
+          fetch(`/api/analyze/${symbol}?intervals=1M,1w,1d,4h,1h,15m,5m,1m`)
             .then(res => {
               if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
               return res.json();
@@ -274,6 +304,64 @@
       });
     }
 
+    // Calculate signal readiness (proximity to trade setup)
+    function calculateSignalReadiness(data) {
+      if (!data || !data.analysis) {
+        return { score: 0, text: 'No data', class: 'status-neutral' };
+      }
+      
+      const signal = data.tradeSignal;
+      if (signal && signal.valid) {
+        // Valid trade signal = 100% ready
+        return { 
+          score: 100, 
+          text: 'READY', 
+          class: signal.direction === 'long' ? 'status-long' : 'status-short'
+        };
+      }
+      
+      // Calculate proximity based on indicator alignment
+      const timeframes = ['4h', '1h', '15m', '5m'];
+      let aligned = 0;
+      let total = 0;
+      let direction = null;
+      
+      timeframes.forEach(tf => {
+        const analysis = data.analysis[tf];
+        if (analysis && analysis.indicators) {
+          const trend = analysis.indicators.analysis?.trend;
+          const stochCond = analysis.indicators.stochRSI?.condition;
+          const pullbackState = analysis.indicators.analysis?.pullbackState;
+          
+          if (trend === 'UPTREND' || trend === 'DOWNTREND') {
+            total += 3;
+            if (!direction) direction = trend;
+            
+            // Count alignment factors
+            if (trend === direction) aligned += 1;
+            if ((direction === 'UPTREND' && (stochCond === 'OVERSOLD' || stochCond === 'BULLISH')) ||
+                (direction === 'DOWNTREND' && (stochCond === 'OVERBOUGHT' || stochCond === 'BEARISH'))) {
+              aligned += 1;
+            }
+            if (pullbackState === 'ENTRY_ZONE') aligned += 1;
+          }
+        }
+      });
+      
+      if (total === 0) {
+        return { score: 0, text: 'No trend', class: 'status-neutral' };
+      }
+      
+      const proximityPct = Math.round((aligned / total) * 100);
+      const awayPct = 100 - proximityPct;
+      
+      return {
+        score: proximityPct,
+        text: `${awayPct}% away`,
+        class: proximityPct > 70 ? 'status-long' : proximityPct > 40 ? 'text-yellow-400' : 'status-neutral'
+      };
+    }
+
     // Create table row for coin
     function createCoinRow(symbol, data) {
       const row = document.createElement('tr');
@@ -294,93 +382,93 @@
       const change = data.priceChange24h ? 
         `${data.priceChange24h >= 0 ? '+' : ''}${data.priceChange24h.toFixed(2)}%` : 'N/A';
       
-      // Signal and confidence
-      let signalHtml, confHtml;
+      // Signal readiness
+      const readiness = calculateSignalReadiness(data);
+      let signalHtml;
       if (hasValidTrade) {
         const dirClass = signal.direction === 'long' ? 'status-long' : 'status-short';
-        signalHtml = `<span class="${dirClass} font-medium">${signal.direction.toUpperCase()}</span>`;
-        confHtml = `<span class="${dirClass}">${(signal.confidence * 100).toFixed(0)}%</span>`;
+        signalHtml = `
+          <div>
+            <div class="${dirClass} font-bold">${signal.direction.toUpperCase()}</div>
+            <div class="text-xs ${dirClass}">${readiness.text}</div>
+          </div>
+        `;
       } else {
-        signalHtml = `<span class="status-neutral">NO TRADE</span>`;
-        confHtml = `<span class="status-neutral">-</span>`;
+        signalHtml = `
+          <div>
+            <div class="status-neutral font-medium">NO TRADE</div>
+            <div class="text-xs ${readiness.class}">${readiness.text}</div>
+          </div>
+        `;
       }
       
-      // Entry, Stop, Targets (only if valid trade)
-      let entryHtml = '<span style="color: var(--text-secondary);">-</span>';
-      let stopHtml = '<span style="color: var(--text-secondary);">-</span>';
-      let targetsHtml = '<span style="color: var(--text-secondary);">-</span>';
-      
-      if (hasValidTrade && signal.entry_zone) {
-        entryHtml = `<div class="text-xs">$${signal.entry_zone.min.toLocaleString()} - $${signal.entry_zone.max.toLocaleString()}</div>`;
-        stopHtml = `<div class="text-xs text-red-400">$${signal.stop_loss.toLocaleString()}</div>`;
-        targetsHtml = `<div class="text-xs text-green-400">$${signal.targets[0].toLocaleString()} / $${signal.targets[1].toLocaleString()}</div>`;
-      }
-      
-      // Timeframes (compact badges)
-      const timeframes = ['4h', '1h', '15m', '5m'];
-      const tfHtml = timeframes.map(tf => {
-        const analysis = data.analysis?.[tf];
-        if (!analysis || analysis.error) {
-          return `<span class="text-xs px-1 py-0.5 rounded" style="background-color: var(--bg-tertiary); color: var(--text-secondary);">${tf}:?</span>`;
-        }
-        
-        const trend = analysis.indicators?.analysis?.trend || 'UNKNOWN';
-        const trendClass = trend === 'UPTREND' ? 'status-long' : 
-                          trend === 'DOWNTREND' ? 'status-short' : 'status-neutral';
-        const trendShort = trend === 'UPTREND' ? '↑' : 
-                          trend === 'DOWNTREND' ? '↓' : '→';
-        
-        return `<span class="text-xs px-1 py-0.5 rounded ${trendClass}" style="background-color: var(--bg-tertiary);">${tf}:${trendShort}</span>`;
-      }).join(' ');
+      // Confidence
+      const confHtml = hasValidTrade ? 
+        `<span class="${signal.direction === 'long' ? 'status-long' : 'status-short'}">${(signal.confidence * 100).toFixed(0)}%</span>` : 
+        `<span class="status-neutral">-</span>`;
       
       row.innerHTML = `
-        <td class="px-3 py-3">
+        <td class="px-2 py-3">
           <div class="font-bold">${coinName}</div>
         </td>
-        <td class="px-3 py-3">
-          <div class="text-xs">${price}</div>
-        </td>
-        <td class="px-3 py-3">
-          <div class="text-xs ${changeClass}">${change}</div>
-        </td>
-        <td class="px-3 py-3">
+        <td class="px-2 py-3">
           ${signalHtml}
         </td>
-        <td class="px-3 py-3">
+        <td class="px-2 py-3 hidden sm:table-cell">
+          <div class="text-xs">${price}</div>
+        </td>
+        <td class="px-2 py-3 hidden sm:table-cell">
+          <div class="text-xs ${changeClass}">${change}</div>
+        </td>
+        <td class="px-2 py-3 hidden md:table-cell">
           ${confHtml}
         </td>
-        <td class="px-3 py-3 hidden sm:table-cell">
-          ${entryHtml}
-        </td>
-        <td class="px-3 py-3 hidden md:table-cell">
-          ${stopHtml}
-        </td>
-        <td class="px-3 py-3 hidden lg:table-cell">
-          ${targetsHtml}
-        </td>
-        <td class="px-3 py-3">
-          <div class="flex flex-wrap gap-1">${tfHtml}</div>
-        </td>
-        <td class="px-3 py-3">
-          <button 
-            onclick="toggleDetails('${symbol}')"
-            class="btn-secondary px-2 py-1 text-xs rounded w-full"
-            id="toggle-${symbol}"
-          >
-            Show
-          </button>
-        </td>
-        <td class="px-3 py-3">
-          <button 
-            onclick="copyCoinView('${symbol}')"
-            class="btn-secondary px-2 py-1 text-xs rounded w-full"
-          >
-            Copy
-          </button>
+        <td class="px-2 py-3">
+          <div class="flex gap-1 justify-center">
+            <button 
+              onclick="toggleDetails('${symbol}')"
+              class="btn-secondary px-2 py-1 text-xs rounded"
+              id="toggle-${symbol}"
+            >
+              Details
+            </button>
+            <button 
+              onclick="copyCoinView('${symbol}')"
+              class="btn-secondary px-2 py-1 text-xs rounded"
+            >
+              Copy
+            </button>
+          </div>
         </td>
       `;
       
       return row;
+    }
+
+    // Detect Stoch RSI curl direction
+    function detectStochCurl(stochRSI) {
+      if (!stochRSI || stochRSI.k === null || stochRSI.d === null) {
+        return { direction: 'flat', text: '→ Flat', color: 'status-neutral' };
+      }
+      
+      const diff = stochRSI.k - stochRSI.d;
+      
+      if (diff > 5) {
+        return { direction: 'up', text: '↑ Curling Up', color: 'status-long' };
+      } else if (diff < -5) {
+        return { direction: 'down', text: '↓ Curling Down', color: 'status-short' };
+      } else {
+        return { direction: 'flat', text: '→ Flat', color: 'status-neutral' };
+      }
+    }
+    
+    // Get Stoch range/zone
+    function getStochZone(k) {
+      if (k === null || k === undefined) return 'UNKNOWN';
+      if (k >= 80) return 'OVERBOUGHT';
+      if (k <= 20) return 'OVERSOLD';
+      if (k >= 50) return 'BULLISH ZONE';
+      return 'BEARISH ZONE';
     }
 
     // Create details row with full timeframe breakdown
@@ -389,8 +477,8 @@
       detailsRow.className = 'details-row';
       detailsRow.id = `details-${symbol}`;
       
-      // Create detailed timeframe cards
-      const timeframes = ['4h', '1h', '15m', '5m'];
+      // Create detailed timeframe cards - ALL TIMEFRAMES
+      const timeframes = ['1M', '1w', '1d', '4h', '1h', '15m', '5m', '1m'];
       const tfCards = timeframes.map(tf => {
         const analysis = data.analysis?.[tf];
         if (!analysis || analysis.error || !analysis.indicators) {
@@ -403,6 +491,10 @@
                           trend === 'DOWNTREND' ? 'downtrend' : 'flat';
         const trendBadge = trend === 'UPTREND' ? 'UPTREND' : 
                           trend === 'DOWNTREND' ? 'DOWNTREND' : 'FLAT';
+        
+        // Stoch curl detection
+        const stochCurl = detectStochCurl(ind.stochRSI);
+        const stochZone = getStochZone(ind.stochRSI?.k);
         
         return `
           <div class="tf-card ${trendClass}">
@@ -432,9 +524,13 @@
                   <span style="color: var(--text-secondary);">Stoch RSI</span>
                   <span class="text-xs px-1 py-0.5 rounded ${getStochColor(ind.stochRSI?.condition)}" style="background-color: var(--bg-tertiary);">${ind.stochRSI?.condition || 'N/A'}</span>
                 </div>
-                <div class="flex justify-between">
-                  <span style="color: var(--text-secondary);">%K: ${ind.stochRSI?.k ? ind.stochRSI.k.toFixed(2) : 'N/A'}</span>
-                  <span style="color: var(--text-secondary);">%D: ${ind.stochRSI?.d ? ind.stochRSI.d.toFixed(2) : 'N/A'}</span>
+                <div class="flex justify-between mb-1">
+                  <span class="${stochCurl.color} font-medium">${stochCurl.text}</span>
+                  <span class="text-xs" style="color: var(--text-secondary);">${stochZone}</span>
+                </div>
+                <div class="flex justify-between text-xs" style="color: var(--text-secondary);">
+                  <span>%K: ${ind.stochRSI?.k ? ind.stochRSI.k.toFixed(0) : 'N/A'}</span>
+                  <span>%D: ${ind.stochRSI?.d ? ind.stochRSI.d.toFixed(0) : 'N/A'}</span>
                 </div>
               </div>
               
@@ -472,8 +568,8 @@
       }).join('');
       
       detailsRow.innerHTML = `
-        <td colspan="11" class="px-3 py-4">
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <td colspan="6" class="px-2 py-4">
+          <div class="tf-grid">
             ${tfCards}
           </div>
         </td>
