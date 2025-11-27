@@ -2,6 +2,35 @@
 
 ## [Latest] - 2025-11-27
 
+### 📊 Professional Trading Indicators - VWAP, ATR, Bollinger, MA Stack
+
+- **VWAP (Volume Weighted Average Price)** - Intraday timeframes (5m, 15m, 1h):
+  - Value and distance percentage
+  - Above/below detection and bias direction
+  - AtVWAP flag (within 0.2%)
+  - Reversion zone detection (> 2% away)
+  - Trapped longs/shorts positioning logic
+  
+- **ATR (Average True Range)** - All timeframes:
+  - ATR value and percentage of price
+  - Volatility state classification (LOW/NORMAL/HIGH)
+  - Guides position sizing and stop-loss placement
+  
+- **Bollinger Bands** - 4h, 1h, 15m:
+  - Upper, middle, lower bands
+  - Band width percentage
+  - Squeeze detection (bandwidth < 2%)
+  - Price position percentage (0-100 scale)
+  - Overbought/oversold zones
+  
+- **MA Stack Analysis** - 4h & 1h:
+  - EMA 50 added to existing 21 & 200
+  - Bull/Bear/Flat stack detection
+  - Trend structure confirmation
+  
+- **New Module**: `lib/advancedIndicators.js` with all calculations
+- **Documentation**: `ADVANCED_INDICATORS_GUIDE.md` - Complete usage guide with thresholds
+
 ### 🎯 Advanced Candle Analysis & Price Action
 - **Candle Metrics** (all timeframes):
   - Direction: bull/bear/doji
