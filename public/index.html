@@ -142,7 +142,25 @@
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div>
             <p class="text-sm text-gray-400 mb-1">Symbol</p>
-            <p id="currentSymbol" class="text-2xl font-bold text-white">-</p>
+            <div class="flex items-center gap-2 flex-wrap">
+              <p id="currentSymbol" class="text-2xl font-bold text-white">-</p>
+              <button 
+                id="copyApiBtn" 
+                onclick="copyApiEndpoint()" 
+                class="px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs font-medium transition"
+                title="Copy API endpoint URL"
+              >
+                🔗 URL
+              </button>
+              <button 
+                id="copyJsonBtn" 
+                onclick="copyJsonData()" 
+                class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition"
+                title="Copy full JSON response for LLM"
+              >
+                📋 JSON
+              </button>
+            </div>
           </div>
           <div>
             <p class="text-sm text-gray-400 mb-1">Current Price</p>
@@ -903,6 +921,61 @@
         debugEl.innerHTML += `<span class="text-red-400">Check console (F12) for details</span>`;
         console.error('Connection test failed:', error);
       }
+    }
+
+    // Copy API endpoint URL to clipboard
+    function copyApiEndpoint() {
+      const symbol = selectedSymbol.value;
+      const intervals = timeframeSelect.value;
+      const baseUrl = window.location.origin;
+      const apiUrl = `${baseUrl}/api/analyze/${symbol}?intervals=${intervals}`;
+      
+      navigator.clipboard.writeText(apiUrl).then(() => {
+        const btn = document.getElementById('copyApiBtn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Copied!';
+        btn.classList.add('bg-green-600');
+        btn.classList.remove('bg-purple-600');
+        
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.classList.remove('bg-green-600');
+          btn.classList.add('bg-purple-600');
+        }, 2000);
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy URL');
+      });
+    }
+
+    // Copy full JSON data to clipboard
+    function copyJsonData() {
+      if (!currentData) {
+        alert('No data to copy. Please analyze a symbol first.');
+        return;
+      }
+      
+      // Format JSON nicely for readability
+      const jsonString = JSON.stringify(currentData, null, 2);
+      
+      navigator.clipboard.writeText(jsonString).then(() => {
+        const btn = document.getElementById('copyJsonBtn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '✅ Copied!';
+        btn.classList.add('bg-green-600');
+        btn.classList.remove('bg-blue-600');
+        
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+          btn.classList.remove('bg-green-600');
+          btn.classList.add('bg-blue-600');
+        }, 2000);
+        
+        console.log('JSON data copied to clipboard!');
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy JSON data');
+      });
     }
 
     // Auto-refresh every 5 minutes (optional)
