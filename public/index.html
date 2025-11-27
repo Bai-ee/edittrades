@@ -8,6 +8,17 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/edittrax-styles.css">
   <style>
+    /* Prevent horizontal overflow */
+    html, body {
+      overflow-x: hidden;
+      max-width: 100vw;
+      box-sizing: border-box;
+    }
+    
+    * {
+      box-sizing: border-box;
+    }
+    
     /* Additional component-specific styles */
     .details-row {
       display: none;
@@ -19,13 +30,16 @@
     }
     
     .details-row td {
-      padding: 1rem !important;
+      padding: 0.75rem !important;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     
     .details-content-wrapper {
       width: 100%;
       max-width: 100%;
       overflow: hidden;
+      box-sizing: border-box;
     }
     
     /* Table container responsive */
@@ -40,12 +54,7 @@
       grid-template-columns: 1fr;
       gap: 0.75rem;
       width: 100%;
-    }
-    
-    @media (min-width: 640px) {
-      .tf-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
+      box-sizing: border-box;
     }
     
     @media (min-width: 1024px) {
@@ -56,6 +65,8 @@
     
     .tf-grid > * {
       min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
     }
   </style>
 </head>
@@ -88,7 +99,7 @@
   </header>
 
   <!-- Main Content -->
-  <main class="max-w-6xl mx-auto px-4 py-4">
+  <main class="max-w-6xl mx-auto px-4 py-4" style="width: 100%; box-sizing: border-box; overflow-x: hidden;">
     
     <!-- Loading State -->
     <div id="loadingState" class="text-center py-12">

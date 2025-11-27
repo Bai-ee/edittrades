@@ -265,6 +265,10 @@ h1, h2, h3, h4, h5, h6 {
   padding: var(--spacing-4);
   box-shadow: var(--shadow-xl);
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
 .tf-card.uptrend {
