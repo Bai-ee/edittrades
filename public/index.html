@@ -139,45 +139,44 @@
   <script>
     let scanResults = {};
     
-    // Strategy states for each symbol (default: 4-Hour)
+    // Strategy states for each symbol (default: index 0 = 4-Hour)
     const strategyStates = {
-      'BTCUSDT': '4-Hour',
-      'ETHUSDT': '4-Hour',
-      'SOLUSDT': '4-Hour'
+      'BTCUSDT': 0,
+      'ETHUSDT': 0,
+      'SOLUSDT': 0
     };
     
-    const strategyOptions = ['4-Hour', 'Swing', 'Scalp'];
+    const strategyOptions = ['4h', 'Swing', 'Scalp'];
     
     // Cycle through strategy states
     function cycleStrategy(symbol) {
-      const currentState = strategyStates[symbol];
-      const currentIndex = strategyOptions.indexOf(currentState);
+      const currentIndex = strategyStates[symbol];
       const nextIndex = (currentIndex + 1) % strategyOptions.length;
-      strategyStates[symbol] = strategyOptions[nextIndex];
+      strategyStates[symbol] = nextIndex;
       
-      // Update button appearance
-      updateStrategyButton(symbol);
+      // Update indicator appearance
+      updateStrategyIndicators(symbol);
     }
     
-    // Update strategy button appearance
-    function updateStrategyButton(symbol) {
-      const button = document.getElementById(`strategy-${symbol}`);
-      if (!button) return;
+    // Update strategy indicator appearance
+    function updateStrategyIndicators(symbol) {
+      const activeIndex = strategyStates[symbol];
       
-      const state = strategyStates[symbol];
-      button.textContent = state;
-      
-      // ON state: white bg, black text
-      // OFF state: black bg, white text
-      if (state === '4-Hour') {
-        button.style.backgroundColor = 'black';
-        button.style.color = 'white';
-        button.style.borderColor = 'var(--color-yellow-75)';
-      } else {
-        button.style.backgroundColor = 'white';
-        button.style.color = 'black';
-        button.style.borderColor = 'black';
-      }
+      // Update each indicator
+      strategyOptions.forEach((option, index) => {
+        const indicator = document.getElementById(`indicator-${symbol}-${index}`);
+        if (!indicator) return;
+        
+        if (index === activeIndex) {
+          // ON state: white text
+          indicator.style.color = 'white';
+          indicator.style.borderColor = 'white';
+        } else {
+          // OFF state: grey text, white border
+          indicator.style.color = '#6b7280';
+          indicator.style.borderColor = 'white';
+        }
+      });
     }
 
     // Auto-run scan on page load
@@ -385,14 +384,36 @@
           ${confHtml}
         </td>
         <td class="px-2 py-3">
-          <button 
-            id="strategy-${symbol}"
-            onclick="cycleStrategy('${symbol}')"
-            class="px-3 py-1 text-xs rounded font-mathias font-bold"
-            style="background-color: black; color: white; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
-          >
-            4-Hour
-          </button>
+          <div class="flex" style="gap: 0;">
+            <button 
+              onclick="cycleStrategy('${symbol}')"
+              class="px-2 py-1 text-xs font-mathias font-bold"
+              style="background-color: black; color: white; border: 2px solid var(--color-yellow-75); border-radius: 4px 0 0 4px; transition: all 0.3s; white-space: nowrap;"
+            >
+              EditTrax
+            </button>
+            <div 
+              id="indicator-${symbol}-0"
+              class="px-2 py-1 text-xs font-mathias font-bold"
+              style="background-color: transparent; color: white; border: 2px solid white; border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center;"
+            >
+              4h
+            </div>
+            <div 
+              id="indicator-${symbol}-1"
+              class="px-2 py-1 text-xs font-mathias font-bold"
+              style="background-color: transparent; color: #6b7280; border: 2px solid white; border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center;"
+            >
+              Swing
+            </div>
+            <div 
+              id="indicator-${symbol}-2"
+              class="px-2 py-1 text-xs font-mathias font-bold"
+              style="background-color: transparent; color: #6b7280; border: 2px solid white; border-left: none; border-radius: 0 4px 4px 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center;"
+            >
+              Scalp
+            </div>
+          </div>
         </td>
       `;
       
