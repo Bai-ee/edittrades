@@ -65,6 +65,13 @@
         border-bottom: 2px solid var(--color-yellow-75);
       }
       
+      /* Create flex container for first row */
+      .coin-row::after {
+        content: "";
+        display: table;
+        clear: both;
+      }
+      
       .coin-row td {
         padding: 0.5rem 0 !important;
         border: none;
@@ -81,14 +88,17 @@
         text-transform: uppercase;
       }
       
-      /* Coin name and Signal on same row */
-      .coin-row td:first-child {
+      /* Coin name and Signal on same row with flex */
+      .coin-row td:first-child,
+      .coin-row td:nth-child(2) {
         display: inline-block;
-        width: 50%;
-        font-size: 1.25rem;
         vertical-align: top;
-        box-sizing: border-box;
-        padding-right: 0.25rem !important;
+      }
+      
+      .coin-row td:first-child {
+        width: auto;
+        font-size: 1.25rem;
+        padding-right: 1rem !important;
       }
       
       .coin-row td:first-child:before {
@@ -96,11 +106,13 @@
       }
       
       .coin-row td:nth-child(2) {
-        display: inline-block;
-        width: 50%;
-        vertical-align: top;
-        box-sizing: border-box;
-        padding-left: 0.25rem !important;
+        width: auto;
+        float: right;
+        text-align: right;
+      }
+      
+      .coin-row td:nth-child(2):before {
+        display: none;
       }
       
       /* Strategy on its own row */
