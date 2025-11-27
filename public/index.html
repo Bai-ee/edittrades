@@ -529,7 +529,7 @@
         const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalElement.innerHTML = `
           <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName}</div>
-          <div class="text-xs ${dirClass}">${confidence}%</div>
+          <div class="text-xs ${dirClass}">${confidence}% SURE</div>
         `;
       } else {
         // No trade signal
@@ -553,17 +553,32 @@
     function updateStrategyIndicators(symbol) {
       const activeIndex = strategyStates[symbol];
       
+      // Evaluate ALL strategies for color coding
+      const strategy4hSignal = evaluateTemplateSignal(symbol, '4h');
+      const strategySwingSignal = evaluateTemplateSignal(symbol, 'Swing');
+      const strategyScalpSignal = evaluateTemplateSignal(symbol, 'Scalp');
+      const strategySignals = [strategy4hSignal, strategySwingSignal, strategyScalpSignal];
+      
       // Update each indicator
       strategyOptions.forEach((option, index) => {
         const indicator = document.getElementById(`indicator-${symbol}-${index}`);
         if (!indicator) return;
         
-        if (index === activeIndex) {
-          // ON state: yellow-75 text
+        const hasValidTrade = strategySignals[index] && strategySignals[index].valid;
+        
+        if (hasValidTrade) {
+          // Green background for valid trade
+          indicator.style.backgroundColor = '#10b981';
+          indicator.style.color = index === activeIndex ? 'var(--color-yellow-75)' : 'white';
+          indicator.style.borderColor = 'var(--color-yellow-75)';
+        } else if (index === activeIndex) {
+          // ON state: yellow-75 text, transparent background
+          indicator.style.backgroundColor = 'transparent';
           indicator.style.color = 'var(--color-yellow-75)';
           indicator.style.borderColor = 'var(--color-yellow-75)';
         } else {
-          // OFF state: grey text, yellow-75 border
+          // OFF state: grey text, yellow-75 border, transparent background
+          indicator.style.backgroundColor = 'transparent';
           indicator.style.color = '#6b7280';
           indicator.style.borderColor = 'var(--color-yellow-75)';
         }
@@ -731,6 +746,11 @@
       // Signal readiness
       const readiness = calculateSignalReadiness(data);
       
+      // Evaluate ALL strategies for this symbol to color-code the indicator buttons
+      const strategy4hSignal = evaluateTemplateSignal(symbol, '4h');
+      const strategySwingSignal = evaluateTemplateSignal(symbol, 'Swing');
+      const strategyScalpSignal = evaluateTemplateSignal(symbol, 'Scalp');
+      
       // Evaluate signal based on current template
       const template = tradeTemplates[currentStrategy];
       const templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
@@ -743,7 +763,7 @@
         signalHtml = `
           <div id="signal-${symbol}">
             <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName}</div>
-            <div class="text-xs ${dirClass}">${confidence}%</div>
+            <div class="text-xs ${dirClass}">${confidence}% SURE</div>
           </div>
         `;
       } else {
@@ -781,24 +801,24 @@
             <div 
               id="indicator-${symbol}-0"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: var(--color-yellow-75); border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: ${strategy4hSignal && strategy4hSignal.valid ? '#10b981' : 'transparent'}; color: ${currentStrategyIndex === 0 ? 'var(--color-yellow-75)' : (strategy4hSignal && strategy4hSignal.valid ? 'white' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               4h
             </div>
             <div 
               id="indicator-${symbol}-1"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: #6b7280; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: ${strategySwingSignal && strategySwingSignal.valid ? '#10b981' : 'transparent'}; color: ${currentStrategyIndex === 1 ? 'var(--color-yellow-75)' : (strategySwingSignal && strategySwingSignal.valid ? 'white' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               Swing
               </div>
             <div 
               id="indicator-${symbol}-2"
               class="px-3 py-1 text-xs font-mathias font-bold"
-              style="background-color: transparent; color: #6b7280; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
+              style="background-color: ${strategyScalpSignal && strategyScalpSignal.valid ? '#10b981' : 'transparent'}; color: ${currentStrategyIndex === 2 ? 'var(--color-yellow-75)' : (strategyScalpSignal && strategyScalpSignal.valid ? 'white' : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; justify-content: center; min-width: 50px;"
             >
               Scalp
-          </div>
+            </div>
           </div>
         </td>
         <td class="px-2 py-3" data-label="Action:">
