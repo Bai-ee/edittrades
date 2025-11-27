@@ -2,6 +2,43 @@
 
 ## [Latest] - 2025-11-27
 
+### 🎯 Advanced Candle Analysis & Price Action
+- **Candle Metrics** (all timeframes):
+  - Direction: bull/bear/doji
+  - Body percentage (0-100%)
+  - Upper/lower wick percentages
+  - Close position within range
+  - EMA21 relationship (above/below)
+  - Full OHLC range
+
+- **Price Action Patterns** (all timeframes):
+  - Rejection Up/Down (wick-based reversals)
+  - Engulfing Bull/Bear patterns
+  - Inside Bar detection
+  - Pattern detection from last 2 candles
+
+- **Support & Resistance Levels** (4h & 1h only):
+  - Nearest resistance/support prices
+  - Distance to levels (percentage)
+  - At level detection (within 0.5%)
+  - Break detection (closed through level)
+
+- **Recent Candles** (5m only):
+  - Last 5 candles for LLM context
+  - OHLC for each candle
+  - Ordered oldest → newest
+
+- **UI Updates**:
+  - Removed colors from prices (EMAs, Swing High/Low)
+  - Only trend indicators keep colors (UPTREND/DOWNTREND/FLAT)
+  - Cleaner, more minimal appearance
+
+- **New Modules**:
+  - `lib/candleFeatures.js` - Candle analysis and pattern detection
+  - `lib/levels.js` - Support/resistance calculation
+  
+- **Documentation**: `ENRICHED_SCHEMA.md` - Complete field reference and examples
+
 ### 📊 Expandable Detailed Timeframe Analysis
 - **Show/Hide Details**: Click "Show" button on any coin to expand full timeframe breakdown
 - **4 Detailed Cards**: Each timeframe (4h, 1h, 15m, 5m) displays:
