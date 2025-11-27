@@ -145,69 +145,72 @@
 
     <!-- Loading State -->
     <div id="loadingState" class="hidden text-center py-12">
-      <div class="inline-block w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-      <p class="text-gray-400 text-lg mb-2">Scanning markets...</p>
-      <p id="scanProgress" class="text-gray-500 text-sm">Initializing...</p>
+      <div class="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mb-4" style="border-color: var(--text-primary); border-top-color: transparent;"></div>
+      <p style="color: var(--text-secondary);">Scanning markets...</p>
+      <p id="scanProgress" class="text-sm mt-2" style="color: var(--text-secondary);">Initializing...</p>
     </div>
 
     <!-- Error State -->
-    <div id="errorState" class="hidden bg-red-900/30 border border-red-500 rounded-xl p-6 mb-8">
-      <h3 class="text-red-400 font-bold text-lg mb-2">❌ Error</h3>
-      <p id="errorMessage" class="text-gray-300"></p>
+    <div id="errorState" class="hidden card rounded p-4 mb-4 border-red-600">
+      <h3 class="font-bold mb-2 text-red-400">Error</h3>
+      <p id="errorMessage" class="text-sm" style="color: var(--text-secondary);"></p>
+      <button onclick="runScan()" class="mt-3 btn-primary px-4 py-2 text-sm rounded">
+        Retry
+      </button>
     </div>
 
     <!-- Results Container -->
     <div id="resultsContainer" class="hidden">
       
       <!-- Summary Stats -->
-      <div class="mb-8 grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
-          <p class="text-sm text-gray-400 mb-1">Scanned</p>
-          <p id="stat-scanned" class="text-2xl font-bold text-white">-</p>
+      <div class="mb-4 grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div class="card rounded p-3">
+          <p class="text-xs mb-1" style="color: var(--text-secondary);">Scanned</p>
+          <p id="stat-scanned" class="text-xl font-bold">-</p>
         </div>
-        <div class="bg-green-900/30 rounded-xl p-4 border border-green-700">
-          <p class="text-sm text-gray-400 mb-1">Opportunities</p>
-          <p id="stat-opportunities" class="text-2xl font-bold text-green-400">-</p>
+        <div class="card rounded p-3">
+          <p class="text-xs mb-1" style="color: var(--text-secondary);">Opportunities</p>
+          <p id="stat-opportunities" class="text-xl font-bold status-long">-</p>
         </div>
-        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
-          <p class="text-sm text-gray-400 mb-1">No Setup</p>
-          <p id="stat-nosetup" class="text-2xl font-bold text-gray-500">-</p>
+        <div class="card rounded p-3">
+          <p class="text-xs mb-1" style="color: var(--text-secondary);">No Setup</p>
+          <p id="stat-nosetup" class="text-xl font-bold status-neutral">-</p>
         </div>
-        <div class="bg-yellow-900/30 rounded-xl p-4 border border-yellow-700">
-          <p class="text-sm text-gray-400 mb-1">Low Confidence</p>
-          <p id="stat-lowconf" class="text-2xl font-bold text-yellow-400">-</p>
+        <div class="card rounded p-3">
+          <p class="text-xs mb-1" style="color: var(--text-secondary);">Low Confidence</p>
+          <p id="stat-lowconf" class="text-xl font-bold" style="color: #f59e0b;">-</p>
         </div>
-        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
-          <p class="text-sm text-gray-400 mb-1">Duration</p>
-          <p id="stat-duration" class="text-2xl font-bold text-blue-400">-</p>
+        <div class="card rounded p-3">
+          <p class="text-xs mb-1" style="color: var(--text-secondary);">Duration</p>
+          <p id="stat-duration" class="text-xl font-bold" style="color: #3b82f6;">-</p>
         </div>
       </div>
 
       <!-- Opportunities Table -->
-      <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-        <div class="p-6 border-b border-gray-700">
+      <div class="card rounded overflow-hidden">
+        <div class="p-4 border-b" style="border-color: var(--border);">
           <div class="flex items-center justify-between">
-            <h2 class="text-xl font-bold text-white">🎯 Trading Opportunities</h2>
-            <p id="opportunityCount" class="text-sm text-gray-400">-</p>
+            <h2 class="text-base font-bold">Trading Opportunities</h2>
+            <p id="opportunityCount" class="text-xs" style="color: var(--text-secondary);">-</p>
           </div>
         </div>
         
         <div class="overflow-x-auto">
-          <table class="w-full">
-            <thead class="bg-gray-900 border-b border-gray-700">
+          <table class="w-full text-sm">
+            <thead class="border-b" style="border-color: var(--border); background-color: var(--bg-tertiary);">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">#</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Symbol</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Direction</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Confidence</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Entry Zone</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Current Price</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">24h Change</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Risk/Reward</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">#</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SYMBOL</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SIGNAL</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">CONF</th>
+                <th class="px-3 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">ENTRY</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">PRICE</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">24H</th>
+                <th class="px-3 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">R/R</th>
+                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">ACTIONS</th>
               </tr>
             </thead>
-            <tbody id="opportunitiesTable" class="divide-y divide-gray-700">
+            <tbody id="opportunitiesTable" class="divide-y" style="divide-color: var(--border);">
               <!-- Rows will be populated dynamically -->
             </tbody>
           </table>
@@ -334,104 +337,60 @@
       const isLong = opp.direction === 'long';
       const confidence = opp.confidence;
       
-      // Confidence badge
-      let confidenceClass = '';
-      if (confidence >= 0.75) {
-        confidenceClass = 'bg-green-900/50 text-green-300';
-      } else if (confidence >= 0.55) {
-        confidenceClass = 'bg-yellow-900/50 text-yellow-300';
-      } else {
-        confidenceClass = 'bg-red-900/50 text-red-300';
-      }
+      // Confidence
+      const confClass = confidence >= 0.75 ? 'status-long' : 
+                       confidence >= 0.55 ? 'style="color: #f59e0b;"' : 'status-short';
 
-      // Direction badge
-      const directionClass = isLong ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400';
-      const directionIcon = isLong ? '📈' : '📉';
+      // Direction
+      const dirClass = isLong ? 'status-long' : 'status-short';
 
       // Price change color
-      const priceChangeClass = opp.priceChange24h >= 0 ? 'text-green-400' : 'text-red-400';
+      const changeClass = opp.priceChange24h >= 0 ? 'status-long' : 'status-short';
 
       // Calculate risk/reward
       const entryMid = (opp.entry_zone.min + opp.entry_zone.max) / 2;
       const risk = Math.abs(entryMid - opp.stop_loss);
-      const reward = Math.abs(opp.targets[1] - entryMid); // Use TP2 for RR
+      const reward = Math.abs(opp.targets[1] - entryMid);
       const rr = (reward / risk).toFixed(2);
 
       const row = document.createElement('tr');
-      row.className = 'scanner-row cursor-pointer transition-colors';
+      row.className = 'scanner-row cursor-pointer';
       row.onclick = () => viewDetails(opp.symbol);
       
       row.innerHTML = `
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="text-sm font-bold text-gray-400">#${rank}</div>
+        <td class="px-3 py-3">
+          <div class="text-xs font-bold" style="color: var(--text-secondary);">#${rank}</div>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="text-sm font-bold text-white">${opp.symbol}</div>
+        <td class="px-3 py-3">
+          <div class="text-sm font-bold">${opp.symbol}</div>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <span class="px-3 py-1 rounded-full text-xs font-bold ${directionClass}">
-            ${directionIcon} ${opp.direction.toUpperCase()}
-          </span>
+        <td class="px-3 py-3">
+          <span class="${dirClass} font-medium">${opp.direction.toUpperCase()}</span>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <span class="px-3 py-1 rounded-full text-xs font-bold ${confidenceClass}">
-            ${(confidence * 100).toFixed(0)}%
-          </span>
+        <td class="px-3 py-3">
+          <span class="${confClass}">${(confidence * 100).toFixed(0)}%</span>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="text-sm font-mono text-blue-400">
-            $${opp.entry_zone.min.toLocaleString()} - $${opp.entry_zone.max.toLocaleString()}
-          </div>
+        <td class="px-3 py-3 hidden sm:table-cell">
+          <div class="text-xs">$${opp.entry_zone.min.toLocaleString()} - $${opp.entry_zone.max.toLocaleString()}</div>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="text-sm font-mono text-white">$${opp.currentPrice.toLocaleString()}</div>
+        <td class="px-3 py-3">
+          <div class="text-xs">$${opp.currentPrice.toLocaleString()}</div>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="text-sm font-bold ${priceChangeClass}">
+        <td class="px-3 py-3">
+          <div class="text-xs ${changeClass}">
             ${opp.priceChange24h >= 0 ? '+' : ''}${opp.priceChange24h.toFixed(2)}%
           </div>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="text-sm font-mono text-green-400">1:${rr}</div>
+        <td class="px-3 py-3 hidden md:table-cell">
+          <div class="text-xs status-long">1:${rr}</div>
         </td>
-        <td class="px-4 py-4 whitespace-nowrap">
-          <div class="flex gap-2">
-            <button 
-              onclick="event.stopPropagation(); viewDetails('${opp.symbol}')" 
-              class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition"
-              title="View full analysis"
-            >
-              📊
-            </button>
-            <button 
-              onclick="event.stopPropagation(); copyApiUrl('${opp.symbol}')" 
-              class="px-2 py-1 bg-purple-600 hover:bg-purple-700 rounded text-xs font-medium transition"
-              title="Copy API URL"
-            >
-              🔗
-            </button>
-              <button 
-                onclick="event.stopPropagation(); copyOppJson(${JSON.stringify(opp).replace(/"/g, '&quot;')})" 
-                class="px-2 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium transition"
-                title="Copy full JSON data"
-              >
-                📋
-              </button>
-              <button 
-                onclick="event.stopPropagation(); copyCompactJson('${opp.symbol}')" 
-                class="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-xs font-medium transition"
-                title="Copy compact JSON for ChatGPT"
-              >
-                🤖
-              </button>
-              <button 
-                onclick="event.stopPropagation(); copyScannerDashboardView('${opp.symbol}')" 
-                class="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 rounded text-xs font-medium transition"
-                title="Copy dashboard view JSON"
-              >
-                📊
-              </button>
-          </div>
+        <td class="px-3 py-3">
+          <button 
+            onclick="event.stopPropagation(); copyScannerDashboardView('${opp.symbol}')" 
+            class="btn-secondary px-2 py-1 text-xs rounded w-full"
+          >
+            Copy
+          </button>
         </td>
       `;
 

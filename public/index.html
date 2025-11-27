@@ -60,40 +60,26 @@
     .status-short { color: var(--accent-short); }
     .status-neutral { color: var(--accent-neutral); }
     
-    .coin-card {
+    .coin-row {
       border-left: 3px solid var(--border);
+      transition: background-color 0.2s;
     }
     
-    .coin-card.has-trade-long {
+    .coin-row:hover {
+      background-color: var(--bg-tertiary);
+    }
+    
+    .coin-row.has-trade-long {
       border-left-color: var(--accent-long);
     }
     
-    .coin-card.has-trade-short {
+    .coin-row.has-trade-short {
       border-left-color: var(--accent-short);
-    }
-    
-    /* Mobile optimizations */
-    .compact-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 0.5rem;
-    }
-    
-    .tf-badge {
-      font-size: 0.7rem;
-      padding: 0.25rem 0.5rem;
-      border-radius: 0.25rem;
-      border: 1px solid var(--border);
-      background-color: var(--bg-tertiary);
     }
     
     @media (max-width: 640px) {
       body {
         font-size: 14px;
-      }
-      
-      .compact-grid {
-        grid-template-columns: repeat(2, 1fr);
       }
     }
   </style>
@@ -102,94 +88,86 @@
   
   <!-- Header -->
   <header class="border-b" style="border-color: var(--border); background-color: var(--bg-secondary);">
-    <div class="max-w-2xl mx-auto px-4 py-3">
+    <div class="max-w-6xl mx-auto px-4 py-3">
       <div class="flex items-center justify-between">
         <h1 class="text-lg font-bold">Trading Scanner</h1>
-        <button 
-          id="menuBtn" 
-          onclick="toggleMenu()"
-          class="btn-secondary px-3 py-1 text-sm rounded"
-        >
-          Menu
-        </button>
+        <div class="flex items-center gap-2">
+          <button 
+            id="refreshBtn" 
+            onclick="scanMajorCoins()"
+            class="btn-secondary px-3 py-2 text-sm rounded"
+          >
+            Refresh
+          </button>
+          <a href="/scanner.html" class="btn-secondary px-3 py-2 text-sm rounded">
+            Full Scanner
+          </a>
+        </div>
       </div>
     </div>
   </header>
 
-  <!-- Collapsible Menu -->
-  <div id="menu" class="hidden border-b" style="border-color: var(--border); background-color: var(--bg-tertiary);">
-    <div class="max-w-2xl mx-auto px-4 py-3 space-y-2">
-      <a href="/scanner.html" class="block btn-secondary px-3 py-2 text-sm rounded text-center">
-        Market Scanner
-      </a>
-      <button onclick="window.location.reload()" class="w-full btn-secondary px-3 py-2 text-sm rounded">
-        Refresh
-      </button>
-    </div>
-  </div>
-
   <!-- Main Content -->
-  <main class="max-w-2xl mx-auto px-4 py-6">
+  <main class="max-w-6xl mx-auto px-4 py-4">
     
-    <!-- Initial State: Scan Button -->
-    <div id="initialState">
-      <div class="text-center py-12">
-        <h2 class="text-2xl font-bold mb-2">Quick Scan</h2>
-        <p class="text-sm mb-8" style="color: var(--text-secondary);">
-          Scan BTC, ETH & SOL for trading opportunities
-        </p>
-        <button 
-          id="scanBtn" 
-          onclick="scanMajorCoins()"
-          class="btn-primary px-8 py-4 rounded text-lg font-medium transition w-full max-w-xs"
-        >
-          Scan Now
-        </button>
-      </div>
-    </div>
-
     <!-- Loading State -->
-    <div id="loadingState" class="hidden text-center py-12">
+    <div id="loadingState" class="text-center py-12">
       <div class="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mb-4" style="border-color: var(--text-primary); border-top-color: transparent;"></div>
-      <p style="color: var(--text-secondary);">Scanning markets...</p>
-      <p id="scanProgress" class="text-sm mt-2" style="color: var(--text-secondary);"></p>
+      <p style="color: var(--text-secondary);">Loading BTC, ETH & SOL...</p>
     </div>
 
     <!-- Error State -->
     <div id="errorState" class="hidden card rounded p-4 mb-4 border-red-600">
       <h3 class="font-bold mb-2 text-red-400">Error</h3>
       <p id="errorMessage" class="text-sm" style="color: var(--text-secondary);"></p>
+      <button onclick="scanMajorCoins()" class="mt-3 btn-primary px-4 py-2 text-sm rounded">
+        Retry
+      </button>
     </div>
 
     <!-- Results Container -->
     <div id="resultsContainer" class="hidden">
       
       <!-- Summary Header -->
-      <div class="mb-4 flex items-center justify-between">
+      <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h2 class="text-lg font-bold">Results</h2>
+          <h2 class="text-base font-bold">BTC, ETH & SOL Analysis</h2>
           <p class="text-xs" style="color: var(--text-secondary);" id="lastUpdate"></p>
         </div>
-        <button 
-          id="copyAllBtn" 
-          onclick="copyAllCoins()"
-          class="btn-secondary px-3 py-2 text-sm rounded"
-        >
-          Copy All
-        </button>
-      </div>
-
-      <!-- Opportunities Summary -->
-      <div id="opportunitySummary" class="card rounded p-3 mb-4">
-        <p class="text-sm font-medium mb-2">Trade Opportunities</p>
-        <div id="opportunityList" class="text-xs space-y-1" style="color: var(--text-secondary);">
-          <!-- Will be populated dynamically -->
+        <div class="flex gap-2">
+          <button 
+            id="copyAllBtn" 
+            onclick="copyAllCoins()"
+            class="btn-secondary px-3 py-2 text-xs sm:text-sm rounded"
+          >
+            Copy All
+          </button>
         </div>
       </div>
 
-      <!-- Coin Cards Container -->
-      <div id="coinCards" class="space-y-3">
-        <!-- Will be populated dynamically -->
+      <!-- Opportunities Table -->
+      <div class="card rounded overflow-hidden mb-4">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="border-b" style="border-color: var(--border); background-color: var(--bg-tertiary);">
+              <tr>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">COIN</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">PRICE</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">24H</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SIGNAL</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">CONF</th>
+                <th class="px-3 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">ENTRY</th>
+                <th class="px-3 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">STOP</th>
+                <th class="px-3 py-2 text-left text-xs font-medium hidden lg:table-cell" style="color: var(--text-secondary);">TARGETS</th>
+                <th class="px-3 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">TF</th>
+                <th class="px-3 py-2 text-center text-xs font-medium" style="color: var(--text-secondary);">ACTION</th>
+              </tr>
+            </thead>
+            <tbody id="opportunitiesTable" class="divide-y" style="divide-color: var(--border);">
+              <!-- Rows will be populated dynamically -->
+            </tbody>
+          </table>
+        </div>
       </div>
 
     </div>
@@ -199,35 +177,39 @@
   <script>
     let scanResults = {};
 
-    // Toggle menu
-    function toggleMenu() {
-      const menu = document.getElementById('menu');
-      menu.classList.toggle('hidden');
-    }
+    // Auto-run scan on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      scanMajorCoins();
+    });
 
     // Main scan function
     async function scanMajorCoins() {
       const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
       
       // Show loading
-      document.getElementById('initialState').classList.add('hidden');
+      document.getElementById('loadingState').classList.remove('hidden');
       document.getElementById('resultsContainer').classList.add('hidden');
       document.getElementById('errorState').classList.add('hidden');
-      document.getElementById('loadingState').classList.remove('hidden');
       
       try {
         scanResults = {};
         
-        for (let i = 0; i < symbols.length; i++) {
-          const symbol = symbols[i];
-          document.getElementById('scanProgress').textContent = `Scanning ${symbol}... (${i+1}/${symbols.length})`;
-          
-          const response = await fetch(`/api/analyze/${symbol}?intervals=4h,1h,15m,5m`);
-          if (!response.ok) throw new Error(`Failed to fetch ${symbol}`);
-          
-          const data = await response.json();
+        // Fetch all coins in parallel
+        const promises = symbols.map(symbol => 
+          fetch(`/api/analyze/${symbol}?intervals=4h,1h,15m,5m`)
+            .then(res => {
+              if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
+              return res.json();
+            })
+            .then(data => ({ symbol, data }))
+        );
+        
+        const results = await Promise.all(promises);
+        
+        // Store results
+        results.forEach(({ symbol, data }) => {
           scanResults[symbol] = data;
-        }
+        });
         
         // Display results
         displayResults();
@@ -237,129 +219,159 @@
         
       } catch (error) {
         console.error('Scan error:', error);
-        showError(error.message || 'Failed to scan markets');
+        showError(error.message || 'Failed to scan markets. Check your connection and try again.');
         document.getElementById('loadingState').classList.add('hidden');
       }
     }
 
     // Display scan results
     function displayResults() {
-      const container = document.getElementById('coinCards');
-      const opportunityList = document.getElementById('opportunityList');
-      
-      container.innerHTML = '';
-      opportunityList.innerHTML = '';
+      const tableBody = document.getElementById('opportunitiesTable');
+      tableBody.innerHTML = '';
       
       // Update timestamp
       document.getElementById('lastUpdate').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
       
-      // Find opportunities
-      const opportunities = [];
-      
-      for (const [symbol, data] of Object.entries(scanResults)) {
-        const signal = data.tradeSignal;
-        
-        if (signal && signal.valid) {
-          opportunities.push({
-            symbol,
-            direction: signal.direction,
-            confidence: signal.confidence
-          });
+      // Create row for each coin
+      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      symbols.forEach(symbol => {
+        const data = scanResults[symbol];
+        if (data) {
+          const row = createCoinRow(symbol, data);
+          tableBody.appendChild(row);
         }
-        
-        // Create coin card
-        const card = createCoinCard(symbol, data);
-        container.appendChild(card);
-      }
-      
-      // Display opportunity summary
-      if (opportunities.length > 0) {
-        opportunities.forEach(opp => {
-          const p = document.createElement('p');
-          const dirClass = opp.direction === 'long' ? 'status-long' : 'status-short';
-          p.innerHTML = `<span class="${dirClass} font-medium">${opp.symbol}</span> - ${opp.direction.toUpperCase()} (${(opp.confidence * 100).toFixed(0)}% confidence)`;
-          opportunityList.appendChild(p);
-        });
-      } else {
-        opportunityList.innerHTML = '<p style="color: var(--text-secondary);">No high-confidence setups found</p>';
-      }
+      });
     }
 
-    // Create individual coin card
-    function createCoinCard(symbol, data) {
-      const card = document.createElement('div');
+    // Create table row for coin
+    function createCoinRow(symbol, data) {
+      const row = document.createElement('tr');
       const signal = data.tradeSignal;
       const hasValidTrade = signal && signal.valid;
       const tradeClass = hasValidTrade ? 
         (signal.direction === 'long' ? 'has-trade-long' : 'has-trade-short') : '';
       
-      card.className = `coin-card card rounded p-3 ${tradeClass}`;
+      row.className = `coin-row ${tradeClass}`;
       
-      // Header
-      const header = `
-        <div class="flex items-center justify-between mb-3">
-          <div>
-            <h3 class="font-bold">${symbol.replace('USDT', '')}</h3>
-            <p class="text-xs" style="color: var(--text-secondary);">
-              $${data.currentPrice?.toLocaleString() || 'N/A'}
-              <span class="${data.priceChange24h >= 0 ? 'status-long' : 'status-short'} ml-2">
-                ${data.priceChange24h >= 0 ? '+' : ''}${data.priceChange24h?.toFixed(2) || 0}%
-              </span>
-            </p>
-          </div>
-          <button 
-            onclick="copyCoinView('${symbol}')"
-            class="btn-secondary px-3 py-1 text-xs rounded"
-          >
-            Copy
-          </button>
-        </div>
-      `;
+      // Coin name
+      const coinName = symbol.replace('USDT', '');
       
-      // Trade signal
-      let signalHtml = '';
+      // Price and change
+      const price = data.currentPrice ? `$${data.currentPrice.toLocaleString()}` : 'N/A';
+      const changeClass = (data.priceChange24h || 0) >= 0 ? 'status-long' : 'status-short';
+      const change = data.priceChange24h ? 
+        `${data.priceChange24h >= 0 ? '+' : ''}${data.priceChange24h.toFixed(2)}%` : 'N/A';
+      
+      // Signal and confidence
+      let signalHtml, confHtml;
       if (hasValidTrade) {
         const dirClass = signal.direction === 'long' ? 'status-long' : 'status-short';
-        signalHtml = `
-          <div class="mb-3 p-2 rounded" style="background-color: var(--bg-tertiary); border: 1px solid var(--border);">
-            <p class="text-xs font-medium mb-1">
-              <span class="${dirClass}">${signal.direction.toUpperCase()}</span>
-              <span style="color: var(--text-secondary);"> • ${(signal.confidence * 100).toFixed(0)}% confidence</span>
-            </p>
-            <p class="text-xs" style="color: var(--text-secondary);">${signal.reason_summary || signal.reason}</p>
-          </div>
-        `;
+        signalHtml = `<span class="${dirClass} font-medium">${signal.direction.toUpperCase()}</span>`;
+        confHtml = `<span class="${dirClass}">${(signal.confidence * 100).toFixed(0)}%</span>`;
       } else {
-        signalHtml = `
-          <div class="mb-3 p-2 rounded" style="background-color: var(--bg-tertiary); border: 1px solid var(--border);">
-            <p class="text-xs status-neutral">${signal?.reason || 'No trade setup'}</p>
-          </div>
-        `;
+        signalHtml = `<span class="status-neutral">NO TRADE</span>`;
+        confHtml = `<span class="status-neutral">-</span>`;
       }
       
-      // Timeframes grid
+      // Entry, Stop, Targets (only if valid trade)
+      let entryHtml = '<span style="color: var(--text-secondary);">-</span>';
+      let stopHtml = '<span style="color: var(--text-secondary);">-</span>';
+      let targetsHtml = '<span style="color: var(--text-secondary);">-</span>';
+      
+      if (hasValidTrade && signal.entry_zone) {
+        entryHtml = `<div class="text-xs">$${signal.entry_zone.min.toLocaleString()} - $${signal.entry_zone.max.toLocaleString()}</div>`;
+        stopHtml = `<div class="text-xs text-red-400">$${signal.stop_loss.toLocaleString()}</div>`;
+        targetsHtml = `<div class="text-xs text-green-400">$${signal.targets[0].toLocaleString()} / $${signal.targets[1].toLocaleString()}</div>`;
+      }
+      
+      // Timeframes (compact badges)
       const timeframes = ['4h', '1h', '15m', '5m'];
       const tfHtml = timeframes.map(tf => {
         const analysis = data.analysis?.[tf];
         if (!analysis || analysis.error) {
-          return `<div class="tf-badge text-center"><div class="font-medium">${tf}</div><div style="color: var(--text-secondary);">N/A</div></div>`;
+          return `<span class="text-xs px-1 py-0.5 rounded" style="background-color: var(--bg-tertiary); color: var(--text-secondary);">${tf}:?</span>`;
         }
         
         const trend = analysis.indicators?.analysis?.trend || 'UNKNOWN';
         const trendClass = trend === 'UPTREND' ? 'status-long' : 
                           trend === 'DOWNTREND' ? 'status-short' : 'status-neutral';
+        const trendShort = trend === 'UPTREND' ? '↑' : 
+                          trend === 'DOWNTREND' ? '↓' : '→';
         
-        return `
-          <div class="tf-badge text-center">
-            <div class="font-medium">${tf}</div>
-            <div class="${trendClass} text-xs">${trend.replace('TREND', '').replace('FLAT', 'NEUTRAL')}</div>
-          </div>
-        `;
-      }).join('');
+        return `<span class="text-xs px-1 py-0.5 rounded ${trendClass}" style="background-color: var(--bg-tertiary);">${tf}:${trendShort}</span>`;
+      }).join(' ');
       
-      card.innerHTML = header + signalHtml + `<div class="compact-grid">${tfHtml}</div>`;
+      row.innerHTML = `
+        <td class="px-3 py-3">
+          <div class="font-bold">${coinName}</div>
+        </td>
+        <td class="px-3 py-3">
+          <div class="text-xs">${price}</div>
+        </td>
+        <td class="px-3 py-3">
+          <div class="text-xs ${changeClass}">${change}</div>
+        </td>
+        <td class="px-3 py-3">
+          ${signalHtml}
+        </td>
+        <td class="px-3 py-3">
+          ${confHtml}
+        </td>
+        <td class="px-3 py-3 hidden sm:table-cell">
+          ${entryHtml}
+        </td>
+        <td class="px-3 py-3 hidden md:table-cell">
+          ${stopHtml}
+        </td>
+        <td class="px-3 py-3 hidden lg:table-cell">
+          ${targetsHtml}
+        </td>
+        <td class="px-3 py-3">
+          <div class="flex flex-wrap gap-1">${tfHtml}</div>
+        </td>
+        <td class="px-3 py-3">
+          <button 
+            onclick="copyCoinView('${symbol}')"
+            class="btn-secondary px-2 py-1 text-xs rounded w-full"
+          >
+            Copy
+          </button>
+        </td>
+      `;
       
-      return card;
+      // Make row clickable to view details (optional)
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', (e) => {
+        // Don't trigger if clicking the copy button
+        if (!e.target.closest('button')) {
+          showCoinDetails(symbol, data);
+        }
+      });
+      
+      return row;
+    }
+
+    // Show coin details modal/alert
+    function showCoinDetails(symbol, data) {
+      const signal = data.tradeSignal;
+      let message = `${symbol}\n\nPrice: $${data.currentPrice?.toLocaleString()}\n24h Change: ${data.priceChange24h?.toFixed(2)}%\n\n`;
+      
+      if (signal && signal.valid) {
+        message += `SIGNAL: ${signal.direction.toUpperCase()}\n`;
+        message += `Confidence: ${(signal.confidence * 100).toFixed(0)}%\n`;
+        message += `Reason: ${signal.reason_summary || signal.reason}\n\n`;
+        if (signal.entry_zone) {
+          message += `Entry: $${signal.entry_zone.min.toLocaleString()} - $${signal.entry_zone.max.toLocaleString()}\n`;
+          message += `Stop Loss: $${signal.stop_loss.toLocaleString()}\n`;
+          message += `Target 1: $${signal.targets[0].toLocaleString()}\n`;
+          message += `Target 2: $${signal.targets[1].toLocaleString()}\n`;
+        }
+      } else {
+        message += `SIGNAL: NO TRADE\n`;
+        message += `Reason: ${signal?.reason || 'No valid setup'}\n`;
+      }
+      
+      alert(message);
     }
 
     // Copy single coin view
@@ -374,7 +386,7 @@
       const jsonString = JSON.stringify(dashboardView, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
-        showCopySuccess(`${symbol} copied!`);
+        showCopySuccess(`${symbol.replace('USDT', '')} copied!`);
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy');
@@ -444,11 +456,21 @@
           view.timeframes[interval] = {
             trend: ind.analysis?.trend || 'UNKNOWN',
             ema21: ind.ema?.ema21 ? parseFloat(ind.ema.ema21.toFixed(2)) : null,
+            ema200: ind.ema?.ema200 ? parseFloat(ind.ema.ema200.toFixed(2)) : null,
             stoch: {
               k: ind.stochRSI?.k ? parseFloat(ind.stochRSI.k.toFixed(1)) : null,
+              d: ind.stochRSI?.d ? parseFloat(ind.stochRSI.d.toFixed(1)) : null,
               condition: ind.stochRSI?.condition || 'UNKNOWN'
             },
-            pullback: ind.analysis?.pullbackState || 'UNKNOWN'
+            pullback: {
+              state: ind.analysis?.pullbackState || 'UNKNOWN',
+              distanceFrom21EMA: ind.analysis?.distanceFrom21EMA ? 
+                parseFloat(ind.analysis.distanceFrom21EMA.toFixed(2)) : null
+            },
+            swingHigh: analysis.structure?.swingHigh ? 
+              parseFloat(analysis.structure.swingHigh.toFixed(2)) : null,
+            swingLow: analysis.structure?.swingLow ? 
+              parseFloat(analysis.structure.swingLow.toFixed(2)) : null
           };
         }
       }
@@ -488,4 +510,3 @@
 
 </body>
 </html>
-
