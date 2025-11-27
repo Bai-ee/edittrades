@@ -1,0 +1,400 @@
+/**
+ * EditTrades / EditTrax Design System
+ * Applied to Trading Dashboard
+ */
+
+/* ========================================
+ * FONT FACE
+ * ======================================== */
+@font-face {
+  font-family: "Mathias";
+  src: url('./fonts/mathias-bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ========================================
+ * ROOT VARIABLES
+ * ======================================== */
+:root {
+  /* EditTrax Colors */
+  --color-black: #000000;
+  --color-white: #FFFFFF;
+  --color-yellow-75: #E6E9E0;
+  --color-yellow-125: #A6752B;
+  --color-blue-810: #1C1C33;
+  --color-blue-820: #353554;
+  --color-blue-830: #14142B;
+  --color-gray-660: #373737;
+  --color-gray-760: #282828;
+  --color-red-75: #FC0023;
+  --color-edit-button-bg: #7f1d1d;
+  
+  /* Success/Error States for Trading */
+  --accent-long: #10b981;
+  --accent-short: #ef4444;
+  --accent-neutral: #6b7280;
+  
+  /* Fonts */
+  --font-mathias: "Mathias", sans-serif;
+  --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  
+  /* Spacing */
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+  
+  /* Borders */
+  --border-2: 2px;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-5: 5px;
+  --radius-10: 10px;
+  
+  /* Shadows */
+  --shadow-5xl: 3px 3px 10px rgba(0, 0, 0, 0.6), -3px -3px 10px rgba(0, 0, 0, 0.6);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  
+  /* Transitions */
+  --transition-base: 0.3s ease;
+  
+  /* Z-index */
+  --z-10: 10;
+  --z-9999: 9999;
+}
+
+/* ========================================
+ * BASE STYLES
+ * ======================================== */
+body {
+  background-color: var(--color-black);
+  color: var(--color-yellow-75);
+  font-family: var(--font-system);
+  margin: 0;
+  padding: 0;
+}
+
+/* ========================================
+ * TYPOGRAPHY
+ * ======================================== */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-mathias);
+  color: var(--color-yellow-75);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.font-mathias {
+  font-family: var(--font-mathias);
+}
+
+.text-primary {
+  color: var(--color-yellow-75);
+}
+
+.text-secondary {
+  color: var(--color-gray-660);
+}
+
+.text-white {
+  color: var(--color-white);
+}
+
+/* ========================================
+ * BUTTONS
+ * ======================================== */
+.btn-base {
+  font-family: var(--font-mathias);
+  padding: var(--spacing-4) var(--spacing-6);
+  border-radius: var(--radius-md);
+  border: var(--border-2) solid;
+  transition: background-color var(--transition-base), box-shadow var(--transition-base);
+  cursor: pointer;
+  text-align: center;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.btn-primary {
+  background-color: var(--color-yellow-75);
+  color: var(--color-black);
+  border-color: var(--color-black);
+  box-shadow: var(--shadow-2xl);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-yellow-125);
+  box-shadow: var(--shadow-5xl);
+}
+
+.btn-secondary {
+  background-color: var(--color-black);
+  color: var(--color-yellow-75);
+  border-color: var(--color-yellow-75);
+  box-shadow: var(--shadow-xl);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-blue-830);
+  box-shadow: var(--shadow-5xl);
+}
+
+/* ========================================
+ * CARDS
+ * ======================================== */
+.card-edittrax {
+  background-color: var(--color-black);
+  border: var(--border-2) solid var(--color-yellow-75);
+  border-radius: var(--radius-10);
+  padding: var(--spacing-6);
+  box-shadow: var(--shadow-5xl);
+}
+
+.card-dark {
+  background-color: var(--color-blue-830);
+  border: var(--border-2) solid var(--color-blue-820);
+  border-radius: var(--radius-10);
+  padding: var(--spacing-6);
+  box-shadow: var(--shadow-5xl);
+}
+
+/* ========================================
+ * HEADER / NAVIGATION
+ * ======================================== */
+.header-edittrax {
+  background-color: var(--color-black);
+  border-bottom: var(--border-2) solid var(--color-yellow-75);
+  padding: var(--spacing-4);
+}
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-4);
+}
+
+.logo-img {
+  height: 40px;
+  width: auto;
+}
+
+/* ========================================
+ * TABLES
+ * ======================================== */
+.table-edittrax {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--color-black);
+}
+
+.table-edittrax thead {
+  background-color: var(--color-blue-830);
+  border-bottom: var(--border-2) solid var(--color-yellow-75);
+}
+
+.table-edittrax th {
+  padding: var(--spacing-3);
+  font-family: var(--font-mathias);
+  color: var(--color-yellow-75);
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.table-edittrax td {
+  padding: var(--spacing-3);
+  border-bottom: 1px solid var(--color-gray-760);
+  color: var(--color-white);
+}
+
+.table-edittrax tr:hover {
+  background-color: var(--color-blue-830);
+}
+
+/* ========================================
+ * TRADING SPECIFIC
+ * ======================================== */
+.coin-row {
+  border-left: 3px solid var(--color-gray-760);
+  transition: background-color 0.2s;
+}
+
+.coin-row:hover {
+  background-color: var(--color-blue-830);
+}
+
+.coin-row.has-trade-long {
+  border-left-color: var(--accent-long);
+}
+
+.coin-row.has-trade-short {
+  border-left-color: var(--accent-short);
+}
+
+.status-long {
+  color: var(--accent-long);
+}
+
+.status-short {
+  color: var(--accent-short);
+}
+
+.status-neutral {
+  color: var(--accent-neutral);
+}
+
+/* ========================================
+ * TIMEFRAME CARDS
+ * ======================================== */
+.tf-card {
+  background-color: var(--color-blue-830);
+  border: var(--border-2) solid var(--color-gray-760);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-4);
+  box-shadow: var(--shadow-xl);
+}
+
+.tf-card.uptrend {
+  border-left: 3px solid var(--accent-long);
+}
+
+.tf-card.downtrend {
+  border-left: 3px solid var(--accent-short);
+}
+
+.tf-card.flat {
+  border-left: 3px solid var(--accent-neutral);
+}
+
+/* ========================================
+ * STATS CARDS
+ * ======================================== */
+.stat-card {
+  background-color: var(--color-blue-830);
+  border: var(--border-2) solid var(--color-yellow-75);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-6);
+  box-shadow: var(--shadow-5xl);
+  text-align: center;
+}
+
+.stat-card .stat-label {
+  font-size: 0.75rem;
+  color: var(--color-gray-660);
+  text-transform: uppercase;
+  font-family: var(--font-mathias);
+  margin-bottom: var(--spacing-2);
+}
+
+.stat-card .stat-value {
+  font-size: 2rem;
+  font-family: var(--font-mathias);
+  color: var(--color-yellow-75);
+}
+
+.stat-positive {
+  color: var(--accent-long) !important;
+}
+
+.stat-negative {
+  color: var(--accent-short) !important;
+}
+
+/* ========================================
+ * MODALS
+ * ======================================== */
+.modal-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  z-index: var(--z-10);
+  background-color: rgba(0, 0, 0, 0.90);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-content {
+  background-color: var(--color-black);
+  border: var(--border-2) solid var(--color-yellow-75);
+  width: 500px;
+  max-width: 90vw;
+  position: relative;
+  z-index: var(--z-9999);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-6);
+  box-shadow: var(--shadow-5xl);
+}
+
+/* ========================================
+ * UTILITY CLASSES
+ * ======================================== */
+.bg-black {
+  background-color: var(--color-black);
+}
+
+.bg-yellow {
+  background-color: var(--color-yellow-75);
+}
+
+.border-yellow {
+  border-color: var(--color-yellow-75);
+}
+
+.border-2-solid {
+  border-width: var(--border-2);
+  border-style: solid;
+}
+
+.rounded-md {
+  border-radius: var(--radius-md);
+}
+
+.rounded-lg {
+  border-radius: var(--radius-lg);
+}
+
+.shadow-5xl {
+  box-shadow: var(--shadow-5xl);
+}
+
+.shadow-2xl {
+  box-shadow: var(--shadow-2xl);
+}
+
+/* ========================================
+ * RESPONSIVE
+ * ======================================== */
+@media (max-width: 640px) {
+  body {
+    font-size: 12px;
+  }
+  
+  .btn-base {
+    padding: var(--spacing-3) var(--spacing-4);
+    font-size: 0.75rem;
+  }
+  
+  .logo-img {
+    height: 32px;
+  }
+  
+  h1 {
+    font-size: 1.25rem;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .logo-img {
+    height: 36px;
+  }
+}
+

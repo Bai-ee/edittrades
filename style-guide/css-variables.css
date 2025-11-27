@@ -1,0 +1,442 @@
+/**
+ * EditTrax Design System - CSS Custom Properties
+ * 
+ * This file provides the complete EditTrax design system as CSS custom properties (variables).
+ * Use this for projects that don't use Tailwind CSS.
+ * 
+ * Usage:
+ * 1. Import this file in your main CSS file
+ * 2. Reference variables using var(--variable-name)
+ * 3. Import the Mathias font separately
+ * 
+ * Example:
+ * .my-button {
+ *   background-color: var(--color-yellow-75);
+ *   color: var(--color-black);
+ *   font-family: var(--font-mathias);
+ *   padding: var(--spacing-4);
+ *   border-radius: var(--radius-md);
+ * }
+ */
+
+:root {
+  /* ========================================
+   * COLORS
+   * ======================================== */
+  
+  /* Primary Colors */
+  --color-black: #000000;
+  --color-white: #FFFFFF;
+  
+  /* Yellow (Primary Accent) */
+  --color-yellow-75: #E6E9E0;      /* PRIMARY: Use for CTAs, highlights, accent text */
+  --color-yellow-125: #A6752B;     /* Hover states, secondary accent */
+  
+  /* Blue Shades */
+  --color-blue-450: #3481F0;
+  --color-blue-460: #37AEC4;
+  --color-blue-810: #1C1C33;
+  --color-blue-820: #353554;
+  --color-blue-830: #14142B;
+  --color-blue-840: #05050F;
+  --color-blue-850: #1F1F1F;
+  --color-blue-900: #170E1E;
+  
+  /* Purple */
+  --color-purple-1000: #936984;
+  
+  /* Gray */
+  --color-gray-660: #373737;
+  --color-gray-760: #282828;
+  
+  /* Red */
+  --color-red-75: #FC0023;
+  
+  /* Orange */
+  --color-orange-900: #8D713F;
+  
+  /* Brown */
+  --color-brown-100: #AC3434;
+  
+  /* Functional Colors */
+  --color-checkout: #8EA461;
+  --color-soldout: #373935;
+  --color-tezos: #175C72;
+  --color-edit-button: #99854E;
+  --color-edit-button-bg: #7f1d1d;
+  
+  /* ========================================
+   * TYPOGRAPHY
+   * ======================================== */
+  
+  /* Font Families */
+  --font-mathias: "Mathias", sans-serif;
+  --font-permanent: "Permanent Marker", cursive;
+  --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  
+  /* Font Sizes */
+  --text-xxs: 0.6rem;              /* 9.6px */
+  --text-xs: 0.75rem;              /* 12px */
+  --text-sm: 0.875rem;             /* 14px */
+  --text-base: 1rem;               /* 16px */
+  --text-lg: 1.125rem;             /* 18px */
+  --text-xl: 1.25rem;              /* 20px */
+  --text-2xl: 1.5rem;              /* 24px */
+  --text-3xl: 1.875rem;            /* 30px */
+  --text-4xl: 2.25rem;             /* 36px */
+  --text-5xl: 3rem;                /* 48px */
+  
+  /* Font Weights */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  
+  /* Line Heights */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.75;
+  --leading-loose: 2;
+  --leading-90: 0.9;               /* 90% - Custom for player text */
+  --leading-100: 1;                /* 100% - Tight headings */
+  
+  /* ========================================
+   * SPACING
+   * ======================================== */
+  
+  --spacing-0: 0;
+  --spacing-0-8: 0.3rem;           /* ~5px - Extra tight */
+  --spacing-1: 0.25rem;            /* 4px */
+  --spacing-2: 0.5rem;             /* 8px */
+  --spacing-3: 0.75rem;            /* 12px */
+  --spacing-4: 1rem;               /* 16px */
+  --spacing-5: 1.25rem;            /* 20px */
+  --spacing-6: 1.5rem;             /* 24px */
+  --spacing-8: 2rem;               /* 32px */
+  --spacing-9-5: 2.3rem;           /* ~37px - Custom */
+  --spacing-10: 2.5rem;            /* 40px */
+  --spacing-12: 3rem;              /* 48px */
+  --spacing-16: 4rem;              /* 64px */
+  --spacing-20: 5rem;              /* 80px */
+  --spacing-24: 6rem;              /* 96px */
+  
+  /* Custom Margins */
+  --margin-top-negative-160: -160px;
+  --margin-bottom-custom: 119px;
+  
+  /* ========================================
+   * SIZING
+   * ======================================== */
+  
+  /* Custom Widths */
+  --width-100: 28rem;              /* 448px */
+  --width-110: 35rem;              /* 560px */
+  --width-120: 45rem;              /* 720px */
+  --width-473: 473px;
+  --width-90vw: 90vw;
+  --width-90-percent: 90%;
+  --width-101-percent: 101%;
+  
+  /* Custom Heights */
+  --height-473: 473px;
+  --height-970: 970px;
+  --height-410: 410px;
+  
+  /* Media Player Sizes */
+  --player-width: 105px;
+  --player-height: 32px;
+  --audio-player-size: 40px;
+  --audio-player-radius: 27px;
+  --play-button-size: 5rem;        /* 80px */
+  
+  /* ========================================
+   * BORDERS
+   * ======================================== */
+  
+  /* Border Widths */
+  --border-0: 0;
+  --border-1: 1px;
+  --border-2: 2px;                 /* STANDARD - Most common */
+  --border-3: 3px;
+  
+  /* Border Radius */
+  --radius-none: 0;
+  --radius-sm: 0.125rem;           /* 2px */
+  --radius-md: 0.375rem;           /* 6px - Standard buttons */
+  --radius-lg: 0.5rem;             /* 8px - Cards */
+  --radius-xl: 0.75rem;            /* 12px */
+  --radius-2xl: 1rem;              /* 16px */
+  --radius-full: 9999px;           /* Circular */
+  --radius-5: 5px;                 /* Custom - Buttons */
+  --radius-10: 10px;               /* Custom - Cards */
+  --radius-27: 27px;               /* Custom - Audio player */
+  --radius-50: 50px;               /* Custom - Circular buttons */
+  
+  /* ========================================
+   * SHADOWS
+   * ======================================== */
+  
+  /* Custom Signature Shadow */
+  --shadow-5xl: 3px 3px 10px rgba(0, 0, 0, 0.6), -3px -3px 10px rgba(0, 0, 0, 0.6);
+  
+  /* Standard Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  --shadow-4xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  
+  /* Google Button Shadow */
+  --shadow-google: 0 -1px 0 rgba(0, 0, 0, .04), 0 1px 1px rgba(0, 0, 0, .25);
+  --shadow-google-hover: 0 -1px 0 rgba(0, 0, 0, .04), 0 2px 4px rgba(0, 0, 0, .25);
+  --shadow-google-focus: 0 -1px 0 rgba(0, 0, 0, .04), 0 2px 4px rgba(0, 0, 0, .25), 0 0 0 3px #c8dafc;
+  
+  /* ========================================
+   * OPACITY
+   * ======================================== */
+  
+  --opacity-0: 0;
+  --opacity-25: 0.25;              /* Disabled/muted */
+  --opacity-50: 0.5;               /* Semi-transparent */
+  --opacity-53: 0.53;              /* Subtitle text */
+  --opacity-75: 0.75;
+  --opacity-78: 0.78;              /* Modal background */
+  --opacity-100: 1;
+  
+  /* ========================================
+   * Z-INDEX
+   * ======================================== */
+  
+  --z-0: 0;
+  --z-10: 10;                      /* Modals, overlays */
+  --z-9999: 9999;                  /* Modal content, tooltips */
+  
+  /* ========================================
+   * TRANSITIONS
+   * ======================================== */
+  
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.3s ease;    /* Standard */
+  --transition-slow: 0.5s ease;
+  --transition-colors: background-color 0.3s, box-shadow 0.3s;
+  
+  /* ========================================
+   * BREAKPOINTS
+   * ======================================== */
+  
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-laptop: 920px;      /* Custom */
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}
+
+/* ========================================
+ * FONT FACE DECLARATION
+ * ======================================== */
+
+@font-face {
+  font-family: "Mathias";
+  src: url('./fonts/mathias-bold.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ========================================
+ * UTILITY CLASSES
+ * ======================================== */
+
+/* Center Horizontal */
+.centerHoriz {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Font Families */
+.font-mathias {
+  font-family: var(--font-mathias);
+}
+
+.font-permanent {
+  font-family: var(--font-permanent);
+}
+
+.font-system {
+  font-family: var(--font-system);
+}
+
+/* Common Button Base */
+.btn-base {
+  font-family: var(--font-mathias);
+  padding: var(--spacing-4) var(--spacing-6);
+  border-radius: var(--radius-md);
+  border: var(--border-2) solid;
+  transition: var(--transition-colors);
+  cursor: pointer;
+  text-align: center;
+}
+
+/* Primary Button */
+.btn-primary {
+  background-color: var(--color-yellow-75);
+  color: var(--color-black);
+  border-color: var(--color-black);
+  box-shadow: var(--shadow-2xl);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-yellow-125);
+}
+
+/* Secondary Button */
+.btn-secondary {
+  background-color: var(--color-black);
+  color: var(--color-yellow-75);
+  border-color: var(--color-yellow-75);
+  box-shadow: var(--shadow-lg);
+}
+
+.btn-secondary:hover {
+  box-shadow: var(--shadow-xl);
+}
+
+/* Card Base */
+.card {
+  background-color: var(--color-black);
+  border: var(--border-2) solid var(--color-black);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-6);
+  box-shadow: var(--shadow-5xl);
+}
+
+/* Modal Background */
+.modal-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  z-index: var(--z-10);
+  background-color: rgba(0, 0, 0, var(--opacity-78));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Modal Content */
+.modal-content {
+  background-color: var(--color-black);
+  width: 500px;
+  max-width: 90vw;
+  position: relative;
+  z-index: var(--z-9999);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-6);
+}
+
+/* Section Header */
+.section-header {
+  font-family: var(--font-mathias);
+  font-size: var(--text-3xl);
+  color: var(--color-yellow-75);
+  margin-bottom: var(--spacing-6);
+  text-transform: uppercase;
+}
+
+/* Body Text */
+.body-text {
+  font-family: var(--font-system);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--color-gray-660);
+}
+
+/* ========================================
+ * RESPONSIVE UTILITIES
+ * ======================================== */
+
+@media (min-width: 640px) {
+  .sm-text-lg {
+    font-size: var(--text-lg);
+  }
+}
+
+@media (min-width: 920px) {
+  .laptop-text-xl {
+    font-size: var(--text-xl);
+  }
+}
+
+@media (min-width: 1024px) {
+  .lg-text-4xl {
+    font-size: var(--text-4xl);
+  }
+}
+
+/* ========================================
+ * USAGE EXAMPLES
+ * ======================================== */
+
+/*
+Example 1: Primary Button
+<button class="btn-base btn-primary">
+  Click Me
+</button>
+
+Example 2: Custom Button
+.my-button {
+  background-color: var(--color-yellow-75);
+  color: var(--color-black);
+  font-family: var(--font-mathias);
+  padding: var(--spacing-4) var(--spacing-8);
+  border-radius: var(--radius-5);
+  border: var(--border-2) solid var(--color-black);
+  box-shadow: var(--shadow-5xl);
+  transition: var(--transition-base);
+}
+
+.my-button:hover {
+  background-color: var(--color-yellow-125);
+  box-shadow: var(--shadow-xl);
+}
+
+Example 3: Card Component
+<div class="card">
+  <h2 class="section-header">Card Title</h2>
+  <p class="body-text">Card content goes here...</p>
+</div>
+
+Example 4: Modal
+<div class="modal-bg">
+  <div class="modal-content">
+    <h2 class="section-header">Modal Title</h2>
+    <p class="body-text">Modal content...</p>
+  </div>
+</div>
+
+Example 5: Responsive Text
+.responsive-heading {
+  font-family: var(--font-mathias);
+  font-size: var(--text-xl);
+}
+
+@media (min-width: 640px) {
+  .responsive-heading {
+    font-size: var(--text-2xl);
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-heading {
+    font-size: var(--text-4xl);
+  }
+}
+*/
+

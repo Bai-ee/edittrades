@@ -3,131 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trading Scanner</title>
+  <title>EditTrades - 4H Trading Strategy Scanner</title>
+  <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/edittrax-styles.css">
   <style>
-    /* Mobile-first dark theme - no gradients or glows */
-    :root {
-      --bg-primary: #0a0a0a;
-      --bg-secondary: #1a1a1a;
-      --bg-tertiary: #2a2a2a;
-      --text-primary: #f5f5f5;
-      --text-secondary: #a0a0a0;
-      --border: #333333;
-      --accent-long: #10b981;
-      --accent-short: #ef4444;
-      --accent-neutral: #6b7280;
-    }
-    
-    body {
-      background-color: var(--bg-primary);
-      color: var(--text-primary);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    }
-    
-    /* Remove all gradients and glows */
-    * {
-      box-shadow: none !important;
-    }
-    
-    .card {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border);
-    }
-    
-    .btn-primary {
-      background-color: var(--text-primary);
-      color: var(--bg-primary);
-      border: 1px solid var(--text-primary);
-    }
-    
-    .btn-primary:hover {
-      background-color: var(--text-secondary);
-      border-color: var(--text-secondary);
-    }
-    
-    .btn-secondary {
-      background-color: var(--bg-tertiary);
-      color: var(--text-primary);
-      border: 1px solid var(--border);
-    }
-    
-    .btn-secondary:hover {
-      background-color: var(--bg-secondary);
-    }
-    
-    .status-long { color: var(--accent-long); }
-    .status-short { color: var(--accent-short); }
-    .status-neutral { color: var(--accent-neutral); }
-    
-    .coin-row {
-      border-left: 3px solid var(--border);
-      transition: background-color 0.2s;
-    }
-    
-    .coin-row:hover {
-      background-color: var(--bg-tertiary);
-    }
-    
-    .coin-row.has-trade-long {
-      border-left-color: var(--accent-long);
-    }
-    
-    .coin-row.has-trade-short {
-      border-left-color: var(--accent-short);
-    }
-    
+    /* Additional component-specific styles */
     .details-row {
       display: none;
-      background-color: var(--bg-tertiary);
+      background-color: var(--color-blue-830);
     }
     
     .details-row.expanded {
       display: table-row;
     }
     
-    .tf-card {
-      background-color: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 0.375rem;
-      padding: 0.75rem;
-    }
-    
-    .tf-card.uptrend {
-      border-left: 3px solid var(--accent-long);
-    }
-    
-    .tf-card.downtrend {
-      border-left: 3px solid var(--accent-short);
-    }
-    
-    .tf-card.flat {
-      border-left: 3px solid var(--accent-neutral);
-    }
-    
-    /* Mobile-first responsive adjustments */
-    @media (max-width: 640px) {
-      body {
-        font-size: 12px;
-      }
-      
-      table {
-        font-size: 11px;
-      }
-      
-      .px-3 {
-        padding-left: 0.5rem !important;
-        padding-right: 0.5rem !important;
-      }
-    }
-    
-    /* Ensure table doesn't overflow on mobile */
+    /* Table container responsive */
     .table-container {
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
     }
     
-    /* Stack timeframe cards vertically */
+    /* Timeframe grid */
     .tf-grid {
       display: grid;
       grid-template-columns: 1fr;
@@ -150,23 +47,26 @@
 <body class="min-h-screen">
   
   <!-- Header -->
-  <header class="border-b" style="border-color: var(--border); background-color: var(--bg-secondary);">
+  <header class="header-edittrax">
     <div class="max-w-6xl mx-auto px-4 py-3">
-      <div class="flex items-center justify-between">
-        <h1 class="text-lg font-bold">Trading Scanner</h1>
-        <div class="flex items-center gap-2">
-          <a href="/strategy.html" class="btn-secondary px-3 py-2 text-sm rounded">
-            Trading Strategy
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="logo-container">
+          <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
+          <span class="font-mathias text-xl text-primary">EDITTRADES</span>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <a href="/strategy.html" class="btn-base btn-secondary px-3 py-2 text-sm rounded">
+            Strategy
           </a>
           <button 
             id="refreshBtn" 
             onclick="scanMajorCoins()"
-            class="btn-secondary px-3 py-2 text-sm rounded"
+            class="btn-base btn-secondary px-3 py-2 text-sm rounded"
           >
             Refresh
           </button>
-          <a href="/scanner.html" class="btn-secondary px-3 py-2 text-sm rounded">
-            Full Scanner
+          <a href="/scanner.html" class="btn-base btn-primary px-3 py-2 text-sm rounded">
+            Scanner
           </a>
         </div>
       </div>
@@ -197,14 +97,14 @@
       <!-- Summary Header -->
       <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h2 class="text-base font-bold">BTC, ETH & SOL Analysis</h2>
-          <p class="text-xs" style="color: var(--text-secondary);" id="lastUpdate"></p>
+          <h2 class="font-mathias text-xl text-primary uppercase">BTC, ETH & SOL Analysis</h2>
+          <p class="text-xs text-secondary" id="lastUpdate"></p>
         </div>
         <div class="flex gap-2">
           <button 
             id="copyAllBtn" 
             onclick="copyAllCoins()"
-            class="btn-secondary px-3 py-2 text-xs sm:text-sm rounded"
+            class="btn-base btn-primary px-3 py-2 text-xs sm:text-sm rounded-md"
           >
             Copy All
           </button>
@@ -212,20 +112,20 @@
       </div>
 
       <!-- Opportunities Table -->
-      <div class="card rounded overflow-hidden mb-4">
+      <div class="card-edittrax rounded-lg overflow-hidden mb-4">
         <div class="table-container">
-          <table class="w-full text-sm">
-            <thead class="border-b" style="border-color: var(--border); background-color: var(--bg-tertiary);">
+          <table class="table-edittrax">
+            <thead>
               <tr>
-                <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">COIN</th>
-                <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">SIGNAL</th>
-                <th class="px-2 py-2 text-left text-xs font-medium" style="color: var(--text-secondary);">ACTION</th>
-                <th class="px-2 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">PRICE</th>
-                <th class="px-2 py-2 text-left text-xs font-medium hidden sm:table-cell" style="color: var(--text-secondary);">24H</th>
-                <th class="px-2 py-2 text-left text-xs font-medium hidden md:table-cell" style="color: var(--text-secondary);">CONF</th>
+                <th class="px-2 py-2">COIN</th>
+                <th class="px-2 py-2">SIGNAL</th>
+                <th class="px-2 py-2">ACTION</th>
+                <th class="px-2 py-2 hidden sm:table-cell">PRICE</th>
+                <th class="px-2 py-2 hidden sm:table-cell">24H</th>
+                <th class="px-2 py-2 hidden md:table-cell">CONF</th>
               </tr>
             </thead>
-            <tbody id="opportunitiesTable" class="divide-y" style="divide-color: var(--border);">
+            <tbody id="opportunitiesTable">
               <!-- Rows will be populated dynamically -->
             </tbody>
           </table>
