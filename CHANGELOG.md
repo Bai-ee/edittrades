@@ -2,6 +2,18 @@
 
 ## [Latest] - 2025-11-27
 
+### 🎨 Major UI Redesign - Mobile-First Dark Theme
+- **New Homepage**: Single-button scan for BTC, ETH, SOL
+- **Dark Theme**: Pure black/off-white color scheme, no gradients or glows
+- **Mobile-First**: Optimized for phone screens, minimal scrolling
+- **Multi-Coin View**: Display all 3 coins in compact cards
+- **Trade Opportunities Summary**: Quick overview of valid setups
+- **Individual Copy Buttons**: Copy each coin separately
+- **Copy All**: Export all 3 coins in single JSON
+- **Compact Timeframe Display**: 2x2 grid on mobile, 4x1 on desktop
+- **Visual Indicators**: Green/red left borders on cards with valid trades
+- **Documentation**: `NEW_UI_GUIDE.md` with full design specs
+
 ### 📊 Added - Dashboard View JSON Copy Button
 - **New Button**: 📊 View - Copies exactly what's displayed on dashboard as compact JSON
 - **Auto-syncs**: Automatically includes any new fields we add to the dashboard
