@@ -521,6 +521,9 @@
         const data = await response.json();
         console.log('Data received:', data);
         console.log('Trade Signal:', data.tradeSignal);
+        console.log('Analysis object:', data.analysis);
+        console.log('Analysis type:', typeof data.analysis);
+        console.log('Analysis keys:', data.analysis ? Object.keys(data.analysis) : 'null/undefined');
 
         currentData = data;
         displayResults(data);
@@ -552,13 +555,20 @@
 
       // Display timeframe analysis
       timeframeAnalysis.innerHTML = '';
-      for (const [interval, analysis] of Object.entries(data.analysis)) {
-        if (analysis.error) {
-          continue; // Skip errored timeframes
-        }
+      
+      // Add null check to prevent mobile errors
+      if (data.analysis && typeof data.analysis === 'object') {
+        for (const [interval, analysis] of Object.entries(data.analysis)) {
+          if (analysis.error) {
+            continue; // Skip errored timeframes
+          }
 
-        const card = createTimeframeCard(interval, analysis);
-        timeframeAnalysis.appendChild(card);
+          const card = createTimeframeCard(interval, analysis);
+          timeframeAnalysis.appendChild(card);
+        }
+      } else {
+        console.warn('No analysis data available:', data);
+        timeframeAnalysis.innerHTML = '<div class="col-span-2 text-center text-gray-500 p-8">No timeframe analysis available</div>';
       }
     }
 
