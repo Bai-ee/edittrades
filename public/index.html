@@ -54,7 +54,23 @@
     }
     
     /* Mobile responsive table */
+    /* Desktop: hide mobile entry price, show desktop column */
+    .entry-price-mobile {
+      display: none;
+    }
+    .entry-price-desktop {
+      display: table-cell;
+    }
+    
     @media (max-width: 768px) {
+      /* Mobile: show entry price under coin name, hide desktop column */
+      .entry-price-mobile {
+        display: block !important;
+      }
+      .entry-price-desktop {
+        display: none !important;
+      }
+      
       /* Right-justify signal confidence on mobile */
       .signal-confidence {
         text-align: right !important;
@@ -93,9 +109,9 @@
         text-transform: uppercase;
       }
       
-      /* Coin name and Signal on same row with flex */
+      /* Coin name and Signal on same row with flex (Signal is now 3rd column) */
       .coin-row td:first-child,
-      .coin-row td:nth-child(2) {
+      .coin-row td:nth-child(3) {
         display: inline-block;
         vertical-align: top;
       }
@@ -110,22 +126,22 @@
         display: none;
       }
       
-      .coin-row td:nth-child(2) {
+      .coin-row td:nth-child(3) {
         width: auto;
         float: right;
         text-align: right;
       }
       
-      .coin-row td:nth-child(2):before {
+      .coin-row td:nth-child(3):before {
         display: none;
       }
       
       /* Make signal text same size as coin name */
-      .coin-row td:nth-child(2) div[id^="signal-"] > div:first-child {
+      .coin-row td:nth-child(3) div[id^="signal-"] > div:first-child {
         font-size: 1.25rem !important;
       }
       
-      .coin-row td:nth-child(2) div[id^="signal-"] > div:last-child {
+      .coin-row td:nth-child(3) div[id^="signal-"] > div:last-child {
         font-size: 1rem !important;
       }
       
@@ -134,45 +150,45 @@
         color: #10b981 !important;
       }
       
-      /* Strategy on its own row */
-      .coin-row td:nth-child(3) {
+      /* Strategy on its own row (now 4th column) */
+      .coin-row td:nth-child(4) {
         display: block;
         clear: both;
       }
       
-      /* Action buttons on their own row */
-      .coin-row td:nth-child(4) {
+      /* Action buttons on their own row (now 5th column) */
+      .coin-row td:nth-child(5) {
         display: block;
       }
       
       /* Strategy buttons stretch full width */
-      .coin-row td:nth-child(3) .flex {
+      .coin-row td:nth-child(4) .flex {
         width: 100%;
         display: flex;
         gap: 0;
       }
       
       /* EditTrades button needs more space */
-      .coin-row td:nth-child(3) button {
+      .coin-row td:nth-child(4) button {
         flex: 0 0 auto;
         min-width: 80px;
       }
       
       /* Indicator buttons share remaining space */
-      .coin-row td:nth-child(3) div[id^="indicator-"] {
+      .coin-row td:nth-child(4) div[id^="indicator-"] {
         flex: 1;
         min-width: 0;
       }
       
       /* Action buttons stretch full width */
-      .coin-row td:nth-child(4) .flex {
+      .coin-row td:nth-child(5) .flex {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 0.5rem;
         width: 100%;
       }
       
-      .coin-row td:nth-child(4) button {
+      .coin-row td:nth-child(5) button {
         width: 100%;
         justify-content: center;
       }
@@ -307,6 +323,7 @@
             <thead style="background-color: var(--color-yellow-75);">
               <tr>
                 <th class="px-2 py-2" style="color: black;">COIN</th>
+                <th class="px-2 py-2" style="color: black;">ENTRY PRICE</th>
                 <th class="px-2 py-2" style="color: black;">SIGNAL</th>
                 <th class="px-2 py-2" style="color: black;">STRATEGY</th>
                 <th class="px-2 py-2" style="color: black;">1M/5M/15M/1H/4H/1D/1W/1Mo</th>
@@ -485,6 +502,35 @@
       
       // Update signal display with template-specific evaluation
       updateSignalForTemplate(symbol, templateKey, templateSignal);
+      
+      // Update entry price display
+      updateEntryPrice(symbol, templateSignal);
+    }
+    
+    // Update entry price display
+    function updateEntryPrice(symbol, templateSignal) {
+      let entryPriceDisplay = '-';
+      if (templateSignal && templateSignal.valid && templateSignal.entryZone) {
+        const entryMin = templateSignal.entryZone.min;
+        const entryMax = templateSignal.entryZone.max;
+        const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
+        entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+      }
+      
+      // Update mobile entry price (under coin name)
+      const row = document.getElementById(`row-${symbol}`);
+      if (row) {
+        const mobileEntry = row.querySelector('.entry-price-mobile');
+        if (mobileEntry) {
+          mobileEntry.textContent = entryPriceDisplay;
+        }
+        
+        // Update desktop entry price
+        const desktopEntry = row.querySelector('.entry-price-desktop div');
+        if (desktopEntry) {
+          desktopEntry.textContent = entryPriceDisplay;
+        }
+      }
     }
     
     // Update signal text based on current strategy
@@ -804,9 +850,22 @@
         `;
       }
       
+      // Calculate entry price from current strategy
+      let entryPriceDisplay = '-';
+      if (templateSignal && templateSignal.valid && templateSignal.entryZone) {
+        const entryMin = templateSignal.entryZone.min;
+        const entryMax = templateSignal.entryZone.max;
+        const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
+        entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+      }
+      
       row.innerHTML = `
         <td class="px-2 py-3" data-label="">
           <div class="text-lg ${hasAnyTrade ? 'coin-name-has-trade' : ''}" style="color: var(--color-yellow-75);">${coinName}</div>
+          <div class="entry-price-mobile" style="font-size: 0.9rem; color: var(--color-yellow-75); margin-top: 0.25rem;">${entryPriceDisplay}</div>
+        </td>
+        <td class="px-2 py-3 entry-price-desktop" data-label="Entry Price:">
+          <div style="color: var(--color-yellow-75); font-size: 0.875rem;">${entryPriceDisplay}</div>
         </td>
         <td class="px-2 py-3" data-label="Signal:">
           ${signalHtml}
