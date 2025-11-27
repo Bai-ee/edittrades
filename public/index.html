@@ -515,11 +515,11 @@
       if (!signalElement) return;
       
       if (templateSignal.valid) {
-        // Valid trade signal
+        // Valid trade signal - show template name, not direction
         const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
         const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalElement.innerHTML = `
-          <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${templateSignal.direction.toUpperCase()}</div>
+          <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName}</div>
           <div class="text-xs ${dirClass}">${confidence}%</div>
         `;
       } else {
@@ -722,20 +722,25 @@
       // Signal readiness
       const readiness = calculateSignalReadiness(data);
       
-      // Signal with confidence
+      // Evaluate signal based on current template
+      const template = tradeTemplates[currentStrategy];
+      const templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
+      
+      // Signal with confidence - show template name, not direction
       let signalHtml;
-      if (hasValidTrade) {
-        const dirClass = signal.direction === 'long' ? 'status-long' : 'status-short';
-        const confidence = (signal.confidence * 100).toFixed(0);
+      if (templateSignal && templateSignal.valid) {
+        const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
+        const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalHtml = `
           <div id="signal-${symbol}">
-            <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${signal.direction.toUpperCase()}</div>
+            <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName}</div>
             <div class="text-xs ${dirClass}">${confidence}%</div>
           </div>
         `;
       } else {
         // Show readiness only if on 4h strategy (since that's what we're analyzing)
         const showReadiness = currentStrategy === '4h';
+        const readiness = calculateSignalReadiness(data);
         const readinessHtml = showReadiness ? 
           `<div class="text-xs ${readiness.class}" style="font-size: 0.65rem; white-space: nowrap;">${readiness.text}</div>` : 
           `<div class="text-xs status-neutral">-</div>`;
