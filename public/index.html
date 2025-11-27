@@ -53,6 +53,65 @@
       box-sizing: border-box;
     }
     
+    /* Mobile responsive table */
+    @media (max-width: 768px) {
+      .table-edittrax thead {
+        display: none;
+      }
+      
+      .coin-row {
+        display: block;
+        padding: 1rem 0.5rem;
+        border-bottom: 2px solid var(--color-yellow-75);
+      }
+      
+      .coin-row td {
+        display: block;
+        padding: 0.5rem 0 !important;
+        border: none;
+        text-align: left !important;
+      }
+      
+      .coin-row td:before {
+        content: attr(data-label);
+        font-weight: bold;
+        display: block;
+        margin-bottom: 0.25rem;
+        color: var(--color-yellow-75);
+        font-size: 0.7rem;
+        text-transform: uppercase;
+      }
+      
+      .coin-row td:first-child {
+        font-size: 1.25rem;
+        margin-bottom: 0.5rem;
+      }
+      
+      .coin-row td:first-child:before {
+        display: none;
+      }
+      
+      .details-row td {
+        display: block !important;
+      }
+      
+      /* Shrink nav buttons on mobile */
+      .grid[style*="grid-template-columns"] {
+        grid-template-columns: 1fr 1fr 1fr auto !important;
+      }
+      
+      .btn-base {
+        padding: 0.35rem 0.25rem !important;
+        font-size: 0.6rem !important;
+        min-width: auto !important;
+      }
+      
+      #refreshBtn svg {
+        width: 16px !important;
+        height: 16px !important;
+      }
+    }
+    
     /* Table container responsive */
     .table-container {
       overflow-x: auto;
@@ -439,13 +498,13 @@
       }
       
       row.innerHTML = `
-        <td class="px-2 py-3">
+        <td class="px-2 py-3" data-label="">
           <div class="text-lg" style="color: var(--color-yellow-75);">${coinName}</div>
         </td>
-        <td class="px-2 py-3">
+        <td class="px-2 py-3" data-label="Signal:">
           ${signalHtml}
         </td>
-        <td class="px-2 py-3">
+        <td class="px-2 py-3" data-label="Strategy:">
           <div class="flex" style="gap: 0;">
             <button 
               onclick="cycleStrategy('${symbol}')"
@@ -477,7 +536,7 @@
           </div>
           </div>
         </td>
-        <td class="px-2 py-3">
+        <td class="px-2 py-3" data-label="Action:">
           <div class="flex gap-1">
             <button 
               onclick="toggleDetails('${symbol}')"
