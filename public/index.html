@@ -137,11 +137,11 @@
             <thead style="background-color: white;">
               <tr>
                 <th class="px-2 py-2" style="color: black;">COIN</th>
-                <th class="px-2 py-2" style="color: black;">SIGNAL</th>
-                <th class="px-2 py-2" style="color: black;">ACTION</th>
                 <th class="px-2 py-2 hidden sm:table-cell" style="color: black;">PRICE</th>
+                <th class="px-2 py-2" style="color: black;">SIGNAL</th>
                 <th class="px-2 py-2 hidden md:table-cell" style="color: black;">CONF</th>
                 <th class="px-2 py-2" style="color: black;">STRATEGY</th>
+                <th class="px-2 py-2" style="color: black;">ACTION</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable">
@@ -375,33 +375,14 @@
         <td class="px-2 py-3">
           <div class="text-lg">${coinName}</div>
         </td>
-        <td class="px-2 py-3">
-          ${signalHtml}
-        </td>
-        <td class="px-2 py-3">
-          <div class="flex gap-1">
-            <button 
-              onclick="toggleDetails('${symbol}')"
-              class="px-3 py-1 text-xs font-mathias font-bold rounded"
-              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
-              id="toggle-${symbol}"
-            >
-              Details
-            </button>
-            <button 
-              onclick="copyCoinView('${symbol}')"
-              class="px-3 py-1 text-xs font-mathias font-bold rounded"
-              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
-            >
-              Copy
-            </button>
-          </div>
-        </td>
         <td class="px-2 py-3 hidden sm:table-cell">
           <div class="flex flex-col gap-0.5">
             <div class="text-xs">${price}</div>
             <div class="text-xs ${changeClass}">${change}</div>
           </div>
+        </td>
+        <td class="px-2 py-3">
+          ${signalHtml}
         </td>
         <td class="px-2 py-3 hidden md:table-cell">
           ${confHtml}
@@ -436,6 +417,25 @@
             >
               Scalp
             </div>
+          </div>
+        </td>
+        <td class="px-2 py-3">
+          <div class="flex gap-1">
+            <button 
+              onclick="toggleDetails('${symbol}')"
+              class="px-3 py-1 text-xs font-mathias font-bold rounded"
+              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
+              id="toggle-${symbol}"
+            >
+              Details
+            </button>
+            <button 
+              onclick="copyCoinView('${symbol}')"
+              class="px-3 py-1 text-xs font-mathias font-bold rounded"
+              style="background-color: white; color: black; border: 2px solid var(--color-yellow-75); transition: all 0.3s;"
+            >
+              Copy
+            </button>
           </div>
         </td>
       `;
