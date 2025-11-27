@@ -90,8 +90,6 @@
     }
     .entry-price-desktop {
       display: table-cell;
-      max-width: 100px;
-      width: 100px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -102,6 +100,29 @@
       .table-edittrax th,
       .table-edittrax td {
         padding: var(--spacing-2) var(--spacing-2);
+      }
+      
+      /* Set explicit column widths for proper alignment */
+      .table-edittrax thead th:nth-child(1),
+      .table-edittrax tbody td:nth-child(1) { width: 15%; } /* COIN */
+      
+      .table-edittrax thead th:nth-child(2),
+      .table-edittrax tbody td:nth-child(2) { width: 10%; } /* ENTRY */
+      
+      .table-edittrax thead th:nth-child(3),
+      .table-edittrax tbody td:nth-child(3) { width: 15%; } /* SIGNAL */
+      
+      .table-edittrax thead th:nth-child(4),
+      .table-edittrax tbody td:nth-child(4) { width: 30%; } /* STRATEGY */
+      
+      .table-edittrax thead th:nth-child(5),
+      .table-edittrax tbody td:nth-child(5) { width: 30%; } /* ACTION/TIMEFRAMES */
+      
+      /* Ensure flex containers respect column width */
+      .table-edittrax tbody td:nth-child(4) .flex,
+      .table-edittrax tbody td:nth-child(5) .flex {
+        width: 100%;
+        max-width: 100%;
       }
       
       /* Reduce gap between action buttons */
