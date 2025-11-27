@@ -169,7 +169,7 @@ h1, h2, h3, h4, h5, h6 {
  * HEADER / NAVIGATION
  * ======================================== */
 .header-edittrax {
-  background-color: var(--color-black);
+  background-color: transparent;
   border-bottom: var(--border-2) solid var(--color-yellow-75);
   padding: var(--spacing-4);
 }
