@@ -251,11 +251,12 @@ h1, h2, h3, h4, h5, h6 {
  * TIMEFRAME CARDS
  * ======================================== */
 .tf-card {
-  background-color: var(--color-blue-830);
+  background-color: black;
   border: var(--border-2) solid var(--color-gray-760);
   border-radius: var(--radius-md);
   padding: var(--spacing-4);
   box-shadow: var(--shadow-xl);
+  width: 100%;
 }
 
 .tf-card.uptrend {

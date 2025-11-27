@@ -11,11 +11,15 @@
     /* Additional component-specific styles */
     .details-row {
       display: none;
-      background-color: var(--color-blue-830);
+      background-color: black;
     }
     
     .details-row.expanded {
       display: table-row;
+    }
+    
+    .details-row .tf-card {
+      width: 100%;
     }
     
     /* Table container responsive */
@@ -28,19 +32,27 @@
     .tf-grid {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 0.75rem;
+      gap: 1rem;
+      width: 100%;
     }
     
     @media (min-width: 768px) {
       .tf-grid {
         grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
       }
     }
     
     @media (min-width: 1024px) {
       .tf-grid {
         grid-template-columns: repeat(4, 1fr);
+        gap: 1rem;
       }
+    }
+    
+    .tf-grid .tf-card {
+      min-width: 0;
+      width: 100%;
     }
   </style>
 </head>
@@ -94,20 +106,14 @@
     <div id="resultsContainer" class="hidden">
       
       <!-- Summary Header -->
-      <div class="mb-4 flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 class="font-mathias text-xl text-primary uppercase">BTC, ETH & SOL Analysis</h2>
-          <p class="text-xs text-secondary" id="lastUpdate"></p>
-        </div>
-        <div class="flex gap-2">
-          <button 
-            id="copyAllBtn" 
-            onclick="copyAllCoins()"
-            class="btn-base btn-primary px-3 py-2 text-xs sm:text-sm rounded-md"
-          >
-            Copy All
-          </button>
-        </div>
+      <div class="mb-4 flex items-center justify-center">
+        <button 
+          id="copyAllBtn" 
+          onclick="copyAllCoins()"
+          class="btn-base btn-primary px-4 py-2 text-sm rounded-md"
+        >
+          Copy All
+        </button>
       </div>
 
       <!-- Opportunities Table -->
@@ -230,9 +236,6 @@
     function displayResults() {
       const tableBody = document.getElementById('opportunitiesTable');
       tableBody.innerHTML = '';
-      
-      // Update timestamp
-      document.getElementById('lastUpdate').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
       
       // Create row for each coin
       const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
