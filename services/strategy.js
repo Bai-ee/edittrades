@@ -173,9 +173,13 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
         const ema21_1h = parseFloat(tf1h.indicators?.ema?.ema21) || currentPrice;
         const ema21_15m = parseFloat(tf15m.indicators?.ema?.ema21) || currentPrice;
         const entry = (ema21_1h + ema21_15m) / 2;
-        const swingLow15m = parseFloat(tf15m.indicators?.swingLow) || currentPrice * 0.97;
-        const swingLow1h = parseFloat(tf1h.indicators?.swingLow) || currentPrice * 0.97;
-        const stopLoss = Math.min(swingLow15m, swingLow1h);
+        // Get swing lows with fallbacks
+        const swingLow15m = parseFloat(tf15m.indicators?.swingLow);
+        const swingLow1h = parseFloat(tf1h.indicators?.swingLow);
+        
+        // Use swing if valid, otherwise use percentage below entry
+        const stopLoss = (swingLow15m && swingLow1h) ? Math.min(swingLow15m, swingLow1h) :
+                         (swingLow15m || swingLow1h || (entry * 0.97));
         const R = Math.abs(entry - stopLoss);
         
         // Targets - ensure they're valid numbers
@@ -245,9 +249,13 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
         const ema21_1h = parseFloat(tf1h.indicators?.ema?.ema21) || currentPrice;
         const ema21_15m = parseFloat(tf15m.indicators?.ema?.ema21) || currentPrice;
         const entry = (ema21_1h + ema21_15m) / 2;
-        const swingHigh15m = parseFloat(tf15m.indicators?.swingHigh) || currentPrice * 1.03;
-        const swingHigh1h = parseFloat(tf1h.indicators?.swingHigh) || currentPrice * 1.03;
-        const stopLoss = Math.max(swingHigh15m, swingHigh1h);
+        // Get swing highs with fallbacks
+        const swingHigh15m = parseFloat(tf15m.indicators?.swingHigh);
+        const swingHigh1h = parseFloat(tf1h.indicators?.swingHigh);
+        
+        // Use swing if valid, otherwise use percentage above entry
+        const stopLoss = (swingHigh15m && swingHigh1h) ? Math.max(swingHigh15m, swingHigh1h) :
+                         (swingHigh15m || swingHigh1h || (entry * 1.03));
         const R = Math.abs(entry - stopLoss);
         
         // Targets - ensure they're valid numbers
