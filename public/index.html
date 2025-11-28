@@ -1837,38 +1837,38 @@
                          tf.toUpperCase();
         
         return `
-          <div class="tf-card ${trendClass}">
+          <div class="tf-card ${trendClass}" style="font-family: var(--font-mathias);">
             <div class="flex items-center justify-between mb-3">
-              <p class="text-sm font-bold">${tfDisplay}</p>
+              <p class="text-sm font-bold" style="color: var(--color-yellow-75);">${tfDisplay}</p>
               <span class="text-xs px-2 py-0.5 rounded ${trend === 'UPTREND' ? 'status-long' : trend === 'DOWNTREND' ? 'status-short' : 'status-neutral'}" style="background-color: var(--bg-tertiary);">${trendBadge}</span>
           </div>
 
             <div class="space-y-2 text-xs">
                 <div class="flex justify-between">
-                <span style="color: var(--text-secondary);">Current Price</span>
-                <span class="font-bold">${ind.price?.current ? '$' + ind.price.current.toLocaleString() : 'N/A'}</span>
+                <span style="color: var(--color-yellow-75); opacity: 0.6;">Current Price</span>
+                <span class="font-bold" style="color: var(--color-yellow-75);">${ind.price?.current ? '$' + ind.price.current.toLocaleString() : 'N/A'}</span>
                 </div>
               
                 <div class="flex justify-between">
-                <span style="color: var(--text-secondary);">21 EMA</span>
-                <span class="font-bold">${ind.ema?.ema21 ? '$' + ind.ema.ema21.toLocaleString() : 'N/A'}</span>
+                <span style="color: var(--color-yellow-75); opacity: 0.6;">21 EMA</span>
+                <span class="font-bold" style="color: var(--color-yellow-75);">${ind.ema?.ema21 ? '$' + ind.ema.ema21.toLocaleString() : 'N/A'}</span>
                 </div>
               
                   <div class="flex justify-between">
-                <span style="color: var(--text-secondary);">200 EMA</span>
-                <span class="font-bold">${ind.ema?.ema200 ? '$' + ind.ema.ema200.toLocaleString() : 'N/A'}</span>
+                <span style="color: var(--color-yellow-75); opacity: 0.6;">200 EMA</span>
+                <span class="font-bold" style="color: var(--color-yellow-75);">${ind.ema?.ema200 ? '$' + ind.ema.ema200.toLocaleString() : 'N/A'}</span>
                   </div>
               
               <div class="border-t pt-2" style="border-color: var(--border);">
                 <div class="flex justify-between mb-1">
-                  <span style="color: var(--text-secondary);">Stoch RSI</span>
+                  <span style="color: var(--color-yellow-75); opacity: 0.6;">Stoch RSI</span>
                   <span class="text-xs px-1 py-0.5 rounded ${getStochColor(ind.stochRSI?.condition)}" style="background-color: var(--bg-tertiary);">${ind.stochRSI?.condition || 'N/A'}</span>
               </div>
                 <div class="flex justify-between mb-1">
-                  <span class="text-xs" style="color: var(--text-secondary);">${stochZone}</span>
+                  <span class="text-xs" style="color: var(--color-yellow-75); opacity: 0.6;">${stochZone}</span>
                   <span class="${stochCurl.color} font-medium">${stochCurl.text}</span>
             </div>
-                <div class="flex justify-between text-xs" style="color: var(--text-secondary);">
+                <div class="flex justify-between text-xs" style="color: var(--color-yellow-75); opacity: 0.6;">
                   <span>%K: ${ind.stochRSI?.k ? ind.stochRSI.k.toFixed(0) : 'N/A'}</span>
                   <span>%D: ${ind.stochRSI?.d ? ind.stochRSI.d.toFixed(0) : 'N/A'}</span>
                 </div>
@@ -1876,11 +1876,11 @@
               
               <div class="border-t pt-2" style="border-color: var(--border);">
                 <div class="flex justify-between mb-1">
-                  <span style="color: var(--text-secondary);">Pullback State</span>
+                  <span style="color: var(--color-yellow-75); opacity: 0.6;">Pullback State</span>
                   <span class="text-xs px-1 py-0.5 rounded ${getPullbackColor(ind.analysis?.pullbackState)}" style="background-color: var(--bg-tertiary);">${ind.analysis?.pullbackState || 'N/A'}</span>
                 </div>
                 ${ind.analysis?.distanceFrom21EMA !== null && ind.analysis?.distanceFrom21EMA !== undefined ? `
-                  <div class="text-xs" style="color: var(--text-secondary);">
+                  <div class="text-xs" style="color: var(--color-yellow-75); opacity: 0.6;">
                     Distance from 21 EMA: ${ind.analysis.distanceFrom21EMA.toFixed(2)}%
               </div>
                 ` : ''}
@@ -1890,14 +1890,14 @@
                 <div class="border-t pt-2" style="border-color: var(--border);">
                   ${analysis.structure.swingHigh ? `
                   <div class="flex justify-between">
-                      <span style="color: var(--text-secondary);">Swing High</span>
-                      <span class="font-bold">$${analysis.structure.swingHigh.toLocaleString()}</span>
+                      <span style="color: var(--color-yellow-75); opacity: 0.6;">Swing High</span>
+                      <span class="font-bold" style="color: var(--color-yellow-75);">$${analysis.structure.swingHigh.toLocaleString()}</span>
                   </div>
                 ` : ''}
                   ${analysis.structure.swingLow ? `
                   <div class="flex justify-between">
-                      <span style="color: var(--text-secondary);">Swing Low</span>
-                      <span class="font-bold">$${analysis.structure.swingLow.toLocaleString()}</span>
+                      <span style="color: var(--color-yellow-75); opacity: 0.6;">Swing Low</span>
+                      <span class="font-bold" style="color: var(--color-yellow-75);">$${analysis.structure.swingLow.toLocaleString()}</span>
                   </div>
                 ` : ''}
                   </div>
@@ -1991,84 +1991,96 @@
         const rewardPercent2 = rr2 * parseFloat(riskPercent);
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
-            <div style="margin-bottom: 1.5rem;">
-              <h2 style="font-size: 1.5rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-mathias); backdrop-filter: blur(10px);">
+            <!-- Header -->
+            <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;">
                 ${symbol.replace('USDT', '')} — ${direction} (${setupType})
               </h2>
+              <!-- Key Metrics Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Confidence</div>
+                  <div style="color: ${directionColor}; font-size: 1.5rem; font-weight: bold;">${confidence}%</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
+                  <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Setup</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend'}</div>
+                </div>
+              </div>
             </div>
             
-            <div class="trade-info-grid">
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
-                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
+            <!-- Editorial Grid Layout -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+              <!-- Left Column: Entry & Risk -->
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Entry</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1.125rem; font-weight: bold; line-height: 1.2;">${entryMin} – ${entryMax}</div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Stop Loss</div>
+                  <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${stopLoss}</div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Risk / Reward</div>
+                  <div style="color: #22c55e; font-size: 1rem; font-weight: bold; line-height: 1.4;">
+                    ${rr1}R to ${rr2}R${tp3 ? ` to ${rr3}R` : ''}
+                    <div style="color: var(--color-yellow-75); font-size: 0.875rem; margin-top: 0.25rem;">${riskPercent}% risk → ${rewardPercent1.toFixed(1)}% reward</div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Direction:</div>
-                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
-              </div>
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Setup Type:</div>
-                <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend Play'}</div>
+              
+              <!-- Right Column: Targets & Analysis -->
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Targets</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.875rem; font-weight: bold; line-height: 1.6;">
+                    <div>TP1 (${rr1}R): ${tp1}</div>
+                    <div style="margin-top: 0.25rem;">TP2 (${rr2}R): ${tp2}</div>
+                    ${tp3 ? `<div style="margin-top: 0.25rem;">TP3 (${rr3}R): ${tp3}</div>` : ''}
+                  </div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Invalidation</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.5;">
+                    ${direction === 'LONG' ? 'Close below' : 'Close above'} ${invalidation}. 
+                    <span style="color: rgba(255, 255, 255, 0.6);">
+                    ${setupType === 'SWING' ? 'HTF invalidation indicates macro trend shifted.' : 
+                      setupType === 'SCALP' ? 'LTF invalidation means scalp failed.' : 
+                      'Structure break invalidates setup.'}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
             
-            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">ENTRY:</div>
-                <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">${entryMin} – ${entryMax}</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">STOP LOSS:</div>
-                <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1rem; font-weight: bold;">${stopLoss}</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">TARGETS:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">
-                  <div>TP1 (${rr1}R): ${tp1}</div>
-                  <div style="margin-top: 0.25rem;">TP2 (${rr2}R): ${tp2}</div>
-                  ${tp3 ? `<div style="margin-top: 0.25rem;">TP3 (${rr3}R): ${tp3}</div>` : ''}
+            <!-- Full Width: Confluence Analysis -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Why This Trade</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Trend: ${trendAlignment}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Stoch: ${stochMomentum}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Pullback: ${pullbackState}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Zone: ${distanceFrom21}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Conf: ${confidence}%</div>
                 </div>
               </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
-                <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">
-                  ${rr1}R to ${rr2}R${tp3 ? ` to ${rr3}R` : ''} (${riskPercent}% risk → ${rewardPercent1.toFixed(1)}%${tp3 ? `/${(rr2 * parseFloat(riskPercent)).toFixed(1)}%/${(rr3 * parseFloat(riskPercent)).toFixed(1)}%` : ''} reward)
-                </div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">INVALIDATION:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
-                  ${direction === 'LONG' ? 'Close below' : 'Close above'} ${invalidation}. 
-                  ${setupType === 'SWING' ? 'This is the 3D/1D swing level. HTF invalidation indicates macro trend has shifted.' : 
-                    setupType === 'SCALP' ? 'This is the 5m/15m swing level. LTF invalidation means the scalp setup has failed.' : 
-                    'This is the 4H swing level. Structure break invalidates the setup.'}
-                </div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
-                  Clear short explanation of confluence:
-                </div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; margin-top: 0.5rem; padding-left: 1rem;">
-                  – Trend alignment: ${trendAlignment}<br>
-                  – Stoch momentum: ${stochMomentum}<br>
-                  – Pullback state: ${pullbackState}<br>
-                  – Liquidity zones: ${distanceFrom21}<br>
-                  – HTF confirmation: ${confidence}% confidence
-                </div>
-              </div>
-              
-              <div>
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">CONDITIONS REQUIRED:</div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
-                  ${conditionsRequired.join('<br>')}
-                </div>
+            </div>
+            
+            <!-- Full Width: Conditions -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Required</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
+                ${conditionsRequired.map(cond => `<div style="color: rgba(255, 255, 255, 0.7);">${cond}</div>`).join('')}
               </div>
             </div>
           </div>
@@ -2120,87 +2132,58 @@
         }
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
-            <div style="margin-bottom: 1.5rem;">
-              <h2 style="font-size: 1.5rem; font-weight: bold; color: #6b7280; margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-mathias); backdrop-filter: blur(10px);">
+            <!-- Header -->
+            <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: #6b7280; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;">
                 ${symbol.replace('USDT', '')} — NO TRADE (${setupType})
               </h2>
-              <div style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">
+              <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.875rem;">
                 NO VALID SETUP AT THIS TIME
               </div>
+              <!-- Key Metrics Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Confidence</div>
+                  <div style="color: #6b7280; font-size: 1.5rem; font-weight: bold;">${confidence}%</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
+                  <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">⚪ NO TRADE</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Setup</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend'}</div>
+                </div>
+              </div>
             </div>
             
-            <div class="trade-info-grid">
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
-                <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
-              </div>
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Direction:</div>
-                <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">⚪ NO TRADE</div>
-              </div>
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Setup Type:</div>
-                <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend Play'}</div>
+            <!-- Reason Section -->
+            <div style="margin-bottom: 1.5rem; padding: 1rem; background-color: rgba(255, 255, 255, 0.05); border-radius: var(--radius-md); border-left: 3px solid #6b7280;">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Reason</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
+            </div>
+            
+            <!-- Current Market Analysis -->
+            <div style="margin-bottom: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Current Market Analysis</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 4H Trend: ${trend4h}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 1H Trend: ${trend1h}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 4H Stoch: ${stoch4h}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 1H Stoch: ${stoch1h}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Pullback: ${pullback4h}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Zone: ${distanceFrom21}</div>
+                </div>
               </div>
             </div>
             
-            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">REASON:</div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">ENTRY:</div>
-                <div style="color: var(--text-primary); font-size: 1rem;">No valid entry zone at this time</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">STOP LOSS:</div>
-                <div style="color: var(--text-primary); font-size: 1rem;">N/A</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">TARGETS:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem;">
-                  <div>TP1: N/A</div>
-                  <div style="margin-top: 0.25rem;">TP2: N/A</div>
-                  <div style="margin-top: 0.25rem;">TP3: N/A</div>
-                </div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
-                <div style="color: var(--text-primary); font-size: 1rem;">N/A</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">INVALIDATION:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
-                  Wait for setup conditions to be met. Trade is invalid until HTF trend aligns and price reaches ENTRY_ZONE.
-                </div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
-                  Current market analysis:
-                </div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; margin-top: 0.5rem; padding-left: 1rem;">
-                  – Trend alignment: 4H ${trend4h}, 1H ${trend1h}<br>
-                  – Stoch momentum: 4H ${stoch4h}, 1H ${stoch1h}<br>
-                  – Pullback state: ${pullback4h}<br>
-                  – Liquidity zones: ${distanceFrom21} from 21 EMA<br>
-                  – HTF confirmation: ${confidence}% confidence
-                </div>
-              </div>
-              
-              <div>
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">CONDITIONS REQUIRED:</div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
-                  ${conditionsRequired.join('<br>')}
-                </div>
+            <!-- Conditions Required -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Required Before Entry</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
+                ${conditionsRequired.map(cond => `<div style="color: rgba(255, 255, 255, 0.7);">${cond}</div>`).join('')}
               </div>
             </div>
           </div>
@@ -2222,84 +2205,90 @@
         const reason = data.microScalp.reason;
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
-            <div style="margin-bottom: 1.5rem;">
-              <h2 style="font-size: 1.5rem; font-weight: bold; color: ${directionColor}; margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-mathias); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
+            <!-- Header -->
+            <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: ${directionColor}; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;">
                 ${symbol.replace('USDT', '')} — ${direction} (MICRO-SCALP)
               </h2>
-              <div style="background-color: rgba(255, 193, 7, 0.15); border: 1px solid #ffc107; border-radius: var(--radius-sm); padding: 0.5rem; margin-top: 0.75rem;">
-                <div style="color: #ffc107; font-size: 0.75rem; font-weight: bold;">⚡ LOWER TIMEFRAME TRADE</div>
-                <div style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 0.25rem;">Tight stops • Smaller position size • Quick in/out • Mean-reversion setup</div>
+              <div style="background-color: rgba(255, 193, 7, 0.15); border: 1px solid #ffc107; border-radius: var(--radius-sm); padding: 0.75rem; margin-top: 0.75rem;">
+                <p style="color: #ffc107; font-size: 0.875rem; margin: 0; letter-spacing: 0.02em;">⚡ LOWER TIMEFRAME TRADE – Quick scalp when 4H is FLAT</p>
+              </div>
+              <!-- Key Metrics Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Confidence</div>
+                  <div style="color: ${directionColor}; font-size: 1.5rem; font-weight: bold;">${confidence}%</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
+                  <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Setup</div>
+                  <div style="color: #ffc107; font-size: 1.25rem; font-weight: bold;">Micro-Scalp</div>
+                </div>
               </div>
             </div>
             
-            <div class="trade-info-grid">
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
-                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
+            <!-- Editorial Grid Layout -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+              <!-- Left Column: Entry & Risk -->
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Entry</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1.125rem; font-weight: bold; line-height: 1.2;">${entryMin} – ${entryMax}</div>
+                  <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">Avg 15m & 5m EMA21</div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Stop Loss</div>
+                  <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${stopLoss}</div>
+                  <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">${direction === 'LONG' ? 'Below' : 'Above'} 15m/5m swings</div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Risk / Reward</div>
+                  <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">${rr1}R to ${rr2}R targets</div>
+                </div>
               </div>
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Direction:</div>
-                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
-              </div>
-              <div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem;">Setup Type:</div>
-                <div style="color: #ffc107; font-size: 1.25rem; font-weight: bold;">Micro-Scalp</div>
+              
+              <!-- Right Column: Targets & Analysis -->
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Targets</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.875rem; font-weight: bold; line-height: 1.6;">
+                    <div>TP1 (${rr1}R): ${tp1}</div>
+                    <div style="margin-top: 0.25rem;">TP2 (${rr2}R): ${tp2}</div>
+                  </div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Invalidation</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.5;">
+                    ${data.microScalp.invalidation_description}
+                  </div>
+                </div>
               </div>
             </div>
             
-            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">ENTRY:</div>
-                <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">${entryMin} – ${entryMax}</div>
-                <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">Average of 15m & 5m EMA21</div>
+            <!-- Full Width: Why This Trade -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Why This Trade</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.7;">
+                ${reason}
               </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">STOP LOSS:</div>
-                <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1rem; font-weight: bold;">${stopLoss}</div>
-                <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">${direction === 'LONG' ? 'Below' : 'Above'} 15m/5m swing ${direction === 'LONG' ? 'lows' : 'highs'}</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">TARGETS:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">
-                  <div>TP1 (${rr1}R): ${tp1}</div>
-                  <div style="margin-top: 0.25rem;">TP2 (${rr2}R): ${tp2}</div>
-                </div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
-                <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">${rr1}R to ${rr2}R targets</div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">INVALIDATION:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
-                  ${data.microScalp.invalidation_description}
-                </div>
-              </div>
-              
-              <div style="margin-bottom: 1rem;">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
-                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
-                  Lower timeframe mean-reversion setup:
-                </div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; margin-top: 0.5rem; padding-left: 1rem;">
-                  ${reason}
-                </div>
-              </div>
-              
-              <div>
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">CONDITIONS MET:</div>
-                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
-                  ✓ 1H trending (not FLAT)<br>
-                  ✓ 1H pullback near entry zone<br>
-                  ✓ 15m & 5m both within 0.25% of EMA21<br>
-                  ✓ 15m & 5m stoch momentum aligned<br>
-                  ✓ Tight confluence for quick scalp
-                </div>
+            </div>
+            
+            <!-- Full Width: Conditions -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Met</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
+                <div style="color: rgba(255, 255, 255, 0.7);">✓ 1H trending (not FLAT)</div>
+                <div style="color: rgba(255, 255, 255, 0.7);">✓ 1H pullback near entry zone</div>
+                <div style="color: rgba(255, 255, 255, 0.7);">✓ 15m & 5m within 0.25% of EMA21</div>
+                <div style="color: rgba(255, 255, 255, 0.7);">✓ 15m & 5m stoch aligned</div>
+                <div style="color: rgba(255, 255, 255, 0.7);">✓ Tight confluence for quick scalp</div>
               </div>
             </div>
           </div>
