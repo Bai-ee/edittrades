@@ -81,6 +81,27 @@
       max-width: 100%;
       overflow: hidden;
       box-sizing: border-box;
+      -webkit-box-sizing: border-box;
+    }
+    
+    /* Force layout recalculation on mobile iOS after toggle */
+    @media (max-width: 767px) {
+      .details-content-wrapper {
+        display: block;
+        contain: layout;
+      }
+      
+      .details-content-wrapper .tf-grid {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        -webkit-grid-template-columns: 1fr !important;
+      }
+      
+      .details-content-wrapper .trade-info-grid {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        -webkit-grid-template-columns: 1fr !important;
+      }
     }
     
     /* Mobile responsive table */
@@ -371,9 +392,24 @@
       box-sizing: border-box;
     }
     
+    /* Mobile: Force 1 column (iOS fix) */
+    @media (max-width: 767px) {
+      .tf-grid {
+        grid-template-columns: 1fr !important;
+      }
+    }
+    
+    /* Tablet: 2 columns */
+    @media (min-width: 768px) and (max-width: 1023px) {
+      .tf-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
+    }
+    
+    /* Desktop: 4 columns */
     @media (min-width: 1024px) {
       .tf-grid {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(4, 1fr) !important;
       }
     }
     
@@ -383,17 +419,53 @@
       box-sizing: border-box;
     }
     
+    /* Trade info grid (Confidence, Direction, Setup Type) */
+    .trade-info-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    
+    @media (min-width: 768px) {
+      .trade-info-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+    
     /* Timeframe cards */
     .tf-card {
       width: 100%;
+      max-width: 100%;
       padding: 1rem;
       background-color: black;
       border: 1px solid rgba(255, 255, 255, 0.1);
       border-radius: var(--radius-md);
       box-sizing: border-box;
+      -webkit-box-sizing: border-box;
       backdrop-filter: blur(10px);
       position: relative;
       overflow: hidden;
+    }
+    
+    /* iOS specific fix for grid layout */
+    @supports (-webkit-touch-callout: none) {
+      .tf-grid {
+        display: -webkit-grid;
+        display: grid;
+      }
+      
+      @media (max-width: 767px) {
+        .tf-grid {
+          -webkit-grid-template-columns: 1fr;
+          grid-template-columns: 1fr !important;
+        }
+      }
+      
+      .tf-card {
+        -webkit-transform: translateZ(0);
+        transform: translateZ(0);
+      }
     }
     
     .tf-card.uptrend {
@@ -1848,7 +1920,7 @@
               </h2>
             </div>
             
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+            <div class="trade-info-grid">
               <div>
                 <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
                 <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
@@ -1980,7 +2052,7 @@
               </div>
             </div>
             
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+            <div class="trade-info-grid">
               <div>
                 <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
                 <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
@@ -2083,7 +2155,7 @@
               </div>
             </div>
             
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+            <div class="trade-info-grid">
               <div>
                 <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
                 <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
