@@ -42,7 +42,7 @@ git push -u origin main
 2. **Navigate to** Settings → Environment Variables
 3. **Add** a new variable:
    - **Name**: `OPENAI_API_KEY`
-   - **Value**: `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`
+   - **Value**: `your_openai_api_key_here`
    - **Environments**: Select all (Production, Preview, Development)
 4. **Click** "Save"
 
