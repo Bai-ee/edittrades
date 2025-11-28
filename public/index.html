@@ -416,31 +416,34 @@
       border-color: rgba(156, 163, 175, 0.3);
     }
     
-    /* Rotating glow streak effect */
+    /* Rotating glow streak effect - fills entire card space */
     .tf-card.uptrend::before,
     .tf-card.downtrend::before {
       content: '';
       position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 200%;
-      height: 200%;
-      transform: translate(-50%, -50%);
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       pointer-events: none;
-      animation: rotateGlow 8s linear infinite;
+      animation: rotateGlow 12.8s linear infinite;
       z-index: 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
     }
     
     .tf-card.uptrend::before {
       background: conic-gradient(
         from 0deg at 50% 50%,
-        transparent 0deg,
-        transparent 60deg,
+        rgba(34, 197, 94, 0.15) 0deg,
+        rgba(34, 197, 94, 0.25) 45deg,
         rgba(34, 197, 94, 0.4) 90deg,
-        rgba(34, 197, 94, 0.6) 120deg,
-        rgba(34, 197, 94, 0.4) 150deg,
-        transparent 180deg,
-        transparent 360deg
+        rgba(34, 197, 94, 0.6) 135deg,
+        rgba(34, 197, 94, 0.7) 180deg,
+        rgba(34, 197, 94, 0.6) 225deg,
+        rgba(34, 197, 94, 0.4) 270deg,
+        rgba(34, 197, 94, 0.25) 315deg,
+        rgba(34, 197, 94, 0.15) 360deg
       );
       filter: blur(20px);
     }
@@ -448,13 +451,15 @@
     .tf-card.downtrend::before {
       background: conic-gradient(
         from 0deg at 50% 50%,
-        transparent 0deg,
-        transparent 60deg,
+        rgba(239, 68, 68, 0.15) 0deg,
+        rgba(239, 68, 68, 0.25) 45deg,
         rgba(239, 68, 68, 0.4) 90deg,
-        rgba(239, 68, 68, 0.6) 120deg,
-        rgba(239, 68, 68, 0.4) 150deg,
-        transparent 180deg,
-        transparent 360deg
+        rgba(239, 68, 68, 0.6) 135deg,
+        rgba(239, 68, 68, 0.7) 180deg,
+        rgba(239, 68, 68, 0.6) 225deg,
+        rgba(239, 68, 68, 0.4) 270deg,
+        rgba(239, 68, 68, 0.25) 315deg,
+        rgba(239, 68, 68, 0.15) 360deg
       );
       filter: blur(20px);
     }
