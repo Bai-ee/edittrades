@@ -28,6 +28,10 @@
       "dest": "/api/scan.js"
     },
     {
+      "src": "/api/agent-review",
+      "dest": "/api/agent-review.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "/public/$1"
     }

@@ -2273,6 +2273,31 @@
         <td colspan="5">
           <div class="details-content-wrapper">
             ${tradeCallHtml}
+            
+            <!-- AI Reasoning Agent Section -->
+            <div id="ai-review-section-${symbol}" style="margin: 1.5rem 0; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="font-family: var(--font-heading); color: var(--color-yellow-75); font-size: 1rem; font-weight: bold; letter-spacing: 0.05em; margin: 0;">
+                  AI REASONING AGENT
+                </h3>
+                <button 
+                  onclick="getAIReview('${symbol}')" 
+                  id="ai-review-btn-${symbol}"
+                  style="padding: 0.5rem 1rem; background: transparent; border: 1px solid var(--color-yellow-75); color: var(--color-yellow-75); border-radius: var(--radius-md); font-family: var(--font-heading); font-weight: bold; font-size: 0.75rem; cursor: pointer; transition: all 0.2s;"
+                  onmouseover="this.style.background='var(--color-yellow-75)'; this.style.color='black';"
+                  onmouseout="this.style.background='transparent'; this.style.color='var(--color-yellow-75)';"
+                >
+                  GET AI REVIEW
+                </button>
+              </div>
+              
+              <div id="ai-review-content-${symbol}" style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.6;">
+                <p style="color: var(--text-secondary); font-style: italic;">
+                  Click "GET AI REVIEW" to receive an AI-powered analysis of this ${strategyOptions[strategyStates[symbol] || 0].toUpperCase()} setup.
+                </p>
+              </div>
+            </div>
+            
             <div class="tf-grid">
               ${tfCards}
           </div>
@@ -2413,6 +2438,108 @@
       });
       
       return text;
+    }
+    
+    // Get AI Review for a specific symbol and setup type
+    async function getAIReview(symbol) {
+      const data = scanResults[symbol];
+      if (!data) {
+        console.error('No data for symbol:', symbol);
+        return;
+      }
+      
+      // Get current strategy for this symbol
+      const currentStrategyIndex = strategyStates[symbol] || 0;
+      const setupType = strategyOptions[currentStrategyIndex];
+      
+      // Update button to show loading
+      const btn = document.getElementById(`ai-review-btn-${symbol}`);
+      const contentDiv = document.getElementById(`ai-review-content-${symbol}`);
+      
+      if (!btn || !contentDiv) return;
+      
+      const originalBtnText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '⏳ ANALYZING...';
+      btn.style.opacity = '0.6';
+      btn.style.cursor = 'not-allowed';
+      
+      contentDiv.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 2rem;">🤖 AI Agent is analyzing the market data...</p>';
+      
+      try {
+        // Create the dashboard view (same JSON that COPY GPT exports)
+        const marketSnapshot = createDashboardView(data);
+        
+        // Call the agent API
+        const response = await fetch('/api/agent-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            symbol,
+            setupType,
+            marketSnapshot
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.error) {
+          throw new Error(result.error);
+        }
+        
+        // Display the formatted response
+        const priorityColor = 
+          result.priority === 'A+' ? '#22c55e' :
+          result.priority === 'A' ? '#3b82f6' :
+          result.priority === 'B' ? '#f59e0b' : '#6b7280';
+        
+        contentDiv.innerHTML = `
+          <div style="border-left: 3px solid ${priorityColor}; padding-left: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+              <span style="font-weight: bold; color: ${priorityColor}; font-size: 1.125rem;">
+                Priority: ${result.priority}
+              </span>
+              <span style="color: var(--text-secondary); font-size: 0.75rem;">
+                ${new Date(result.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+          </div>
+          
+          <div style="white-space: pre-wrap; font-family: var(--font-mono, monospace); font-size: 0.875rem; line-height: 1.6; color: var(--text-primary);">
+${result.formattedText}
+          </div>
+        `;
+        
+        // Re-enable button
+        btn.disabled = false;
+        btn.innerHTML = '🔄 REFRESH AI REVIEW';
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+        
+      } catch (error) {
+        console.error('AI Review error:', error);
+        contentDiv.innerHTML = `
+          <div style="color: #ef4444; text-align: center; padding: 1rem; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-md); background-color: rgba(239, 68, 68, 0.1);">
+            <p style="font-weight: bold; margin-bottom: 0.5rem;">❌ AI Review Failed</p>
+            <p style="font-size: 0.75rem; color: #fca5a5;">${error.message}</p>
+            <p style="font-size: 0.75rem; color: #fca5a5; margin-top: 0.5rem;">
+              Please check your OpenAI API configuration or try again later.
+            </p>
+          </div>
+        `;
+        
+        // Re-enable button
+        btn.disabled = false;
+        btn.innerHTML = originalBtnText;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+      }
     }
     
     // Create compact dashboard view
