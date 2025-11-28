@@ -1,10 +1,70 @@
 /**
- * 4-Hour Trading Strategy Engine
- * Implements Bryan's set-and-forget 4h trading system
- * Based on PRD requirements for long/short setup validation
+ * Multi-Timeframe Trading Strategy Engine
+ * Implements flexible trading system with HTF bias scoring
+ * Supports: 4H Trend Play, 1H Scalp, Swing, and Micro-Scalp
  */
 
 import * as indicators from './indicators.js';
+
+/**
+ * Compute Higher Timeframe Bias from 4H + 1H
+ * Replaces hard 4H FLAT gate with weighted scoring system
+ * @param {Object} timeframes - All timeframe data
+ * @returns {Object} HTF bias { direction, confidence, source }
+ */
+function computeHTFBias(timeframes) {
+  const tf4h = timeframes['4h'];
+  const tf1h = timeframes['1h'];
+
+  if (!tf4h || !tf1h) {
+    return { direction: 'neutral', confidence: 0, source: 'none' };
+  }
+
+  let longScore = 0;
+  let shortScore = 0;
+
+  // 4H trend (weighted higher)
+  if (tf4h.indicators?.analysis?.trend === 'UPTREND') longScore += 2;
+  if (tf4h.indicators?.analysis?.trend === 'DOWNTREND') shortScore += 2;
+
+  // 1H trend
+  if (tf1h.indicators?.analysis?.trend === 'UPTREND') longScore += 1;
+  if (tf1h.indicators?.analysis?.trend === 'DOWNTREND') shortScore += 1;
+
+  // Stoch conditions (4H + 1H)
+  const stochs = [
+    tf4h.indicators?.stochRSI?.condition,
+    tf1h.indicators?.stochRSI?.condition
+  ];
+  
+  for (const condition of stochs) {
+    if (condition === 'BULLISH' || condition === 'OVERSOLD') longScore += 0.5;
+    if (condition === 'BEARISH' || condition === 'OVERBOUGHT') shortScore += 0.5;
+  }
+
+  // Convert scores to bias
+  if (longScore === 0 && shortScore === 0) {
+    return { direction: 'neutral', confidence: 0, source: 'none' };
+  }
+
+  if (longScore > shortScore) {
+    const conf = Math.min(100, Math.round((longScore / (longScore + shortScore)) * 100));
+    return { 
+      direction: 'long', 
+      confidence: conf, 
+      source: tf4h.indicators?.analysis?.trend !== 'FLAT' ? '4h' : '1h' 
+    };
+  } else if (shortScore > longScore) {
+    const conf = Math.min(100, Math.round((shortScore / (longScore + shortScore)) * 100));
+    return { 
+      direction: 'short', 
+      confidence: conf, 
+      source: tf4h.indicators?.analysis?.trend !== 'FLAT' ? '4h' : '1h' 
+    };
+  } else {
+    return { direction: 'neutral', confidence: 0, source: 'mixed' };
+  }
+}
 
 /**
  * Detect if Stochastic RSI is curling up or down
@@ -573,24 +633,15 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
     }
   }
   
-  // PRD 3.1: Only trade with 4h trend (blocks normal trades AND scalps)
-  if (trend4h === 'FLAT') {
-    return {
-      symbol,
-      direction: 'flat',
-      reason: '4h trend is flat - no trade',
-      confidence: 0,
-      valid: false,
-      trend: {
-        '4h': 'flat',
-        '1h': tf1h ? tf1h.indicators.analysis.trend.toLowerCase() : 'unknown'
-      }
-    };
-  }
+  // NEW: Compute HTF Bias instead of hard 4H gate
+  const htfBias = computeHTFBias(analysis);
   
-  let direction = null;
-  let setupValid = false;
-  const invalidationReasons = [];
+  // PRIORITY 2: Try 4H Trend Play (only if 4H is NOT FLAT)
+  if (trend4h !== 'FLAT' && (setupType === '4h' || setupType === 'auto')) {
+    // Continue with existing 4H trend logic below
+    let direction = null;
+    let setupValid = false;
+    const invalidationReasons = [];
   
   // PRD 3.2: Long Setup Requirements
   if (trend4h === 'UPTREND') {
@@ -732,13 +783,139 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
     timestamp: new Date().toISOString(),
     currentPrice: parseFloat(currentPrice.toFixed(2)),
     ema21: parseFloat(ema21.toFixed(2)),
-    ema200: ema200 ? parseFloat(ema200.toFixed(2)) : null
+    ema200: ema200 ? parseFloat(ema200.toFixed(2)) : null,
+    htfBias: htfBias  // Include bias in response
+  };
+  } // End of 4H trend play
+  
+  // PRIORITY 3: Try 1H Scalp (works even when 4H is FLAT)
+  if ((setupType === 'Scalp' || setupType === 'auto') && tf1h && tf15m) {
+    const trend1h = tf1h.indicators?.analysis?.trend;
+    const pullback1h = tf1h.indicators?.analysis?.pullback;
+    const pullback15m = tf15m.indicators?.analysis?.pullback;
+    
+    // Need 1H trend (not FLAT)
+    if (trend1h && trend1h !== 'FLAT') {
+      const isLong = trend1h === 'UPTREND';
+      const direction = isLong ? 'long' : 'short';
+      
+      // Check if price near 1H EMA21 and 15m EMA21
+      const near1h = pullback1h && Math.abs(pullback1h.distanceFrom21EMA) <= 2.0;
+      const near15m = pullback15m && Math.abs(pullback15m.distanceFrom21EMA) <= 1.0;
+      
+      if (near1h && near15m) {
+        // Check 15m stoch alignment
+        const stoch15m = tf15m.indicators?.stochRSI;
+        const stochOk = stoch15m && (
+          (isLong && (stoch15m.condition === 'BULLISH' || stoch15m.condition === 'OVERSOLD')) ||
+          (!isLong && (stoch15m.condition === 'BEARISH' || stoch15m.condition === 'OVERBOUGHT'))
+        );
+        
+        if (stochOk) {
+          // Build 1H Scalp signal
+          const ema21_1h = tf1h.indicators?.ema?.ema21 || currentPrice;
+          const entryZone = calculateEntryZone(ema21_1h, direction);
+          const entryMid = (entryZone.min + entryZone.max) / 2;
+          
+          const allStructures = {
+            '3d': tf3d?.structure || { swingHigh: null, swingLow: null },
+            '1d': tf1d?.structure || { swingHigh: null, swingLow: null },
+            '4h': tf4h.structure,
+            '15m': tf15m?.structure || { swingHigh: null, swingLow: null },
+            '5m': tf5m?.structure || { swingHigh: null, swingLow: null }
+          };
+          
+          const rrTargets = [1.5, 3.0]; // Scalp targets
+          const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets);
+          
+          // Confidence based on bias
+          const baseConfidence = 60;
+          const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.2) : 0;
+          const confidence = Math.min(85, baseConfidence + biasBonus);
+          
+          return {
+            symbol,
+            direction,
+            setupType: 'Scalp',
+            entry_zone: {
+              min: parseFloat(entryZone.min.toFixed(2)),
+              max: parseFloat(entryZone.max.toFixed(2))
+            },
+            stop_loss: parseFloat(sltp.stopLoss.toFixed(2)),
+            invalidation_level: parseFloat(sltp.invalidationLevel.toFixed(2)),
+            targets: [
+              parseFloat(sltp.targets[0].toFixed(2)),
+              parseFloat(sltp.targets[1].toFixed(2))
+            ],
+            risk_reward: {
+              tp1RR: rrTargets[0],
+              tp2RR: rrTargets[1]
+            },
+            risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
+            confidence: parseFloat(confidence.toFixed(2)),
+            reason_summary: `1H ${trend1h.toLowerCase()} scalp with 15m pullback and Stoch alignment (HTF bias: ${htfBias.direction}, ${htfBias.confidence}%)`,
+            trend: {
+              '4h': trend4h.toLowerCase(),
+              '1h': trend1h.toLowerCase(),
+              '15m': tf15m.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
+              '5m': tf5m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown'
+            },
+            stoch: {
+              '4h': analyzeStochState(tf4h.indicators.stochRSI),
+              '1h': analyzeStochState(tf1h.indicators.stochRSI),
+              '15m': analyzeStochState(tf15m.indicators.stochRSI),
+              '5m': tf5m ? analyzeStochState(tf5m.indicators.stochRSI) : null
+            },
+            valid: true,
+            timestamp: new Date().toISOString(),
+            currentPrice: parseFloat(currentPrice.toFixed(2)),
+            ema21: parseFloat(ema21_1h.toFixed(2)),
+            ema200: tf1h.indicators?.ema?.ema200 ? parseFloat(tf1h.indicators.ema.ema200.toFixed(2)) : null,
+            htfBias: htfBias
+          };
+        }
+      }
+    }
+  }
+  
+  // PRIORITY 4: No clean setup on 4H or 1H
+  return {
+    symbol,
+    direction: 'NO_TRADE',
+    setupType: setupType || '4h',
+    confidence: 0,
+    reason_summary: `No clean 4H or 1H setup. 4H: ${trend4h}, 1H: ${tf1h?.indicators?.analysis?.trend || 'N/A'}. HTF bias: ${htfBias.direction} (${htfBias.confidence}% confidence)`,
+    entry_zone: { min: null, max: null },
+    stop_loss: null,
+    invalidation_level: null,
+    targets: [null, null],
+    risk_reward: { tp1RR: null, tp2RR: null },
+    risk_amount: null,
+    trend: {
+      '4h': trend4h.toLowerCase(),
+      '1h': tf1h?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
+      '15m': tf15m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
+      '5m': tf5m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown'
+    },
+    stoch: {
+      '4h': analyzeStochState(tf4h.indicators.stochRSI),
+      '1h': tf1h ? analyzeStochState(tf1h.indicators.stochRSI) : null,
+      '15m': tf15m ? analyzeStochState(tf15m.indicators.stochRSI) : null,
+      '5m': tf5m ? analyzeStochState(tf5m.indicators.stochRSI) : null
+    },
+    valid: false,
+    timestamp: new Date().toISOString(),
+    currentPrice: parseFloat(currentPrice.toFixed(2)),
+    ema21: parseFloat(ema21.toFixed(2)),
+    ema200: ema200 ? parseFloat(ema200.toFixed(2)) : null,
+    htfBias: htfBias
   };
 }
 
 /**
- * Evaluate Micro-Scalp Override
- * Allows small mean-reversion trades even when 4H is FLAT, but only under strict LTF confluence
+ * Evaluate Micro-Scalp Strategy
+ * Independent LTF mean-reversion system (disregards 4H trend entirely)
+ * Focuses on 1H/15m/5m alignment with tight EMA confluence
  * @param {Object} multiTimeframeData - All timeframe data
  * @returns {Object} Micro-scalp signal or null
  */
