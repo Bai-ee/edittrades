@@ -654,11 +654,11 @@
           <table class="table-edittrax">
             <thead style="background-color: var(--color-yellow-75);">
               <tr>
-                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">COIN</th>
-                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">PRICE</th>
-                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">SIGNAL</th>
-                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">EDITTRADES</th>
-                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">1M/5M/15M/1H/4H/1D/1W/1Mo</th>
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">COIN</th>
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">PRICE</th>
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">SIGNAL</th>
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">EDITTRADES</th>
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">1M/5M/15M/1H/4H/1D/1W/1Mo</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable">
@@ -1101,7 +1101,7 @@
       }
       
       // If we have a valid 4h trade signal, use it
-      const originalSignal = data.tradeSignal;
+      const originalSignal = data.signal || data.tradeSignal;
       if (originalSignal && originalSignal.valid && templateKey === '4h') {
         return originalSignal;
       }
@@ -1360,7 +1360,7 @@
       const data = scanResults[symbol];
       if (!data) return;
       
-      const signal = data.tradeSignal;
+      const signal = data.signal || data.tradeSignal;
       const hasValidTrade = signal && signal.valid;
       
       // Only update if NO TRADE
@@ -1658,8 +1658,10 @@
     // Create table row for coin
     function createCoinRow(symbol, data) {
       const row = document.createElement('tr');
-      const signal = data.tradeSignal;
+      // Support both new 'signal' and old 'tradeSignal' field names
+      const signal = data.signal || data.tradeSignal;
       const hasValidTrade = signal && signal.valid;
+      const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
       const tradeClass = hasValidTrade ? 
         (signal.direction === 'long' ? 'has-trade-long' : 'has-trade-short') : '';
       
@@ -1996,7 +1998,7 @@
       }
       
       // Use template signal if active, otherwise fall back to original trade signal
-      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : data.tradeSignal;
+      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
       let tradeCallHtml = '';
       
       if (tradeSignal && tradeSignal.valid) {
@@ -2682,58 +2684,70 @@
     
     // Create compact dashboard view
     function createDashboardView(data) {
+      const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+      
       const view = {
         symbol: data.symbol,
-        price: data.currentPrice,
+        price: data.currentPrice || data.price,
         change24h: data.priceChange24h,
+        htfBias: htfBias,  // HTF Bias at root level
         signal: null,
         timeframes: {}
       };
       
       // Signal - ALWAYS INCLUDES ALL FORMATTED FIELDS (even if no valid trade)
-      if (data.tradeSignal) {
-        const setupType = data.tradeSignal.setupType || '4h';
+      const tradeSignal = data.signal || data.tradeSignal;
+      const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+      
+      if (tradeSignal) {
+        const setupType = tradeSignal.setupType || '4h';
+        const selectedStrategy = tradeSignal.selectedStrategy || setupType.toUpperCase();
+        const strategiesChecked = tradeSignal.strategiesChecked || [];
         const tf4h = data.analysis?.['4h'];
         const tf1h = data.analysis?.['1h'];
         
         view.signal = {
-          valid: data.tradeSignal.valid,
-          direction: data.tradeSignal.direction || 'NO_TRADE',
+          valid: tradeSignal.valid,
+          direction: tradeSignal.direction || 'NO_TRADE',
           setupType: setupType,
-          confidence: data.tradeSignal.confidence ? 
-            parseFloat((data.tradeSignal.confidence * 100).toFixed(0)) : 0,
-          reason: data.tradeSignal.reason_summary || data.tradeSignal.reason,
+          selectedStrategy: selectedStrategy,
+          strategiesChecked: strategiesChecked,
+          confidence: tradeSignal.confidence ? 
+            parseFloat((tradeSignal.confidence * 100).toFixed(0)) : 0,
+          reason: tradeSignal.reason_summary || tradeSignal.reason,
           
           // Entry/SL/Targets - include even if null (shows structure)
-          entryZone: data.tradeSignal.entry_zone ? {
-            min: data.tradeSignal.entry_zone.min,
-            max: data.tradeSignal.entry_zone.max
+          entryZone: tradeSignal.entry_zone ? {
+            min: tradeSignal.entry_zone.min,
+            max: tradeSignal.entry_zone.max
           } : null,
-          stopLoss: data.tradeSignal.stop_loss || null,
-          invalidationLevel: data.tradeSignal.invalidation_level || null,
+          stopLoss: tradeSignal.stop_loss || null,
+          invalidationLevel: tradeSignal.invalidation_level || null,
           targets: {
-            tp1: data.tradeSignal.targets?.[0] || null,
-            tp2: data.tradeSignal.targets?.[1] || null,
-            tp3: data.tradeSignal.targets?.[2] || null  // Swing trades have 3 targets (3R, 4R, 5R)
+            tp1: tradeSignal.targets?.[0] || null,
+            tp2: tradeSignal.targets?.[1] || null,
+            tp3: tradeSignal.targets?.[2] || null
           },
           riskReward: {
-            tp1RR: data.tradeSignal.risk_reward?.tp1RR || 1.0,
-            tp2RR: data.tradeSignal.risk_reward?.tp2RR || 2.0,
-            tp3RR: data.tradeSignal.risk_reward?.tp3RR || null  // Swing: 5.0, others: null
+            tp1RR: tradeSignal.risk_reward?.tp1RR || 1.0,
+            tp2RR: tradeSignal.risk_reward?.tp2RR || 2.0,
+            tp3RR: tradeSignal.risk_reward?.tp3RR || null
           },
-          riskAmount: data.tradeSignal.risk_amount || null,
+          riskAmount: tradeSignal.risk_amount || null,
           
           // Formatted trade call fields - ALWAYS INCLUDED
-          invalidation: {
-            level: data.tradeSignal.invalidation_level || null,
+          invalidation: tradeSignal.invalidation || {
+            level: tradeSignal.invalidation_level || null,
             description: setupType === 'Swing' ? 
               '3D/1D swing level. HTF invalidation indicates macro trend has shifted.' : 
-              setupType === 'Scalp' ? 
-              '5m/15m swing level. LTF invalidation means the scalp setup has failed.' : 
+              setupType === 'Scalp' || selectedStrategy === 'SCALP_1H' ? 
+              '1H/15m swing level. LTF invalidation means the scalp setup has failed.' : 
+              setupType === 'MicroScalp' ?
+              '5m swing level. Exit immediately if wrong - tight invalidation.' :
               '4H swing level. Structure break invalidates the setup.'
           },
           
-          confluence: {
+          confluence: tradeSignal.confluence || {
             trendAlignment: tf4h && tf1h ? 
               `${tf4h.indicators?.analysis?.trend || 'UNKNOWN'} on 4H, ${tf1h.indicators?.analysis?.trend || 'UNKNOWN'} on 1H` : 
               'HTF trend analysis',
@@ -2742,26 +2756,39 @@
             liquidityZones: tf4h?.indicators?.analysis?.distanceFrom21EMA ? 
               `${Math.abs(tf4h.indicators.analysis.distanceFrom21EMA).toFixed(2)}% from 21 EMA` : 
               'Price positioning',
-            htfConfirmation: `${data.tradeSignal.confidence ? parseFloat((data.tradeSignal.confidence * 100).toFixed(0)) : 0}% confidence`
+            htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
           },
           
-          conditionsRequired: setupType === 'Swing' ? [
-            '✓ 3D stoch oversold/overbought pivot',
-            '✓ 1D reclaim/rejection of key level',
-            '✓ 4H trend supportive',
-            '✓ Price in ENTRY_ZONE on 15m/5m'
-          ] : setupType === 'Scalp' ? [
-            '✓ 4H trend clear (not FLAT)',
-            '✓ 1H aligned with 4H',
-            '✓ 15m & 5m stoch curl in direction',
-            '✓ Price in ENTRY_ZONE',
-            '✓ 1m confirms (noise filter)'
-          ] : [
-            '✓ 4H trend clear (not FLAT)',
-            '✓ 1H confirmation',
-            '✓ Price near 21 EMA',
-            '✓ Stoch aligned'
-          ]
+          conditionsRequired: tradeSignal.conditionsRequired || (
+            setupType === 'Swing' ? [
+              '✓ 3D stoch oversold/overbought pivot',
+              '✓ 1D reclaim/rejection of key level',
+              '✓ 4H trend supportive (not FLAT)',
+              '✓ Price in ENTRY_ZONE on 15m/5m'
+            ] : selectedStrategy === 'SCALP_1H' ? [
+              '✓ 1H trend clear (UPTREND or DOWNTREND)',
+              '✓ 4H disregarded (scalp uses 1H bias)',
+              '✓ Price near 21 EMA on 1H (±2%) and 15m (±1%)',
+              '✓ 15m Stoch aligned with 1H trend'
+            ] : setupType === 'MicroScalp' ? [
+              '✓ 1H trending (not FLAT)',
+              '✓ 15m within ±0.25% of 21 EMA',
+              '✓ 5m within ±0.25% of 21 EMA',
+              '✓ Stoch aligned on both 15m & 5m',
+              '⚠️ Disregards 4H trend entirely'
+            ] : selectedStrategy === 'NO_TRADE' ? [
+              '⚠ Awaiting clean setup',
+              '• Swing: 3D/1D/4H structure needed',
+              '• 4H Trend: 4H trending (not FLAT) needed',
+              '• 1H Scalp: 1H trending + 15m pullback needed',
+              '• Micro-Scalp: Tight LTF confluence needed'
+            ] : [
+              '✓ 4H trend clear (UPTREND or DOWNTREND)',
+              '✓ 1H confirmation',
+              '✓ Price near 21 EMA',
+              '✓ Stoch aligned'
+            ]
+          )
         };
       } else {
         // No trade signal - still provide structure with analysis data

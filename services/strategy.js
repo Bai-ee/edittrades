@@ -47,6 +47,25 @@ function computeHTFBias(timeframes) {
     return { direction: 'neutral', confidence: 0, source: 'none' };
   }
 
+  // Handle ties - prefer trending timeframe over stoch
+  if (longScore === shortScore && longScore > 0) {
+    // Check actual trends for tie-breaker
+    const trend4h = tf4h.indicators?.analysis?.trend;
+    const trend1h = tf1h.indicators?.analysis?.trend;
+    
+    if (trend1h === 'UPTREND') {
+      return { direction: 'long', confidence: 60, source: '1h' };
+    } else if (trend1h === 'DOWNTREND') {
+      return { direction: 'short', confidence: 60, source: '1h' };
+    } else if (trend4h === 'UPTREND') {
+      return { direction: 'long', confidence: 50, source: '4h' };
+    } else if (trend4h === 'DOWNTREND') {
+      return { direction: 'short', confidence: 50, source: '4h' };
+    }
+    // True tie - mixed signals
+    return { direction: 'neutral', confidence: 0, source: 'mixed' };
+  }
+
   if (longScore > shortScore) {
     const conf = Math.min(100, Math.round((longScore / (longScore + shortScore)) * 100));
     return { 
@@ -853,8 +872,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
   // PRIORITY 3: Try 1H Scalp (works even when 4H is FLAT)
   if ((setupType === 'Scalp' || setupType === 'auto') && tf1h && tf15m) {
     const trend1h = tf1h.indicators?.analysis?.trend;
-    const pullback1h = tf1h.indicators?.analysis?.pullback;
-    const pullback15m = tf15m.indicators?.analysis?.pullback;
+    const dist1h = tf1h.indicators?.analysis?.distanceFrom21EMA;
+    const dist15m = tf15m.indicators?.analysis?.distanceFrom21EMA;
+    const pullbackState1h = tf1h.indicators?.analysis?.pullbackState;
+    const pullbackState15m = tf15m.indicators?.analysis?.pullbackState;
     
     // Need 1H trend (not FLAT)
     if (trend1h && trend1h !== 'FLAT') {
@@ -862,10 +883,14 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
       const direction = isLong ? 'long' : 'short';
       
       // Check if price near 1H EMA21 and 15m EMA21
-      const near1h = pullback1h && Math.abs(pullback1h.distanceFrom21EMA) <= 2.0;
-      const near15m = pullback15m && Math.abs(pullback15m.distanceFrom21EMA) <= 1.0;
+      const near1h = dist1h !== undefined && Math.abs(dist1h) <= 2.0;
+      const near15m = dist15m !== undefined && Math.abs(dist15m) <= 1.5;
       
-      if (near1h && near15m) {
+      // Also check pullback states are favorable
+      const pullbackOk1h = pullbackState1h === 'ENTRY_ZONE' || pullbackState1h === 'RETRACING';
+      const pullbackOk15m = pullbackState15m === 'ENTRY_ZONE' || pullbackState15m === 'RETRACING';
+      
+      if (near1h && near15m && pullbackOk1h && pullbackOk15m) {
         // Check 15m stoch alignment
         const stoch15m = tf15m.indicators?.stochRSI;
         const stochOk = stoch15m && (
