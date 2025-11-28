@@ -654,11 +654,11 @@
           <table class="table-edittrax">
             <thead style="background-color: var(--color-yellow-75);">
               <tr>
-                <th class="px-2 py-2" style="color: black;">COIN</th>
-                <th class="px-2 py-2" style="color: black;">PRICE</th>
-                <th class="px-2 py-2" style="color: black;">SIGNAL</th>
-                <th class="px-2 py-2" style="color: black;">EDITTRADES</th>
-                <th class="px-2 py-2" style="color: black;">1M/5M/15M/1H/4H/1D/1W/1Mo</th>
+                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">COIN</th>
+                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">PRICE</th>
+                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">SIGNAL</th>
+                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">EDITTRADES</th>
+                <th class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; color: black;">1M/5M/15M/1H/4H/1D/1W/1Mo</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable">
@@ -1765,17 +1765,17 @@
       }
       
       row.innerHTML = `
-        <td class="px-2 py-3" data-label="">
+        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="">
           <div class="text-lg ${hasAnyTrade ? 'coin-name-has-trade' : ''}" style="color: var(--color-yellow-75);">${coinName}</div>
           <div class="entry-price-mobile" style="font-size: 0.9rem; color: var(--color-yellow-75); margin-top: 0.25rem;">${entryPriceDisplay}</div>
         </td>
-        <td class="px-2 py-3 entry-price-desktop" data-label="Price:">
+        <td class="px-2 entry-price-desktop" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="Price:">
           <div style="color: var(--color-yellow-75); font-size: 0.875rem;">${entryPriceDisplay}</div>
         </td>
-        <td class="px-2 py-3" data-label="Signal:">
+        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="Signal:">
           ${signalHtml}
         </td>
-        <td class="px-2 py-3" data-label="EditTrades:">
+        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="EditTrades:">
           <div class="flex" style="gap: 0;">
             <button 
               onclick="setStrategy('${symbol}', 0)"
@@ -1811,7 +1811,7 @@
             </button>
           </div>
         </td>
-        <td class="px-2 py-3" data-label="1M/5M/15M/1H/4H/1D/1W/1Mo:">
+        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="1M/5M/15M/1H/4H/1D/1W/1Mo:">
           <div class="flex gap-1">
             <button 
               onclick="toggleDetails('${symbol}')"
