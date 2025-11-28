@@ -1796,49 +1796,48 @@
         timeframes: {}
       };
       
-      // Signal - NOW INCLUDES ALL NORMALIZED FIELDS
+      // Signal - ALWAYS INCLUDES ALL FORMATTED FIELDS (even if no valid trade)
       if (data.tradeSignal) {
+        const setupType = data.tradeSignal.setupType || '4h';
+        const tf4h = data.analysis?.['4h'];
+        const tf1h = data.analysis?.['1h'];
+        
         view.signal = {
           valid: data.tradeSignal.valid,
           direction: data.tradeSignal.direction || 'NO_TRADE',
-          setupType: data.tradeSignal.setupType || '4h',  // NEW: Swing/Scalp/4h
+          setupType: setupType,
           confidence: data.tradeSignal.confidence ? 
             parseFloat((data.tradeSignal.confidence * 100).toFixed(0)) : 0,
-          reason: data.tradeSignal.reason_summary || data.tradeSignal.reason
-        };
-        
-        if (data.tradeSignal.valid && data.tradeSignal.entry_zone) {
-          view.signal.entryZone = {
+          reason: data.tradeSignal.reason_summary || data.tradeSignal.reason,
+          
+          // Entry/SL/Targets - include even if null (shows structure)
+          entryZone: data.tradeSignal.entry_zone ? {
             min: data.tradeSignal.entry_zone.min,
             max: data.tradeSignal.entry_zone.max
-          };
-          view.signal.stopLoss = data.tradeSignal.stop_loss;
-          view.signal.invalidationLevel = data.tradeSignal.invalidation_level;
-          view.signal.targets = {
-            tp1: data.tradeSignal.targets?.[0],
-            tp2: data.tradeSignal.targets?.[1]
-          };
-          view.signal.riskReward = {
+          } : null,
+          stopLoss: data.tradeSignal.stop_loss || null,
+          invalidationLevel: data.tradeSignal.invalidation_level || null,
+          targets: {
+            tp1: data.tradeSignal.targets?.[0] || null,
+            tp2: data.tradeSignal.targets?.[1] || null
+          },
+          riskReward: {
             tp1RR: data.tradeSignal.risk_reward?.tp1RR || 1.0,
             tp2RR: data.tradeSignal.risk_reward?.tp2RR || 2.0
-          };
-          view.signal.riskAmount = data.tradeSignal.risk_amount;
+          },
+          riskAmount: data.tradeSignal.risk_amount || null,
           
-          // Add formatted trade call fields
-          const setupType = data.tradeSignal.setupType || '4h';
-          const tf4h = data.analysis?.['4h'];
-          const tf1h = data.analysis?.['1h'];
-          
-          view.signal.invalidation = {
-            level: data.tradeSignal.invalidation_level,
+          // Formatted trade call fields - ALWAYS INCLUDED
+          invalidation: {
+            level: data.tradeSignal.invalidation_level || null,
             description: setupType === 'Swing' ? 
               '3D/1D swing level. HTF invalidation indicates macro trend has shifted.' : 
               setupType === 'Scalp' ? 
               '5m/15m swing level. LTF invalidation means the scalp setup has failed.' : 
               '4H swing level. Structure break invalidates the setup.'
-          };
+          },
           
-          view.signal.confluence = {
+          confluence: {
             trendAlignment: tf4h && tf1h ? 
               `${tf4h.indicators?.analysis?.trend || 'UNKNOWN'} on 4H, ${tf1h.indicators?.analysis?.trend || 'UNKNOWN'} on 1H` : 
               'HTF trend analysis',
@@ -1847,10 +1846,10 @@
             liquidityZones: tf4h?.indicators?.analysis?.distanceFrom21EMA ? 
               `${Math.abs(tf4h.indicators.analysis.distanceFrom21EMA).toFixed(2)}% from 21 EMA` : 
               'Price positioning',
-            htfConfirmation: `${view.signal.confidence}% confidence`
-          };
+            htfConfirmation: `${data.tradeSignal.confidence ? parseFloat((data.tradeSignal.confidence * 100).toFixed(0)) : 0}% confidence`
+          },
           
-          view.signal.conditionsRequired = setupType === 'Swing' ? [
+          conditionsRequired: setupType === 'Swing' ? [
             '✓ 3D stoch oversold/overbought pivot',
             '✓ 1D reclaim/rejection of key level',
             '✓ 4H trend supportive',
@@ -1866,8 +1865,47 @@
             '✓ 1H confirmation',
             '✓ Price near 21 EMA',
             '✓ Stoch aligned'
-          ];
-        }
+          ]
+        };
+      } else {
+        // No trade signal - still provide structure with analysis data
+        const tf4h = data.analysis?.['4h'];
+        const tf1h = data.analysis?.['1h'];
+        
+        view.signal = {
+          valid: false,
+          direction: 'NO_TRADE',
+          setupType: '4h',
+          confidence: 0,
+          reason: 'No trade signal available',
+          entryZone: null,
+          stopLoss: null,
+          invalidationLevel: null,
+          targets: { tp1: null, tp2: null },
+          riskReward: { tp1RR: 1.0, tp2RR: 2.0 },
+          riskAmount: null,
+          invalidation: {
+            level: null,
+            description: '4H swing level. Structure break invalidates the setup.'
+          },
+          confluence: {
+            trendAlignment: tf4h && tf1h ? 
+              `${tf4h.indicators?.analysis?.trend || 'UNKNOWN'} on 4H, ${tf1h.indicators?.analysis?.trend || 'UNKNOWN'} on 1H` : 
+              'HTF trend analysis',
+            stochMomentum: tf4h?.indicators?.stochRSI?.condition || 'N/A',
+            pullbackState: tf4h?.indicators?.analysis?.pullbackState || 'N/A',
+            liquidityZones: tf4h?.indicators?.analysis?.distanceFrom21EMA ? 
+              `${Math.abs(tf4h.indicators.analysis.distanceFrom21EMA).toFixed(2)}% from 21 EMA` : 
+              'Price positioning',
+            htfConfirmation: '0% confidence'
+          },
+          conditionsRequired: [
+            '✓ 4H trend clear (not FLAT)',
+            '✓ 1H confirmation',
+            '✓ Price near 21 EMA',
+            '✓ Stoch aligned'
+          ]
+        };
       }
       
       // Timeframes - Includes all fetched intervals (1M, 1w, 3d, 1d, 4h, 1h, 15m, 5m, 1m)
