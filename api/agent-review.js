@@ -41,74 +41,184 @@ export default async function handler(req, res) {
     console.log(`API Key found: ${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}`);
     console.log(`API Key length: ${apiKey.length}`);
 
+    // Strategy-specific guidance
+    const strategyGuidance = {
+      'Swing': `
+SWING TRADE SPECIFIC ANALYSIS:
+- This is a 3D → 1D → 4H multi-timeframe swing setup
+- CRITICAL: 4H trend must NOT be FLAT (instant disqualification)
+- Evaluate 3D oversold/overbought pivot quality
+- Check 1D reclaim/rejection strength
+- Confirm 4H is providing structural support
+- Stop loss should be at 3D/1D swing levels (HTF invalidation)
+- Targets should be 3R, 4R, 5R minimum
+- This is a larger position, longer hold time
+- Focus on: HTF momentum alignment, macro trend integrity, structural confluence`,
+      
+      'Scalp': `
+SCALP TRADE SPECIFIC ANALYSIS:
+- This is a 15m/5m lower timeframe scalp
+- CRITICAL: 4H trend must be clear (NOT FLAT) and aligned
+- 1H must confirm direction
+- Both 15m and 5m must be in ENTRY_ZONE near 21 EMA
+- Stoch must show strong momentum curl in direction
+- Stop loss should be at 5m/15m swing levels (tight LTF stops)
+- Targets are typically 1.5R to 3R (quick in/out)
+- This is smaller position, fast execution
+- Focus on: LTF momentum quality, tight confluence, clean entry zone`,
+      
+      '4h': `
+4-HOUR TRADE SPECIFIC ANALYSIS:
+- This is the core "set and forget" strategy
+- CRITICAL: 4H trend must be clear (UPTREND/DOWNTREND, not FLAT)
+- 1H must align with 4H direction
+- Price must be in ENTRY_ZONE (near 4H 21 EMA, ±1%)
+- 4H pullback state must be RETRACING or ENTRY_ZONE
+- Stoch must show curl in trade direction on 4H
+- Stop loss at 4H swing high/low
+- Targets are 1:1 and 1:2 R (TP1/TP2)
+- This is medium position, medium hold time
+- Focus on: 4H trend clarity, EMA alignment, stoch momentum quality`,
+
+      'MicroScalp': `
+MICRO-SCALP SPECIFIC ANALYSIS:
+‼️ CRITICAL: This strategy COMPLETELY DISREGARDS 4H TREND ‼️
+- DO NOT evaluate 4H trend - it is 100% IRRELEVANT to Micro-Scalp
+- DO NOT mention "4H must be X" or "4H trend is..." - IGNORE IT ENTIRELY
+- 4H can be UPTREND, DOWNTREND, or FLAT - DOESN'T MATTER AT ALL
+- This is a LOWER TIMEFRAME ONLY strategy (1H/15m/5m)
+
+WHAT ACTUALLY MATTERS FOR MICRO-SCALP:
+- 1H trend must be clear (UPTREND or DOWNTREND, not FLAT)
+- 1H pullback state must be ENTRY_ZONE or RETRACING
+- 15m price within ±0.25% of 15m EMA21
+- 5m price within ±0.25% of 5m EMA21
+- Stoch aligned on BOTH 15m and 5m (oversold+bullish for long, overbought+bearish for short)
+- Very tight stops at 15m/5m swing levels
+- Quick targets (1.0R, 1.5R only)
+- Smallest position size, fastest execution
+
+Focus ONLY on: 1H trend quality, 15m/5m EMA precision, stoch alignment on LTF
+DO NOT MENTION 4H TREND IN YOUR ANALYSIS - IT IS NOT A FACTOR`
+    };
+
+    const currentGuidance = strategyGuidance[setupType] || strategyGuidance['4h'];
+
     // Construct the system prompt based on the reasoning agent rules
     const systemPrompt = `You are the Trading Reasoning Layer for EditTrades.
 
 Your job:
-- Analyze EditTrades' JSON snapshot for ${setupType} setup
-- Apply the Swing / 4H / Scalp / Micro-Scalp rules exactly as defined
+- Analyze EditTrades' JSON snapshot for ${setupType.toUpperCase()} setup
+- Apply strategy-specific rules for this trade type
 - Use higher-level reasoning (momentum, HTF conflict, invalidation integrity)
 - Add confluence checks
-- Determine if the trade should be taken
+- Determine if THIS SPECIFIC TRADE TYPE is recommended
 - Create a clean human-readable trade call
 - Provide analysis that adds value beyond the raw data
 
+${currentGuidance}
+
 Rules:
 1. Never override numerical fields from EditTrades (entry, stop, tp1/2/3)
-2. You may critique a trade if conditions contradict best practices
-3. Use this exact formatting for the trade call:
+2. You may critique a trade if conditions contradict best practices for THIS strategy
+3. Your analysis should be SPECIFIC to ${setupType.toUpperCase()} - don't suggest a different strategy
+4. Write in CONVERSATIONAL PARAGRAPHS, not bulleted lists
+5. Structure your response as natural flowing text
 
-${symbol} — [LONG/SHORT/NO TRADE] (${setupType})
+Write your response in this conversational style:
 
-Confidence: XX%
-Direction: 🟢⬆️ / 🔴⬇️ / ⚪
-Setup Type: ${setupType}
+[Opening paragraph: Current setup assessment - is this a good ${setupType.toUpperCase()} trade? State clearly if it's valid or not and why.]
 
-ENTRY:
-$X – $Y
+[Body paragraphs: Discuss the key factors FOR THIS SPECIFIC STRATEGY:
+${setupType === 'MicroScalp' ? 
+  '- 1H trend situation (must be UPTREND/DOWNTREND, not FLAT) - IGNORE 4H COMPLETELY' :
+  '- The trend situation on relevant timeframes (4H must not be FLAT for Swing/Scalp/4H strategies)'}
+- Momentum strength and stochastic positioning on the timeframes that matter for THIS strategy
+- Entry zone quality and price positioning relative to the EMAs that matter
+${setupType === 'MicroScalp' ? 
+  '- 15m and 5m precision (±0.25% from EMA21 on both is critical)' :
+  '- Any conflicts between higher and lower timeframes'}
+- What's working or what's blocking this setup]
 
-STOP LOSS:
-$X – $Y
+[If NO TRADE: Explain what to watch for to make it valid:
+- Which timeframes need to change and how
+- Specific price levels to monitor (mention actual numbers from the data)
+- What conditions need to happen (stoch movements, trend changes, etc.)
+- Timeline expectations (how many hours/candles)]
 
-TARGETS:
-TP1: $X
-TP2: $X
-TP3: $X (if applicable)
+[Closing paragraph: Overall assessment with rating (A+, A, B, or SKIP). Be direct about trade quality.]
 
-RISK / REWARD:
-XR (X% risk → X% reward)
+Important:
+- Write like you're talking to a trader, not writing a checklist
+- Use natural language and flow between topics
+- No bullet points, no dashes, no lists
+- Just conversational paragraphs
+- Be concise but insightful (3-5 paragraphs total)
+- Always mention what to watch for if the trade isn't valid yet`;
 
-INVALIDATION:
-[Explain the precise level and what conditions break the setup]
+    // Strategy-specific analysis points
+    const analysisPoints = {
+      'Swing': `
+- 3D timeframe pivot quality (is it truly oversold/overbought?)
+- 1D reclaim/rejection strength and conviction
+- 4H structural support (is 4H clear, not FLAT?)
+- HTF invalidation levels (3D/1D swing integrity)
+- Is this a clean HTF swing setup with 3R+ potential?
+- Why this IS or ISN'T a good SWING trade`,
+      
+      'Scalp': `
+- 4H trend clarity (must be clear, NOT FLAT)
+- 1H alignment with 4H direction
+- 15m and 5m entry zone quality (both near 21 EMA?)
+- LTF stoch momentum alignment (both curling in direction?)
+- Is this a clean LTF scalp with tight confluence?
+- Why this IS or ISN'T a good SCALP trade`,
+      
+      '4h': `
+- 4H trend clarity (UPTREND/DOWNTREND vs FLAT)
+- 1H alignment with 4H
+- Price position relative to 4H 21 EMA (±1%?)
+- 4H stoch curl quality
+- 4H pullback state validity
+- Why this IS or ISN'T a good 4-HOUR trade`,
+      
+      'MicroScalp': `
+‼️ DO NOT ANALYZE 4H TREND - IT IS IRRELEVANT ‼️
+- 1H trend: Is it UPTREND or DOWNTREND? (FLAT = no trade)
+- 1H pullback state: ENTRY_ZONE or RETRACING? (OVEREXTENDED = no trade)
+- 15m EMA21 precision: Price within ±0.25%? (exact percentage from data)
+- 5m EMA21 precision: Price within ±0.25%? (exact percentage from data)
+- 15m stoch: Aligned with direction? (oversold/bullish for long, overbought/bearish for short)
+- 5m stoch: Aligned with 15m? Must match
+- Risk: This is highest risk, countertrend to HTF (doesn't matter - it's independent)
+- Final verdict: Is this a VALID MICRO-SCALP based ONLY on 1H/15m/5m? Be critical.`
+    };
 
-WHY THIS TRADE:
-– [Key confluence point 1]
-– [Key confluence point 2]
-– [Key confluence point 3]
-– [Key confluence point 4]
+    const currentPoints = analysisPoints[setupType] || analysisPoints['4h'];
 
-CONDITIONS REQUIRED:
-– [Condition 1]
-– [Condition 2]
-– [Condition 3]
-
-AGENT ANALYSIS:
-[Your reasoning about whether this is a high-quality setup, any concerns, momentum assessment, HTF bias, etc.]
-
-4. Be concise but insightful
-5. Focus on adding value beyond the raw indicators`;
-
-    const userPrompt = `Analyze this ${setupType} setup for ${symbol}:
+    const userPrompt = `Analyze this ${setupType.toUpperCase()} setup for ${symbol}:
 
 ${JSON.stringify(marketSnapshot, null, 2)}
 
-Provide your analysis in the exact format specified, adding reasoning about:
-- HTF vs LTF alignment quality
-- Momentum strength
-- Stochastic positioning quality
-- Entry zone cleanliness
-- Any red flags or concerns
-- Overall trade quality (A+, A, B, or SKIP)`;
+Write a conversational analysis (3-5 paragraphs) evaluating:
+${currentPoints}
+
+Start by clearly stating whether this is currently a good ${setupType.toUpperCase()} trade or not. Then explain why.
+
+${setupType === 'MicroScalp' ? 
+  'Focus ONLY on 1H trend, 15m/5m EMA precision, and stoch alignment. DO NOT mention or evaluate 4H trend - it is completely irrelevant to Micro-Scalp strategy.' :
+  'Discuss the trend situation, momentum, stochastic positioning, and entry zone quality. Mention any conflicts between timeframes (HTF vs LTF).'}
+
+Be specific about what's working or what's blocking this setup.
+
+If this is NOT a valid trade, explain what needs to happen to make it valid:
+${setupType === 'MicroScalp' ?
+  '- Does 1H need to establish a trend (break from FLAT)?\n- Do 15m/5m need to pull back closer to their 21 EMAs? (give specific percentages)\n- What stoch movements are needed on 15m and 5m?\n- Timeline: Usually 1-4 hours for LTF alignment' :
+  '- Which timeframes need to change (e.g., "The 4H needs to break from FLAT and establish a clear UPTREND")\n- Specific price levels to watch (use actual numbers from the data)\n- What conditions need to change (e.g., "The 1H stoch needs to curl up from oversold")\n- How long this might take (e.g., "This could take 4-8 hours for the 4H to establish direction")'}
+
+Write naturally in flowing paragraphs. No bullet points or lists. Be conversational but insightful.
+
+End with your overall rating: A+, A, B, or SKIP`;
 
     // Call OpenAI API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
