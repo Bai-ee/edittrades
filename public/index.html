@@ -943,6 +943,16 @@
       
       // Update entry price display
       updateEntryPrice(symbol, templateSignal);
+      
+      // If details row is expanded, regenerate it with new signal
+      const detailsRow = document.getElementById(`details-${symbol}`);
+      if (detailsRow && detailsRow.classList.contains('expanded')) {
+        const data = scanResults[symbol];
+        if (data) {
+          const newDetailsRow = createDetailsRow(symbol, data);
+          detailsRow.innerHTML = newDetailsRow.innerHTML;
+        }
+      }
     }
     
     // Update entry price display
@@ -1504,7 +1514,13 @@
       }).join('');
       
       // Create formatted trade call output (text file format)
-      const tradeSignal = data.tradeSignal;
+      // Check both original trade signal and active template signal
+      const currentStrategyIndex = strategyStates[symbol] || 0;
+      const currentStrategy = Object.keys(tradeTemplates)[currentStrategyIndex];
+      const templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
+      
+      // Use template signal if active, otherwise fall back to original trade signal
+      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : data.tradeSignal;
       let tradeCallHtml = '';
       
       if (tradeSignal && tradeSignal.valid) {
@@ -1514,15 +1530,29 @@
         const directionIcon = direction === 'LONG' ? '🟢⬆️' : direction === 'SHORT' ? '🔴⬇️' : '⚪';
         const directionColor = direction === 'LONG' ? '#22c55e' : direction === 'SHORT' ? '#ef4444' : '#9ca3af';
         
-        const entryMin = tradeSignal.entry_zone?.min ? `$${tradeSignal.entry_zone.min.toLocaleString()}` : 'N/A';
-        const entryMax = tradeSignal.entry_zone?.max ? `$${tradeSignal.entry_zone.max.toLocaleString()}` : 'N/A';
-        const stopLoss = tradeSignal.stop_loss ? `$${tradeSignal.stop_loss.toLocaleString()}` : 'N/A';
-        const invalidation = tradeSignal.invalidation_level ? `$${tradeSignal.invalidation_level.toLocaleString()}` : stopLoss;
-        const tp1 = tradeSignal.targets?.[0] ? `$${tradeSignal.targets[0].toLocaleString()}` : 'N/A';
-        const tp2 = tradeSignal.targets?.[1] ? `$${tradeSignal.targets[1].toLocaleString()}` : 'N/A';
-        const rr1 = tradeSignal.risk_reward?.tp1RR || 1.0;
-        const rr2 = tradeSignal.risk_reward?.tp2RR || 2.0;
-        const riskAmount = tradeSignal.risk_amount ? `$${tradeSignal.risk_amount.toLocaleString()}` : 'N/A';
+        // Handle both API format (entry_zone) and template format (entryZone)
+        const entryZone = tradeSignal.entryZone || tradeSignal.entry_zone || {};
+        const entryMin = entryZone.min ? `$${entryZone.min.toLocaleString()}` : 'N/A';
+        const entryMax = entryZone.max ? `$${entryZone.max.toLocaleString()}` : 'N/A';
+        
+        const stopLoss = (tradeSignal.stopLoss || tradeSignal.stop_loss) ? 
+          `$${(tradeSignal.stopLoss || tradeSignal.stop_loss).toLocaleString()}` : 'N/A';
+        
+        const invalidationLevel = tradeSignal.invalidationLevel || tradeSignal.invalidation_level;
+        const invalidation = invalidationLevel ? `$${invalidationLevel.toLocaleString()}` : stopLoss;
+        
+        // Handle both array format and object format for targets
+        const targets = tradeSignal.targets || {};
+        const tp1 = (targets.tp1 || targets[0]) ? `$${(targets.tp1 || targets[0]).toLocaleString()}` : 'N/A';
+        const tp2 = (targets.tp2 || targets[1]) ? `$${(targets.tp2 || targets[1]).toLocaleString()}` : 'N/A';
+        
+        const riskReward = tradeSignal.riskReward || tradeSignal.risk_reward || {};
+        const rr1 = riskReward.tp1RR || 1.0;
+        const rr2 = riskReward.tp2RR || 2.0;
+        
+        const riskAmt = tradeSignal.riskAmount || tradeSignal.risk_amount;
+        const riskAmount = riskAmt ? `$${riskAmt.toLocaleString()}` : 'N/A';
+        
         const reason = tradeSignal.reason_summary || tradeSignal.reason || 'Trade setup detected';
         
         tradeCallHtml = `
