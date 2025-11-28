@@ -1503,9 +1503,98 @@
         `;
       }).join('');
       
+      // Create formatted trade call output (text file format)
+      const tradeSignal = data.tradeSignal;
+      let tradeCallHtml = '';
+      
+      if (tradeSignal && tradeSignal.valid) {
+        const direction = tradeSignal.direction.toUpperCase();
+        const setupType = tradeSignal.setupType ? tradeSignal.setupType.toUpperCase() : '4H';
+        const confidence = tradeSignal.confidence ? (tradeSignal.confidence * 100).toFixed(0) : '0';
+        const directionIcon = direction === 'LONG' ? '🟢⬆️' : direction === 'SHORT' ? '🔴⬇️' : '⚪';
+        const directionColor = direction === 'LONG' ? '#22c55e' : direction === 'SHORT' ? '#ef4444' : '#9ca3af';
+        
+        const entryMin = tradeSignal.entry_zone?.min ? `$${tradeSignal.entry_zone.min.toLocaleString()}` : 'N/A';
+        const entryMax = tradeSignal.entry_zone?.max ? `$${tradeSignal.entry_zone.max.toLocaleString()}` : 'N/A';
+        const stopLoss = tradeSignal.stop_loss ? `$${tradeSignal.stop_loss.toLocaleString()}` : 'N/A';
+        const invalidation = tradeSignal.invalidation_level ? `$${tradeSignal.invalidation_level.toLocaleString()}` : stopLoss;
+        const tp1 = tradeSignal.targets?.[0] ? `$${tradeSignal.targets[0].toLocaleString()}` : 'N/A';
+        const tp2 = tradeSignal.targets?.[1] ? `$${tradeSignal.targets[1].toLocaleString()}` : 'N/A';
+        const rr1 = tradeSignal.risk_reward?.tp1RR || 1.0;
+        const rr2 = tradeSignal.risk_reward?.tp2RR || 2.0;
+        const riskAmount = tradeSignal.risk_amount ? `$${tradeSignal.risk_amount.toLocaleString()}` : 'N/A';
+        const reason = tradeSignal.reason_summary || tradeSignal.reason || 'Trade setup detected';
+        
+        tradeCallHtml = `
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border: 2px solid ${directionColor}; border-radius: var(--radius-md); font-family: var(--font-heading);">
+            <div style="text-align: center; margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+              <h2 style="font-size: 1.5rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.5rem; letter-spacing: 0.05em;">
+                ${symbol.replace('USDT', '')} — ${direction} (${setupType})
+              </h2>
+              <div style="display: flex; align-items: center; justify-content: center; gap: 2rem; margin-top: 1rem; flex-wrap: wrap;">
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">CONFIDENCE:</span>
+                  <span style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold; margin-left: 0.5rem;">${confidence}%</span>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">DIRECTION:</span>
+                  <span style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold; margin-left: 0.5rem;">${directionIcon} ${direction}</span>
+                </div>
+                <div>
+                  <span style="color: var(--text-secondary); font-size: 0.875rem;">SETUP TYPE:</span>
+                  <span style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold; margin-left: 0.5rem;">${setupType}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+              <div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">ENTRY:</div>
+                <div style="color: var(--text-primary); font-size: 1.125rem; font-weight: bold;">${entryMin} – ${entryMax}</div>
+              </div>
+              
+              <div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">STOP LOSS:</div>
+                <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${stopLoss}</div>
+              </div>
+              
+              <div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">TARGETS:</div>
+                <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">
+                  <div>TP1: ${tp1} (${rr1}R)</div>
+                  <div style="margin-top: 0.25rem;">TP2: ${tp2} (${rr2}R)</div>
+                </div>
+              </div>
+              
+              <div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
+                <div style="color: #22c55e; font-size: 1.125rem; font-weight: bold;">${rr1}:1 TO ${rr2}:1</div>
+                <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">RISK: ${riskAmount} PER UNIT</div>
+              </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">INVALIDATION:</div>
+              <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 0.875rem; font-weight: bold; margin-bottom: 0.25rem;">
+                ${direction === 'LONG' ? 'CLOSE BELOW' : 'CLOSE ABOVE'} ${invalidation}
+              </div>
+              <div style="color: var(--text-secondary); font-size: 0.75rem;">
+                ${setupType === 'SWING' ? '3D/1D swing level - HTF invalidation' : setupType === 'SCALP' ? '5m/15m swing level - LTF invalidation' : '4H swing level - structure break'}
+              </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
+              <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
+            </div>
+          </div>
+        `;
+      }
+      
       detailsRow.innerHTML = `
         <td colspan="5">
           <div class="details-content-wrapper">
+            ${tradeCallHtml}
             <div class="tf-grid">
               ${tfCards}
           </div>
