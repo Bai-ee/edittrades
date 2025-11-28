@@ -1163,8 +1163,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             confluence: {
               trendAlignment: `${trend4h} on 4H, ${trend1h} on 1H`,
               stochMomentum: tf15m.indicators?.stochRSI?.condition || 'N/A',
-              pullbackState: `1H: ${pullback1h?.state || 'N/A'}, 15m: ${pullback15m?.state || 'N/A'}`,
-              liquidityZones: `1H: ${pullback1h?.distanceFrom21EMA?.toFixed(2) || 'N/A'}%, 15m: ${pullback15m?.distanceFrom21EMA?.toFixed(2) || 'N/A'}% from 21 EMA`,
+              pullbackState: `1H: ${pullbackState1h || 'N/A'}, 15m: ${pullbackState15m || 'N/A'}`,
+              liquidityZones: `1H: ${dist1h !== undefined ? Math.abs(dist1h).toFixed(2) : 'N/A'}%, 15m: ${dist15m !== undefined ? Math.abs(dist15m).toFixed(2) : 'N/A'}% from 21 EMA`,
               htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
             },
             conditionsRequired: [
