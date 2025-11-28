@@ -1286,6 +1286,9 @@
           detailsRow.innerHTML = newDetailsRow.innerHTML;
         }
       }
+      
+      // Auto-trigger AI review when strategy changes
+      getAIReview(symbol, true);  // isAutoTrigger = true (silent mode)
     }
     
     // Update entry price display
@@ -1432,6 +1435,36 @@
       });
     }
 
+    // Auto-trigger AI analysis for MAJOR COINS ONLY (BTC, ETH, SOL)
+    async function autoTriggerAIAnalysis() {
+      console.log('Starting automatic AI analysis for major coins only...');
+      
+      // Only analyze the 3 major coins (not starred coins)
+      const majorCoins = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      
+      // Trigger AI analysis for each major coin with current strategy (default: 4h)
+      for (const symbol of majorCoins) {
+        // Only analyze if we have data for this coin
+        if (!scanResults[symbol]) {
+          console.log(`Skipping ${symbol} - no data available`);
+          continue;
+        }
+        
+        try {
+          console.log(`Auto-triggering AI for ${symbol}...`);
+          await getAIReview(symbol, true);  // isAutoTrigger = true (silent mode)
+          
+          // Small delay between requests to avoid overwhelming the API
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (error) {
+          console.error(`Auto AI analysis failed for ${symbol}:`, error);
+          // Continue with next symbol even if one fails
+        }
+      }
+      
+      console.log('✅ Automatic AI analysis complete for major coins (BTC, ETH, SOL)');
+    }
+    
     // Auto-run scan on page load
     window.addEventListener('DOMContentLoaded', () => {
       scanMajorCoins();
@@ -1475,6 +1508,10 @@
         
         document.getElementById('loadingState').classList.add('hidden');
         document.getElementById('resultsContainer').classList.remove('hidden');
+        
+        // Auto-trigger AI analysis for all coins after page load
+        console.log('Auto-triggering AI analysis for all coins...');
+        autoTriggerAIAnalysis();
         
       } catch (error) {
         console.error('Scan error:', error);
@@ -2441,7 +2478,7 @@
     }
     
     // Get AI Review for a specific symbol and setup type
-    async function getAIReview(symbol) {
+    async function getAIReview(symbol, isAutoTrigger = false) {
       const data = scanResults[symbol];
       if (!data) {
         console.error('No data for symbol:', symbol);
@@ -2459,12 +2496,15 @@
       if (!btn || !contentDiv) return;
       
       const originalBtnText = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '⏳ ANALYZING...';
-      btn.style.opacity = '0.6';
-      btn.style.cursor = 'not-allowed';
       
-      contentDiv.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 2rem;">🤖 AI Agent is analyzing the market data...</p>';
+      if (!isAutoTrigger) {
+        btn.disabled = true;
+        btn.innerHTML = '⏳ ANALYZING...';
+        btn.style.opacity = '0.6';
+        btn.style.cursor = 'not-allowed';
+        
+        contentDiv.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 2rem;">🤖 AI Agent is analyzing the market data...</p>';
+      }
       
       try {
         // Create the dashboard view (same JSON that COPY GPT exports)
@@ -2492,6 +2532,16 @@
         if (result.error) {
           throw new Error(result.error);
         }
+        
+        // Store AI response in scanResults for JSON export
+        if (!scanResults[symbol].aiReviews) {
+          scanResults[symbol].aiReviews = {};
+        }
+        scanResults[symbol].aiReviews[setupType] = {
+          priority: result.priority,
+          formattedText: result.formattedText,
+          timestamp: result.timestamp
+        };
         
         // Display the formatted response
         const priorityColor = 
@@ -2719,6 +2769,12 @@ ${result.formattedText}
       } : null;
       
       view.timestamp = data.timestamp;
+      
+      // Include AI Reviews (if available for any strategy)
+      if (data.aiReviews && Object.keys(data.aiReviews).length > 0) {
+        view.aiReviews = data.aiReviews;
+      }
+      
       return view;
     }
 
