@@ -1289,6 +1289,16 @@
             <div class="text-xs ${dirClass} signal-confidence">${confidence}% SURE</div>
           </div>
         `;
+      } else if (data.microScalp && data.microScalp.valid) {
+        // Show micro-scalp signal if available (LTF mean-reversion trade)
+        const dirClass = data.microScalp.direction === 'long' ? 'status-long' : 'status-short';
+        const confidence = data.microScalp.confidence;
+        signalHtml = `
+          <div id="signal-${symbol}" style="text-align: center;">
+            <div class="${dirClass}" style="font-size: 0.6rem; white-space: nowrap;">MICRO-SCALP</div>
+            <div class="text-xs ${dirClass} signal-confidence" style="font-size: 0.65rem;">${confidence}% SURE</div>
+          </div>
+        `;
       } else {
         // Show readiness only if on 4h strategy (since that's what we're analyzing)
         const showReadiness = currentStrategy === '4h';
@@ -1307,11 +1317,17 @@
         `;
       }
       
-      // Calculate entry price from current strategy, or show current price
+      // Calculate entry price from current strategy, or micro-scalp, or show current price
       let entryPriceDisplay = '-';
       if (templateSignal && templateSignal.valid && templateSignal.entryZone) {
         const entryMin = templateSignal.entryZone.min;
         const entryMax = templateSignal.entryZone.max;
+        const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
+        entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+      } else if (data.microScalp && data.microScalp.valid && data.microScalp.entry) {
+        // Show micro-scalp entry if available
+        const entryMin = data.microScalp.entry.min;
+        const entryMax = data.microScalp.entry.max;
         const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
         entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
       } else if (data.currentPrice) {
@@ -1805,6 +1821,105 @@
             </div>
           </div>
         `;
+      } else if (data.microScalp && data.microScalp.valid) {
+        // Show MICRO-SCALP trade call (LTF mean-reversion setup)
+        const direction = data.microScalp.direction.toUpperCase();
+        const directionColor = direction === 'LONG' ? '#22c55e' : '#ef4444';
+        const directionIcon = direction === 'LONG' ? '🟢⬆️' : '🔴⬇️';
+        const confidence = data.microScalp.confidence;
+        const entryMin = `$${data.microScalp.entry.min.toLocaleString()}`;
+        const entryMax = `$${data.microScalp.entry.max.toLocaleString()}`;
+        const stopLoss = `$${data.microScalp.stopLoss.toLocaleString()}`;
+        const tp1 = `$${data.microScalp.targets.tp1.toLocaleString()}`;
+        const tp2 = `$${data.microScalp.targets.tp2.toLocaleString()}`;
+        const rr1 = data.microScalp.riskReward.tp1RR;
+        const rr2 = data.microScalp.riskReward.tp2RR;
+        const invalidation = `$${data.microScalp.invalidation_level.toLocaleString()}`;
+        const reason = data.microScalp.reason;
+        
+        tradeCallHtml = `
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
+            <div style="margin-bottom: 1.5rem;">
+              <h2 style="font-size: 1.5rem; font-weight: bold; color: ${directionColor}; margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
+                ${symbol.replace('USDT', '')} — ${direction} (MICRO-SCALP)
+              </h2>
+              <div style="background-color: rgba(255, 193, 7, 0.15); border: 1px solid #ffc107; border-radius: var(--radius-sm); padding: 0.5rem; margin-top: 0.75rem;">
+                <div style="color: #ffc107; font-size: 0.75rem; font-weight: bold;">⚡ LOWER TIMEFRAME TRADE</div>
+                <div style="color: var(--text-secondary); font-size: 0.7rem; margin-top: 0.25rem;">Tight stops • Smaller position size • Quick in/out • Mean-reversion setup</div>
+              </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
+                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
+              </div>
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Direction:</div>
+                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
+              </div>
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Setup Type:</div>
+                <div style="color: #ffc107; font-size: 1.25rem; font-weight: bold;">Micro-Scalp</div>
+              </div>
+            </div>
+            
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">ENTRY:</div>
+                <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">${entryMin} – ${entryMax}</div>
+                <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">Average of 15m & 5m EMA21</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">STOP LOSS:</div>
+                <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1rem; font-weight: bold;">${stopLoss}</div>
+                <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">${direction === 'LONG' ? 'Below' : 'Above'} 15m/5m swing ${direction === 'LONG' ? 'lows' : 'highs'}</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">TARGETS:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">
+                  <div>TP1 (${rr1}R): ${tp1}</div>
+                  <div style="margin-top: 0.25rem;">TP2 (${rr2}R): ${tp2}</div>
+                </div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
+                <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">${rr1}R to ${rr2}R targets</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">INVALIDATION:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
+                  ${data.microScalp.invalidation_description}
+                </div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
+                  Lower timeframe mean-reversion setup:
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; margin-top: 0.5rem; padding-left: 1rem;">
+                  ${reason}
+                </div>
+              </div>
+              
+              <div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">CONDITIONS MET:</div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
+                  ✓ 1H trending (not FLAT)<br>
+                  ✓ 1H pullback near entry zone<br>
+                  ✓ 15m & 5m both within 0.25% of EMA21<br>
+                  ✓ 15m & 5m stoch momentum aligned<br>
+                  ✓ Tight confluence for quick scalp
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
       }
       
       detailsRow.innerHTML = `
@@ -2096,6 +2211,24 @@
           };
         }
       }
+      
+      // Micro-Scalp Override fields (new in v2.0)
+      view.microScalpEligible = data.microScalpEligible || false;
+      view.microScalp = data.microScalp ? {
+        valid: data.microScalp.valid,
+        direction: data.microScalp.direction,
+        setupType: data.microScalp.setupType,
+        confidence: data.microScalp.confidence,
+        entry: data.microScalp.entry,
+        stopLoss: data.microScalp.stopLoss,
+        targets: data.microScalp.targets,
+        riskReward: data.microScalp.riskReward,
+        invalidation_level: data.microScalp.invalidation_level,
+        invalidation_description: data.microScalp.invalidation_description,
+        reason: data.microScalp.reason,
+        currentPrice: data.microScalp.currentPrice,
+        timestamp: data.microScalp.timestamp
+      } : null;
       
       view.timestamp = data.timestamp;
       return view;
