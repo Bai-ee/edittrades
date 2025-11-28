@@ -12,6 +12,10 @@
   ],
   "routes": [
     {
+      "src": "/api/health",
+      "dest": "/api/health.js"
+    },
+    {
       "src": "/api/analyze-compact/(.*)",
       "dest": "/api/analyze-compact.js"
     },
