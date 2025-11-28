@@ -31,10 +31,15 @@ export default async function handler(req, res) {
     // Get OpenAI API key from environment variable
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
+      console.error('OPENAI_API_KEY environment variable is not set');
       return res.status(500).json({ 
-        error: 'OpenAI API key not configured' 
+        error: 'OpenAI API key not configured in environment variables' 
       });
     }
+    
+    // Log key format for debugging (only first/last few chars for security)
+    console.log(`API Key found: ${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}`);
+    console.log(`API Key length: ${apiKey.length}`);
 
     // Construct the system prompt based on the reasoning agent rules
     const systemPrompt = `You are the Trading Reasoning Layer for EditTrades.
@@ -130,11 +135,24 @@ Provide your analysis in the exact format specified, adding reasoning about:
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('OpenAI API error:', errorData);
+      const errorText = await response.text();
+      console.error('OpenAI API error:');
+      console.error('Status:', response.status);
+      console.error('Response:', errorText);
+      
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch (e) {
+        errorData = { message: errorText };
+      }
+      
       return res.status(response.status).json({ 
-        error: 'OpenAI API error',
-        details: errorData 
+        error: `OpenAI API returned ${response.status}`,
+        details: errorData,
+        hint: response.status === 401 ? 
+          'API key may be invalid. Check https://platform.openai.com/api-keys' : 
+          'Check OpenAI API status'
       });
     }
 
