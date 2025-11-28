@@ -177,11 +177,15 @@ export default async function handler(req, res) {
     console.log(`[Analyze] Fetching current price for ${symbol}...`);
     const ticker = await marketData.getTickerPrice(symbol);
 
-    // Run strategy evaluation
-    console.log(`[Analyze] Running 4H strategy evaluation...`);
-    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis);
+    // Get setupType from query (default to 'auto' to check all strategies)
+    const setupType = req.query.setupType || 'auto';
+    console.log(`[Analyze] Setup type: ${setupType}`);
 
-    // Evaluate Micro-Scalp Override (only relevant when 4H is FLAT)
+    // Run strategy evaluation (will check Swing first, then 4H/Scalp)
+    console.log(`[Analyze] Running strategy evaluation (${setupType})...`);
+    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis, setupType);
+
+    // Evaluate Micro-Scalp Override (only relevant when 4H is FLAT and normal trade blocked)
     console.log(`[Analyze] Evaluating micro-scalp override...`);
     const microScalpResult = strategyService.evaluateMicroScalp(analysis);
 
