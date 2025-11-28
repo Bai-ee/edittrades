@@ -1672,40 +1672,6 @@
                 </div>
               </div>
             </div>
-            
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">JOURNAL NOTES:</div>
-              <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
-                ${direction === 'LONG' ? 
-                  '– Avoid early entries before stoch curl confirmation<br>– Do not long into LTF resistance zones<br>– Wait for clear ENTRY_ZONE before executing' :
-                  '– Avoid early entries before stoch curl confirmation<br>– Do not short into LTF support zones<br>– Wait for clear ENTRY_ZONE before executing'
-                }<br>
-                – Must see ${setupType === 'SCALP' ? '5m' : setupType === 'SWING' ? '15m' : '5m'} stoch curl before entering<br>
-                – Do not let ${setupType === 'SCALP' ? '1m' : '5m'} chop shake you out of HTF setups
-              </div>
-            </div>
-            
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">ACCOUNT PROGRESSION CHECK:</div>
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Trades Logged:</div>
-                  <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">0</div>
-                </div>
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Wins:</div>
-                  <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">0</div>
-                </div>
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Losses:</div>
-                  <div style="color: #ef4444; font-size: 1rem; font-weight: bold;">0</div>
-                </div>
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Next Margin Upgrade:</div>
-                  <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">After 10 net-positive trades</div>
-                </div>
-              </div>
-            </div>
           </div>
         `;
       } else if (tradeSignal && !tradeSignal.valid) {
@@ -1727,39 +1693,6 @@
             <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">REASON:</div>
               <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
-            </div>
-            
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">JOURNAL NOTES:</div>
-              <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
-                – Avoid early entries before stoch curl confirmation<br>
-                – Wait for clear HTF trend establishment<br>
-                – Do not trade FLAT markets<br>
-                – Price must be in ENTRY_ZONE<br>
-                – Patience is key - wait for setup
-              </div>
-            </div>
-            
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">ACCOUNT PROGRESSION CHECK:</div>
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Trades Logged:</div>
-                  <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">0</div>
-                </div>
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Wins:</div>
-                  <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">0</div>
-                </div>
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Losses:</div>
-                  <div style="color: #ef4444; font-size: 1rem; font-weight: bold;">0</div>
-                </div>
-                <div>
-                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Next Margin Upgrade:</div>
-                  <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">After 10 net-positive trades</div>
-                </div>
-              </div>
             </div>
           </div>
         `;
@@ -1895,19 +1828,6 @@
       signal.conditionsRequired.forEach(cond => {
         text += `${cond}\n`;
       });
-      text += `\n`;
-      
-      text += `JOURNAL NOTES:\n`;
-      signal.journalNotes.forEach(note => {
-        text += `${note}\n`;
-      });
-      text += `\n`;
-      
-      text += `ACCOUNT PROGRESSION CHECK:\n`;
-      text += `Trades Logged: ${signal.accountProgression.tradesLogged}\n`;
-      text += `Wins: ${signal.accountProgression.wins}\n`;
-      text += `Losses: ${signal.accountProgression.losses}\n`;
-      text += `Next Margin Upgrade: ${signal.accountProgression.nextUpgrade}\n`;
       
       return text;
     }
@@ -1991,32 +1911,7 @@
             '✓ 1H confirmation',
             '✓ Price near 21 EMA',
             '✓ Stoch aligned'
-          ],
-          
-          // Journal notes - corrections from past mistakes
-          journalNotes: data.tradeSignal.direction === 'long' || data.tradeSignal.direction === 'LONG' ? [
-            '– Avoid early entries before stoch curl confirmation',
-            '– Do not long into LTF resistance zones',
-            '– Wait for clear ENTRY_ZONE before executing',
-            `– Must see ${setupType === 'Scalp' ? '5m' : setupType === 'Swing' ? '15m' : '5m'} stoch curl before entering`,
-            `– Do not let ${setupType === 'Scalp' ? '1m' : '5m'} chop shake you out of HTF setups`
-          ] : [
-            '– Avoid early entries before stoch curl confirmation',
-            '– Do not short into LTF support zones',
-            '– Wait for clear ENTRY_ZONE before executing',
-            `– Must see ${setupType === 'Scalp' ? '5m' : setupType === 'Swing' ? '15m' : '5m'} stoch curl before entering`,
-            `– Do not let ${setupType === 'Scalp' ? '1m' : '5m'} chop shake you out of HTF setups`
-          ],
-          
-          // Account progression tracking
-          accountProgression: {
-            tradesLogged: 0,
-            wins: 0,
-            losses: 0,
-            netPnL: 0,
-            currentMarginTier: 1,
-            nextUpgrade: 'After 10 net-positive trades with behavioral errors trending down'
-          }
+          ]
         };
       } else {
         // No trade signal - still provide structure with analysis data
@@ -2055,26 +1950,7 @@
             '✓ 1H confirmation',
             '✓ Price near 21 EMA',
             '✓ Stoch aligned'
-          ],
-          
-          // Journal notes for NO TRADE
-          journalNotes: [
-            '– Avoid early entries before stoch curl confirmation',
-            '– Wait for clear HTF trend establishment',
-            '– Do not trade FLAT markets',
-            '– Price must be in ENTRY_ZONE',
-            '– Patience is key - wait for setup'
-          ],
-          
-          // Account progression
-          accountProgression: {
-            tradesLogged: 0,
-            wins: 0,
-            losses: 0,
-            netPnL: 0,
-            currentMarginTier: 1,
-            nextUpgrade: 'After 10 net-positive trades with behavioral errors trending down'
-          }
+          ]
         };
       }
       
