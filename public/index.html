@@ -1427,8 +1427,9 @@
       if (templateSignal && templateSignal.valid && templateSignal.entryZone) {
         const entryMin = templateSignal.entryZone.min;
         const entryMax = templateSignal.entryZone.max;
-        const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
-        entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+        // For LONG: lowest entry (entryMin), for SHORT: highest entry (entryMax)
+        const recommendedEntry = templateSignal.direction === 'long' ? entryMin : entryMax;
+        entryPriceDisplay = `$${parseFloat(recommendedEntry).toLocaleString()}`;
       } else if (data && data.currentPrice) {
         // Show current price if no entry zone
         entryPriceDisplay = `$${data.currentPrice.toLocaleString()}`;
@@ -1502,34 +1503,17 @@
       if (!signalElement) return;
       
       if (templateSignal.valid) {
-        // Valid trade signal - show template name, not direction
+        // Valid trade signal - simple display matching price font size
         const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
-        // Handle confidence - could be 0-1 or 0-100
-        let confidence = templateSignal.confidence;
-        if (confidence <= 1) {
-          confidence = (confidence * 100).toFixed(0);
-        } else {
-          confidence = confidence.toFixed(0);
-        }
         signalElement.style.textAlign = 'center';
         signalElement.innerHTML = `
-          <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
-          <div class="text-xs ${dirClass} signal-confidence">${confidence}% SURE</div>
+          <div class="${dirClass}" style="font-size: 0.875rem; white-space: nowrap;">${template.displayName} TRADE</div>
         `;
       } else {
         // No trade signal
-        const data = scanResults[symbol];
-        const readiness = calculateSignalReadiness(data);
-        
-        // Show readiness only for 4h template
-        const showReadiness = templateKey === '4h';
-        const readinessClass = showReadiness ? readiness.class : 'status-neutral';
-        const readinessText = showReadiness ? readiness.text : '-';
-        
         signalElement.style.textAlign = 'center';
         signalElement.innerHTML = `
-          <div class="status-neutral" style="font-size: 0.65rem; white-space: nowrap;">NO ${template.displayName}</div>
-          <div class="text-xs ${readinessClass} signal-confidence" style="font-size: 0.65rem; white-space: nowrap;">${readinessText}</div>
+          <div class="status-neutral" style="font-size: 0.875rem; white-space: nowrap;">NO TRADE</div>
         `;
       }
     }
@@ -1561,18 +1545,22 @@
         const signal = strategySignals[index];
         const hasValidTrade = signal && signal.valid;
         
-        // Update background (active vs inactive)
-        button.style.backgroundColor = index === activeIndex ? 'rgba(255, 255, 255, 0.1)' : 'transparent';
-        
-        // Update color based on state
-        if (index === activeIndex) {
-          // Active button: yellow-75 text
+        // Update background and color based on state
+        if (index === activeIndex && hasValidTrade) {
+          // Active button with valid trade: colored background, yellow-white text
+          button.style.backgroundColor = signal.direction === 'long' ? '#10b981' : '#ef4444';
+          button.style.color = 'var(--color-yellow-75)';
+        } else if (index === activeIndex) {
+          // Active button without trade: transparent background, yellow-white text
+          button.style.backgroundColor = 'transparent';
           button.style.color = 'var(--color-yellow-75)';
         } else if (hasValidTrade) {
-          // Has valid trade: green for long, red for short
+          // Inactive button with valid trade: transparent background, colored text
+          button.style.backgroundColor = 'transparent';
           button.style.color = signal.direction === 'long' ? '#10b981' : '#ef4444';
         } else {
-          // No trade: grey text
+          // Inactive button without trade: transparent background, grey text
+          button.style.backgroundColor = 'transparent';
           button.style.color = '#6b7280';
         }
       });
@@ -1805,58 +1793,46 @@
                           (strategySwingSignal && strategySwingSignal.valid) || 
                           (strategyScalpSignal && strategyScalpSignal.valid);
       
-      // Signal with confidence - show template name, not direction
+      // Signal - simple display matching price font size
       let signalHtml;
       if (templateSignal && templateSignal.valid) {
         const dirClass = templateSignal.direction === 'long' ? 'status-long' : 'status-short';
-        const confidence = (templateSignal.confidence * 100).toFixed(0);
         signalHtml = `
           <div id="signal-${symbol}" style="text-align: center;">
-            <div class="${dirClass}" style="font-size: 0.65rem; white-space: nowrap;">${template.displayName} TRADE</div>
-            <div class="text-xs ${dirClass} signal-confidence">${confidence}% SURE</div>
+            <div class="${dirClass}" style="font-size: 0.875rem; white-space: nowrap;">${template.displayName} TRADE</div>
           </div>
         `;
       } else if (data.microScalp && data.microScalp.valid) {
-        // Show micro-scalp signal if available (LTF mean-reversion trade)
+        // Show micro-scalp signal if available
         const dirClass = data.microScalp.direction === 'long' ? 'status-long' : 'status-short';
-        const confidence = data.microScalp.confidence;
         signalHtml = `
           <div id="signal-${symbol}" style="text-align: center;">
-            <div class="${dirClass}" style="font-size: 0.6rem; white-space: nowrap;">MICRO-SCALP</div>
-            <div class="text-xs ${dirClass} signal-confidence" style="font-size: 0.65rem;">${confidence}% SURE</div>
+            <div class="${dirClass}" style="font-size: 0.875rem; white-space: nowrap;">MICRO-SCALP</div>
           </div>
         `;
       } else {
-        // Show readiness only if on 4h strategy (since that's what we're analyzing)
-        const showReadiness = currentStrategy === '4h';
-        const readiness = calculateSignalReadiness(data);
-        const readinessHtml = showReadiness ? 
-          `<div class="text-xs ${readiness.class}" style="font-size: 0.65rem; white-space: nowrap;">${readiness.text}</div>` : 
-          `<div class="text-xs status-neutral">-</div>`;
-        
-        const readinessClass = showReadiness ? readiness.class : 'status-neutral';
-        const readinessText = showReadiness ? readiness.text : '-';
+        // No trade signal
         signalHtml = `
           <div id="signal-${symbol}" data-symbol="${symbol}" style="text-align: center;">
-            <div class="status-neutral" style="font-size: 0.65rem; white-space: nowrap;">NO ${strategyName}</div>
-            <div class="text-xs ${readinessClass} signal-confidence" style="font-size: 0.65rem; white-space: nowrap;">${readinessText}</div>
+            <div class="status-neutral" style="font-size: 0.875rem; white-space: nowrap;">NO TRADE</div>
           </div>
         `;
       }
       
-      // Calculate entry price from current strategy, or micro-scalp, or show current price
+      // Calculate entry price - show recommended entry (lowest for longs, highest for shorts)
       let entryPriceDisplay = '-';
       if (templateSignal && templateSignal.valid && templateSignal.entryZone) {
         const entryMin = templateSignal.entryZone.min;
         const entryMax = templateSignal.entryZone.max;
-        const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
-        entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+        // For LONG: lowest entry (entryMin), for SHORT: highest entry (entryMax)
+        const recommendedEntry = templateSignal.direction === 'long' ? entryMin : entryMax;
+        entryPriceDisplay = `$${parseFloat(recommendedEntry).toLocaleString()}`;
       } else if (data.microScalp && data.microScalp.valid && data.microScalp.entry) {
         // Show micro-scalp entry if available
         const entryMin = data.microScalp.entry.min;
         const entryMax = data.microScalp.entry.max;
-        const avgEntry = ((entryMin + entryMax) / 2).toFixed(2);
-        entryPriceDisplay = `$${parseFloat(avgEntry).toLocaleString()}`;
+        const recommendedEntry = data.microScalp.direction === 'long' ? entryMin : entryMax;
+        entryPriceDisplay = `$${parseFloat(recommendedEntry).toLocaleString()}`;
       } else if (data.currentPrice) {
         // Show current price if no entry zone
         entryPriceDisplay = `$${data.currentPrice.toLocaleString()}`;
@@ -1879,7 +1855,7 @@
               onclick="setStrategy('${symbol}', 0)"
               id="strategy-btn-${symbol}-0"
               class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: ${currentStrategyIndex === 0 ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}; color: ${currentStrategyIndex === 0 ? 'var(--color-yellow-75)' : (strategy4hSignal && strategy4hSignal.valid ? (strategy4hSignal.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md) 0 0 var(--radius-md); transition: all 0.3s; white-space: nowrap; min-width: 40px; cursor: pointer;"
+              style="background-color: ${currentStrategyIndex === 0 && strategy4hSignal && strategy4hSignal.valid ? (strategy4hSignal.direction === 'long' ? '#10b981' : '#ef4444') : 'transparent'}; color: ${currentStrategyIndex === 0 && strategy4hSignal && strategy4hSignal.valid ? 'var(--color-yellow-75)' : currentStrategyIndex === 0 ? 'var(--color-yellow-75)' : (strategy4hSignal && strategy4hSignal.valid ? (strategy4hSignal.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md) 0 0 var(--radius-md); transition: all 0.3s; white-space: nowrap; min-width: 40px; cursor: pointer;"
             >
               4H
             </button>
@@ -1887,7 +1863,7 @@
               onclick="setStrategy('${symbol}', 1)"
               id="strategy-btn-${symbol}-1"
               class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: ${currentStrategyIndex === 1 ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}; color: ${currentStrategyIndex === 1 ? 'var(--color-yellow-75)' : (strategySwingSignal && strategySwingSignal.valid ? (strategySwingSignal.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; min-width: 45px; cursor: pointer;"
+              style="background-color: ${currentStrategyIndex === 1 && strategySwingSignal && strategySwingSignal.valid ? (strategySwingSignal.direction === 'long' ? '#10b981' : '#ef4444') : 'transparent'}; color: ${currentStrategyIndex === 1 && strategySwingSignal && strategySwingSignal.valid ? 'var(--color-yellow-75)' : currentStrategyIndex === 1 ? 'var(--color-yellow-75)' : (strategySwingSignal && strategySwingSignal.valid ? (strategySwingSignal.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; min-width: 45px; cursor: pointer;"
             >
               Swing
             </button>
@@ -1895,7 +1871,7 @@
               onclick="setStrategy('${symbol}', 2)"
               id="strategy-btn-${symbol}-2"
               class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: ${currentStrategyIndex === 2 ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}; color: ${currentStrategyIndex === 2 ? 'var(--color-yellow-75)' : (strategyScalpSignal && strategyScalpSignal.valid ? (strategyScalpSignal.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; min-width: 42px; cursor: pointer;"
+              style="background-color: ${currentStrategyIndex === 2 && strategyScalpSignal && strategyScalpSignal.valid ? (strategyScalpSignal.direction === 'long' ? '#10b981' : '#ef4444') : 'transparent'}; color: ${currentStrategyIndex === 2 && strategyScalpSignal && strategyScalpSignal.valid ? 'var(--color-yellow-75)' : currentStrategyIndex === 2 ? 'var(--color-yellow-75)' : (strategyScalpSignal && strategyScalpSignal.valid ? (strategyScalpSignal.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; transition: all 0.3s; white-space: nowrap; min-width: 42px; cursor: pointer;"
             >
               Scalp
             </button>
@@ -1903,7 +1879,7 @@
               onclick="setStrategy('${symbol}', 3)"
               id="strategy-btn-${symbol}-3"
               class="px-2 py-1 text-xs font-mathias font-bold"
-              style="background-color: ${currentStrategyIndex === 3 ? 'rgba(255, 255, 255, 0.1)' : 'transparent'}; color: ${currentStrategyIndex === 3 ? 'var(--color-yellow-75)' : (data.microScalp && data.microScalp.valid ? (data.microScalp.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; min-width: 35px; font-size: 0.6rem; cursor: pointer;"
+              style="background-color: ${currentStrategyIndex === 3 && data.microScalp && data.microScalp.valid ? (data.microScalp.direction === 'long' ? '#10b981' : '#ef4444') : 'transparent'}; color: ${currentStrategyIndex === 3 && data.microScalp && data.microScalp.valid ? 'var(--color-yellow-75)' : currentStrategyIndex === 3 ? 'var(--color-yellow-75)' : (data.microScalp && data.microScalp.valid ? (data.microScalp.direction === 'long' ? '#10b981' : '#ef4444') : '#6b7280')}; border: 2px solid var(--color-yellow-75); border-left: none; border-radius: 0 var(--radius-md) var(--radius-md) 0; transition: all 0.3s; white-space: nowrap; min-width: 35px; font-size: 0.6rem; cursor: pointer;"
             >
               M-S
             </button>
