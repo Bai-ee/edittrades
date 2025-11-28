@@ -472,10 +472,199 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
   };
 }
 
+/**
+ * Evaluate Micro-Scalp Override
+ * Allows small mean-reversion trades even when 4H is FLAT, but only under strict LTF confluence
+ * @param {Object} multiTimeframeData - All timeframe data
+ * @returns {Object} Micro-scalp signal or null
+ */
+function evaluateMicroScalp(multiTimeframeData) {
+  const tf1h = multiTimeframeData['1h'];
+  const tf15m = multiTimeframeData['15m'];
+  const tf5m = multiTimeframeData['5m'];
+  
+  // Base response structure
+  const result = {
+    eligible: false,
+    signal: null
+  };
+  
+  // Guard: Need all required timeframes
+  if (!tf1h || !tf15m || !tf5m) {
+    return result;
+  }
+  
+  // Extract indicators
+  const trend1h = tf1h.indicators?.trend;
+  const pullback1h = tf1h.indicators?.pullback;
+  const ema21_15m = tf15m.indicators?.ema21;
+  const ema21_5m = tf5m.indicators?.ema21;
+  const pullback15m = tf15m.indicators?.pullback;
+  const pullback5m = tf5m.indicators?.pullback;
+  const stoch15m = tf15m.indicators?.stoch;
+  const stoch5m = tf5m.indicators?.stoch;
+  const swingLow15m = tf15m.indicators?.swingLow;
+  const swingLow5m = tf5m.indicators?.swingLow;
+  const swingHigh15m = tf15m.indicators?.swingHigh;
+  const swingHigh5m = tf5m.indicators?.swingHigh;
+  const currentPrice = tf5m.indicators?.currentPrice || tf15m.indicators?.currentPrice;
+  
+  // Guard: Need all data points
+  if (!trend1h || !pullback1h || !ema21_15m || !ema21_5m || !pullback15m || !pullback5m || 
+      !stoch15m || !stoch5m || !currentPrice) {
+    return result;
+  }
+  
+  // 2.1 HIGH-TIMEFRAME GUARDRAILS
+  // 1H must be trending (not FLAT)
+  if (trend1h === 'FLAT') {
+    return result;
+  }
+  
+  // 1H pullback must be ENTRY_ZONE or RETRACING
+  if (pullback1h.state !== 'ENTRY_ZONE' && pullback1h.state !== 'RETRACING') {
+    return result;
+  }
+  
+  // If we passed guardrails, micro-scalp is eligible
+  result.eligible = true;
+  
+  // 2.2 LOWER TIMEFRAME CONFLUENCE (15m + 5m)
+  let direction = null;
+  let reason = '';
+  
+  // Check for LONG micro-scalp
+  if (trend1h === 'UPTREND') {
+    // Both 15m & 5m must be near EMA21 (within 0.25%)
+    const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 999);
+    const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 999);
+    
+    if (dist15m <= 0.25 && dist5m <= 0.25 &&
+        (pullback15m.state === 'ENTRY_ZONE' || pullback15m.state === 'RETRACING') &&
+        (pullback5m.state === 'ENTRY_ZONE' || pullback5m.state === 'RETRACING')) {
+      
+      // Check stoch conditions
+      const k15m = stoch15m.k;
+      const k5m = stoch5m.k;
+      const cond15m = stoch15m.condition;
+      const cond5m = stoch5m.condition;
+      
+      // Either oversold (<25) OR bullish momentum with k<40
+      const stochValid = (
+        (cond15m === 'OVERSOLD' || k15m < 25) && (cond5m === 'OVERSOLD' || k5m < 25)
+      ) || (
+        (cond15m === 'BULLISH' && k15m < 40) && (cond5m === 'BULLISH' && k5m < 40)
+      );
+      
+      if (stochValid) {
+        direction = 'long';
+        reason = `1H uptrend, 15m/5m at EMA21 (${dist15m.toFixed(2)}%/${dist5m.toFixed(2)}%), stoch oversold/bullish momentum`;
+      }
+    }
+  }
+  
+  // Check for SHORT micro-scalp
+  if (trend1h === 'DOWNTREND') {
+    const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 999);
+    const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 999);
+    
+    if (dist15m <= 0.25 && dist5m <= 0.25 &&
+        (pullback15m.state === 'ENTRY_ZONE' || pullback15m.state === 'RETRACING') &&
+        (pullback5m.state === 'ENTRY_ZONE' || pullback5m.state === 'RETRACING')) {
+      
+      const k15m = stoch15m.k;
+      const k5m = stoch5m.k;
+      const cond15m = stoch15m.condition;
+      const cond5m = stoch5m.condition;
+      
+      // Either overbought (>75) OR bearish momentum with k>60
+      const stochValid = (
+        (cond15m === 'OVERBOUGHT' || k15m > 75) && (cond5m === 'OVERBOUGHT' || k5m > 75)
+      ) || (
+        (cond15m === 'BEARISH' && k15m > 60) && (cond5m === 'BEARISH' && k5m > 60)
+      );
+      
+      if (stochValid) {
+        direction = 'short';
+        reason = `1H downtrend, 15m/5m at EMA21 (${dist15m.toFixed(2)}%/${dist5m.toFixed(2)}%), stoch overbought/bearish momentum`;
+      }
+    }
+  }
+  
+  // If no valid direction, return eligible but no signal
+  if (!direction) {
+    return result;
+  }
+  
+  // 2.3 MICRO-SCALP SL/TP LOGIC
+  let stopLoss, entry, invalidationLevel;
+  
+  if (direction === 'long') {
+    // SL = min of 15m and 5m swing lows
+    stopLoss = Math.min(swingLow15m || currentPrice * 0.95, swingLow5m || currentPrice * 0.95);
+    invalidationLevel = stopLoss;
+  } else {
+    // SL = max of 15m and 5m swing highs
+    stopLoss = Math.max(swingHigh15m || currentPrice * 1.05, swingHigh5m || currentPrice * 1.05);
+    invalidationLevel = stopLoss;
+  }
+  
+  // Entry = average of 15m & 5m EMA21
+  entry = (ema21_15m + ema21_5m) / 2;
+  
+  // R = |entry - stopLoss|
+  const R = Math.abs(entry - stopLoss);
+  
+  // Targets: TP1 = 1.0R, TP2 = 1.5R
+  const tp1 = direction === 'long' ? entry + R : entry - R;
+  const tp2 = direction === 'long' ? entry + (R * 1.5) : entry - (R * 1.5);
+  
+  // Entry zone: ±0.5% around entry
+  const entryMin = entry * 0.995;
+  const entryMax = entry * 1.005;
+  
+  // Confidence: 60-75 based on how tight confluence is
+  const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 0);
+  const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 0);
+  const avgDist = (dist15m + dist5m) / 2;
+  const confidence = Math.max(60, Math.min(75, 75 - (avgDist * 60))); // Tighter = higher confidence
+  
+  // Build signal
+  result.signal = {
+    valid: true,
+    direction: direction,
+    setupType: 'MicroScalp',
+    confidence: parseFloat(confidence.toFixed(0)),
+    entry: {
+      min: parseFloat(entryMin.toFixed(2)),
+      max: parseFloat(entryMax.toFixed(2))
+    },
+    stopLoss: parseFloat(stopLoss.toFixed(2)),
+    targets: {
+      tp1: parseFloat(tp1.toFixed(2)),
+      tp2: parseFloat(tp2.toFixed(2))
+    },
+    riskReward: {
+      tp1RR: 1.0,
+      tp2RR: 1.5
+    },
+    invalidation_level: parseFloat(invalidationLevel.toFixed(2)),
+    invalidation_description: direction === 'long' ? 
+      `5m close below ${invalidationLevel.toFixed(2)}` : 
+      `5m close above ${invalidationLevel.toFixed(2)}`,
+    reason: reason,
+    currentPrice: parseFloat(currentPrice.toFixed(2)),
+    timestamp: new Date().toISOString()
+  };
+  
+  return result;
+}
+
 export default {
   evaluateStrategy,
   analyzeStochState,
-  calculateConfidence
+  calculateConfidence,
+  evaluateMicroScalp
 };
 
 

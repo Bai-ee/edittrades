@@ -181,6 +181,10 @@ export default async function handler(req, res) {
     console.log(`[Analyze] Running 4H strategy evaluation...`);
     const tradeSignal = strategyService.evaluateStrategy(symbol, analysis);
 
+    // Evaluate Micro-Scalp Override (only relevant when 4H is FLAT)
+    console.log(`[Analyze] Evaluating micro-scalp override...`);
+    const microScalpResult = strategyService.evaluateMicroScalp(analysis);
+
     // Build response matching frontend expectations (same as Express server format)
     const response = {
       symbol,
@@ -188,6 +192,8 @@ export default async function handler(req, res) {
       priceChange24h: parseFloat(ticker.priceChangePercent.toFixed(2)),
       analysis,  // Full analysis object with indicators for each timeframe
       tradeSignal,  // Complete trade signal object from strategy engine
+      microScalpEligible: microScalpResult.eligible,  // Is micro-scalp override possible?
+      microScalp: microScalpResult.signal,  // Micro-scalp signal (null if not valid)
       timestamp: new Date().toISOString()
     };
 
