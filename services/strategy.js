@@ -542,13 +542,19 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
   
   confidence = Math.min(confidence, 90);
   
+  // Compute HTF Bias for Swing
+  const htfBias = computeHTFBias(multiTimeframeData);
+  
   // Build swing signal
   return {
     valid: true,
     direction: direction,
     setupType: 'Swing',
+    selectedStrategy: 'SWING',
+    strategiesChecked: ['SWING'],
     confidence: confidence / 100, // Convert to 0-1 scale
     reason: reason,
+    reason_summary: reason,
     entry_zone: {
       min: parseFloat(entryMin.toFixed(2)),
       max: parseFloat(entryMax.toFixed(2))
@@ -566,8 +572,29 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
       tp3RR: 5.0
     },
     risk_amount: parseFloat(R.toFixed(2)),
+    invalidation: {
+      level: parseFloat(invalidationLevel.toFixed(2)),
+      description: direction === 'long' ? 
+        `Close below $${invalidationLevel.toFixed(2)}. HTF invalidation (3D/1D swing level)` :
+        `Close above $${invalidationLevel.toFixed(2)}. HTF invalidation (3D/1D swing level)`
+    },
+    confluence: {
+      trendAlignment: `${trend3d} on 3D, ${trend1d} on 1D, ${trend4h} on 4H`,
+      stochMomentum: `3D: ${stoch3d.condition}, 1D: ${stoch1d.condition}`,
+      pullbackState: `3D: ${pullback3d.state}, 1D: ${pullback1d.state}`,
+      liquidityZones: `3D: ${pullback3d.distanceFrom21EMA.toFixed(2)}%, 1D: ${pullback1d.distanceFrom21EMA.toFixed(2)}%`,
+      htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
+    },
+    conditionsRequired: [
+      '✓ 3D stoch oversold/overbought pivot',
+      '✓ 1D reclaim/rejection of key level',
+      '✓ 4H trend supportive (not FLAT)',
+      '✓ Price in ENTRY_ZONE on 15m/5m',
+      '✓ HTF structure confirms'
+    ],
     currentPrice: parseFloat(currentPrice.toFixed(2)),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    htfBias: htfBias
   };
 }
 
@@ -611,13 +638,28 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
   if (setupType === 'Swing' || setupType === 'auto') {
     const swingSignal = evaluateSwingSetup(analysis, currentPrice);
     if (swingSignal && swingSignal.valid) {
-      // Return swing signal directly
+      // Return swing signal directly (already includes htfBias)
       return {
         ...swingSignal,
         symbol,
         setupType: 'Swing',
         ema21: ema21,
-        ema200: ema200
+        ema200: ema200,
+        // Include trend/stoch for consistency
+        trend: {
+          '4h': trend4h.toLowerCase(),
+          '1h': tf1h?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
+          '15m': tf15m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
+          '5m': tf5m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
+          '3d': analysis['3d']?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
+          '1d': analysis['1d']?.indicators?.analysis?.trend?.toLowerCase() || 'unknown'
+        },
+        stoch: {
+          '4h': analyzeStochState(tf4h.indicators.stochRSI),
+          '1h': tf1h ? analyzeStochState(tf1h.indicators.stochRSI) : null,
+          '15m': tf15m ? analyzeStochState(tf15m.indicators.stochRSI) : null,
+          '5m': tf5m ? analyzeStochState(tf5m.indicators.stochRSI) : null
+        }
       };
     }
     // If swing was requested but not valid, and setupType is explicitly 'Swing', return no trade
@@ -759,13 +801,15 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
   return {
     symbol,
     direction,
-    setupType: setupType,  // Added: Type of setup (Swing, Scalp, 4h)
+    setupType: setupType,
+    selectedStrategy: 'TREND_4H',
+    strategiesChecked: ['SWING', 'TREND_4H'],
     entry_zone: {
       min: parseFloat(entryZone.min.toFixed(2)),
       max: parseFloat(entryZone.max.toFixed(2))
     },
     stop_loss: parseFloat(sltp.stopLoss.toFixed(2)),
-    invalidation_level: parseFloat(sltp.invalidationLevel.toFixed(2)),  // Added: HTF/LTF invalidation
+    invalidation_level: parseFloat(sltp.invalidationLevel.toFixed(2)),
     targets: [
       parseFloat(sltp.targets[0].toFixed(2)),
       parseFloat(sltp.targets[1].toFixed(2))
@@ -774,9 +818,27 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
       tp1RR: rrTargets[0],
       tp2RR: rrTargets[1]
     },
-    risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),  // Added: Dollar risk per unit
+    risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
     confidence: parseFloat(confidence.toFixed(2)),
     reason_summary: reasonSummary,
+    invalidation: {
+      level: parseFloat(sltp.invalidationLevel.toFixed(2)),
+      description: '4H trend invalidation – break of recent swing level'
+    },
+    confluence: {
+      trendAlignment: `${trend4h} on 4H, ${tf1h?.indicators?.analysis?.trend || 'N/A'} on 1H`,
+      stochMomentum: tf4h.indicators?.stochRSI?.condition || 'N/A',
+      pullbackState: pullbackState || 'N/A',
+      liquidityZones: `${tf4h.indicators?.analysis?.pullback?.distanceFrom21EMA?.toFixed(2) || 'N/A'}% from 21 EMA`,
+      htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
+    },
+    conditionsRequired: [
+      '✓ 4H trend clear (UPTREND or DOWNTREND)',
+      '✓ Price near 21 EMA on 4H (±2%)',
+      '✓ Stoch aligned with trend direction',
+      '✓ 1H confirmation (not breaking structure)',
+      '✓ Clean 4H swing structure'
+    ],
     trend: trendObj,
     stoch: stochObj,
     valid: true,
@@ -784,7 +846,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
     currentPrice: parseFloat(currentPrice.toFixed(2)),
     ema21: parseFloat(ema21.toFixed(2)),
     ema200: ema200 ? parseFloat(ema200.toFixed(2)) : null,
-    htfBias: htfBias  // Include bias in response
+    htfBias: htfBias
   };
   } // End of 4H trend play
   
@@ -837,6 +899,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
             symbol,
             direction,
             setupType: 'Scalp',
+            selectedStrategy: 'SCALP_1H',
+            strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H'],
             entry_zone: {
               min: parseFloat(entryZone.min.toFixed(2)),
               max: parseFloat(entryZone.max.toFixed(2))
@@ -854,6 +918,24 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
             risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
             confidence: parseFloat(confidence.toFixed(2)),
             reason_summary: `1H ${trend1h.toLowerCase()} scalp with 15m pullback and Stoch alignment (HTF bias: ${htfBias.direction}, ${htfBias.confidence}%)`,
+            invalidation: {
+              level: parseFloat(sltp.invalidationLevel.toFixed(2)),
+              description: '1H scalp invalidation – loss of pullback structure on 15m/5m'
+            },
+            confluence: {
+              trendAlignment: `${trend4h} on 4H, ${trend1h} on 1H`,
+              stochMomentum: tf15m.indicators?.stochRSI?.condition || 'N/A',
+              pullbackState: `1H: ${pullback1h?.state || 'N/A'}, 15m: ${pullback15m?.state || 'N/A'}`,
+              liquidityZones: `1H: ${pullback1h?.distanceFrom21EMA?.toFixed(2) || 'N/A'}%, 15m: ${pullback15m?.distanceFrom21EMA?.toFixed(2) || 'N/A'}% from 21 EMA`,
+              htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
+            },
+            conditionsRequired: [
+              '✓ 1H trend clear (UPTREND or DOWNTREND)',
+              '✓ 4H disregarded (scalp uses 1H bias)',
+              '✓ Price near 21 EMA on 1H (±2%) and 15m (±1%)',
+              '✓ 15m Stoch aligned with 1H trend',
+              '✓ Clean 1H/15m pullback structure'
+            ],
             trend: {
               '4h': trend4h.toLowerCase(),
               '1h': trend1h.toLowerCase(),
@@ -883,6 +965,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
     symbol,
     direction: 'NO_TRADE',
     setupType: setupType || '4h',
+    selectedStrategy: 'NO_TRADE',
+    strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'],
     confidence: 0,
     reason_summary: `No clean 4H or 1H setup. 4H: ${trend4h}, 1H: ${tf1h?.indicators?.analysis?.trend || 'N/A'}. HTF bias: ${htfBias.direction} (${htfBias.confidence}% confidence)`,
     entry_zone: { min: null, max: null },
@@ -891,6 +975,23 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
     targets: [null, null],
     risk_reward: { tp1RR: null, tp2RR: null },
     risk_amount: null,
+    invalidation: {
+      level: null,
+      description: 'No clear invalidation – awaiting setup formation'
+    },
+    confluence: {
+      trendAlignment: `${trend4h} on 4H, ${tf1h?.indicators?.analysis?.trend || 'N/A'} on 1H`,
+      stochMomentum: tf4h.indicators?.stochRSI?.condition || 'N/A',
+      pullbackState: tf4h.indicators?.analysis?.pullbackState || 'N/A',
+      liquidityZones: `${tf4h.indicators?.analysis?.pullback?.distanceFrom21EMA?.toFixed(2) || 'N/A'}% from 21 EMA`,
+      htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
+    },
+    conditionsRequired: [
+      `⚠ Awaiting clean setup`,
+      `• 4H Trend Play: Needs 4H trending (not FLAT)`,
+      `• 1H Scalp: Needs 1H trending + 15m pullback`,
+      `• Micro-Scalp: Needs 1H trending + tight 15m/5m EMA confluence`
+    ],
     trend: {
       '4h': trend4h.toLowerCase(),
       '1h': tf1h?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
