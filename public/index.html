@@ -1675,13 +1675,54 @@
           </div>
         `;
       } else if (tradeSignal && !tradeSignal.valid) {
-        // Show NO TRADE format with reason
+        // Show NO TRADE format with ALL sections (full format)
         const reason = tradeSignal.reason_summary || tradeSignal.reason || 'Setup requirements not met';
         const setupType = tradeSignal.setupType ? tradeSignal.setupType.toUpperCase() : currentStrategy.toUpperCase();
+        const confidence = tradeSignal.confidence || 0;
+        
+        // Get current timeframe data for context
+        const tf4h = data.analysis?.['4h'];
+        const tf1h = data.analysis?.['1h'];
+        const tf15m = data.analysis?.['15m'];
+        const tf5m = data.analysis?.['5m'];
+        
+        const trend4h = tf4h?.indicators?.trend || 'UNKNOWN';
+        const trend1h = tf1h?.indicators?.trend || 'UNKNOWN';
+        const stoch4h = tf4h?.indicators?.stoch?.condition || 'NEUTRAL';
+        const stoch1h = tf1h?.indicators?.stoch?.condition || 'NEUTRAL';
+        const pullback4h = tf4h?.indicators?.pullback?.state || 'UNKNOWN';
+        const distanceFrom21 = tf4h?.indicators?.pullback?.distanceFrom21EMA ? 
+          `${tf4h.indicators.pullback.distanceFrom21EMA.toFixed(2)}%` : 'N/A';
+        
+        // Conditions that would need to be met
+        let conditionsRequired = [];
+        if (setupType === 'SWING') {
+          conditionsRequired = [
+            '✓ 3D stoch oversold/overbought pivot',
+            '✓ 1D reclaim/rejection of key level',
+            '✓ 4H trend supportive',
+            '✓ Price in ENTRY_ZONE on 15m/5m'
+          ];
+        } else if (setupType === 'SCALP') {
+          conditionsRequired = [
+            '✓ 4H trend clear (not FLAT)',
+            '✓ 1H aligned with 4H',
+            '✓ 15m & 5m stoch curl in direction',
+            '✓ Price in ENTRY_ZONE',
+            '✓ 1m confirms (noise filter)'
+          ];
+        } else {
+          conditionsRequired = [
+            '✓ 4H trend clear (not FLAT)',
+            '✓ 1H confirmation',
+            '✓ Price near 21 EMA',
+            '✓ Stoch aligned'
+          ];
+        }
         
         tradeCallHtml = `
           <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
-            <div style="margin-bottom: 1rem;">
+            <div style="margin-bottom: 1.5rem;">
               <h2 style="font-size: 1.5rem; font-weight: bold; color: #6b7280; margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
                 ${symbol.replace('USDT', '')} — NO TRADE (${setupType})
               </h2>
@@ -1690,9 +1731,77 @@
               </div>
             </div>
             
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
+                <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
+              </div>
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Direction:</div>
+                <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">⚪ NO TRADE</div>
+              </div>
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Setup Type:</div>
+                <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend Play'}</div>
+              </div>
+            </div>
+            
             <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">REASON:</div>
-              <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">REASON:</div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">ENTRY:</div>
+                <div style="color: var(--text-primary); font-size: 1rem;">No valid entry zone at this time</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">STOP LOSS:</div>
+                <div style="color: var(--text-primary); font-size: 1rem;">N/A</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">TARGETS:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem;">
+                  <div>TP1: N/A</div>
+                  <div style="margin-top: 0.25rem;">TP2: N/A</div>
+                </div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
+                <div style="color: var(--text-primary); font-size: 1rem;">N/A</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">INVALIDATION:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
+                  Wait for setup conditions to be met. Trade is invalid until HTF trend aligns and price reaches ENTRY_ZONE.
+                </div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
+                  Current market analysis:
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; margin-top: 0.5rem; padding-left: 1rem;">
+                  – Trend alignment: 4H ${trend4h}, 1H ${trend1h}<br>
+                  – Stoch momentum: 4H ${stoch4h}, 1H ${stoch1h}<br>
+                  – Pullback state: ${pullback4h}<br>
+                  – Liquidity zones: ${distanceFrom21} from 21 EMA<br>
+                  – HTF confirmation: ${confidence}% confidence
+                </div>
+              </div>
+              
+              <div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">CONDITIONS REQUIRED:</div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
+                  ${conditionsRequired.join('<br>')}
+                </div>
+              </div>
             </div>
           </div>
         `;
