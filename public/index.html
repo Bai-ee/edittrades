@@ -552,8 +552,8 @@
               </div>
   </header>
 
-  <!-- Copy Success Toast Container (between nav and table) -->
-  <div id="copyToastContainer" style="width: 100%; text-align: center; min-height: 0; transition: all 0.3s;"></div>
+  <!-- Copy Success Toast Container (overlay, no layout impact) -->
+  <div id="copyToastContainer" style="position: fixed; top: 130px; left: 50%; transform: translateX(-50%); z-index: 999; pointer-events: none;"></div>
 
   <!-- Main Content -->
   <main class="max-w-6xl mx-auto px-4 py-4" style="width: 100%; box-sizing: border-box; overflow-x: hidden;">
@@ -1947,19 +1947,17 @@
     function showCopySuccess(message) {
       const container = document.getElementById('copyToastContainer');
       
-      // Create toast element
+      // Create simple text toast
       const toast = document.createElement('div');
       toast.style.cssText = `
-        display: inline-block;
-        background-color: var(--color-yellow-75);
-        color: black;
-        padding: 0.75rem 1.5rem;
-        border-radius: var(--radius-md);
-        font-size: 0.875rem;
+        color: var(--color-yellow-75);
+        font-size: 0.75rem;
         font-family: var(--font-heading);
         font-weight: bold;
-        margin: 1rem auto;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        opacity: 1;
+        transition: opacity 0.3s;
       `;
       toast.textContent = message;
       
@@ -1967,14 +1965,13 @@
       container.innerHTML = '';
       container.appendChild(toast);
       
-      // Remove after 2 seconds
+      // Fade out after 1.5 seconds
       setTimeout(() => {
         toast.style.opacity = '0';
-        toast.style.transition = 'opacity 0.3s';
         setTimeout(() => {
           container.innerHTML = '';
         }, 300);
-      }, 2000);
+      }, 1500);
     }
 
     // Show error
