@@ -1556,9 +1556,9 @@
         const reason = tradeSignal.reason_summary || tradeSignal.reason || 'Trade setup detected';
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border: 2px solid ${directionColor}; border-radius: var(--radius-md); font-family: var(--font-heading);">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border: 2px solid ${directionColor}; border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
             <div style="text-align: center; margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
-              <h2 style="font-size: 1.5rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.5rem; letter-spacing: 0.05em;">
+              <h2 style="font-size: 1.5rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
                 ${symbol.replace('USDT', '')} — ${direction} (${setupType})
               </h2>
               <div style="display: flex; align-items: center; justify-content: center; gap: 2rem; margin-top: 1rem; flex-wrap: wrap;">
@@ -1616,6 +1616,28 @@
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
               <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
+            </div>
+          </div>
+        `;
+      } else if (tradeSignal && !tradeSignal.valid) {
+        // Show NO TRADE format with reason
+        const reason = tradeSignal.reason_summary || tradeSignal.reason || 'Setup requirements not met';
+        const setupType = tradeSignal.setupType ? tradeSignal.setupType.toUpperCase() : currentStrategy.toUpperCase();
+        
+        tradeCallHtml = `
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border: 2px solid #6b7280; border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
+            <div style="text-align: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+              <h2 style="font-size: 1.5rem; font-weight: bold; color: #6b7280; margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
+                ${symbol.replace('USDT', '')} — NO TRADE (${setupType})
+              </h2>
+              <div style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">
+                NO VALID SETUP AT THIS TIME
+              </div>
+            </div>
+            
+            <div style="margin-top: 1rem;">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">REASON:</div>
+              <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
             </div>
           </div>
         `;
