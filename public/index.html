@@ -1555,67 +1555,122 @@
         
         const reason = tradeSignal.reason_summary || tradeSignal.reason || 'Trade setup detected';
         
+        // Build confluence bullets
+        const tf4h = data.analysis?.['4h'];
+        const tf1h = data.analysis?.['1h'];
+        
+        const trendAlignment = tf4h && tf1h ? 
+          `${tf4h.indicators?.analysis?.trend || 'UNKNOWN'} on 4H, ${tf1h.indicators?.analysis?.trend || 'UNKNOWN'} on 1H` : 
+          'HTF trend analysis';
+        
+        const stochMomentum = tf4h?.indicators?.stochRSI?.condition || 'N/A';
+        const pullbackState = tf4h?.indicators?.analysis?.pullbackState || 'N/A';
+        const distanceFrom21 = tf4h?.indicators?.analysis?.distanceFrom21EMA ? 
+          `${Math.abs(tf4h.indicators.analysis.distanceFrom21EMA).toFixed(2)}% from 21 EMA` : 
+          'Price positioning';
+        
+        // Conditions required
+        const conditionsRequired = [];
+        if (setupType === 'SWING') {
+          conditionsRequired.push('✓ 3D stoch oversold/overbought pivot');
+          conditionsRequired.push('✓ 1D reclaim/rejection of key level');
+          conditionsRequired.push('✓ 4H trend supportive');
+          conditionsRequired.push('✓ Price in ENTRY_ZONE on 15m/5m');
+        } else if (setupType === 'SCALP') {
+          conditionsRequired.push('✓ 4H trend clear (not FLAT)');
+          conditionsRequired.push('✓ 1H aligned with 4H');
+          conditionsRequired.push('✓ 15m & 5m stoch curl in direction');
+          conditionsRequired.push('✓ Price in ENTRY_ZONE');
+          conditionsRequired.push('✓ 1m confirms (noise filter)');
+        } else {
+          conditionsRequired.push('✓ 4H trend clear (not FLAT)');
+          conditionsRequired.push('✓ 1H confirmation');
+          conditionsRequired.push('✓ Price near 21 EMA');
+          conditionsRequired.push('✓ Stoch aligned');
+        }
+        
+        const riskPercent = tradeSignal.risk_amount || riskAmt ? 
+          ((tradeSignal.risk_amount || riskAmt) / (entryZone.min || 1) * 100).toFixed(2) : 'N/A';
+        const rewardPercent1 = rr1 * parseFloat(riskPercent);
+        const rewardPercent2 = rr2 * parseFloat(riskPercent);
+        
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border: 2px solid ${directionColor}; border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
-            <div style="text-align: center; margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
+            <div style="margin-bottom: 1.5rem;">
               <h2 style="font-size: 1.5rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
                 ${symbol.replace('USDT', '')} — ${direction} (${setupType})
               </h2>
-              <div style="display: flex; align-items: center; justify-content: center; gap: 2rem; margin-top: 1rem; flex-wrap: wrap;">
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">CONFIDENCE:</span>
-                  <span style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold; margin-left: 0.5rem;">${confidence}%</span>
-                </div>
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">DIRECTION:</span>
-                  <span style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold; margin-left: 0.5rem;">${directionIcon} ${direction}</span>
-                </div>
-                <div>
-                  <span style="color: var(--text-secondary); font-size: 0.875rem;">SETUP TYPE:</span>
-                  <span style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold; margin-left: 0.5rem;">${setupType}</span>
-                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Confidence:</div>
+                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${confidence}%</div>
+              </div>
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Direction:</div>
+                <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
+              </div>
+              <div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem;">Setup Type:</div>
+                <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend Play'}</div>
               </div>
             </div>
             
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
-              <div>
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">ENTRY:</div>
-                <div style="color: var(--text-primary); font-size: 1.125rem; font-weight: bold;">${entryMin} – ${entryMax}</div>
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">ENTRY:</div>
+                <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">${entryMin} – ${entryMax}</div>
               </div>
               
-              <div>
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">STOP LOSS:</div>
-                <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${stopLoss}</div>
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">STOP LOSS:</div>
+                <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1rem; font-weight: bold;">${stopLoss}</div>
               </div>
               
-              <div>
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">TARGETS:</div>
-                <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">
-                  <div>TP1: ${tp1} (${rr1}R)</div>
-                  <div style="margin-top: 0.25rem;">TP2: ${tp2} (${rr2}R)</div>
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">TARGETS:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">
+                  <div>TP1: ${tp1}</div>
+                  <div style="margin-top: 0.25rem;">TP2: ${tp2}</div>
+                </div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
+                <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">${rr1}R (${riskPercent}% risk → ${rewardPercent1.toFixed(1)}% reward)</div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">INVALIDATION:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
+                  ${direction === 'LONG' ? 'Close below' : 'Close above'} ${invalidation}. 
+                  ${setupType === 'SWING' ? 'This is the 3D/1D swing level. HTF invalidation indicates macro trend has shifted.' : 
+                    setupType === 'SCALP' ? 'This is the 5m/15m swing level. LTF invalidation means the scalp setup has failed.' : 
+                    'This is the 4H swing level. Structure break invalidates the setup.'}
+                </div>
+              </div>
+              
+              <div style="margin-bottom: 1rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
+                <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.5;">
+                  Clear short explanation of confluence:
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; margin-top: 0.5rem; padding-left: 1rem;">
+                  – Trend alignment: ${trendAlignment}<br>
+                  – Stoch momentum: ${stochMomentum}<br>
+                  – Pullback state: ${pullbackState}<br>
+                  – Liquidity zones: ${distanceFrom21}<br>
+                  – HTF confirmation: ${confidence}% confidence
                 </div>
               </div>
               
               <div>
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
-                <div style="color: #22c55e; font-size: 1.125rem; font-weight: bold;">${rr1}:1 TO ${rr2}:1</div>
-                <div style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 0.25rem;">RISK: ${riskAmount} PER UNIT</div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">CONDITIONS REQUIRED:</div>
+                <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
+                  ${conditionsRequired.join('<br>')}
+                </div>
               </div>
-            </div>
-            
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">INVALIDATION:</div>
-              <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 0.875rem; font-weight: bold; margin-bottom: 0.25rem;">
-                ${direction === 'LONG' ? 'CLOSE BELOW' : 'CLOSE ABOVE'} ${invalidation}
-              </div>
-              <div style="color: var(--text-secondary); font-size: 0.75rem;">
-                ${setupType === 'SWING' ? '3D/1D swing level - HTF invalidation' : setupType === 'SCALP' ? '5m/15m swing level - LTF invalidation' : '4H swing level - structure break'}
-              </div>
-            </div>
-            
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">WHY THIS TRADE:</div>
-              <div style="color: var(--text-primary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
             </div>
           </div>
         `;
@@ -1625,8 +1680,8 @@
         const setupType = tradeSignal.setupType ? tradeSignal.setupType.toUpperCase() : currentStrategy.toUpperCase();
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border: 2px solid #6b7280; border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
-            <div style="text-align: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-heading); backdrop-filter: blur(10px);">
+            <div style="margin-bottom: 1rem;">
               <h2 style="font-size: 1.5rem; font-weight: bold; color: #6b7280; margin-bottom: 0.5rem; letter-spacing: 0.05em; text-transform: uppercase;">
                 ${symbol.replace('USDT', '')} — NO TRADE (${setupType})
               </h2>
@@ -1635,7 +1690,7 @@
               </div>
             </div>
             
-            <div style="margin-top: 1rem;">
+            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">REASON:</div>
               <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
             </div>
@@ -1758,16 +1813,60 @@
             max: data.tradeSignal.entry_zone.max
           };
           view.signal.stopLoss = data.tradeSignal.stop_loss;
-          view.signal.invalidationLevel = data.tradeSignal.invalidation_level;  // NEW: HTF/LTF invalidation
+          view.signal.invalidationLevel = data.tradeSignal.invalidation_level;
           view.signal.targets = {
             tp1: data.tradeSignal.targets?.[0],
             tp2: data.tradeSignal.targets?.[1]
           };
-          view.signal.riskReward = {  // NEW: Dynamic R:R ratios
+          view.signal.riskReward = {
             tp1RR: data.tradeSignal.risk_reward?.tp1RR || 1.0,
             tp2RR: data.tradeSignal.risk_reward?.tp2RR || 2.0
           };
-          view.signal.riskAmount = data.tradeSignal.risk_amount;  // NEW: Dollar risk per unit
+          view.signal.riskAmount = data.tradeSignal.risk_amount;
+          
+          // Add formatted trade call fields
+          const setupType = data.tradeSignal.setupType || '4h';
+          const tf4h = data.analysis?.['4h'];
+          const tf1h = data.analysis?.['1h'];
+          
+          view.signal.invalidation = {
+            level: data.tradeSignal.invalidation_level,
+            description: setupType === 'Swing' ? 
+              '3D/1D swing level. HTF invalidation indicates macro trend has shifted.' : 
+              setupType === 'Scalp' ? 
+              '5m/15m swing level. LTF invalidation means the scalp setup has failed.' : 
+              '4H swing level. Structure break invalidates the setup.'
+          };
+          
+          view.signal.confluence = {
+            trendAlignment: tf4h && tf1h ? 
+              `${tf4h.indicators?.analysis?.trend || 'UNKNOWN'} on 4H, ${tf1h.indicators?.analysis?.trend || 'UNKNOWN'} on 1H` : 
+              'HTF trend analysis',
+            stochMomentum: tf4h?.indicators?.stochRSI?.condition || 'N/A',
+            pullbackState: tf4h?.indicators?.analysis?.pullbackState || 'N/A',
+            liquidityZones: tf4h?.indicators?.analysis?.distanceFrom21EMA ? 
+              `${Math.abs(tf4h.indicators.analysis.distanceFrom21EMA).toFixed(2)}% from 21 EMA` : 
+              'Price positioning',
+            htfConfirmation: `${view.signal.confidence}% confidence`
+          };
+          
+          view.signal.conditionsRequired = setupType === 'Swing' ? [
+            '✓ 3D stoch oversold/overbought pivot',
+            '✓ 1D reclaim/rejection of key level',
+            '✓ 4H trend supportive',
+            '✓ Price in ENTRY_ZONE on 15m/5m'
+          ] : setupType === 'Scalp' ? [
+            '✓ 4H trend clear (not FLAT)',
+            '✓ 1H aligned with 4H',
+            '✓ 15m & 5m stoch curl in direction',
+            '✓ Price in ENTRY_ZONE',
+            '✓ 1m confirms (noise filter)'
+          ] : [
+            '✓ 4H trend clear (not FLAT)',
+            '✓ 1H confirmation',
+            '✓ Price near 21 EMA',
+            '✓ Stoch aligned'
+          ];
         }
       }
       
