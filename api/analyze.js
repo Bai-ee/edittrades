@@ -5,14 +5,14 @@
  * Returns complete 4H strategy analysis with trade signal
  */
 
-import marketData from '../services/marketData.js';
-import indicatorService from '../services/indicators.js';
+import * as marketData from '../services/marketData.js';
+import * as indicatorService from '../services/indicators.js';
 import strategyService from '../services/strategy.js';
-import candleFeatures from '../lib/candleFeatures.js';
-import levels from '../lib/levels.js';
-import advancedIndicators from '../lib/advancedIndicators.js';
-import volumeAnalysis from '../lib/volumeAnalysis.js';
-import confluenceScoring from '../lib/confluenceScoring.js';
+import * as candleFeatures from '../lib/candleFeatures.js';
+import * as levels from '../lib/levels.js';
+import * as advancedIndicators from '../lib/advancedIndicators.js';
+import * as volumeAnalysis from '../lib/volumeAnalysis.js';
+import * as confluenceScoring from '../lib/confluenceScoring.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
