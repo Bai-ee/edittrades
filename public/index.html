@@ -1789,10 +1789,12 @@
         const targets = tradeSignal.targets || {};
         const tp1 = (targets.tp1 || targets[0]) ? `$${(targets.tp1 || targets[0]).toLocaleString()}` : 'N/A';
         const tp2 = (targets.tp2 || targets[1]) ? `$${(targets.tp2 || targets[1]).toLocaleString()}` : 'N/A';
+        const tp3 = (targets.tp3 || targets[2]) ? `$${(targets.tp3 || targets[2]).toLocaleString()}` : null;  // Swing trades have TP3
         
         const riskReward = tradeSignal.riskReward || tradeSignal.risk_reward || {};
         const rr1 = riskReward.tp1RR || 1.0;
         const rr2 = riskReward.tp2RR || 2.0;
+        const rr3 = riskReward.tp3RR || null;  // Swing: 5.0, others: null
         
         const riskAmt = tradeSignal.riskAmount || tradeSignal.risk_amount;
         const riskAmount = riskAmt ? `$${riskAmt.toLocaleString()}` : 'N/A';
@@ -1875,14 +1877,17 @@
               <div style="margin-bottom: 1rem;">
                 <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">TARGETS:</div>
                 <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">
-                  <div>TP1: ${tp1}</div>
-                  <div style="margin-top: 0.25rem;">TP2: ${tp2}</div>
+                  <div>TP1 (${rr1}R): ${tp1}</div>
+                  <div style="margin-top: 0.25rem;">TP2 (${rr2}R): ${tp2}</div>
+                  ${tp3 ? `<div style="margin-top: 0.25rem;">TP3 (${rr3}R): ${tp3}</div>` : ''}
                 </div>
               </div>
               
               <div style="margin-bottom: 1rem;">
                 <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.25rem; letter-spacing: 0.05em;">RISK / REWARD:</div>
-                <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">${rr1}R (${riskPercent}% risk → ${rewardPercent1.toFixed(1)}% reward)</div>
+                <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">
+                  ${rr1}R to ${rr2}R${tp3 ? ` to ${rr3}R` : ''} (${riskPercent}% risk → ${rewardPercent1.toFixed(1)}%${tp3 ? `/${(rr2 * parseFloat(riskPercent)).toFixed(1)}%/${(rr3 * parseFloat(riskPercent)).toFixed(1)}%` : ''} reward)
+                </div>
               </div>
               
               <div style="margin-bottom: 1rem;">
@@ -2011,6 +2016,7 @@
                 <div style="color: var(--text-primary); font-size: 0.875rem;">
                   <div>TP1: N/A</div>
                   <div style="margin-top: 0.25rem;">TP2: N/A</div>
+                  <div style="margin-top: 0.25rem;">TP3: N/A</div>
                 </div>
               </div>
               
@@ -2254,12 +2260,24 @@
       if (signal.valid && signal.entryZone) {
         text += `ENTRY:\n$${signal.entryZone.min?.toLocaleString()} – $${signal.entryZone.max?.toLocaleString()}\n\n`;
         text += `STOP LOSS:\n$${signal.stopLoss?.toLocaleString()}\n\n`;
-        text += `TARGETS:\nTP1: $${signal.targets.tp1?.toLocaleString()}\nTP2: $${signal.targets.tp2?.toLocaleString()}\n\n`;
-        text += `RISK / REWARD:\n${signal.riskReward.tp1RR}R to ${signal.riskReward.tp2RR}R\n\n`;
+        
+        // TARGETS: Include TP3 for Swing trades (3R, 4R, 5R)
+        text += `TARGETS:\nTP1: $${signal.targets.tp1?.toLocaleString()}\nTP2: $${signal.targets.tp2?.toLocaleString()}`;
+        if (signal.targets.tp3) {
+          text += `\nTP3: $${signal.targets.tp3.toLocaleString()}`;
+        }
+        text += `\n\n`;
+        
+        // RISK/REWARD: Include tp3RR for Swing trades
+        if (signal.riskReward.tp3RR) {
+          text += `RISK / REWARD:\n${signal.riskReward.tp1RR}R to ${signal.riskReward.tp2RR}R to ${signal.riskReward.tp3RR}R\n\n`;
+        } else {
+          text += `RISK / REWARD:\n${signal.riskReward.tp1RR}R to ${signal.riskReward.tp2RR}R\n\n`;
+        }
       } else {
         text += `ENTRY:\nNo valid entry zone at this time\n\n`;
         text += `STOP LOSS:\nN/A\n\n`;
-        text += `TARGETS:\nTP1: N/A\nTP2: N/A\n\n`;
+        text += `TARGETS:\nTP1: N/A\nTP2: N/A\nTP3: N/A\n\n`;
         text += `RISK / REWARD:\nN/A\n\n`;
       }
       
@@ -2317,11 +2335,13 @@
           invalidationLevel: data.tradeSignal.invalidation_level || null,
           targets: {
             tp1: data.tradeSignal.targets?.[0] || null,
-            tp2: data.tradeSignal.targets?.[1] || null
+            tp2: data.tradeSignal.targets?.[1] || null,
+            tp3: data.tradeSignal.targets?.[2] || null  // Swing trades have 3 targets (3R, 4R, 5R)
           },
           riskReward: {
             tp1RR: data.tradeSignal.risk_reward?.tp1RR || 1.0,
-            tp2RR: data.tradeSignal.risk_reward?.tp2RR || 2.0
+            tp2RR: data.tradeSignal.risk_reward?.tp2RR || 2.0,
+            tp3RR: data.tradeSignal.risk_reward?.tp3RR || null  // Swing: 5.0, others: null
           },
           riskAmount: data.tradeSignal.risk_amount || null,
           
@@ -2379,8 +2399,8 @@
           entryZone: null,
           stopLoss: null,
           invalidationLevel: null,
-          targets: { tp1: null, tp2: null },
-          riskReward: { tp1RR: 1.0, tp2RR: 2.0 },
+          targets: { tp1: null, tp2: null, tp3: null },
+          riskReward: { tp1RR: 1.0, tp2RR: 2.0, tp3RR: null },
           riskAmount: null,
           invalidation: {
             level: null,
