@@ -552,6 +552,64 @@
       }
     }
     
+    /* Table row glow animation - emanates from left */
+    .coin-row {
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .coin-row.has-trade-long::before,
+    .coin-row.has-trade-short::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -50%;
+      width: 150%;
+      height: 100%;
+      pointer-events: none;
+      animation: rotateGlow 12.8s linear infinite;
+      z-index: 0;
+      overflow: hidden;
+    }
+    
+    .coin-row.has-trade-long::before {
+      background: conic-gradient(
+        from 0deg at 0% 50%,
+        rgba(34, 197, 94, 0.15) 0deg,
+        rgba(34, 197, 94, 0.25) 45deg,
+        rgba(34, 197, 94, 0.4) 90deg,
+        rgba(34, 197, 94, 0.6) 135deg,
+        rgba(34, 197, 94, 0.7) 180deg,
+        rgba(34, 197, 94, 0.6) 225deg,
+        rgba(34, 197, 94, 0.4) 270deg,
+        rgba(34, 197, 94, 0.25) 315deg,
+        rgba(34, 197, 94, 0.15) 360deg
+      );
+      filter: blur(30px);
+    }
+    
+    .coin-row.has-trade-short::before {
+      background: conic-gradient(
+        from 0deg at 0% 50%,
+        rgba(239, 68, 68, 0.15) 0deg,
+        rgba(239, 68, 68, 0.25) 45deg,
+        rgba(239, 68, 68, 0.4) 90deg,
+        rgba(239, 68, 68, 0.6) 135deg,
+        rgba(239, 68, 68, 0.7) 180deg,
+        rgba(239, 68, 68, 0.6) 225deg,
+        rgba(239, 68, 68, 0.4) 270deg,
+        rgba(239, 68, 68, 0.25) 315deg,
+        rgba(239, 68, 68, 0.15) 360deg
+      );
+      filter: blur(30px);
+    }
+    
+    /* Ensure table content is above the glow */
+    .coin-row > td {
+      position: relative;
+      z-index: 1;
+    }
+    
     /* Subtle static glow on text elements */
     .tf-card.uptrend .status-long {
       text-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
