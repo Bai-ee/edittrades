@@ -1418,6 +1418,19 @@
       // Update entry price display
       updateEntryPrice(symbol, templateSignal);
       
+      // Update row glow animation based on current strategy's validity
+      const row = document.getElementById(`row-${symbol}`);
+      if (row) {
+        // Remove existing trade classes
+        row.classList.remove('has-trade-long', 'has-trade-short');
+        
+        // Add appropriate class only if current strategy has valid trade
+        if (templateSignal && templateSignal.valid) {
+          const tradeClass = templateSignal.direction === 'long' ? 'has-trade-long' : 'has-trade-short';
+          row.classList.add(tradeClass);
+        }
+      }
+      
       // If details row is expanded, regenerate it with new signal
       const detailsRow = document.getElementById(`details-${symbol}`);
       if (detailsRow && detailsRow.classList.contains('expanded')) {
@@ -1768,15 +1781,28 @@
     // Create table row for coin
     function createCoinRow(symbol, data) {
       const row = document.createElement('tr');
-      // Support both new 'signal' and old 'tradeSignal' field names
-      const signal = data.signal || data.tradeSignal;
-      const hasValidTrade = signal && signal.valid;
-      const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+      row.id = `row-${symbol}`;
+      
+      // Get current strategy for this symbol FIRST
+      const currentStrategyIndex = strategyStates[symbol] || 0;
+      const currentStrategy = strategyOptions[currentStrategyIndex];
+      const strategyNames = {
+        '4h': '4 HOUR',
+        'Swing': 'SWING',
+        'Scalp': 'SCALP'
+      };
+      const strategyName = strategyNames[currentStrategy] || '4 HOUR';
+      
+      // Evaluate signal based on current template
+      const template = tradeTemplates[currentStrategy];
+      const templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
+      
+      // Set row class based on CURRENT STRATEGY's validity (not API signal)
+      const hasValidTrade = templateSignal && templateSignal.valid;
       const tradeClass = hasValidTrade ? 
-        (signal.direction === 'long' ? 'has-trade-long' : 'has-trade-short') : '';
+        (templateSignal.direction === 'long' ? 'has-trade-long' : 'has-trade-short') : '';
       
       row.className = `coin-row ${tradeClass}`;
-      row.id = `row-${symbol}`;
       
       // Coin name - spell out full names
       const coinNames = {
@@ -1792,16 +1818,6 @@
       const change = data.priceChange24h ? 
         `${data.priceChange24h >= 0 ? '+' : ''}${data.priceChange24h.toFixed(2)}%` : 'N/A';
       
-      // Get current strategy for this symbol
-      const currentStrategyIndex = strategyStates[symbol] || 0;
-      const currentStrategy = strategyOptions[currentStrategyIndex];
-      const strategyNames = {
-        '4h': '4 HOUR',
-        'Swing': 'SWING',
-        'Scalp': 'SCALP'
-      };
-      const strategyName = strategyNames[currentStrategy] || '4 HOUR';
-      
       // Signal readiness
       const readiness = calculateSignalReadiness(data);
       
@@ -1814,10 +1830,6 @@
       const hasAnyTrade = (strategy4hSignal && strategy4hSignal.valid) || 
                           (strategySwingSignal && strategySwingSignal.valid) || 
                           (strategyScalpSignal && strategyScalpSignal.valid);
-      
-      // Evaluate signal based on current template
-      const template = tradeTemplates[currentStrategy];
-      const templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
       
       // Signal with confidence - show template name, not direction
       let signalHtml;
