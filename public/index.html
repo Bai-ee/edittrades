@@ -2100,7 +2100,13 @@
                 </div>
                 <div>
                   <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Setup</div>
-                  <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend'}</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${
+                    setupType === 'swing' || setupType === 'SWING' ? 'Swing Trade' :
+                    setupType === '4hTrend' || setupType === '4H' ? '4H Trend Play' :
+                    setupType === '1hScalp' || setupType === 'SCALP' ? '1H Scalp' :
+                    setupType === 'microScalp' || setupType === 'MicroScalp' || setupType === 'MICROSCALP' ? 'Micro Scalp' :
+                    '4H Trend Play'
+                  }</div>
                 </div>
               </div>
             </div>
@@ -2197,30 +2203,49 @@
         const distanceFrom21 = tf4h?.indicators?.analysis?.distanceFrom21EMA ? 
           `${tf4h.indicators.analysis.distanceFrom21EMA.toFixed(2)}%` : 'N/A';
         
-        // Conditions that would need to be met
-        let conditionsRequired = [];
-        if (setupType === 'SWING') {
-          conditionsRequired = [
-            '✓ 3D stoch oversold/overbought pivot',
-            '✓ 1D reclaim/rejection of key level',
-            '✓ 4H trend supportive',
-            '✓ Price in ENTRY_ZONE on 15m/5m'
-          ];
-        } else if (setupType === 'SCALP') {
-          conditionsRequired = [
-            '✓ 4H trend clear (not FLAT)',
-            '✓ 1H aligned with 4H',
-            '✓ 15m & 5m stoch curl in direction',
-            '✓ Price in ENTRY_ZONE',
-            '✓ 1m confirms (noise filter)'
-          ];
-        } else {
-          conditionsRequired = [
-            '✓ 4H trend clear (not FLAT)',
-            '✓ 1H confirmation',
-            '✓ Price near 21 EMA',
-            '✓ Stoch aligned'
-          ];
+        // Conditions that would need to be met - use API data if available, otherwise default
+        let conditionsRequired = tradeSignal.conditionsRequired || [];
+        
+        // Fallback conditions if not provided by API
+        if (conditionsRequired.length === 0) {
+          if (setupType === 'auto' || setupType === 'AUTO') {
+            conditionsRequired = [
+              '⚠ Awaiting clean setup',
+              '• Swing: Needs 3D/1D/4H structure (4H not FLAT)',
+              '• 4H Trend: Needs 4H trending (UP or DOWN)',
+              '• 1H Scalp: Needs 1H trending + 15m pullback + stoch aligned',
+              '• Micro-Scalp: Needs 1H trending + 15m/5m within ±0.25% of EMA21'
+            ];
+          } else if (setupType === 'SWING' || setupType === 'swing') {
+            conditionsRequired = [
+              '✓ 3D stoch oversold/overbought pivot',
+              '✓ 1D reclaim/rejection of key level',
+              '✓ 4H trend supportive (not FLAT)',
+              '✓ Price in ENTRY_ZONE on 15m/5m'
+            ];
+          } else if (setupType === 'SCALP' || setupType === '1hScalp') {
+            conditionsRequired = [
+              '✓ 1H trend clear (UPTREND or DOWNTREND)',
+              '✓ Price near 21 EMA on 1H (±2%) and 15m (±1.5%)',
+              '✓ 15m Stoch aligned with 1H trend',
+              '✓ 4H disregarded (scalp uses 1H bias)'
+            ];
+          } else if (setupType === 'MicroScalp' || setupType === 'microScalp') {
+            conditionsRequired = [
+              '✓ 1H trending (not FLAT)',
+              '✓ 15m within ±0.25% of 21 EMA',
+              '✓ 5m within ±0.25% of 21 EMA',
+              '✓ Stoch aligned on both 15m & 5m',
+              '⚠️ Disregards 4H trend entirely'
+            ];
+          } else {
+            conditionsRequired = [
+              '✓ 4H trend clear (UPTREND or DOWNTREND)',
+              '✓ 1H confirmation',
+              '✓ Price near 21 EMA',
+              '✓ Stoch aligned'
+            ];
+          }
         }
         
         tradeCallHtml = `
@@ -2245,7 +2270,14 @@
                 </div>
                 <div>
                   <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Setup</div>
-                  <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend'}</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1.25rem; font-weight: bold;">${
+                    setupType === 'auto' || setupType === 'AUTO' ? 'Auto (No Trade)' :
+                    setupType === 'swing' || setupType === 'SWING' ? 'Swing Trade' :
+                    setupType === '4hTrend' || setupType === '4H' ? '4H Trend Play' :
+                    setupType === '1hScalp' || setupType === 'SCALP' ? '1H Scalp' :
+                    setupType === 'microScalp' || setupType === 'MicroScalp' || setupType === 'MICROSCALP' ? 'Micro Scalp' :
+                    'Auto (No Trade)'
+                  }</div>
                 </div>
               </div>
             </div>
@@ -2501,10 +2533,17 @@
       const confidence = signal.confidence;
       const directionIcon = direction === 'long' ? '🟢⬆️' : direction === 'short' ? '🔴⬇️' : '⚪';
       
+      const setupLabel = setupType === 'auto' || setupType === 'AUTO' ? 'Auto (No Trade)' :
+                         setupType === 'swing' || setupType === 'SWING' ? 'Swing Trade' :
+                         setupType === '4hTrend' || setupType === '4H' ? '4H Trend Play' :
+                         setupType === '1hScalp' || setupType === 'SCALP' ? '1H Scalp' :
+                         setupType === 'microScalp' || setupType === 'MicroScalp' || setupType === 'MICROSCALP' ? 'Micro Scalp' :
+                         '4H Trend Play';
+      
       let text = `${symbol} — ${direction.toUpperCase()}${direction === 'NO_TRADE' ? '' : ' ('+setupType+')'}\n\n`;
       text += `Confidence: ${confidence}%\n`;
       text += `Direction: ${directionIcon} ${direction.toUpperCase()}\n`;
-      text += `Setup Type: ${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend Play'}\n\n`;
+      text += `Setup Type: ${setupLabel}\n\n`;
       
       if (signal.valid && signal.entryZone) {
         text += `ENTRY:\n$${signal.entryZone.min?.toLocaleString()} – $${signal.entryZone.max?.toLocaleString()}\n\n`;

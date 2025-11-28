@@ -985,15 +985,15 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
     }
   }
   
-  // PRIORITY 4: No clean setup on 4H or 1H
+  // PRIORITY 4: No clean setup on any strategy
   return {
     symbol,
     direction: 'NO_TRADE',
-    setupType: setupType || '4h',
+    setupType: 'auto',
     selectedStrategy: 'NO_TRADE',
     strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'],
     confidence: 0,
-    reason_summary: `No clean 4H or 1H setup. 4H: ${trend4h}, 1H: ${tf1h?.indicators?.analysis?.trend || 'N/A'}. HTF bias: ${htfBias.direction} (${htfBias.confidence}% confidence)`,
+    reason_summary: `No clean SWING / 4H Trend / 1H Scalp / Micro-Scalp setup. 4H: ${trend4h}, 1H: ${tf1h?.indicators?.analysis?.trend || 'N/A'}. HTF bias: ${htfBias.direction} (${htfBias.confidence}% confidence)`,
     entry_zone: { min: null, max: null },
     stop_loss: null,
     invalidation_level: null,
@@ -1008,14 +1008,17 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
       trendAlignment: `${trend4h} on 4H, ${tf1h?.indicators?.analysis?.trend || 'N/A'} on 1H`,
       stochMomentum: tf4h.indicators?.stochRSI?.condition || 'N/A',
       pullbackState: tf4h.indicators?.analysis?.pullbackState || 'N/A',
-      liquidityZones: `${tf4h.indicators?.analysis?.pullback?.distanceFrom21EMA?.toFixed(2) || 'N/A'}% from 21 EMA`,
+      liquidityZones: tf4h.indicators?.analysis?.distanceFrom21EMA ? 
+        `${Math.abs(tf4h.indicators.analysis.distanceFrom21EMA).toFixed(2)}% from 4H 21 EMA` : 
+        'Awaiting price positioning data',
       htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
     },
     conditionsRequired: [
       `⚠ Awaiting clean setup`,
-      `• 4H Trend Play: Needs 4H trending (not FLAT)`,
-      `• 1H Scalp: Needs 1H trending + 15m pullback`,
-      `• Micro-Scalp: Needs 1H trending + tight 15m/5m EMA confluence`
+      `• Swing: Needs 3D/1D/4H structure (4H not FLAT)`,
+      `• 4H Trend: Needs 4H trending (UP or DOWN)`,
+      `• 1H Scalp: Needs 1H trending + 15m pullback + stoch aligned`,
+      `• Micro-Scalp: Needs 1H trending + 15m/5m within ±0.25% of EMA21`
     ],
     trend: {
       '4h': trend4h.toLowerCase(),
