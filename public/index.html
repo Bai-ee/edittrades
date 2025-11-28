@@ -724,22 +724,23 @@
     // Evaluate signal based on template
     // Evaluate 3D Swing Signal (frontend version matching backend logic)
     function evaluateSwingSignalFrontend(symbol, data) {
-      const analysis = data.analysis;
-      const tf3d = analysis['3d'];
-      const tf1d = analysis['1d'];
-      const tf4h = analysis['4h'];
-      const currentPrice = data.currentPrice;
-      
-      // Guard: Need all required timeframes
-      if (!tf3d || !tf1d || !tf4h || !currentPrice) {
-        return {
-          valid: false,
-          direction: 'NO_TRADE',
-          reason: 'Missing 3D/1D/4H data for swing analysis',
-          confidence: 0,
-          setupType: 'Swing'
-        };
-      }
+      try {
+        const analysis = data.analysis;
+        const tf3d = analysis['3d'];
+        const tf1d = analysis['1d'];
+        const tf4h = analysis['4h'];
+        const currentPrice = data.currentPrice;
+        
+        // Guard: Need all required timeframes
+        if (!tf3d || !tf1d || !tf4h || !currentPrice) {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            reason: 'Missing 3D/1D/4H data for swing analysis',
+            confidence: 0,
+            setupType: 'Swing'
+          };
+        }
       
       const trend3d = tf3d.indicators?.analysis?.trend;
       const trend1d = tf1d.indicators?.analysis?.trend;
@@ -756,6 +757,18 @@
       const swingLow1d = tf1d.indicators?.swingLow;
       const swingHigh3d = tf3d.indicators?.swingHigh;
       const swingHigh1d = tf1d.indicators?.swingHigh;
+      
+      // Guard: Check if we have all critical data points
+      if (!trend3d || !trend1d || !trend4h || !pullback3d || !pullback1d || !pullback4h ||
+          !stoch3d || !stoch1d || !stoch4h || !ema21_4h || !ema21_1d) {
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: 'Missing required data for swing analysis',
+          confidence: 0,
+          setupType: 'Swing'
+        };
+      }
       
       // GATEKEEPERS — WHEN SWING IS EVEN ALLOWED
       // 4H trend must NOT be FLAT for swing trades
@@ -820,18 +833,18 @@
       
       const longConditionsCheck = 
         // 3D bullish or flat leaning bullish
-        (trend3d === 'UPTREND' || (trend3d === 'FLAT' && (stoch3d.condition === 'BULLISH' || stoch3d.condition === 'OVERSOLD'))) &&
+        (trend3d === 'UPTREND' || (trend3d === 'FLAT' && (stoch3d?.condition === 'BULLISH' || stoch3d?.condition === 'OVERSOLD'))) &&
         // 1D trending down BUT with bullish pivot
-        (trend1d === 'DOWNTREND' && (stoch1d.condition === 'BULLISH' || stoch1d.k < 25)) &&
+        (trend1d === 'DOWNTREND' && (stoch1d?.condition === 'BULLISH' || (stoch1d?.k && stoch1d.k < 25))) &&
         // 3D overextended below
-        (pullback3d.state === 'OVEREXTENDED' && pullback3d.distanceFrom21EMA < -8) &&
+        (pullback3d?.state === 'OVEREXTENDED' && pullback3d?.distanceFrom21EMA && pullback3d.distanceFrom21EMA < -8) &&
         // 1D pullback OK
-        (pullback1d.state === 'RETRACING' || pullback1d.state === 'ENTRY_ZONE') &&
+        (pullback1d?.state === 'RETRACING' || pullback1d?.state === 'ENTRY_ZONE') &&
         // Price near 1D EMA21
         (currentPrice >= (swingLow1d || ema21_1d * 0.90) && currentPrice <= ema21_1d * 1.02) &&
         // 4H confirmation
-        ((trend4h === 'UPTREND' || (trend4h === 'FLAT' && stoch4h.condition === 'BULLISH')) &&
-         (pullback4h.state === 'RETRACING' || pullback4h.state === 'ENTRY_ZONE') &&
+        ((trend4h === 'UPTREND' || (trend4h === 'FLAT' && stoch4h?.condition === 'BULLISH')) &&
+         (pullback4h?.state === 'RETRACING' || pullback4h?.state === 'ENTRY_ZONE') &&
          Math.abs(currentPrice - ema21_4h) / currentPrice <= 0.01);
       
       if (longConditionsCheck) {
@@ -840,27 +853,27 @@
         reclaimLevel = (swingLowToUse + ema21_1d) / 2;
         
         // Boost confidence
-        if (stoch3d.condition === 'OVERSOLD' && stoch1d.condition === 'BULLISH') confidence += 10;
+        if (stoch3d?.condition === 'OVERSOLD' && stoch1d?.condition === 'BULLISH') confidence += 10;
         if (Math.abs(currentPrice - ema21_4h) / currentPrice <= 0.005) confidence += 5;
-        if (Math.abs(pullback3d.distanceFrom21EMA) >= 10) confidence += 5;
+        if (pullback3d?.distanceFrom21EMA && Math.abs(pullback3d.distanceFrom21EMA) >= 10) confidence += 5;
       }
       
       // Check for SHORT swing setup
       if (!direction) {
         const shortConditionsCheck = 
           // 3D bearish or flat leaning bearish
-          (trend3d === 'DOWNTREND' || (trend3d === 'FLAT' && (stoch3d.condition === 'BEARISH' || stoch3d.condition === 'OVERBOUGHT'))) &&
+          (trend3d === 'DOWNTREND' || (trend3d === 'FLAT' && (stoch3d?.condition === 'BEARISH' || stoch3d?.condition === 'OVERBOUGHT'))) &&
           // 1D trending up BUT with bearish rejection
-          (trend1d === 'UPTREND' && (stoch1d.condition === 'BEARISH' || stoch1d.k > 75)) &&
+          (trend1d === 'UPTREND' && (stoch1d?.condition === 'BEARISH' || (stoch1d?.k && stoch1d.k > 75))) &&
           // 3D overextended above
-          (pullback3d.state === 'OVEREXTENDED' && pullback3d.distanceFrom21EMA > 8) &&
+          (pullback3d?.state === 'OVEREXTENDED' && pullback3d?.distanceFrom21EMA && pullback3d.distanceFrom21EMA > 8) &&
           // 1D pullback OK
-          (pullback1d.state === 'RETRACING' || pullback1d.state === 'ENTRY_ZONE') &&
+          (pullback1d?.state === 'RETRACING' || pullback1d?.state === 'ENTRY_ZONE') &&
           // Price near 1D EMA21
           (currentPrice <= (swingHigh1d || ema21_1d * 1.10) && currentPrice >= ema21_1d * 0.98) &&
           // 4H confirmation
-          ((trend4h === 'DOWNTREND' || (trend4h === 'FLAT' && stoch4h.condition === 'BEARISH')) &&
-           (pullback4h.state === 'RETRACING' || pullback4h.state === 'ENTRY_ZONE') &&
+          ((trend4h === 'DOWNTREND' || (trend4h === 'FLAT' && stoch4h?.condition === 'BEARISH')) &&
+           (pullback4h?.state === 'RETRACING' || pullback4h?.state === 'ENTRY_ZONE') &&
            Math.abs(currentPrice - ema21_4h) / currentPrice <= 0.01);
         
         if (shortConditionsCheck) {
@@ -869,9 +882,9 @@
           reclaimLevel = (swingHighToUse + ema21_1d) / 2;
           
           // Boost confidence
-          if (stoch3d.condition === 'OVERBOUGHT' && stoch1d.condition === 'BEARISH') confidence += 10;
+          if (stoch3d?.condition === 'OVERBOUGHT' && stoch1d?.condition === 'BEARISH') confidence += 10;
           if (Math.abs(currentPrice - ema21_4h) / currentPrice <= 0.005) confidence += 5;
-          if (Math.abs(pullback3d.distanceFrom21EMA) >= 10) confidence += 5;
+          if (pullback3d?.distanceFrom21EMA && Math.abs(pullback3d.distanceFrom21EMA) >= 10) confidence += 5;
         }
       }
       
@@ -942,14 +955,25 @@
           tp3RR: 5.0
         }
       };
+      } catch (error) {
+        console.error(`Error evaluating Swing signal for ${symbol}:`, error);
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: 'Error analyzing swing setup',
+          confidence: 0,
+          setupType: 'Swing'
+        };
+      }
     }
     
     function evaluateTemplateSignal(symbol, templateKey) {
-      const data = scanResults[symbol];
-      if (!data || !data.analysis) return null;
-      
-      const template = tradeTemplates[templateKey];
-      const analysis = data.analysis;
+      try {
+        const data = scanResults[symbol];
+        if (!data || !data.analysis) return null;
+        
+        const template = tradeTemplates[templateKey];
+        const analysis = data.analysis;
       
       // PRIORITY 1: Handle SWING trades (3D -> 1D -> 4H structure)
       if (templateKey === 'Swing') {
@@ -1223,6 +1247,15 @@
         },
         riskAmount: risk ? parseFloat(risk.toFixed(2)) : null  // Added: dollar risk
       };
+      } catch (error) {
+        console.error(`Error evaluating ${templateKey} signal for ${symbol}:`, error);
+        return {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: 'Error analyzing data',
+          confidence: 0
+        };
+      }
     }
     
     // Cycle through strategy states
@@ -1455,17 +1488,20 @@
       const tableBody = document.getElementById('opportunitiesTable');
       tableBody.innerHTML = '';
       
-      // Create row for each coin
-      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
-      symbols.forEach(symbol => {
+      // Create row for each coin in scanResults (includes all scanned coins)
+      for (const symbol in scanResults) {
         const data = scanResults[symbol];
-        if (data) {
-          const row = createCoinRow(symbol, data);
-          const detailsRow = createDetailsRow(symbol, data);
-          tableBody.appendChild(row);
-          tableBody.appendChild(detailsRow);
+        if (data && data.currentPrice) {  // Ensure data is valid
+          try {
+            const row = createCoinRow(symbol, data);
+            const detailsRow = createDetailsRow(symbol, data);
+            tableBody.appendChild(row);
+            tableBody.appendChild(detailsRow);
+          } catch (error) {
+            console.error(`Error creating row for ${symbol}:`, error);
+          }
         }
-      });
+      }
     }
 
     // Calculate signal readiness (proximity to trade setup)
@@ -1489,6 +1525,11 @@
       let aligned = 0;
       let total = 0;
       let direction = null;
+      
+      // Guard: Ensure analysis exists
+      if (!data.analysis) {
+        return { score: 0, text: 'No data', class: 'status-neutral' };
+      }
       
       timeframes.forEach(tf => {
         const analysis = data.analysis[tf];
