@@ -553,10 +553,10 @@
   </header>
 
   <!-- Main Content -->
-  <main class="max-w-6xl mx-auto px-4 py-4" style="width: 100%; box-sizing: border-box; overflow-x: hidden; overflow-y: visible; position: relative;">
+  <main class="max-w-6xl mx-auto px-4 py-4" style="width: 100%; box-sizing: border-box;overflow: visible; position: relative;">
     
     <!-- Copy Success Toast Container (visually centered in gap) -->
-    <div id="copyToastContainer" style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); z-index: 999; pointer-events: none;"></div>
+    <div id="copyToastContainer" style="position: absolute; top: -15px; left: 50%; transform: translateX(-50%); z-index: 999; pointer-events: none;"></div>
 
     <!-- Loading State -->
     <div id="loadingState" class="text-center py-12">
@@ -1672,6 +1672,40 @@
                 </div>
               </div>
             </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">JOURNAL NOTES:</div>
+              <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
+                ${direction === 'LONG' ? 
+                  '– Avoid early entries before stoch curl confirmation<br>– Do not long into LTF resistance zones<br>– Wait for clear ENTRY_ZONE before executing' :
+                  '– Avoid early entries before stoch curl confirmation<br>– Do not short into LTF support zones<br>– Wait for clear ENTRY_ZONE before executing'
+                }<br>
+                – Must see ${setupType === 'SCALP' ? '5m' : setupType === 'SWING' ? '15m' : '5m'} stoch curl before entering<br>
+                – Do not let ${setupType === 'SCALP' ? '1m' : '5m'} chop shake you out of HTF setups
+              </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">ACCOUNT PROGRESSION CHECK:</div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Trades Logged:</div>
+                  <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Wins:</div>
+                  <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Losses:</div>
+                  <div style="color: #ef4444; font-size: 1rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Next Margin Upgrade:</div>
+                  <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">After 10 net-positive trades</div>
+                </div>
+              </div>
+            </div>
           </div>
         `;
       } else if (tradeSignal && !tradeSignal.valid) {
@@ -1693,6 +1727,39 @@
             <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; margin-top: 1rem;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">REASON:</div>
               <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">JOURNAL NOTES:</div>
+              <div style="color: var(--text-secondary); font-size: 0.875rem; line-height: 1.6; padding-left: 1rem;">
+                – Avoid early entries before stoch curl confirmation<br>
+                – Wait for clear HTF trend establishment<br>
+                – Do not trade FLAT markets<br>
+                – Price must be in ENTRY_ZONE<br>
+                – Patience is key - wait for setup
+              </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.5rem; letter-spacing: 0.05em;">ACCOUNT PROGRESSION CHECK:</div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Trades Logged:</div>
+                  <div style="color: var(--text-primary); font-size: 1rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Wins:</div>
+                  <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Losses:</div>
+                  <div style="color: #ef4444; font-size: 1rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                  <div style="color: var(--text-secondary); font-size: 0.75rem;">Next Margin Upgrade:</div>
+                  <div style="color: var(--text-primary); font-size: 0.875rem; font-weight: bold;">After 10 net-positive trades</div>
+                </div>
+              </div>
             </div>
           </div>
         `;
@@ -1786,6 +1853,65 @@
       });
     }
 
+    // Generate formatted trade call text (matches text file format exactly)
+    function generateFormattedTradeCallText(data, signal) {
+      const symbol = data.symbol.replace('USDT', '');
+      const direction = signal.direction;
+      const setupType = signal.setupType.toUpperCase();
+      const confidence = signal.confidence;
+      const directionIcon = direction === 'long' ? '🟢⬆️' : direction === 'short' ? '🔴⬇️' : '⚪';
+      
+      let text = `${symbol} — ${direction.toUpperCase()}${direction === 'NO_TRADE' ? '' : ' ('+setupType+')'}\n\n`;
+      text += `Confidence: ${confidence}%\n`;
+      text += `Direction: ${directionIcon} ${direction.toUpperCase()}\n`;
+      text += `Setup Type: ${setupType === 'SWING' ? 'Swing' : setupType === 'SCALP' ? 'Scalp' : 'Trend Play'}\n\n`;
+      
+      if (signal.valid && signal.entryZone) {
+        text += `ENTRY:\n$${signal.entryZone.min?.toLocaleString()} – $${signal.entryZone.max?.toLocaleString()}\n\n`;
+        text += `STOP LOSS:\n$${signal.stopLoss?.toLocaleString()}\n\n`;
+        text += `TARGETS:\nTP1: $${signal.targets.tp1?.toLocaleString()}\nTP2: $${signal.targets.tp2?.toLocaleString()}\n\n`;
+        text += `RISK / REWARD:\n${signal.riskReward.tp1RR}R to ${signal.riskReward.tp2RR}R\n\n`;
+      } else {
+        text += `ENTRY:\nNo valid entry zone at this time\n\n`;
+        text += `STOP LOSS:\nN/A\n\n`;
+        text += `TARGETS:\nTP1: N/A\nTP2: N/A\n\n`;
+        text += `RISK / REWARD:\nN/A\n\n`;
+      }
+      
+      text += `INVALIDATION:\n${signal.invalidation.description}\n`;
+      if (signal.invalidation.level) {
+        text += `Level: $${signal.invalidation.level.toLocaleString()}\n`;
+      }
+      text += `\n`;
+      
+      text += `WHY THIS TRADE:\nClear short explanation of confluence:\n`;
+      text += `– Trend alignment: ${signal.confluence.trendAlignment}\n`;
+      text += `– Stoch momentum: ${signal.confluence.stochMomentum}\n`;
+      text += `– Pullback state: ${signal.confluence.pullbackState}\n`;
+      text += `– Liquidity zones: ${signal.confluence.liquidityZones}\n`;
+      text += `– HTF confirmation: ${signal.confluence.htfConfirmation}\n\n`;
+      
+      text += `CONDITIONS REQUIRED:\n`;
+      signal.conditionsRequired.forEach(cond => {
+        text += `${cond}\n`;
+      });
+      text += `\n`;
+      
+      text += `JOURNAL NOTES:\n`;
+      signal.journalNotes.forEach(note => {
+        text += `${note}\n`;
+      });
+      text += `\n`;
+      
+      text += `ACCOUNT PROGRESSION CHECK:\n`;
+      text += `Trades Logged: ${signal.accountProgression.tradesLogged}\n`;
+      text += `Wins: ${signal.accountProgression.wins}\n`;
+      text += `Losses: ${signal.accountProgression.losses}\n`;
+      text += `Next Margin Upgrade: ${signal.accountProgression.nextUpgrade}\n`;
+      
+      return text;
+    }
+    
     // Create compact dashboard view
     function createDashboardView(data) {
       const view = {
@@ -1865,7 +1991,32 @@
             '✓ 1H confirmation',
             '✓ Price near 21 EMA',
             '✓ Stoch aligned'
-          ]
+          ],
+          
+          // Journal notes - corrections from past mistakes
+          journalNotes: data.tradeSignal.direction === 'long' || data.tradeSignal.direction === 'LONG' ? [
+            '– Avoid early entries before stoch curl confirmation',
+            '– Do not long into LTF resistance zones',
+            '– Wait for clear ENTRY_ZONE before executing',
+            `– Must see ${setupType === 'Scalp' ? '5m' : setupType === 'Swing' ? '15m' : '5m'} stoch curl before entering`,
+            `– Do not let ${setupType === 'Scalp' ? '1m' : '5m'} chop shake you out of HTF setups`
+          ] : [
+            '– Avoid early entries before stoch curl confirmation',
+            '– Do not short into LTF support zones',
+            '– Wait for clear ENTRY_ZONE before executing',
+            `– Must see ${setupType === 'Scalp' ? '5m' : setupType === 'Swing' ? '15m' : '5m'} stoch curl before entering`,
+            `– Do not let ${setupType === 'Scalp' ? '1m' : '5m'} chop shake you out of HTF setups`
+          ],
+          
+          // Account progression tracking
+          accountProgression: {
+            tradesLogged: 0,
+            wins: 0,
+            losses: 0,
+            netPnL: 0,
+            currentMarginTier: 1,
+            nextUpgrade: 'After 10 net-positive trades with behavioral errors trending down'
+          }
         };
       } else {
         // No trade signal - still provide structure with analysis data
@@ -1904,9 +2055,31 @@
             '✓ 1H confirmation',
             '✓ Price near 21 EMA',
             '✓ Stoch aligned'
-          ]
+          ],
+          
+          // Journal notes for NO TRADE
+          journalNotes: [
+            '– Avoid early entries before stoch curl confirmation',
+            '– Wait for clear HTF trend establishment',
+            '– Do not trade FLAT markets',
+            '– Price must be in ENTRY_ZONE',
+            '– Patience is key - wait for setup'
+          ],
+          
+          // Account progression
+          accountProgression: {
+            tradesLogged: 0,
+            wins: 0,
+            losses: 0,
+            netPnL: 0,
+            currentMarginTier: 1,
+            nextUpgrade: 'After 10 net-positive trades with behavioral errors trending down'
+          }
         };
       }
+      
+      // Store formatted trade call for easy GPT consumption
+      view.formattedTradeCall = generateFormattedTradeCallText(data, view.signal);
       
       // Timeframes - Includes all fetched intervals (1M, 1w, 3d, 1d, 4h, 1h, 15m, 5m, 1m)
       if (data.analysis) {
