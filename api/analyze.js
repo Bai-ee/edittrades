@@ -206,9 +206,11 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('[Analyze] Error:', error.message);
+    console.error('[Analyze] Stack:', error.stack);
     return res.status(500).json({ 
       error: 'Internal server error',
-      message: error.message 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
