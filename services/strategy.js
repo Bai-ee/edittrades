@@ -2,9 +2,40 @@
  * Multi-Timeframe Trading Strategy Engine
  * Implements flexible trading system with HTF bias scoring
  * Supports: 4H Trend Play, 1H Scalp, Swing, and Micro-Scalp
+ * Includes AGGRESSIVE mode for looser requirements when STANDARD finds no trade
  */
 
 import * as indicators from './indicators.js';
+
+/**
+ * Trading Mode Thresholds
+ * STANDARD: Conservative, high-probability setups
+ * AGGRESSIVE: Looser requirements for more trade opportunities (smaller position sizes)
+ */
+const THRESHOLDS = {
+  STANDARD: {
+    emaPullbackMax: 1.0,        // % from EMA21 for entry
+    emaPullbackMax1H: 1.5,      // % from 1H EMA21 for 1H scalps
+    microScalpEmaBand: 0.25,    // ±0.25% for micro-scalps
+    allowFlat4HForScalp: false, // 4H must be trending for scalps
+    allowFlat1HForScalp: false, // 1H must be trending for scalps
+    allowFlat4HForSwing: false, // 4H must be trending for swings
+    minHtfBiasConfidence: 60,   // Minimum HTF bias confidence
+    maxSwingEmaDist1D: 3.0,     // Max % from 1D EMA21 for swing
+    min15mStochAlign: true      // Require 15m stoch strict alignment
+  },
+  AGGRESSIVE: {
+    emaPullbackMax: 1.75,       // Looser pullback zone
+    emaPullbackMax1H: 2.5,      // Much looser 1H pullback
+    microScalpEmaBand: 0.75,    // ±0.75% band for micro-scalps
+    allowFlat4HForScalp: true,  // Allow 4H FLAT for scalps
+    allowFlat1HForScalp: true,  // Allow 1H FLAT for scalps
+    allowFlat4HForSwing: true,  // Allow 4H FLAT for swings (if 1D strong)
+    minHtfBiasConfidence: 40,   // Accept weaker bias
+    maxSwingEmaDist1D: 5.0,     // Wider swing entry zone
+    min15mStochAlign: false     // Allow looser stoch alignment
+  }
+};
 
 /**
  * Compute Higher Timeframe Bias from 4H + 1H
@@ -103,6 +134,177 @@ function detectStochCurl(stochHistory) {
   if (k3 < k2 && k2 < k1) return 'down';
   
   return 'flat';
+}
+
+/**
+ * Try Aggressive Strategies
+ * Called when AGGRESSIVE mode is enabled and conservative strategies found no trade
+ * Uses looser requirements: wider EMA bands, allows FLAT trends, lower HTF bias
+ * @param {string} symbol - Trading symbol
+ * @param {Object} analysis - Multi-timeframe analysis
+ * @param {Object} htfBias - HTF bias object
+ * @param {Object} thresholds - AGGRESSIVE thresholds
+ * @returns {Object} Trade signal or invalid signal
+ */
+function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
+  const tf4h = analysis['4h'];
+  const tf1h = analysis['1h'];
+  const tf15m = analysis['15m'];
+  const tf5m = analysis['5m'];
+  
+  if (!tf4h || !tf1h || !tf15m || !tf5m) {
+    return { valid: false };
+  }
+  
+  const currentPrice = parseFloat(tf4h.price);
+  const trend1h = tf1h.indicators?.analysis?.trend;
+  
+  // AGGRESSIVE 1H SCALP: Allow 1H FLAT, wider pullback (±2.5%), looser stoch
+  if (trend1h === 'UPTREND' || (thresholds.allowFlat1HForScalp && trend1h === 'FLAT')) {
+    const dist1h = Math.abs(tf1h.indicators?.analysis?.distanceFrom21EMA || 999);
+    const dist15m = Math.abs(tf15m.indicators?.analysis?.distanceFrom21EMA || 999);
+    const pullback15m = tf15m.indicators?.analysis?.pullbackState;
+    
+    if (dist1h <= thresholds.emaPullbackMax1H && dist15m <= thresholds.emaPullbackMax &&
+        (pullback15m === 'ENTRY_ZONE' || pullback15m === 'RETRACING')) {
+      
+      const k15m = tf15m.indicators?.stochRSI?.k || 0;
+      if (k15m < 75) {  // Not overbought
+        const ema21_1h = parseFloat(tf1h.indicators?.ema?.ema21) || currentPrice;
+        const ema21_15m = parseFloat(tf15m.indicators?.ema?.ema21) || currentPrice;
+        const entry = (ema21_1h + ema21_15m) / 2;
+        const swingLow15m = parseFloat(tf15m.indicators?.swingLow) || currentPrice * 0.97;
+        const swingLow1h = parseFloat(tf1h.indicators?.swingLow) || currentPrice * 0.97;
+        const stopLoss = Math.min(swingLow15m, swingLow1h);
+        const R = Math.abs(entry - stopLoss);
+        
+        // Targets - ensure they're valid numbers
+        const tp1_raw = entry + R * 1.5;
+        const tp2_raw = entry + R * 3.0;
+        const tp1 = !isNaN(tp1_raw) && isFinite(tp1_raw) ? parseFloat(tp1_raw.toFixed(2)) : null;
+        const tp2 = !isNaN(tp2_raw) && isFinite(tp2_raw) ? parseFloat(tp2_raw.toFixed(2)) : null;
+        const stopLossFinal = !isNaN(stopLoss) && isFinite(stopLoss) ? parseFloat(stopLoss.toFixed(2)) : null;
+        
+        return {
+          valid: true,
+          symbol,
+          direction: 'long',
+          setupType: 'AGGRO_SCALP_1H',
+          selectedStrategy: 'AGGRO_SCALP_1H',
+          strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H'],
+          confidence: 0.55,
+          reason_summary: `Aggressive 1H scalp LONG: 1H ${trend1h}, 15m ${dist15m.toFixed(2)}% from EMA21, stoch ${k15m.toFixed(0)}. Counter-trend fade with small size.`,
+          entry_zone: { 
+            min: parseFloat((entry * 0.997).toFixed(2)), 
+            max: parseFloat((entry * 1.003).toFixed(2))
+          },
+          stop_loss: stopLossFinal,
+          invalidation_level: stopLossFinal,
+          targets: [tp1, tp2],
+          risk_reward: { tp1RR: 1.5, tp2RR: 3.0 },
+          risk_amount: 0.005,  // 0.5% (half size)
+          invalidation: {
+            level: stopLossFinal,
+            description: 'Aggressive scalp - exit immediately if 15m swing low breaks. No second chances on counter-trend.'
+          },
+          confluence: {
+            trendAlignment: `FLAT on 4H, ${trend1h} on 1H (aggressive mode allows FLAT)`,
+            stochMomentum: `15m stoch ${k15m.toFixed(0)} (oversold bounce)`,
+            pullbackState: `15m ${pullback15m}, ${dist15m.toFixed(2)}% from EMA21`,
+            liquidityZones: `Price at EMA21 cluster (aggro entry)`,
+            htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source}) - COUNTER to bias`
+          },
+          conditionsRequired: [
+            '⚠ AGGRESSIVE MODE: Counter-trend scalp with reduced size',
+            '✓ 1H trend UPTREND or FLAT (aggressive allows FLAT)',
+            '✓ 15m within ±2.5% of EMA21 (wider than standard ±1.0%)',
+            '✓ 15m stoch not overbought (k < 75)',
+            '✓ Position size: 0.5% risk (half of standard 1%)',
+            '⚠ Exit immediately if wrong - tight invalidation'
+          ],
+          timestamp: new Date().toISOString(),
+          currentPrice: currentPrice,
+          ema21: ema21_1h,
+          ema200: tf1h.indicators?.analysis?.ema200 || null
+        };
+      }
+    }
+  }
+  
+  // Try SHORT
+  if (trend1h === 'DOWNTREND' || (thresholds.allowFlat1HForScalp && trend1h === 'FLAT')) {
+    const dist1h = Math.abs(tf1h.indicators?.analysis?.distanceFrom21EMA || 999);
+    const dist15m = Math.abs(tf15m.indicators?.analysis?.distanceFrom21EMA || 999);
+    const pullback15m = tf15m.indicators?.analysis?.pullbackState;
+    
+    if (dist1h <= thresholds.emaPullbackMax1H && dist15m <= thresholds.emaPullbackMax &&
+        (pullback15m === 'ENTRY_ZONE' || pullback15m === 'RETRACING')) {
+      
+      const k15m = tf15m.indicators?.stochRSI?.k || 100;
+      if (k15m > 25) {  // Not oversold
+        const ema21_1h = parseFloat(tf1h.indicators?.ema?.ema21) || currentPrice;
+        const ema21_15m = parseFloat(tf15m.indicators?.ema?.ema21) || currentPrice;
+        const entry = (ema21_1h + ema21_15m) / 2;
+        const swingHigh15m = parseFloat(tf15m.indicators?.swingHigh) || currentPrice * 1.03;
+        const swingHigh1h = parseFloat(tf1h.indicators?.swingHigh) || currentPrice * 1.03;
+        const stopLoss = Math.max(swingHigh15m, swingHigh1h);
+        const R = Math.abs(entry - stopLoss);
+        
+        // Targets - ensure they're valid numbers
+        const tp1_raw = entry - R * 1.5;
+        const tp2_raw = entry - R * 3.0;
+        const tp1 = !isNaN(tp1_raw) && isFinite(tp1_raw) ? parseFloat(tp1_raw.toFixed(2)) : null;
+        const tp2 = !isNaN(tp2_raw) && isFinite(tp2_raw) ? parseFloat(tp2_raw.toFixed(2)) : null;
+        const stopLossFinal = !isNaN(stopLoss) && isFinite(stopLoss) ? parseFloat(stopLoss.toFixed(2)) : null;
+        
+        return {
+          valid: true,
+          symbol,
+          direction: 'short',
+          setupType: 'AGGRO_SCALP_1H',
+          selectedStrategy: 'AGGRO_SCALP_1H',
+          strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H'],
+          confidence: 0.55,
+          reason_summary: `Aggressive 1H scalp SHORT: 1H ${trend1h}, 15m ${dist15m.toFixed(2)}% from EMA21, stoch ${k15m.toFixed(0)}. Counter-trend fade with small size.`,
+          entry_zone: { 
+            min: parseFloat((entry * 0.997).toFixed(2)), 
+            max: parseFloat((entry * 1.003).toFixed(2))
+          },
+          stop_loss: stopLossFinal,
+          invalidation_level: stopLossFinal,
+          targets: [tp1, tp2],
+          risk_reward: { tp1RR: 1.5, tp2RR: 3.0 },
+          risk_amount: 0.005,
+          invalidation: {
+            level: stopLossFinal,
+            description: 'Aggressive scalp - exit immediately if 15m swing high breaks. No second chances on counter-trend.'
+          },
+          confluence: {
+            trendAlignment: `FLAT on 4H, ${trend1h} on 1H (aggressive mode allows FLAT)`,
+            stochMomentum: `15m stoch ${k15m.toFixed(0)} (overbought rejection)`,
+            pullbackState: `15m ${pullback15m}, ${dist15m.toFixed(2)}% from EMA21`,
+            liquidityZones: `Price at EMA21 cluster (aggro entry)`,
+            htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source}) - COUNTER to bias`
+          },
+          conditionsRequired: [
+            '⚠ AGGRESSIVE MODE: Counter-trend scalp with reduced size',
+            '✓ 1H trend DOWNTREND or FLAT (aggressive allows FLAT)',
+            '✓ 15m within ±2.5% of EMA21 (wider than standard ±1.0%)',
+            '✓ 15m stoch not oversold (k > 25)',
+            '✓ Position size: 0.5% risk (half of standard 1%)',
+            '⚠ Exit immediately if wrong - tight invalidation'
+          ],
+          timestamp: new Date().toISOString(),
+          currentPrice: currentPrice,
+          ema21: ema21_1h,
+          ema200: tf1h.indicators?.analysis?.ema200 || null
+        };
+      }
+    }
+  }
+  
+  // No aggressive trade found
+  return { valid: false };
 }
 
 /**
@@ -626,7 +828,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
  * @param {string} setupType - 'Swing', 'Scalp', or '4h' (default '4h')
  * @returns {Object} Trade signal object
  */
-export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
+export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', mode = 'STANDARD') {
   const analysis = multiTimeframeData;
   const tf3d = analysis['3d'];
   const tf1d = analysis['1d'];
@@ -635,6 +837,9 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
   const tf15m = analysis['15m'];
   const tf5m = analysis['5m'];
   const tf1m = analysis['1m'];
+  
+  // Get thresholds for current mode
+  const thresholds = mode === 'AGGRESSIVE' ? THRESHOLDS.AGGRESSIVE : THRESHOLDS.STANDARD;
   
   // Must have at least 4h data
   if (!tf4h || !tf4h.indicators) {
@@ -985,15 +1190,38 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h') {
     }
   }
   
-  // PRIORITY 4: No clean setup on any strategy
+  // PRIORITY 4: If AGGRESSIVE mode, try aggressive variants before giving up
+  if (mode === 'AGGRESSIVE') {
+    const aggressiveSignal = tryAggressiveStrategies(symbol, analysis, htfBias, thresholds);
+    if (aggressiveSignal.valid) {
+      return {
+        ...aggressiveSignal,
+        mode: 'AGGRESSIVE',
+        riskProfile: 'HIGH',
+        aggressiveUsed: true,
+        htfBias: htfBias
+      };
+    }
+  }
+  
+  // PRIORITY 5: No clean setup on any strategy (conservative or aggressive)
+  const strategiesChecked = mode === 'AGGRESSIVE' 
+    ? ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H', 'AGGRO_MICRO_SCALP']
+    : ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'];
+    
   return {
     symbol,
+    mode: mode,
+    riskProfile: mode === 'AGGRESSIVE' ? 'HIGH' : 'NORMAL',
+    aggressiveUsed: mode === 'AGGRESSIVE',
     direction: 'NO_TRADE',
     setupType: 'auto',
     selectedStrategy: 'NO_TRADE',
-    strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'],
+    strategiesChecked: strategiesChecked,
     confidence: 0,
-    reason_summary: `No clean SWING / 4H Trend / 1H Scalp / Micro-Scalp setup. 4H: ${trend4h}, 1H: ${tf1h?.indicators?.analysis?.trend || 'N/A'}. HTF bias: ${htfBias.direction} (${htfBias.confidence}% confidence)`,
+    reason_summary: mode === 'AGGRESSIVE' 
+      ? `No setup found (AGGRESSIVE mode checked: SWING / 4H Trend / 1H Scalp / Micro-Scalp / Aggro 1H Scalp / Aggro Micro-Scalp). 4H: ${trend4h}, 1H: ${tf1h?.indicators?.analysis?.trend || 'N/A'}. HTF bias: ${htfBias.direction} (${htfBias.confidence}% confidence)`
+      : `No clean SWING / 4H Trend / 1H Scalp / Micro-Scalp setup. 4H: ${trend4h}, 1H: ${tf1h?.indicators?.analysis?.trend || 'N/A'}. HTF bias: ${htfBias.direction} (${htfBias.confidence}% confidence)`,
     entry_zone: { min: null, max: null },
     stop_loss: null,
     invalidation_level: null,

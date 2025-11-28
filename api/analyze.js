@@ -180,10 +180,14 @@ export default async function handler(req, res) {
     // Get setupType from query (default to 'auto' to check all strategies)
     const setupType = req.query.setupType || 'auto';
     console.log(`[Analyze] Setup type: ${setupType}`);
+    
+    // Get mode from query (default to 'STANDARD')
+    const mode = req.query.mode || 'STANDARD';
+    console.log(`[Analyze] Mode: ${mode}`);
 
     // Run strategy evaluation (will check Swing first, then 4H/Scalp)
-    console.log(`[Analyze] Running strategy evaluation (${setupType})...`);
-    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis, setupType);
+    console.log(`[Analyze] Running strategy evaluation (${setupType}, mode: ${mode})...`);
+    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis, setupType, mode);
 
     // Evaluate Micro-Scalp Override (only relevant when 4H is FLAT and normal trade blocked)
     console.log(`[Analyze] Evaluating micro-scalp override...`);

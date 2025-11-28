@@ -599,16 +599,24 @@
           <a href="/strategy.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
             Proof of Strategy
           </a>
-          <a href="/scanner.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
+          <a href="/scanner.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap" style="display: none;">
             SCAN THE SPACE
           </a>
-              <button 
+          <button 
+            id="aggressiveToggle" 
+            onclick="toggleAggressiveMode()"
+            class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
+            style="transition: all 0.3s ease;"
+          >
+            <span id="aggressiveLabel">STANDARD</span>
+          </button>
+          <button 
             id="copyAllBtn" 
             onclick="copyAllCoins()"
             class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
           >
             COPY GPT
-              </button>
+          </button>
               <button 
             id="refreshBtn" 
             onclick="scanMajorCoins()"
@@ -674,6 +682,36 @@
 
   <script>
     let scanResults = {};
+    
+    // Aggressive mode state (default: STANDARD)
+    let aggressiveMode = localStorage.getItem('aggressiveMode') === 'true' || false;
+    
+    // Initialize aggressive mode UI on page load
+    function initializeAggressiveMode() {
+      const button = document.getElementById('aggressiveToggle');
+      const label = document.getElementById('aggressiveLabel');
+      if (aggressiveMode) {
+        button.style.backgroundColor = '#ef4444';
+        button.style.color = 'white';
+        button.style.borderColor = '#ef4444';
+        label.textContent = 'AGGRESSIVE';
+      } else {
+        button.style.backgroundColor = '';
+        button.style.color = '';
+        button.style.borderColor = '';
+        label.textContent = 'STANDARD';
+      }
+    }
+    
+    // Toggle aggressive mode
+    function toggleAggressiveMode() {
+      aggressiveMode = !aggressiveMode;
+      localStorage.setItem('aggressiveMode', aggressiveMode);
+      initializeAggressiveMode();
+      
+      // Re-scan with new mode
+      scanMajorCoins();
+    }
     
     // Strategy states for each symbol (default: index 0 = 4-Hour)
     const strategyStates = {
@@ -1515,6 +1553,7 @@
     
     // Auto-run scan on page load
     window.addEventListener('DOMContentLoaded', () => {
+      initializeAggressiveMode();
       scanMajorCoins();
     });
 
@@ -1535,8 +1574,9 @@
         scanResults = {};
         
         // Fetch all coins in parallel with expanded timeframes (including 3D for swing trades)
+        const mode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
         const promises = symbols.map(symbol => 
-          fetch(`/api/analyze/${symbol}?intervals=1M,1w,3d,1d,4h,1h,15m,5m,1m`)
+          fetch(`/api/analyze/${symbol}?intervals=1M,1w,3d,1d,4h,1h,15m,5m,1m&mode=${mode}`)
             .then(res => {
               if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
               return res.json();
@@ -2105,6 +2145,8 @@
                     setupType === '4hTrend' || setupType === '4H' ? '4H Trend Play' :
                     setupType === '1hScalp' || setupType === 'SCALP' ? '1H Scalp' :
                     setupType === 'microScalp' || setupType === 'MicroScalp' || setupType === 'MICROSCALP' ? 'Micro Scalp' :
+                    setupType === 'AGGRO_SCALP_1H' ? 'Aggressive 1H Scalp' :
+                    setupType === 'AGGRO_MICRO_SCALP' ? 'Aggressive Micro Scalp' :
                     '4H Trend Play'
                   }</div>
                 </div>
@@ -2238,6 +2280,24 @@
               '✓ Stoch aligned on both 15m & 5m',
               '⚠️ Disregards 4H trend entirely'
             ];
+          } else if (setupType === 'AGGRO_SCALP_1H') {
+            conditionsRequired = [
+              '⚠ AGGRESSIVE MODE: Counter-trend scalp with reduced size',
+              '✓ 1H trend UPTREND/DOWNTREND or FLAT (allows FLAT)',
+              '✓ 15m within ±2.5% of EMA21 (wider than standard)',
+              '✓ 15m stoch supportive (not extreme)',
+              '✓ Position size: 0.5% risk (half of standard)',
+              '⚠ Exit immediately if wrong - tight invalidation'
+            ];
+          } else if (setupType === 'AGGRO_MICRO_SCALP') {
+            conditionsRequired = [
+              '⚠ AGGRESSIVE MODE: LTF counter-scalp with minimal size',
+              '✓ 1H trending',
+              '✓ 15m within ±0.75% of EMA21 (3x standard band)',
+              '✓ 5m within ±0.75% of EMA21',
+              '✓ At least one stoch oversold/overbought',
+              '✓ Position size: 0.33% risk (1/3 of standard)'
+            ];
           } else {
             conditionsRequired = [
               '✓ 4H trend clear (UPTREND or DOWNTREND)',
@@ -2276,6 +2336,8 @@
                     setupType === '4hTrend' || setupType === '4H' ? '4H Trend Play' :
                     setupType === '1hScalp' || setupType === 'SCALP' ? '1H Scalp' :
                     setupType === 'microScalp' || setupType === 'MicroScalp' || setupType === 'MICROSCALP' ? 'Micro Scalp' :
+                    setupType === 'AGGRO_SCALP_1H' ? 'Aggressive 1H Scalp' :
+                    setupType === 'AGGRO_MICRO_SCALP' ? 'Aggressive Micro Scalp' :
                     'Auto (No Trade)'
                   }</div>
                 </div>
@@ -2538,6 +2600,8 @@
                          setupType === '4hTrend' || setupType === '4H' ? '4H Trend Play' :
                          setupType === '1hScalp' || setupType === 'SCALP' ? '1H Scalp' :
                          setupType === 'microScalp' || setupType === 'MicroScalp' || setupType === 'MICROSCALP' ? 'Micro Scalp' :
+                         setupType === 'AGGRO_SCALP_1H' ? 'Aggressive 1H Scalp' :
+                         setupType === 'AGGRO_MICRO_SCALP' ? 'Aggressive Micro Scalp' :
                          '4H Trend Play';
       
       let text = `${symbol} — ${direction.toUpperCase()}${direction === 'NO_TRADE' ? '' : ' ('+setupType+')'}\n\n`;
