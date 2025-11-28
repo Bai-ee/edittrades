@@ -2697,7 +2697,7 @@
       
       // Signal - ALWAYS INCLUDES ALL FORMATTED FIELDS (even if no valid trade)
       const tradeSignal = data.signal || data.tradeSignal;
-      const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+      // htfBias already declared at top of function
       
       if (tradeSignal) {
         const setupType = tradeSignal.setupType || '4h';
