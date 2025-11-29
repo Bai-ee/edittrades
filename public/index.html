@@ -257,7 +257,10 @@
         flex: 1 !important;
         min-width: 0 !important;
       }
-      
+    }
+    
+    /* Mobile ONLY (not small desktop): show entry label and mobile layout */
+    @media (max-width: 640px) {
       /* Mobile: show entry price under coin name, hide desktop column */
       .entry-price-mobile {
         display: block !important;
