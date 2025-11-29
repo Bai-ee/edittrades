@@ -182,7 +182,7 @@ DO NOT MENTION 4H TREND IN YOUR ANALYSIS - IT IS NOT A FACTOR`
     const currentGuidance = strategyGuidance[setupType] || strategyGuidance['4h'];
 
     // Construct the system prompt based on the reasoning agent rules
-    const systemPrompt = `You are the Trading Reasoning Layer for EditTrades.
+    const tradeSystemPrompt = `You are the Trading Reasoning Layer for EditTrades.
 
 Your job:
 - Analyze EditTrades' JSON snapshot for ${setupType.toUpperCase()} setup
@@ -303,7 +303,7 @@ End with your overall rating: A+, A, B, or SKIP`;
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: tradeSystemPrompt },
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.3,
