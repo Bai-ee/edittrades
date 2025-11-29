@@ -3,9 +3,9 @@
  * 
  * This serverless function sends market JSON to ChatGPT for trade analysis
  * and returns a formatted trade call with reasoning.
+ * 
+ * Uses raw fetch (not SDK) for better Vercel serverless compatibility
  */
-
-import OpenAI from 'openai';
 
 // Market Review Handler (new)
 async function handleMarketReview(req, res, tradesData, systemPrompt) {
@@ -30,25 +30,37 @@ ${JSON.stringify(tradesData, null, 2)}
 
 Remember: Keep it tight, observational, and focused on overall market behavior and correlation between assets.`;
 
-    console.log('📤 Calling OpenAI API for market review...');
+    console.log('📤 Calling OpenAI API for market review (using raw fetch)...');
 
-    // Use OpenAI SDK with timeout
-    const openai = new OpenAI({ 
-      apiKey,
-      timeout: 15000 // 15 second timeout for quick review
-    });
-    
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 150
+    // Use raw fetch instead of SDK (better Vercel compatibility)
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 150
+      })
     });
 
-    const review = completion.choices[0]?.message?.content;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ OpenAI API error:', response.status, errorText);
+      return res.status(500).json({
+        error: 'OpenAI API request failed',
+        message: `API returned ${response.status}`
+      });
+    }
+
+    const data = await response.json();
+    const review = data.choices[0]?.message?.content;
 
     if (!review) {
       return res.status(500).json({ 
@@ -306,47 +318,43 @@ Write naturally in flowing paragraphs. No bullet points or lists. Be conversatio
 
 End with your overall rating: A+, A, B, or SKIP`;
 
-    // Call OpenAI API using SDK with timeout
-    console.log('🔧 Initializing OpenAI SDK...');
-    let openai;
-    try {
-      openai = new OpenAI({ 
-        apiKey,
-        timeout: 20000 // 20 second timeout
-      });
-      console.log('✅ OpenAI SDK initialized');
-    } catch (error) {
-      console.error('❌ Failed to initialize OpenAI SDK:', error.message);
-      throw error;
-    }
-    
-    console.log('🤖 Calling OpenAI for individual trade analysis...');
+    // Call OpenAI API using raw fetch (same approach as parse-trade-image.js which works)
+    console.log('🤖 Calling OpenAI for individual trade analysis (using raw fetch)...');
     console.log('Model: gpt-4o-mini, max_tokens: 800, temperature: 0.3');
-    console.log('System prompt length:', tradeSystemPrompt.length);
-    console.log('User prompt length:', userPrompt.length);
     
-    let completion;
-    try {
-      completion = await openai.chat.completions.create({
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: tradeSystemPrompt },
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.3,
-        max_tokens: 800 // Reduced from 2000 for faster response
+        max_tokens: 800
+      })
+    });
+
+    console.log('📥 OpenAI response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ OpenAI API error:', response.status, errorText);
+      return res.status(500).json({
+        error: 'OpenAI API request failed',
+        message: `API returned ${response.status}: ${errorText.substring(0, 200)}`
       });
-      console.log('✅ OpenAI API call successful');
-    } catch (error) {
-      console.error('❌ OpenAI API call failed:', error.name, error.message);
-      throw error;
     }
 
-    const agentResponse = completion.choices[0]?.message?.content;
+    const data = await response.json();
+    const agentResponse = data.choices[0]?.message?.content;
 
     if (!agentResponse) {
       console.error('❌ No response content from OpenAI');
-      console.error('Completion object:', JSON.stringify(completion, null, 2));
       return res.status(500).json({ 
         error: 'No response from AI agent' 
       });
