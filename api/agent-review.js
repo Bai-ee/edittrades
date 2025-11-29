@@ -5,6 +5,8 @@
  * and returns a formatted trade call with reasoning.
  */
 
+import fetch from 'node-fetch';
+
 // Market Review Handler (new)
 async function handleMarketReview(req, res, tradesData, systemPrompt) {
   try {
