@@ -34,7 +34,9 @@ export default async function handler(req, res) {
     console.log('✅ OpenAI API key found, initializing...');
     
     const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY
+      apiKey: process.env.OPENAI_API_KEY,
+      timeout: 25000, // 25 second timeout (Vercel allows 30s)
+      maxRetries: 0 // Don't retry to avoid timeout
     });
 
     const { imageData } = req.body;
@@ -45,9 +47,10 @@ export default async function handler(req, res) {
 
     console.log('🖼️ Parsing trade image with OpenAI Vision...');
 
-    // Call OpenAI Vision API
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+    // Call OpenAI Vision API with timeout
+    const response = await Promise.race([
+      openai.chat.completions.create({
+        model: 'gpt-4o',
       messages: [
         {
           role: 'user',
@@ -86,7 +89,11 @@ Be precise with numbers. Do not include any markdown formatting or explanation, 
       ],
       max_tokens: 300,
       temperature: 0.1
-    });
+    }),
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('OpenAI API timeout after 25 seconds')), 25000)
+    )
+  ]);
 
     const content = response.choices[0]?.message?.content;
     
@@ -127,14 +134,35 @@ Be precise with numbers. Do not include any markdown formatting or explanation, 
     console.error('Error details:', {
       message: error.message,
       stack: error.stack,
-      name: error.name
+      name: error.name,
+      code: error.code,
+      type: error.type
     });
     
     // Return a graceful JSON error (never HTML)
+    let errorMessage = error.message || 'Unknown error occurred';
+    let errorType = 'UnknownError';
+    
+    // Categorize common errors
+    if (error.message?.includes('timeout')) {
+      errorMessage = 'OpenAI API took too long to respond. Try with a smaller or clearer image.';
+      errorType = 'TimeoutError';
+    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      errorMessage = 'Could not connect to OpenAI API. Check your network connection.';
+      errorType = 'ConnectionError';
+    } else if (error.code === 'invalid_api_key' || error.status === 401) {
+      errorMessage = 'Invalid OpenAI API key. Please check your configuration.';
+      errorType = 'AuthenticationError';
+    } else if (error.code === 'rate_limit_exceeded' || error.status === 429) {
+      errorMessage = 'OpenAI API rate limit exceeded. Please wait a moment and try again.';
+      errorType = 'RateLimitError';
+    }
+    
     return res.status(500).json({ 
       error: 'Failed to analyze image',
-      message: error.message || 'Unknown error occurred',
-      details: error.name || 'UnknownError'
+      message: errorMessage,
+      details: errorType,
+      code: error.code || null
     });
   }
 }
