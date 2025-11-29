@@ -3387,7 +3387,7 @@
       }
       
       // Get the currently selected strategy's signal
-      const selectedStrategyIndex = selectedStrategies[symbol] || 0;
+      const selectedStrategyIndex = strategyStates[symbol] || 0;
       const templateSignal = evaluateTemplateSignal(symbol, selectedStrategyIndex);
       const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
       
