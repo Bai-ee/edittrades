@@ -97,7 +97,7 @@
     }
     
     /* Force layout recalculation on mobile iOS after toggle */
-    @media (max-width: 767px) {
+    @media (max-width: 674px) {
       .details-content-wrapper {
         display: block;
         contain: layout;
@@ -131,7 +131,7 @@
     }
     
     /* Minimize gaps on desktop */
-    @media (min-width: 769px) {
+    @media (min-width: 675px) {
       .table-edittrax th,
       .table-edittrax td {
         padding: var(--spacing-2) var(--spacing-2);
@@ -167,7 +167,7 @@
       .table-edittrax tbody td:nth-child(5) { 
         width: 30%;
         text-align: center;
-      } /* ACTION/TIMEFRAMES */
+      } /* ACTIONS */
       
       /* Ensure flex containers respect column width and are centered */
       .table-edittrax tbody td:nth-child(4) .flex,
@@ -183,7 +183,43 @@
       }
     }
     
-    @media (max-width: 768px) {
+    /* Medium screens: Hide entry column for more compact table */
+    @media (min-width: 675px) and (max-width: 900px) {
+      /* Hide entry price column and label on medium screens */
+      .entry-cell,
+      .table-edittrax thead th:nth-child(3) {
+        display: none !important;
+      }
+      
+      /* Make table expand to full width */
+      .table-edittrax {
+        width: 100% !important;
+      }
+      
+      /* Adjust remaining column widths to fill space */
+      .table-edittrax thead th:nth-child(1),
+      .table-edittrax tbody td:nth-child(1) { 
+        width: 18% !important;
+      }
+      
+      .table-edittrax thead th:nth-child(2),
+      .table-edittrax tbody td:nth-child(2) { 
+        width: 18% !important;
+      }
+      
+      .table-edittrax thead th:nth-child(4),
+      .table-edittrax tbody td:nth-child(4) { 
+        width: 28% !important;
+      }
+      
+      .table-edittrax thead th:nth-child(5),
+      .table-edittrax tbody td:nth-child(5) { 
+        width: 36% !important;
+      }
+    }
+    
+    /* Mobile: Single breakpoint for all mobile/small screen styles */
+    @media (max-width: 674px) {
       /* Mobile: add consistent padding to header and main content */
       .header-edittrax > div,
       main {
@@ -247,7 +283,6 @@
         width: calc(100% + 10px) !important;
       }
       
-      
       /* Mobile: make strategy buttons stretch full width */
       .strategy-buttons-container {
         width: 100% !important;
@@ -257,16 +292,17 @@
         flex: 1 !important;
         min-width: 0 !important;
       }
-    }
-    
-    /* Mobile ONLY (not small desktop): show entry label and mobile layout */
-    @media (max-width: 640px) {
+      
       /* Mobile: show entry price under coin name, hide desktop column */
       .entry-price-mobile {
         display: block !important;
       }
       .entry-label-mobile {
         display: block !important;
+        text-align: right !important;
+      }
+      .entry-value {
+        text-align: right !important;
       }
       .entry-price-desktop {
         display: none !important;
@@ -275,6 +311,17 @@
       /* Right-justify signal confidence on mobile */
       .signal-confidence {
         text-align: right !important;
+      }
+      
+      /* Mobile: Adjust action buttons for better fit */
+      .table-edittrax tbody td:nth-child(5) .flex {
+        gap: 0.5rem !important;
+      }
+      
+      .table-edittrax tbody td:nth-child(5) button {
+        font-size: 0.65rem !important;
+        padding: 0.4rem 0.6rem !important;
+        min-width: auto !important;
       }
       
       .table-edittrax thead {
@@ -499,21 +546,14 @@
     }
     
     /* Mobile: Force 1 column (iOS fix) */
-    @media (max-width: 767px) {
+    @media (max-width: 674px) {
       .tf-grid {
         grid-template-columns: 1fr !important;
       }
     }
     
-    /* Tablet: 2 columns */
-    @media (min-width: 768px) and (max-width: 1023px) {
-      .tf-grid {
-        grid-template-columns: repeat(2, 1fr) !important;
-      }
-    }
-    
     /* Desktop: 4 columns */
-    @media (min-width: 1024px) {
+    @media (min-width: 675px) {
       .tf-grid {
         grid-template-columns: repeat(4, 1fr) !important;
       }
@@ -533,7 +573,7 @@
       margin-bottom: 1rem;
     }
     
-    @media (min-width: 768px) {
+    @media (min-width: 675px) {
       .trade-info-grid {
         grid-template-columns: repeat(3, 1fr);
       }
@@ -561,7 +601,7 @@
         display: grid;
       }
       
-      @media (max-width: 767px) {
+      @media (max-width: 674px) {
         .tf-grid {
           -webkit-grid-template-columns: 1fr;
           grid-template-columns: 1fr !important;
@@ -724,7 +764,7 @@
     }
     
     /* Desktop: stronger border */
-    @media (min-width: 769px) {
+    @media (min-width: 675px) {
       .coin-row {
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       }
@@ -815,7 +855,7 @@
           style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem;"
           title="Copy All Data"
         >
-          <span style="font-weight: bold;">COPY TRADES</span>
+          <span style="font-weight: bold;">COPY ALL</span>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -892,7 +932,7 @@
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">PRICE</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">ENTRY</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">EDITTRADES</th>
-                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">TIMEFRAMES</th>
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">ACTIONS</th>
               </tr>
             </thead>
             <tbody id="opportunitiesTable">
@@ -2579,9 +2619,9 @@
         <td class="px-2 entry-price-desktop" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="Price:">
           <div style="color: var(--color-yellow-75); font-size: 0.875rem;">${currentPriceDisplay}</div>
         </td>
-        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; text-align: center;" data-label="Entry:">
+        <td class="px-2 entry-cell" style="padding-top: 1.65rem; padding-bottom: 1.65rem; text-align: center;" data-label="Entry:">
           <div class="entry-label-mobile" style="font-size: 1.125rem; font-family: var(--font-mathias); font-weight: bold; color: var(--color-yellow-75);">ENTRY</div>
-          <div style="color: var(--color-yellow-75); font-size: 0.9rem; margin-top: 0.25rem; ${!entryHasSignal ? 'opacity: 0.7;' : ''}">${entryPriceDisplay}</div>
+          <div class="entry-value" style="color: var(--color-yellow-75); font-size: 0.9rem; margin-top: 0.25rem; ${!entryHasSignal ? 'opacity: 0.7;' : ''}">${entryPriceDisplay}</div>
         </td>
         <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="EditTrades:">
           <div class="flex strategy-buttons-container" style="gap: 0;">
@@ -2619,8 +2659,8 @@
             </button>
           </div>
         </td>
-        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="Timeframes:">
-          <div class="flex gap-1">
+        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="Actions:">
+          <div class="flex gap-1" style="justify-content: center; flex-wrap: wrap;">
             <button 
               onclick="toggleDetails('${symbol}')"
               class="px-3 py-1 text-xs font-mathias font-bold"
@@ -2634,7 +2674,14 @@
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
             >
-              COPY TRADE
+              COPY
+            </button>
+            <button 
+              onclick="trackThisTrade('${symbol}')"
+              class="px-3 py-1 text-xs font-mathias font-bold"
+              style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
+            >
+              TRACK
             </button>
           </div>
         </td>
@@ -2888,7 +2935,7 @@
         const rewardPercent2 = rr2 * parseFloat(riskPercent);
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px);">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
               <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
@@ -3107,7 +3154,7 @@
         }
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px);">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid #9ca3af;">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
               <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: #6b7280; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
@@ -3162,7 +3209,7 @@
       } else if (data.microScalp && data.microScalp.valid) {
         // Show MICRO-SCALP trade call (LTF mean-reversion setup)
         const direction = data.microScalp.direction.toUpperCase();
-        const directionColor = direction === 'LONG' ? '#22c55e' : '#ef4444';
+        const directionColor = direction === 'LONG' ? '#22c55e' : direction === 'SHORT' ? '#ef4444' : '#9ca3af';
         const directionIcon = direction === 'LONG' ? '🟢⬆️' : '🔴⬇️';
         const confidence = data.microScalp.confidence;
         const entryMin = `$${data.microScalp.entry.min.toLocaleString()}`;
@@ -3330,6 +3377,100 @@
       }
     }
 
+
+    // Track this trade automatically
+    function trackThisTrade(symbol) {
+      const data = scanResults[symbol];
+      if (!data) {
+        alert('No data available for ' + symbol);
+        return;
+      }
+      
+      // Get the currently selected strategy's signal
+      const selectedStrategyIndex = selectedStrategies[symbol] || 0;
+      const templateSignal = evaluateTemplateSignal(symbol, selectedStrategyIndex);
+      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
+      
+      if (!tradeSignal || !tradeSignal.valid) {
+        alert(`No valid trade signal for ${symbol.replace('USDT', '')}. Cannot track without a signal.`);
+        return;
+      }
+      
+      // Extract trade details
+      const direction = (tradeSignal.direction || 'LONG').toUpperCase();
+      const entryZone = tradeSignal.entryZone || tradeSignal.entry_zone || {};
+      const entryMin = entryZone.min || 0;
+      const entryMax = entryZone.max || 0;
+      const entryAverage = (entryMin + entryMax) / 2;
+      
+      const stopLoss = tradeSignal.stopLoss || tradeSignal.stop_loss || 0;
+      const targets = tradeSignal.targets || {};
+      const tp1 = targets.tp1 || targets[0] || 0;
+      const tp2 = targets.tp2 || targets[1] || 0;
+      const invalidationLevel = tradeSignal.invalidationLevel || tradeSignal.invalidation_level || stopLoss;
+      
+      // Get current price to determine if trade is PENDING or ACTIVE
+      const currentPrice = data.currentPrice || 0;
+      let status = 'PENDING'; // Default: waiting for entry
+      
+      // Check if price is in entry zone
+      if (currentPrice > 0 && entryMin > 0 && entryMax > 0) {
+        if (direction === 'LONG' && currentPrice <= entryMax && currentPrice >= entryMin) {
+          status = 'ACTIVE'; // Price in entry zone
+        } else if (direction === 'SHORT' && currentPrice <= entryMax && currentPrice >= entryMin) {
+          status = 'ACTIVE'; // Price in entry zone
+        }
+      }
+      
+      // Get strategy type
+      const setupType = tradeSignal.setupType || tradeSignal.selectedStrategy || 'SCALP';
+      
+      // Get confluence and invalidation info for monitoring
+      const confluence = tradeSignal.confluence || {};
+      const invalidationDesc = tradeSignal.invalidation?.description || 'Exit if stop loss is hit';
+      
+      // Create trade object for tracker
+      const trackedTrade = {
+        id: Date.now(),
+        symbol: symbol,
+        direction: direction,
+        entry: parseFloat(entryAverage.toFixed(2)),
+        entryZone: {
+          min: entryMin,
+          max: entryMax
+        },
+        stopLoss: stopLoss,
+        invalidationLevel: invalidationLevel,
+        target1: tp1,
+        target2: tp2,
+        strategy: setupType.toUpperCase(),
+        riskPercent: tradeSignal.risk_amount ? (tradeSignal.risk_amount * 100) : 1,
+        confidence: tradeSignal.confidence ? (tradeSignal.confidence * 100) : 0,
+        notes: '',
+        journal: `Auto-tracked from ${symbol.replace('USDT', '')} signal\n\nSetup: ${setupType}\nConfidence: ${tradeSignal.confidence ? (tradeSignal.confidence * 100).toFixed(0) : 0}%\n\nConfluence:\n${JSON.stringify(confluence, null, 2)}\n\nInvalidation: ${invalidationDesc}`,
+        imageUrl: null,
+        entryTime: new Date().toISOString(),
+        status: status,
+        exitPrice: null,
+        exitTime: null,
+        outcome: null,
+        autoTracked: true,
+        sourceSignal: tradeSignal,
+        monitorZones: {
+          invalidation: invalidationLevel,
+          entryMin: entryMin,
+          entryMax: entryMax
+        }
+      };
+      
+      // Store in localStorage for tracker to pick up
+      localStorage.setItem('pendingTradeToTrack', JSON.stringify(trackedTrade));
+      
+      console.log('📊 Auto-tracking trade:', trackedTrade);
+      
+      // Redirect to tracker
+      window.location.href = '/tracker.html?autoTrack=true';
+    }
 
     // Copy single coin view
     function copyCoinView(symbol) {
