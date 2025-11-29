@@ -144,7 +144,7 @@ h1, h2, h3, h4, h5, h6 {
   background-color: rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: var(--border-2) solid var(--color-yellow-75);
+  border: none;
   border-radius: var(--radius-10);
   padding: 0;
   box-shadow: var(--shadow-5xl);
@@ -192,6 +192,9 @@ h1, h2, h3, h4, h5, h6 {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  margin: 0;
+  padding: 0;
+  border: none;
 }
 
 .table-edittrax {
@@ -202,11 +205,16 @@ h1, h2, h3, h4, h5, h6 {
   table-layout: fixed;
   border: none;
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 .table-edittrax thead {
   background-color: var(--color-blue-830);
   border-bottom: var(--border-2) solid var(--color-yellow-75);
+  border-left: none;
+  border-right: none;
+  border-top: none;
 }
 
 .table-edittrax th {
@@ -219,11 +227,16 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: 0.1em;
   font-weight: bold;
   border: none;
+  border-left: none;
+  border-right: none;
 }
 
 .table-edittrax td {
   padding: var(--spacing-3);
   border-bottom: 1px solid var(--color-gray-760);
+  border-left: none;
+  border-right: none;
+  border-top: none;
   color: var(--color-white);
   font-family: var(--font-mathias);
   box-sizing: border-box;
@@ -238,7 +251,7 @@ h1, h2, h3, h4, h5, h6 {
  * TRADING SPECIFIC
  * ======================================== */
 .coin-row {
-  border-left: 3px solid var(--color-gray-760);
+  border-left: none;
   transition: background-color 0.2s;
 }
 

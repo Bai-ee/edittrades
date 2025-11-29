@@ -4,6 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EditTrades - 4H Trading Strategy Scanner</title>
+  
+  <!-- Open Graph / Social Media Meta Tags -->
+  <meta property="og:title" content="EditTrades - Live Trading Strategy Scanner">
+  <meta property="og:description" content="Real-time multi-timeframe crypto trading signals for Bitcoin, Ethereum, and Solana. AI-powered analysis with 4H, Swing, Scalp, and Micro-Scalp strategies.">
+  <meta property="og:image" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app/logos/et_horizontal.png">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="EditTrades - Live Trading Strategy Scanner">
+  <meta name="twitter:description" content="Real-time multi-timeframe crypto trading signals for Bitcoin, Ethereum, and Solana. AI-powered analysis with 4H, Swing, Scalp, and Micro-Scalp strategies.">
+  <meta name="twitter:image" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app/logos/et_horizontal.png">
+  
   <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/edittrax-styles.css">
@@ -169,6 +181,79 @@
     }
     
     @media (max-width: 768px) {
+      /* Mobile: add consistent padding to header and main content */
+      .header-edittrax > div,
+      main {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+      }
+      
+      /* Mobile: adjust trading indicators position and size */
+      .header-edittrax > div > div[style*="position: absolute"][style*="top: 15px"] {
+        top: 8px !important;
+        left: calc(1rem + 8px) !important;
+        font-size: 0.6rem !important;
+        gap: 4px !important;
+      }
+      
+      #candle-timer-container,
+      #4h-timer-container {
+        gap: 4px !important;
+      }
+      
+      #candle-timer-container > div,
+      #4h-timer-container > div {
+        width: 50px !important;
+        height: 2px !important;
+      }
+      
+      /* Mobile: adjust top-right actions */
+      .header-edittrax > div > div[style*="top: 15px"][style*="right: 1rem"] {
+        top: 8px !important;
+        right: 1rem !important;
+        gap: 17px !important;
+      }
+      
+      #refreshBtn,
+      #dataCopyBtn,
+      .header-edittrax a[href="/strategy.html"] {
+        padding: 2px 4px !important;
+        font-size: 0.6rem !important;
+        gap: 4px !important;
+      }
+      
+      #refreshBtn svg,
+      #dataCopyBtn svg,
+      .header-edittrax a[href="/strategy.html"] svg {
+        width: 16px !important;
+        height: 16px !important;
+      }
+      
+      /* Mobile: adjust news marquee - full width, no padding */
+      #newsMarquee {
+        font-size: 0.75rem !important;
+        padding: 0.4rem 0 !important;
+        margin-left: -1rem !important;
+        margin-right: -1rem !important;
+        width: calc(100% + 2rem) !important;
+      }
+      
+      /* Mobile: adjust copy toast position */
+      #copyToastContainer {
+        top: 58px !important;
+        left: calc(1rem + 8px) !important;
+      }
+      
+      /* Mobile: make strategy buttons stretch full width */
+      .strategy-buttons-container {
+        width: 100% !important;
+      }
+      
+      .strategy-buttons-container button {
+        flex: 1 !important;
+        min-width: 0 !important;
+      }
+      
       /* Mobile: show entry price under coin name, hide desktop column */
       .entry-price-mobile {
         display: block !important;
@@ -187,13 +272,35 @@
       }
       
       .coin-row {
-        display: block;
+        display: block !important;
         padding: 0 0.5rem 1rem 0.5rem;
         border-bottom: 2px solid var(--color-yellow-75);
         width: 100%;
         max-width: 100%;
         box-sizing: border-box;
         overflow: hidden;
+      }
+      
+      /* Ensure table stays block layout on mobile */
+      .table-edittrax tbody {
+        display: block !important;
+      }
+      
+      .table-edittrax tbody tr.coin-row {
+        display: block !important;
+      }
+      
+      /* Keep details row hidden unless expanded */
+      .table-edittrax tbody tr.details-row {
+        display: none !important;
+      }
+      
+      .table-edittrax tbody tr.details-row.expanded {
+        display: block !important;
+      }
+      
+      .table-edittrax tbody tr.details-row.expanded td {
+        display: block !important;
       }
       
       /* Create flex container for first row */
@@ -262,11 +369,6 @@
         font-size: 1rem !important;
       }
       
-      /* Green coin name when trade is available */
-      .coin-name-has-trade {
-        color: #10b981 !important;
-      }
-      
       /* Strategy on its own row (now 4th column) */
       .coin-row td:nth-child(4) {
         display: block;
@@ -310,8 +412,8 @@
       
       /* Action buttons stretch full width */
       .coin-row td:nth-child(5) .flex {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
         gap: 0.5rem;
         width: 100%;
         max-width: 100%;
@@ -330,10 +432,6 @@
         white-space: nowrap;
       }
       
-      .details-row td {
-        display: block !important;
-      }
-      
       /* Shrink logo on mobile */
       .logo-img {
         height: 32px !important;
@@ -342,7 +440,7 @@
       
       /* Shrink nav buttons on mobile */
       .grid[style*="grid-template-columns"] {
-        grid-template-columns: 1fr 1fr 1fr auto !important;
+        grid-template-columns: 1fr 1fr !important;
         gap: 0.2rem !important;
         width: 100% !important;
         max-width: 100% !important;
@@ -357,11 +455,6 @@
         box-sizing: border-box !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
-      }
-      
-      #refreshBtn svg {
-        width: 16px !important;
-        height: 16px !important;
       }
     }
     
@@ -555,6 +648,24 @@
       }
     }
     
+    /* News Marquee Animation */
+    @keyframes marquee {
+      0% {
+        transform: translateX(0%);
+      }
+      100% {
+        transform: translateX(-50%);
+      }
+    }
+    
+    #newsMarquee:hover #newsMarqueeContent {
+      animation-play-state: paused;
+    }
+    
+    #newsMarqueeContent a:hover {
+      opacity: 0.8;
+    }
+    
     /* Table row styling */
     .coin-row {
       position: relative;
@@ -646,54 +757,99 @@
   
   <!-- Header -->
   <header class="header-edittrax">
-    <div class="max-w-6xl mx-auto px-4 py-3">
+    <div class="max-w-6xl mx-auto pt-3">
+      <!-- Trading Indicators (Top Left) -->
+      <div style="position: absolute; top: 15px; display: flex; flex-direction: column; gap: 6px; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.75rem; z-index: 50;">
+        <!-- 1M Candle Timer -->
+        <div id="candle-timer-container" style="display: flex; align-items: center; gap: 8px;">
+          <span>1M</span>
+          <div style="width: 100px; height: 3px; background-color: rgba(230, 233, 224, 0.2); border-radius: 2px; overflow: hidden;">
+            <div id="candle-timer-bar" style="width: 100%; height: 100%; background-color: var(--color-yellow-75); transition: width 0.5s linear;"></div>
+          </div>
+        </div>
+        <!-- 4H Candle Timer -->
+        <div id="4h-timer-container" style="display: flex; align-items: center; gap: 8px;">
+          <span>4H</span>
+          <div style="width: 100px; height: 3px; background-color: rgba(230, 233, 224, 0.2); border-radius: 2px; overflow: hidden;">
+            <div id="4h-timer-bar" style="width: 100%; height: 100%; background-color: var(--color-yellow-75); transition: width 0.5s linear;"></div>
+          </div>
+        </div>
+        <!-- Active Signals -->
+        <div id="active-signals" style="display: flex; align-items: center; gap: 8px;">
+          <span id="signals-count" style="font-weight: bold; color: var(--color-yellow-75);">0 SIGNALS</span>
+        </div>
+      </div>
+      
+      <!-- Top Right Actions -->
+      <div style="position: absolute; top: 15px; right: 1rem; display: flex; flex-direction: column; gap: 17px; align-items: flex-end; z-index: 50; font-family: var(--font-mathias); font-size: 0.75rem;">
+        <!-- Refresh -->
+        <button 
+          id="refreshBtn" 
+          onclick="scanMajorCoins()"
+          style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem;"
+          title="Refresh Data"
+        >
+          <span style="font-weight: bold;">REFRESH</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+        </button>
+        
+        <!-- Data Copy -->
+        <button 
+          id="dataCopyBtn" 
+          onclick="copyAllCoins()"
+          style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem;"
+          title="Copy All Data"
+        >
+          <span style="font-weight: bold;">DATA COPY</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        </button>
+        
+      </div>
+      
       <div class="flex flex-col items-center gap-3 w-full">
         <div class="logo-container flex flex-col items-center gap-2">
           <img src="/logos/load.gif" alt="Loading Animation" style="width: 140px; height: auto;">
           <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
         </div>
-        <div class="grid gap-2 w-full" style="grid-template-columns: 1fr 1fr 1fr auto;">
-          <a href="/strategy.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap">
-            Proof of Strategy
-          </a>
-          <a href="/scanner.html" class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap" style="display: none;">
-            SCAN THE SPACE
-          </a>
+        <div class="grid gap-2 w-full" style="grid-template-columns: 1fr 1fr;">
           <button 
-            id="aggressiveToggle" 
-            onclick="toggleAggressiveMode()"
+            id="safeToggle" 
+            onclick="toggleToSafe()"
             class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
             style="transition: all 0.3s ease;"
           >
-            <span id="aggressiveLabel">Safe Trades</span>
+            <span id="safeLabel">SAFE (<span id="safe-count">0</span>)</span>
           </button>
           <button 
-            id="copyAllBtn" 
-            onclick="copyAllCoins()"
+            id="aggressiveToggle" 
+            onclick="toggleToAggressive()"
             class="btn-base btn-secondary px-2 py-2 text-xs sm:text-sm rounded text-center whitespace-nowrap"
+            style="transition: all 0.3s ease;"
           >
-            COPY GPT
+            <span id="aggressiveLabel">AGGRESSIVE (<span id="aggressive-count">0</span>)</span>
           </button>
-              <button 
-            id="refreshBtn" 
-            onclick="scanMajorCoins()"
-            class="px-2 py-2 text-xs sm:text-sm rounded whitespace-nowrap"
-            style="display: inline-flex; align-items: center; justify-content: center; width: auto; min-width: auto; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer;"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-            </svg>
-              </button>
             </div>
           </div>
               </div>
   </header>
 
   <!-- Main Content -->
-  <main class="max-w-6xl mx-auto px-4 py-4" style="width: 100%; box-sizing: border-box;overflow: visible; position: relative;">
+  <main class="max-w-6xl mx-auto pb-4" style="width: 100%; box-sizing: border-box;overflow: visible; position: relative;">
     
-    <!-- Copy Success Toast Container (visually centered in gap) -->
-    <div id="copyToastContainer" style="position: absolute; top: -15px; left: 50%; transform: translateX(-50%); z-index: 999; pointer-events: none;"></div>
+    <!-- Copy Success Toast Container (under signals on left) -->
+    <div id="copyToastContainer" style="position: fixed; top: 78px; left: 20px; z-index: 999; pointer-events: none;"></div>
+    
+    <!-- Crypto News Marquee -->
+    <div id="newsMarquee" style="background-color: rgba(0, 0, 0, 0.6); border-radius: 5px; padding: 0.5rem 0; margin: 0.5rem 0 1rem 0; overflow: hidden; position: relative;">
+      <div id="newsMarqueeContent" style="display: flex; white-space: nowrap; animation: marquee 42s linear infinite; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.875rem;">
+        <span style="padding: 0 2rem;">Loading crypto news...</span>
+      </div>
+    </div>
 
     <!-- Loading State -->
     <div id="loadingState" class="text-center py-12">
@@ -711,15 +867,15 @@
     </div>
 
     <!-- Results Container -->
-    <div id="resultsContainer" class="hidden" style="padding-left: 15px; padding-right: 15px;">
+    <div id="resultsContainer" class="hidden">
       
       <!-- Opportunities Table -->
-      <div class="card-edittrax rounded-lg overflow-hidden mb-4">
+      <div class="card-edittrax rounded-lg mb-4" style="overflow: hidden; border: 2px solid var(--color-yellow-75);">
         <div class="table-container">
-          <table class="table-edittrax">
-            <thead style="background-color: var(--color-yellow-75); margin-left: -2px; margin-right: -2px;">
-              <tr style="border: none;">
-                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; text-align: center; border: none; padding-left: calc(0.5rem + 2px);">COIN</th>
+          <table class="table-edittrax" style="border: none; margin: 0; border-collapse: collapse;">
+            <thead style="background-color: var(--color-yellow-75); border: none; border-left: none; border-right: none;">
+              <tr style="border: none; border-left: none; border-right: none;">
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; text-align: center; border: none; border-left: none;">COIN</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">PRICE</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">ENTRY</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">EDITTRADES</th>
@@ -736,12 +892,34 @@
           <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mathias); font-size: 0.75rem;">
               <div style="width: 12px; height: 12px; border-radius: 50%; background-color: #10b981;"></div>
-              <span style="color: var(--color-yellow-75);">LONG / BUY</span>
+              <span style="color: var(--color-yellow-75);">LONG TRADE</span>
             </div>
             <div style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mathias); font-size: 0.75rem;">
               <div style="width: 12px; height: 12px; border-radius: 50%; background-color: #ef4444;"></div>
-              <span style="color: var(--color-yellow-75);">SHORT / SELL</span>
+              <span style="color: var(--color-yellow-75);">SHORT TRADE</span>
             </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-mathias); font-size: 0.75rem;">
+              <div style="width: 12px; height: 12px; border-radius: 50%; background-color: #6b7280;"></div>
+              <span style="color: var(--color-yellow-75);">NO TRADE</span>
+            </div>
+          </div>
+          
+          <!-- Proof of Strategy -->
+          <div style="padding: 0.75rem 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; justify-content: center;">
+            <a 
+              href="/strategy.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem; text-decoration: none;"
+              title="Proof of Strategy (Opens in new tab)"
+            >
+              <span style="font-weight: bold;">PROOF OF STRATEGY</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+            </a>
           </div>
           </div>
 
@@ -751,83 +929,120 @@
 
   <script>
     let scanResults = {};
+    let scanResultsAggressive = {}; // Store aggressive mode results
+    let scanResultsSafe = {}; // Store safe mode results
     
     // Aggressive mode state (default: STANDARD)
     let aggressiveMode = localStorage.getItem('aggressiveMode') === 'true' || false;
     
     // Initialize aggressive mode UI on page load
     function initializeAggressiveMode() {
-      const button = document.getElementById('aggressiveToggle');
-      const label = document.getElementById('aggressiveLabel');
-      
-      // Check if there are any valid trades across all coins
-      let hasLongTrade = false;
-      let hasShortTrade = false;
-      let strongestConfidence = 0;
-      let dominantDirection = null;
-      
-      for (const symbol in scanResults) {
-        const data = scanResults[symbol];
-        const signal = data?.signal || data?.tradeSignal;
-        if (signal && signal.valid) {
-          const confidence = signal.confidence || 0;
-          if (confidence > strongestConfidence) {
-            strongestConfidence = confidence;
-            dominantDirection = signal.direction;
-          }
-          if (signal.direction === 'long' || signal.direction === 'LONG') {
-            hasLongTrade = true;
-          } else {
-            hasShortTrade = true;
-          }
-        }
-      }
-      
-      const hasTrades = hasLongTrade || hasShortTrade;
-      
-      if (aggressiveMode) {
-        // Yellow-white outline
-        button.style.border = '2px solid var(--color-yellow-75)';
-        button.style.color = 'var(--color-yellow-75)';
-        label.textContent = 'Aggressive Trades';
-        
-        if (hasTrades) {
-          // Use dominant direction - semi-transparent background with animation
-          const isLong = dominantDirection === 'long' || dominantDirection === 'LONG';
-          button.style.backgroundColor = isLong ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
-          button.style.animation = 'pulse-glow 2s ease-in-out infinite';
-        } else {
-          // Dark semi-transparent background like table rows
-          button.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
-          button.style.animation = 'none';
-        }
-      } else {
-        // STANDARD mode
-        button.style.border = '2px solid var(--color-yellow-75)';
-        button.style.color = 'var(--color-yellow-75)';
-        label.textContent = 'Safe Trades';
-        
-        if (hasTrades) {
-          // Use dominant direction - semi-transparent background with animation
-          const isLong = dominantDirection === 'long' || dominantDirection === 'LONG';
-          button.style.backgroundColor = isLong ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
-          button.style.animation = 'pulse-glow 2s ease-in-out infinite';
-        } else {
-          // Dark semi-transparent background
-          button.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
-          button.style.animation = 'none';
-        }
-      }
+      // Initialize mode button states
+      updateModeButtons();
     }
     
     // Toggle aggressive mode
-    function toggleAggressiveMode() {
-      aggressiveMode = !aggressiveMode;
+    function toggleToAggressive() {
+      if (aggressiveMode) return; // Already in aggressive mode
+      aggressiveMode = true;
       localStorage.setItem('aggressiveMode', aggressiveMode);
-      initializeAggressiveMode();
+      updateModeButtons();
       
-      // Re-scan with new mode
-      scanMajorCoins();
+      // Switch display to aggressive mode
+      scanResults = scanResultsAggressive;
+      
+      // If mode data doesn't exist yet, fetch it
+      if (Object.keys(scanResults).length === 0) {
+        scanMajorCoins();
+      } else {
+        displayResults();
+      }
+    }
+    
+    function toggleToSafe() {
+      if (!aggressiveMode) return; // Already in safe mode
+      aggressiveMode = false;
+      localStorage.setItem('aggressiveMode', aggressiveMode);
+      updateModeButtons();
+      
+      // Switch display to safe mode
+      scanResults = scanResultsSafe;
+      
+      // If mode data doesn't exist yet, fetch it
+      if (Object.keys(scanResults).length === 0) {
+        scanMajorCoins();
+      } else {
+        displayResults();
+      }
+    }
+    
+    // Update mode button states
+    function updateModeButtons() {
+      const aggressiveBtn = document.getElementById('aggressiveToggle');
+      const safeBtn = document.getElementById('safeToggle');
+      
+      // Get highest confidence trade for each mode
+      const getStrongestTrade = (results) => {
+        let strongestConfidence = 0;
+        let dominantDirection = null;
+        
+        Object.entries(results).forEach(([symbol, data]) => {
+          const signal = data?.signal || data?.tradeSignal;
+          if (signal && signal.valid) {
+            const confidence = signal.confidence || 0;
+            if (confidence > strongestConfidence) {
+              strongestConfidence = confidence;
+              dominantDirection = signal.direction;
+            }
+          }
+        });
+        
+        return { hasTrade: strongestConfidence > 0, dominantDirection };
+      };
+      
+      const aggressiveTrade = getStrongestTrade(scanResultsAggressive);
+      const safeTrade = getStrongestTrade(scanResultsSafe);
+      
+      if (aggressiveMode) {
+        // AGGRESSIVE MODE ACTIVE: Yellow-white bg with black text
+        aggressiveBtn.style.backgroundColor = 'var(--color-yellow-75)';
+        aggressiveBtn.style.color = 'black';
+        aggressiveBtn.style.borderColor = 'var(--color-yellow-75)';
+        aggressiveBtn.style.animation = 'none';
+        
+        // SAFE MODE INACTIVE: Show glow based on trade
+        if (safeTrade.hasTrade) {
+          const isLong = safeTrade.dominantDirection === 'long' || safeTrade.dominantDirection === 'LONG';
+          safeBtn.style.backgroundColor = isLong ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
+          safeBtn.style.color = 'var(--color-yellow-75)';
+          safeBtn.style.animation = 'pulse-glow 2s ease-in-out infinite';
+        } else {
+          safeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+          safeBtn.style.color = 'var(--color-yellow-75)';
+          safeBtn.style.animation = 'none';
+        }
+        safeBtn.style.borderColor = 'var(--color-yellow-75)';
+        
+      } else {
+        // SAFE MODE ACTIVE: Yellow-white bg with black text
+        safeBtn.style.backgroundColor = 'var(--color-yellow-75)';
+        safeBtn.style.color = 'black';
+        safeBtn.style.borderColor = 'var(--color-yellow-75)';
+        safeBtn.style.animation = 'none';
+        
+        // AGGRESSIVE MODE INACTIVE: Show glow based on trade
+        if (aggressiveTrade.hasTrade) {
+          const isLong = aggressiveTrade.dominantDirection === 'long' || aggressiveTrade.dominantDirection === 'LONG';
+          aggressiveBtn.style.backgroundColor = isLong ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)';
+          aggressiveBtn.style.color = 'var(--color-yellow-75)';
+          aggressiveBtn.style.animation = 'pulse-glow 2s ease-in-out infinite';
+        } else {
+          aggressiveBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+          aggressiveBtn.style.color = 'var(--color-yellow-75)';
+          aggressiveBtn.style.animation = 'none';
+        }
+        aggressiveBtn.style.borderColor = 'var(--color-yellow-75)';
+      }
     }
     
     // Strategy states for each symbol (default: index 0 = 4-Hour)
@@ -1731,8 +1946,8 @@
             console.log('  ✅ Applied colored background:', isLong ? 'GREEN' : 'RED');
           }
         } else if (index === activeIndex && !hasValidTrade) {
-          // Active button without trade: transparent background, GREY text (not yellow)
-          button.style.backgroundColor = 'transparent';
+          // Active button without trade: yellow-white background, grey text
+          button.style.backgroundColor = 'var(--color-yellow-75)';
           button.style.color = '#6b7280';
         } else if (hasValidTrade) {
           // Inactive button with valid trade: transparent background, colored text
@@ -1777,8 +1992,208 @@
     }
     
     // Auto-run scan on page load
+    // 1-minute candle timer
+    function updateCandleTimer() {
+      const now = new Date();
+      const seconds = now.getSeconds();
+      const milliseconds = now.getMilliseconds();
+      
+      // Calculate time remaining until next minute
+      const secondsRemaining = 60 - seconds - (milliseconds / 1000);
+      const percentageRemaining = (secondsRemaining / 60) * 100;
+      
+      // Update progress bar width
+      const timerBar = document.getElementById('candle-timer-bar');
+      if (timerBar) {
+        timerBar.style.width = `${percentageRemaining}%`;
+      }
+    }
+    
+    // 4-hour candle timer
+    function update4HTimer() {
+      const now = new Date();
+      const minutes = now.getMinutes();
+      const seconds = now.getSeconds();
+      const milliseconds = now.getMilliseconds();
+      const hours = now.getUTCHours(); // Use UTC for consistency with trading
+      
+      // Calculate minutes into current 4H period
+      const minutesInto4H = ((hours % 4) * 60) + minutes;
+      const secondsInto4H = (minutesInto4H * 60) + seconds + (milliseconds / 1000);
+      
+      // Total seconds in 4 hours = 14400
+      const totalSeconds4H = 4 * 60 * 60;
+      const secondsRemaining = totalSeconds4H - secondsInto4H;
+      const percentageRemaining = (secondsRemaining / totalSeconds4H) * 100;
+      
+      // Update progress bar width
+      const timer4H = document.getElementById('4h-timer-bar');
+      if (timer4H) {
+        timer4H.style.width = `${percentageRemaining}%`;
+      }
+    }
+    
+    // Update active signals and market bias
+    function updateTradingIndicators() {
+      let activeSignalsCount = 0;
+      let longCount = 0;
+      let shortCount = 0;
+      
+      console.log('=== Counting All Signals Across BOTH Modes ===');
+      
+      // Helper function to count signals from a result set
+      const countSignalsFromResults = (results, modeName) => {
+        let modeCount = 0;
+        Object.entries(results).forEach(([symbol, data]) => {
+          const strategies = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
+          const apiSignal = data.signal || data.tradeSignal;
+          
+          strategies.forEach(strategy => {
+            // Temporarily set scanResults to this mode's data for evaluation
+            const originalScanResults = scanResults;
+            scanResults = results;
+            
+            let templateSignal = evaluateTemplateSignal(symbol, strategy);
+            
+            // Restore original scanResults
+            scanResults = originalScanResults;
+            
+            // Fallback to API signal if template signal invalid
+            if (!templateSignal?.valid && apiSignal?.valid) {
+              const apiSetupType = (apiSignal.setupType || '').toLowerCase();
+              const strategyLower = strategy.toLowerCase();
+              
+              // Match strategy to API signal setupType (handles both standard and aggressive mode)
+              if (apiSetupType.includes(strategyLower) || 
+                  (strategyLower === '4h' && (apiSetupType.includes('1h') || apiSetupType.includes('4h'))) ||
+                  (strategyLower === 'microscalp' && apiSetupType.includes('micro'))) {
+                templateSignal = apiSignal;
+                console.log(`${symbol} ${strategy} [${modeName}]: Using API signal (${apiSignal.setupType})`);
+              }
+            }
+            
+            if (templateSignal && templateSignal.valid) {
+              activeSignalsCount++;
+              modeCount++;
+              const isLong = templateSignal.direction === 'long' || templateSignal.direction === 'LONG';
+              console.log(`✓ ${symbol} ${strategy} [${modeName}]: ${templateSignal.direction} (Total: ${activeSignalsCount})`);
+              if (isLong) {
+                longCount++;
+              } else {
+                shortCount++;
+              }
+            }
+          });
+        });
+        return modeCount;
+      };
+      
+      // Count from BOTH modes
+      const aggressiveCount = Object.keys(scanResultsAggressive).length > 0 ? 
+        countSignalsFromResults(scanResultsAggressive, 'AGGRESSIVE') : 0;
+      const safeCount = Object.keys(scanResultsSafe).length > 0 ? 
+        countSignalsFromResults(scanResultsSafe, 'SAFE') : 0;
+      
+      console.log(`\n📊 Total Signals: ${activeSignalsCount} (${longCount}L | ${shortCount}S)`);
+      console.log(`   Aggressive: ${aggressiveCount} | Safe: ${safeCount}`);
+      
+      // Update Active Signals (always yellow-white)
+      const signalsCountEl = document.getElementById('signals-count');
+      if (signalsCountEl) {
+        signalsCountEl.textContent = `${activeSignalsCount} SIGNAL${activeSignalsCount !== 1 ? 'S' : ''}`;
+        signalsCountEl.style.color = 'var(--color-yellow-75)';
+      }
+      
+      // Update mode button counts
+      const aggressiveCountEl = document.getElementById('aggressive-count');
+      const safeCountEl = document.getElementById('safe-count');
+      if (aggressiveCountEl) aggressiveCountEl.textContent = aggressiveCount;
+      if (safeCountEl) safeCountEl.textContent = safeCount;
+    }
+    
+    // Start timers
+    function startCandleTimers() {
+      updateCandleTimer();
+      update4HTimer();
+      setInterval(updateCandleTimer, 500); // Update twice per second for smooth animation
+      setInterval(update4HTimer, 1000); // Update every second for 4H timer
+    }
+
+    // Crypto News Marquee
+    let newsCache = [];
+    
+    async function fetchCryptoNews() {
+      try {
+        console.log('🔄 Fetching crypto news...');
+        const response = await fetch('/api/crypto-news');
+        const data = await response.json();
+        
+        console.log('✅ Crypto news response:', data);
+        
+        if (data.success && data.news && data.news.length > 0) {
+          newsCache = data.news;
+          console.log(`📰 Loaded ${newsCache.length} news items`);
+          updateNewsMarquee();
+        } else {
+          console.warn('⚠️ No news data received');
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch crypto news:', error);
+        // Keep showing cached news or fallback message
+      }
+    }
+    
+    function updateNewsMarquee() {
+      console.log('🎬 Updating news marquee...');
+      const marqueeContent = document.getElementById('newsMarqueeContent');
+      console.log('Marquee element:', marqueeContent);
+      console.log('News cache length:', newsCache.length);
+      
+      if (!marqueeContent) {
+        console.error('❌ Marquee content element not found!');
+        return;
+      }
+      
+      if (newsCache.length === 0) {
+        console.warn('⚠️ News cache is empty');
+        return;
+      }
+      
+      // Format news items with currency tags
+      const newsItems = newsCache.map(item => {
+        const currencies = item.currencies && item.currencies.length > 0 
+          ? `[${item.currencies.join(', ')}] ` 
+          : '';
+        const title = item.title;
+        // Return plain text without links
+        return `${currencies}${title}`;
+      });
+      
+      console.log('📝 Formatted news items:', newsItems.length);
+      
+      // Duplicate content for seamless loop
+      const newsHTML = newsItems.join('  •  ');
+      marqueeContent.innerHTML = `
+        <span style="padding-right: 4rem;">${newsHTML}</span>
+        <span style="padding-right: 4rem;">${newsHTML}</span>
+      `;
+      
+      console.log('✅ Marquee updated successfully');
+    }
+    
+    function startNewsMarquee() {
+      console.log('🚀 Starting news marquee...');
+      // Initial fetch
+      fetchCryptoNews();
+      
+      // Refresh every 5 minutes (300 seconds) - CryptoPanic has strict rate limits
+      setInterval(fetchCryptoNews, 300000);
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       initializeAggressiveMode();
+      startCandleTimers();
+      startNewsMarquee();
       scanMajorCoins();
     });
 
@@ -1798,23 +2213,44 @@
       try {
         scanResults = {};
         
-        // Fetch all coins in parallel with expanded timeframes (including 3D for swing trades)
+        // Fetch data for BOTH modes to count all signals
         const mode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
-        const promises = symbols.map(symbol => 
+        
+        // Fetch current mode (for display)
+        const currentModePromises = symbols.map(symbol => 
           fetch(`/api/analyze/${symbol}?intervals=1M,1w,3d,1d,4h,1h,15m,5m,1m&mode=${mode}`)
             .then(res => {
               if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
               return res.json();
             })
-            .then(data => ({ symbol, data }))
+            .then(data => ({ symbol, data, mode }))
         );
         
-        const results = await Promise.all(promises);
+        // Fetch opposite mode (for counting)
+        const oppositeMode = aggressiveMode ? 'STANDARD' : 'AGGRESSIVE';
+        const oppositeModePromises = symbols.map(symbol => 
+          fetch(`/api/analyze/${symbol}?intervals=1M,1w,3d,1d,4h,1h,15m,5m,1m&mode=${oppositeMode}`)
+            .then(res => {
+              if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
+              return res.json();
+            })
+            .then(data => ({ symbol, data, mode: oppositeMode }))
+        );
         
-        // Store results
-        results.forEach(({ symbol, data }) => {
-          scanResults[symbol] = data;
+        // Fetch both modes in parallel
+        const allResults = await Promise.all([...currentModePromises, ...oppositeModePromises]);
+        
+        // Store results by mode
+        allResults.forEach(({ symbol, data, mode: resultMode }) => {
+          if (resultMode === 'AGGRESSIVE') {
+            scanResultsAggressive[symbol] = data;
+          } else {
+            scanResultsSafe[symbol] = data;
+          }
         });
+        
+        // Set scanResults to current mode for display
+        scanResults = aggressiveMode ? scanResultsAggressive : scanResultsSafe;
         
         // Display results
         displayResults();
@@ -1917,6 +2353,12 @@
           }
         }
       }
+      
+      // Update trading indicators
+      updateTradingIndicators();
+      
+      // Update mode buttons
+      updateModeButtons();
     }
 
     // Calculate signal readiness (proximity to trade setup)
@@ -2098,10 +2540,10 @@
       }
       // If no valid signal, show "NO TRADE" in yellow-white
       
-      // Determine coin name color based on active signal direction
+      // Determine coin name color based on SELECTED strategy's trade direction (templateSignal, not activeSignal)
       let coinNameColor = 'var(--color-yellow-75)';
-      if (activeSignal && activeSignal.valid) {
-        const isLong = activeSignal.direction === 'long' || activeSignal.direction === 'LONG';
+      if (templateSignal && templateSignal.valid) {
+        const isLong = templateSignal.direction === 'long' || templateSignal.direction === 'LONG';
         coinNameColor = isLong ? '#10b981' : '#ef4444';
       }
       
@@ -2117,7 +2559,7 @@
           <div style="color: var(--color-yellow-75); font-size: 0.875rem; ${!entryHasSignal ? 'opacity: 0.7;' : ''}">${entryPriceDisplay}</div>
         </td>
         <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="EditTrades:">
-          <div class="flex" style="gap: 0;">
+          <div class="flex strategy-buttons-container" style="gap: 0;">
             <button 
               onclick="setStrategy('${symbol}', 0)"
               id="strategy-btn-${symbol}-0"
@@ -2167,7 +2609,7 @@
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
             >
-              COPY GPT
+              DATA COPY
             </button>
           </div>
         </td>
@@ -2615,16 +3057,6 @@
                   <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
                   <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">⚪ NO TRADE</div>
                 </div>
-                    setupType === 'auto' || setupType === 'AUTO' ? 'Auto (No Trade)' :
-                    setupType === 'swing' || setupType === 'SWING' ? 'Swing Trade' :
-                    setupType === '4hTrend' || setupType === '4H' ? '4H Trend Play' :
-                    setupType === '1hScalp' || setupType === 'SCALP' ? '1H Scalp' :
-                    setupType === 'microScalp' || setupType === 'MicroScalp' || setupType === 'MICROSCALP' ? 'Micro Scalp' :
-                    setupType === 'AGGRO_SCALP_1H' ? 'Aggressive 1H Scalp' :
-                    setupType === 'AGGRO_MICRO_SCALP' ? 'Aggressive Micro Scalp' :
-                    'Auto (No Trade)'
-                  }</div>
-                </div>
               </div>
             </div>
             
@@ -2842,7 +3274,7 @@
       const jsonString = JSON.stringify(dashboardView, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
-        showCopySuccess(`${symbol.replace('USDT', '')} copied!`);
+        showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy');
@@ -2860,7 +3292,7 @@
       const jsonString = JSON.stringify(allViews, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
-        showCopySuccess('All coins copied!');
+        showCopySuccess('ALL COINS COPIED!');
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy');
@@ -2962,7 +3394,7 @@
       }
       
       try {
-        // Create the dashboard view (same JSON that COPY GPT exports)
+        // Create the dashboard view (same JSON that DATA COPY exports)
         const marketSnapshot = createDashboardView(data);
         
         // Call the agent API
@@ -3254,18 +3686,14 @@
     function showCopySuccess(message) {
       const container = document.getElementById('copyToastContainer');
       
-      // Create simple text toast
-      const toast = document.createElement('div');
-      toast.style.cssText = `
-        color: var(--color-yellow-75);
-        font-size: 0.75rem;
-        font-family: var(--font-heading);
-        font-weight: bold;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        opacity: 1;
-        transition: opacity 0.3s;
-      `;
+      // Create simple text toast matching signals-count exactly
+      const toast = document.createElement('span');
+      toast.style.fontWeight = 'bold';
+      toast.style.color = 'var(--color-yellow-75)';
+      toast.style.fontFamily = 'var(--font-mathias)';
+      toast.style.fontSize = '0.75rem';
+      toast.style.opacity = '1';
+      toast.style.transition = 'opacity 0.3s';
       toast.textContent = message;
       
       // Clear any existing toasts
