@@ -899,7 +899,7 @@
     
     <!-- AI Market Review Marquee -->
     <div id="newsMarquee" style="background-color: rgba(0, 0, 0, 0.6); border-radius: 5px; padding: 0.5rem 0; margin: 0.5rem 0 1rem 0; overflow: hidden; position: relative;">
-      <div id="newsMarqueeContent" style="display: flex; white-space: nowrap; animation: marquee 21s linear infinite; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.875rem;">
+      <div id="newsMarqueeContent" style="display: flex; white-space: nowrap; animation: marquee 10.5s linear infinite; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.875rem;">
         <span style="padding: 0 2rem;">Analyzing Market Sentiment</span>
       </div>
     </div>
@@ -2347,8 +2347,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       initializeAggressiveMode();
       startCandleTimers();
-      // TEMPORARILY DISABLED - Testing individual trade analysis first
-      // startMarketReview(); // AI market review instead of news
+      startMarketReview(); // AI market review enabled
       scanMajorCoins();
     });
 
