@@ -6,15 +6,15 @@
   <title>EditTrades - 4H Trading Strategy Scanner</title>
   
   <!-- Open Graph / Social Media Meta Tags -->
-  <meta property="og:title" content="EditTrades - Live Trading Strategy Scanner">
-  <meta property="og:description" content="Real-time multi-timeframe crypto trading signals for Bitcoin, Ethereum, and Solana. AI-powered analysis with 4H, Swing, Scalp, and Micro-Scalp strategies.">
-  <meta property="og:image" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app/logos/et_horizontal.png">
+  <meta property="og:title" content="EditTrades - Proof of Signal">
+  <meta property="og:description" content="EditTrades - Proof of Signal">
+  <meta property="og:image" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app/logos/og_img.jpg">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="EditTrades - Live Trading Strategy Scanner">
-  <meta name="twitter:description" content="Real-time multi-timeframe crypto trading signals for Bitcoin, Ethereum, and Solana. AI-powered analysis with 4H, Swing, Scalp, and Micro-Scalp strategies.">
-  <meta name="twitter:image" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app/logos/et_horizontal.png">
+  <meta name="twitter:title" content="EditTrades - Proof of Signal">
+  <meta name="twitter:description" content="EditTrades - Proof of Signal">
+  <meta name="twitter:image" content="https://snapshottradingview-f2ak2arfk-baiees-projects.vercel.app/logos/og_img.jpg">
   
   <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -751,6 +751,9 @@
   </style>
 </head>
 <body class="min-h-screen">
+  
+  <!-- Color Bar - Top Border -->
+  <img src="/logos/color_bar.png" alt="" style="position: fixed; top: 0; left: 0; width: 100%; height: 5px; max-height: 5px; z-index: 9999; pointer-events: none; display: block; object-fit: cover;">
   
   <!-- Particle Background -->
   <div id="particles-js"></div>
@@ -2879,6 +2882,16 @@
                   <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
                   <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
                 </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Setup Type</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1rem; font-weight: bold;">${
+                    setupType === 'SWING' ? 'Swing Trade' :
+                    setupType === 'SCALP' ? '1H Scalp' :
+                    setupType === 'MICROSCALP' ? 'Micro Scalp' :
+                    setupType === '4H' ? '4H Trend Play' :
+                    '4H Trend Play'
+                  }</div>
+                </div>
               </div>
             </div>
             
@@ -2919,13 +2932,13 @@
                 <div>
                   <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Invalidation</div>
                   <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.5;">
-                    ${direction === 'LONG' ? 'Close below' : 'Close above'} ${invalidation}. 
-                    <span style="color: rgba(255, 255, 255, 0.6);">
-                    ${setupType === 'SWING' ? 'HTF invalidation indicates macro trend shifted.' : 
-                      setupType === 'SCALP' ? 'LTF invalidation means scalp failed.' : 
-                      setupType === 'MICROSCALP' ? 'Exit immediately if wrong - high risk countertrend.' :
-                      'Structure break invalidates setup.'}
-                    </span>
+                    <div style="margin-bottom: 0.5rem;">
+                      ${setupType === 'SWING' ? 'HTF invalidation indicates macro trend shifted.' : 
+                        setupType === 'SCALP' ? 'LTF invalidation means scalp failed.' : 
+                        setupType === 'MICROSCALP' ? 'Exit immediately if wrong - high risk countertrend.' :
+                        'Structure break invalidates setup.'}
+                    </div>
+                    <div><strong>Level:</strong> ${invalidation} (${direction === 'LONG' ? 'close below' : 'close above'})</div>
                   </div>
                 </div>
               </div>
@@ -2935,12 +2948,13 @@
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Why This Trade</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Trend: ${trendAlignment}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Stoch: ${stochMomentum}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Pullback: ${pullbackState}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Zone: ${distanceFrom21}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Conf: ${confidence}%</div>
+                <div style="margin-bottom: 0.5rem; color: rgba(255, 255, 255, 0.85);">Clear explanation of confluence:</div>
+                <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Trend alignment: ${trendAlignment}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Stoch momentum: ${stochMomentum}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Pullback state: ${pullbackState}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Liquidity zones: ${distanceFrom21}</div>
+                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> HTF confirmation: ${tf4h?.indicators?.analysis?.trend || 'N/A'} 4H trend${setupType === 'MICROSCALP' ? ' (disregarded for micro-scalp)' : ''}</div>
                 </div>
               </div>
             </div>
@@ -2950,6 +2964,39 @@
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Required</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
                 ${conditionsRequired.map(cond => `<div style="color: rgba(255, 255, 255, 0.7);">${cond}</div>`).join('')}
+              </div>
+            </div>
+            
+            <!-- Full Width: Time Horizon -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">How Long to Hold This Setup</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
+                ${setupType === 'SWING' ? 'This is a multi-day swing play. Expect movement within 1–5 days. Requires waiting for daily/4H closes to confirm progression.' :
+                  setupType === 'SCALP' ? 'Short-duration 1H–4H play. Expect movement within 2–8 hours. Monitor 1H and 4H closes.' :
+                  setupType === 'MICROSCALP' ? 'Ultra-short 15m–1H scalp. Expect movement within 15 minutes to 2 hours. Watch candle-by-candle.' :
+                  'Standard 4H trend play. Expect movement within 4–12 hours. Check every 1H or 4H close.'}
+              </div>
+            </div>
+            
+            <!-- Full Width: Monitoring Requirement -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">How Close It Must Be Monitored</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
+                ${setupType === 'SWING' ? 'Low-touch swing setup — can be checked every 4–12 hours unless invalidation is close. Set alerts for key levels.' :
+                  setupType === 'SCALP' ? 'Normal risk — check every 15–30 minutes during active hours. Tighten stops if momentum stalls.' :
+                  setupType === 'MICROSCALP' ? 'High-risk scalp — must be watched candle-to-candle on 15m or 5m. Use tight stops and quick exits.' :
+                  'Standard monitoring — check every 1–2 hours during active sessions. Adjust if 4H shows weakness.'}
+              </div>
+            </div>
+            
+            <!-- Full Width: Chop Guidance -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Recommended Action If Price Chops</div>
+              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
+                ${setupType === 'SWING' ? 'Cut early if daily stoch flips against trend or if 4H loses key structure. Do not hold through major macro shifts.' :
+                  setupType === 'SCALP' ? 'Exit early if 1H stoch flips against trend or if we lose EMA21 with momentum. Do not hold if liquidity sweeps both sides.' :
+                  setupType === 'MICROSCALP' ? 'Cut immediately if 15m breaks entry zone or if stoch crosses against you. Do not wait — this is a precision scalp.' :
+                  'Exit if 4H closes against trend or if 1H momentum stalls. Cut early if liquidity sweeps both sides.'}
               </div>
             </div>
           </div>
