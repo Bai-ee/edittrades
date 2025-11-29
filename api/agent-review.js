@@ -8,13 +8,19 @@
 // Market Review Handler (new)
 async function handleMarketReview(req, res, tradesData, systemPrompt) {
   try {
+    console.log('🔍 Market review handler called');
+    console.log('TradesData keys:', Object.keys(tradesData || {}));
+    
     // Get OpenAI API key
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
+      console.error('❌ OpenAI API key not found');
       return res.status(500).json({ 
         error: 'OpenAI API key not configured' 
       });
     }
+
+    console.log('✅ API key found');
 
     const userPrompt = `Analyze this market data and provide a concise 1-2 sentence market review:
 
@@ -22,7 +28,9 @@ ${JSON.stringify(tradesData, null, 2)}
 
 Remember: Keep it tight, observational, and focused on overall market behavior and correlation between assets.`;
 
-    // Call OpenAI API
+    console.log('📤 Calling OpenAI API...');
+
+    // Call OpenAI API (use global fetch available in Node 18+)
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -70,10 +78,12 @@ Remember: Keep it tight, observational, and focused on overall market behavior a
     });
 
   } catch (error) {
-    console.error('Market review error:', error);
+    console.error('❌ Market review error:', error);
+    console.error('Error stack:', error.stack);
     return res.status(500).json({ 
       error: 'Market review failed',
-      message: error.message 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
@@ -93,11 +103,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    console.log('📥 Request body keys:', Object.keys(req.body || {}));
     const { marketSnapshot, setupType, symbol, tradesData, systemPrompt } = req.body;
 
     // Market review mode (new)
     if (tradesData && systemPrompt) {
       console.log('📊 Market review mode detected');
+      console.log('System prompt length:', systemPrompt?.length);
+      console.log('Trades data:', JSON.stringify(tradesData).substring(0, 200) + '...');
       return await handleMarketReview(req, res, tradesData, systemPrompt);
     }
 
