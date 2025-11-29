@@ -5,6 +5,79 @@
  * and returns a formatted trade call with reasoning.
  */
 
+// Market Review Handler (new)
+async function handleMarketReview(req, res, tradesData, systemPrompt) {
+  try {
+    // Get OpenAI API key
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ 
+        error: 'OpenAI API key not configured' 
+      });
+    }
+
+    const userPrompt = `Analyze this market data and provide a concise 1-2 sentence market review:
+
+${JSON.stringify(tradesData, null, 2)}
+
+Remember: Keep it tight, observational, and focused on overall market behavior and correlation between assets.`;
+
+    // Call OpenAI API
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: userPrompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 150
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenAI API error:', response.status, errorText);
+      return res.status(response.status).json({ 
+        error: `OpenAI API error: ${response.status}` 
+      });
+    }
+
+    const data = await response.json();
+    const review = data.choices[0]?.message?.content;
+
+    if (!review) {
+      return res.status(500).json({ 
+        error: 'No review from AI' 
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      review: review.trim(),
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Market review error:', error);
+    return res.status(500).json({ 
+      error: 'Market review failed',
+      message: error.message 
+    });
+  }
+}
+
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,11 +93,18 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { marketSnapshot, setupType, symbol } = req.body;
+    const { marketSnapshot, setupType, symbol, tradesData, systemPrompt } = req.body;
 
+    // Market review mode (new)
+    if (tradesData && systemPrompt) {
+      console.log('📊 Market review mode detected');
+      return await handleMarketReview(req, res, tradesData, systemPrompt);
+    }
+
+    // Individual trade analysis mode (existing)
     if (!marketSnapshot || !setupType || !symbol) {
       return res.status(400).json({ 
-        error: 'Missing required fields: marketSnapshot, setupType, symbol' 
+        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt' 
       });
     }
 

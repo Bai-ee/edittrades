@@ -897,10 +897,10 @@
   <!-- Main Content -->
   <main class="max-w-6xl mx-auto pb-4" style="width: 100%; box-sizing: border-box;overflow: visible; position: relative;">
     
-    <!-- Crypto News Marquee -->
+    <!-- AI Market Review Marquee -->
     <div id="newsMarquee" style="background-color: rgba(0, 0, 0, 0.6); border-radius: 5px; padding: 0.5rem 0; margin: 0.5rem 0 1rem 0; overflow: hidden; position: relative;">
-      <div id="newsMarqueeContent" style="display: flex; white-space: nowrap; animation: marquee 42s linear infinite; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.875rem;">
-        <span style="padding: 0 2rem;">Loading crypto news...</span>
+      <div id="newsMarqueeContent" style="display: flex; white-space: nowrap; animation: marquee 21s linear infinite; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.875rem;">
+        <span style="padding: 0 2rem;">Analyzing Market Sentiment</span>
       </div>
     </div>
 
@@ -2183,81 +2183,171 @@
       setInterval(update4HTimer, 1000); // Update every second for 4H timer
     }
 
-    // Crypto News Marquee
-    let newsCache = [];
+    // AI Market Review (replacing news marquee)
+    let marketReviewCache = 'Analyzing Market Sentiment';
     
-    async function fetchCryptoNews() {
+    // Get AI market review from all trades data
+    async function getAIMarketReview() {
       try {
-        console.log('🔄 Fetching crypto news...');
-        const response = await fetch('/api/crypto-news');
+        console.log('🤖 Requesting AI market review...');
+        console.log('Current scanResults:', Object.keys(scanResults));
+        console.log('Safe results:', Object.keys(scanResultsSafe));
+        console.log('Aggressive results:', Object.keys(scanResultsAggressive));
+        
+        // Store current state
+        const originalScanResults = scanResults;
+        
+        // Collect all trades from both modes
+        const allTradesData = {
+          SAFE_MODE: {},
+          AGGRESSIVE_MODE: {}
+        };
+        
+        const strategyKeys = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
+        const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+        
+        // SAFE MODE
+        scanResults = scanResultsSafe;
+        for (const symbol of symbols) {
+          const safeData = scanResultsSafe[symbol];
+          if (!safeData) continue;
+          
+          allTradesData.SAFE_MODE[symbol] = {
+            currentPrice: safeData.currentPrice,
+            strategies: {}
+          };
+          
+          strategyKeys.forEach((strategyKey) => {
+            const signal = evaluateTemplateSignal(symbol, strategyKey);
+            if (signal && signal.valid) {
+              allTradesData.SAFE_MODE[symbol].strategies[strategyKey] = {
+                direction: signal.direction,
+                setupType: signal.setupType,
+                confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%'
+              };
+            }
+          });
+        }
+        
+        // AGGRESSIVE MODE
+        scanResults = scanResultsAggressive;
+        for (const symbol of symbols) {
+          const aggressiveData = scanResultsAggressive[symbol];
+          if (!aggressiveData) continue;
+          
+          allTradesData.AGGRESSIVE_MODE[symbol] = {
+            currentPrice: aggressiveData.currentPrice,
+            strategies: {}
+          };
+          
+          strategyKeys.forEach((strategyKey) => {
+            const signal = evaluateTemplateSignal(symbol, strategyKey);
+            if (signal && signal.valid) {
+              allTradesData.AGGRESSIVE_MODE[symbol].strategies[strategyKey] = {
+                direction: signal.direction,
+                setupType: signal.setupType,
+                confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%'
+              };
+            }
+          });
+        }
+        
+        // Restore original scan results
+        scanResults = originalScanResults;
+        
+        // Call AI agent for market review
+        console.log('📤 Sending request to /api/agent-review with trades data');
+        const response = await fetch('/api/agent-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            tradesData: allTradesData,
+            systemPrompt: 'When analyzing trade JSON, respond with direct, concise market insight. Avoid technical jargon unless necessary. Focus on what the market is behaving like rather than what indicators say. Identify whether assets influence each other and call out any shared momentum or correlation. If no trades appear, state why the structure isn\'t clean. Tone should be confident, observational, and actionable—similar to a seasoned trader explaining what they see without fluff. Always keep responses tight, honest, and rooted in the bigger picture sentiment behind the data, not just the numbers. Keep your response to 1-2 sentences maximum.'
+          })
+        });
+        
+        console.log('📥 Response status:', response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ API error response:', errorText);
+          throw new Error(`AI review failed: ${response.status} - ${errorText}`);
+        }
+        
         const data = await response.json();
+        console.log('📊 API response data:', data);
         
-        console.log('✅ Crypto news response:', data);
-        
-        if (data.success && data.news && data.news.length > 0) {
-          newsCache = data.news;
-          console.log(`📰 Loaded ${newsCache.length} news items`);
-          updateNewsMarquee();
+        if (data.review) {
+          marketReviewCache = data.review;
+          updateMarketReviewDisplay();
+          console.log('✅ AI market review received:', data.review);
         } else {
-          console.warn('⚠️ No news data received');
+          console.warn('⚠️ No review in response:', data);
+          marketReviewCache = 'Market analysis temporarily unavailable';
+          updateMarketReviewDisplay();
         }
       } catch (error) {
-        console.error('❌ Failed to fetch crypto news:', error);
-        // Keep showing cached news or fallback message
+        console.error('❌ Error getting AI market review:', error);
+        console.error('Error details:', error.message, error.stack);
+        marketReviewCache = 'Market analysis temporarily unavailable';
+        updateMarketReviewDisplay();
       }
     }
     
-    function updateNewsMarquee() {
-      console.log('🎬 Updating news marquee...');
+    function updateMarketReviewDisplay() {
       const marqueeContent = document.getElementById('newsMarqueeContent');
-      console.log('Marquee element:', marqueeContent);
-      console.log('News cache length:', newsCache.length);
       
       if (!marqueeContent) {
         console.error('❌ Marquee content element not found!');
         return;
       }
       
-      if (newsCache.length === 0) {
-        console.warn('⚠️ News cache is empty');
-        return;
-      }
-      
-      // Format news items with currency tags
-      const newsItems = newsCache.map(item => {
-        const currencies = item.currencies && item.currencies.length > 0 
-          ? `[${item.currencies.join(', ')}] ` 
-          : '';
-        const title = item.title;
-        // Return plain text without links
-        return `${currencies}${title}`;
-      });
-      
-      console.log('📝 Formatted news items:', newsItems.length);
-      
-      // Duplicate content for seamless loop
-      const newsHTML = newsItems.join('  •  ');
+      // Display as a scrolling message
       marqueeContent.innerHTML = `
-        <span style="padding-right: 4rem;">${newsHTML}</span>
-        <span style="padding-right: 4rem;">${newsHTML}</span>
+        <span style="padding-right: 4rem;">${marketReviewCache}</span>
+        <span style="padding-right: 4rem;">${marketReviewCache}</span>
       `;
       
-      console.log('✅ Marquee updated successfully');
+      console.log('✅ Market review updated');
     }
     
-    function startNewsMarquee() {
-      console.log('🚀 Starting news marquee...');
-      // Initial fetch
-      fetchCryptoNews();
+    function startMarketReview() {
+      console.log('🤖 Starting AI market review...');
+      // Initial review display with placeholder
+      updateMarketReviewDisplay();
       
-      // Refresh every 5 minutes (300 seconds) - CryptoPanic has strict rate limits
-      setInterval(fetchCryptoNews, 300000);
+      // Wait for data to load, then get first review (non-blocking)
+      setTimeout(() => {
+        if (Object.keys(scanResults).length > 0) {
+          getAIMarketReview().catch(err => {
+            console.error('❌ Market review failed:', err);
+            marketReviewCache = 'Market analysis temporarily unavailable';
+            updateMarketReviewDisplay();
+          });
+        } else {
+          console.log('⏳ No scan results yet, will retry in 5 seconds...');
+          setTimeout(() => {
+            if (Object.keys(scanResults).length > 0) {
+              getAIMarketReview().catch(err => console.error('Market review error:', err));
+            }
+          }, 5000);
+        }
+      }, 5000);
+      
+      // Refresh every 5 minutes
+      setInterval(() => {
+        if (Object.keys(scanResults).length > 0) {
+          getAIMarketReview().catch(err => console.error('Market review error:', err));
+        }
+      }, 300000);
     }
 
     window.addEventListener('DOMContentLoaded', () => {
       initializeAggressiveMode();
       startCandleTimers();
-      startNewsMarquee();
+      startMarketReview(); // AI market review instead of news
       scanMajorCoins();
     });
 
@@ -3449,6 +3539,7 @@
         notes: '',
         journal: `Auto-tracked from ${symbol.replace('USDT', '')} signal\n\nSetup: ${setupType}\nConfidence: ${tradeSignal.confidence ? (tradeSignal.confidence * 100).toFixed(0) : 0}%\n\nConfluence:\n${JSON.stringify(confluence, null, 2)}\n\nInvalidation: ${invalidationDesc}`,
         imageUrl: null,
+        trackedAt: Date.now(), // Timestamp when trade tracking started
         entryTime: new Date().toISOString(),
         status: status,
         exitPrice: null,
@@ -3464,11 +3555,15 @@
       };
       
       // Store in localStorage for tracker to pick up
-      localStorage.setItem('pendingTradeToTrack', JSON.stringify(trackedTrade));
+      const tradeJSON = JSON.stringify(trackedTrade);
+      localStorage.setItem('pendingTradeToTrack', tradeJSON);
       
       console.log('📊 Auto-tracking trade:', trackedTrade);
+      console.log('💾 Stored in localStorage:', tradeJSON);
+      console.log('🔍 Verify localStorage:', localStorage.getItem('pendingTradeToTrack'));
       
       // Redirect to tracker
+      console.log('🔀 Redirecting to tracker with autoTrack=true');
       window.location.href = '/tracker.html?autoTrack=true';
     }
 
@@ -3491,18 +3586,89 @@
       });
     }
 
-    // Copy all coins
+    // Copy all coins with ALL strategies from BOTH modes
     function copyAllCoins() {
-      const allViews = {};
+      // Store current state
+      const originalScanResults = scanResults;
       
-      for (const [symbol, data] of Object.entries(scanResults)) {
-        allViews[symbol] = createDashboardView(data);
+      const allViews = {
+        SAFE_MODE: {},
+        AGGRESSIVE_MODE: {}
+      };
+      
+      const strategyKeys = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
+      const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      
+      console.log('📋 Copying all trades across all strategies and modes...');
+      
+      // SAFE MODE - iterate through all strategies
+      scanResults = scanResultsSafe; // Temporarily switch to safe mode
+      
+      for (const symbol of symbols) {
+        const safeData = scanResultsSafe[symbol];
+        if (!safeData) continue;
+        
+        allViews.SAFE_MODE[symbol] = {
+          currentPrice: safeData.currentPrice,
+          strategies: {}
+        };
+        
+        strategyKeys.forEach((strategyKey) => {
+          const signal = evaluateTemplateSignal(symbol, strategyKey);
+          if (signal && signal.valid) {
+            allViews.SAFE_MODE[symbol].strategies[strategyKey] = {
+              direction: signal.direction,
+              setupType: signal.setupType,
+              confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%',
+              entryZone: signal.entryZone || signal.entry_zone,
+              stopLoss: signal.stopLoss || signal.stop_loss,
+              targets: signal.targets,
+              invalidationLevel: signal.invalidationLevel || signal.invalidation_level,
+              riskReward: signal.risk_reward
+            };
+            console.log(`  ✓ SAFE ${symbol} ${strategyKey}:`, signal.direction, signal.confidence);
+          }
+        });
       }
+      
+      // AGGRESSIVE MODE - iterate through all strategies
+      scanResults = scanResultsAggressive; // Temporarily switch to aggressive mode
+      
+      for (const symbol of symbols) {
+        const aggressiveData = scanResultsAggressive[symbol];
+        if (!aggressiveData) continue;
+        
+        allViews.AGGRESSIVE_MODE[symbol] = {
+          currentPrice: aggressiveData.currentPrice,
+          strategies: {}
+        };
+        
+        strategyKeys.forEach((strategyKey) => {
+          const signal = evaluateTemplateSignal(symbol, strategyKey);
+          if (signal && signal.valid) {
+            allViews.AGGRESSIVE_MODE[symbol].strategies[strategyKey] = {
+              direction: signal.direction,
+              setupType: signal.setupType,
+              confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%',
+              entryZone: signal.entryZone || signal.entry_zone,
+              stopLoss: signal.stopLoss || signal.stop_loss,
+              targets: signal.targets,
+              invalidationLevel: signal.invalidationLevel || signal.invalidation_level,
+              riskReward: signal.risk_reward
+            };
+            console.log(`  ✓ AGGRESSIVE ${symbol} ${strategyKey}:`, signal.direction, signal.confidence);
+          }
+        });
+      }
+      
+      // Restore original scan results
+      scanResults = originalScanResults;
       
       const jsonString = JSON.stringify(allViews, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
         showCopySuccess('ALL COINS COPIED!');
+        console.log('✅ All trades copied to clipboard');
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy');

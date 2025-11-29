@@ -607,11 +607,66 @@ Be precise with numbers. Do not include any markdown formatting or explanation, 
 // AI Agent Review - OpenAI Integration
 app.post('/api/agent-review', async (req, res) => {
   try {
-    const { marketSnapshot, setupType, symbol } = req.body;
+    const { marketSnapshot, setupType, symbol, tradesData, systemPrompt } = req.body;
 
+    // MARKET REVIEW MODE (new)
+    if (tradesData && systemPrompt) {
+      console.log('📊 Market review mode detected');
+      
+      // Get OpenAI API key
+      const apiKey = process.env.OPENAI_API_KEY;
+      if (!apiKey) {
+        return res.status(200).json({ 
+          success: true,
+          review: 'Market analysis unavailable in local development without API key.',
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      const userPrompt = `Analyze this market data and provide a concise 1-2 sentence market review:\n\n${JSON.stringify(tradesData, null, 2)}\n\nRemember: Keep it tight, observational, and focused on overall market behavior and correlation between assets.`;
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 150
+        })
+      });
+
+      if (!response.ok) {
+        console.error('OpenAI API error:', response.status);
+        return res.status(response.status).json({ error: 'OpenAI API error' });
+      }
+
+      const data = await response.json();
+      const review = data.choices[0]?.message?.content;
+
+      if (!review) {
+        return res.status(500).json({ error: 'No review from AI' });
+      }
+
+      console.log('✅ Market review received:', review);
+
+      return res.json({
+        success: true,
+        review: review.trim(),
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // INDIVIDUAL TRADE ANALYSIS MODE (existing)
     if (!marketSnapshot || !setupType || !symbol) {
       return res.status(400).json({ 
-        error: 'Missing required fields: marketSnapshot, setupType, symbol' 
+        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt' 
       });
     }
 
@@ -634,7 +689,7 @@ app.post('/api/agent-review', async (req, res) => {
     console.log(`🤖 AI analyzing ${symbol} ${setupType} setup...`);
 
     // Call OpenAI API (simplified version - full logic in api/agent-review.js)
-    const systemPrompt = `You are a trading analysis AI. Analyze the ${setupType} setup for ${symbol} and provide a conversational assessment in 3-5 paragraphs. Rate it as A+, A, B, or SKIP.`;
+    const tradeSystemPrompt = `You are a trading analysis AI. Analyze the ${setupType} setup for ${symbol} and provide a conversational assessment in 3-5 paragraphs. Rate it as A+, A, B, or SKIP.`;
     
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -645,7 +700,7 @@ app.post('/api/agent-review', async (req, res) => {
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: systemPrompt },
+          { role: 'system', content: tradeSystemPrompt },
           { role: 'user', content: `Analyze: ${JSON.stringify(marketSnapshot)}` }
         ],
         temperature: 0.3,

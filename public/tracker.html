@@ -337,7 +337,21 @@
       }
       
       /* Details button on its own row */
-      .coin-row td:nth-child(4) {
+      /* Hide TIME header on mobile */
+      .time-header {
+        display: none !important;
+      }
+      
+      /* TIME cell on mobile - display inline with status */
+      .time-cell {
+        display: inline-block !important;
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        padding-right: 1rem !important;
+      }
+      
+      .coin-row td:nth-child(5) {
         display: block !important;
         width: 100% !important;
         padding-left: 0 !important;
@@ -345,7 +359,7 @@
         max-width: 100% !important;
       }
       
-      .coin-row td:nth-child(4):before {
+      .coin-row td:nth-child(5):before {
         display: none !important;
       }
       
@@ -356,7 +370,7 @@
       }
       
       .coin-row .details-button,
-      .coin-row td:nth-child(4) button,
+      .coin-row td:nth-child(5) button,
       .coin-row .details-button-cell button {
         width: 100% !important;
         max-width: 100% !important;
@@ -466,6 +480,7 @@
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; text-align: center; border: none; border-left: none; width: 150px; min-width: 150px; max-width: 150px;">TRADE</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; text-align: left; width: 100px; min-width: 100px; max-width: 100px;">P&L</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; text-align: left;">STATUS</th>
+                <th class="px-2 time-header" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; text-align: left; width: 90px; min-width: 90px; max-width: 90px;">TIME</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; width: 120px; min-width: 120px; max-width: 120px;"></th>
               </tr>
             </thead>
@@ -767,18 +782,27 @@
       
       // Check if auto-tracking a trade from homepage
       const urlParams = new URLSearchParams(window.location.search);
+      console.log('🔍 URL Params:', window.location.search);
+      console.log('🔍 autoTrack param:', urlParams.get('autoTrack'));
+      
       if (urlParams.get('autoTrack') === 'true') {
         const pendingTradeData = localStorage.getItem('pendingTradeToTrack');
+        console.log('🔍 Pending trade data from localStorage:', pendingTradeData);
+        
         if (pendingTradeData) {
           try {
             const tradeToAdd = JSON.parse(pendingTradeData);
             console.log('🎯 Auto-tracking trade from homepage:', tradeToAdd);
+            console.log('🔍 Current trades array length before add:', trades.length);
             
             // Add to trades array
             trades.push(tradeToAdd);
+            console.log('🔍 Current trades array length after add:', trades.length);
+            console.log('🔍 All trades:', trades);
             
             // Save to Firebase
             await saveTrades();
+            console.log('💾 Trade saved to Firebase');
             
             // Clear the pending trade
             localStorage.removeItem('pendingTradeToTrack');
@@ -789,12 +813,16 @@
             console.log('✅ Trade auto-tracked successfully!');
           } catch (error) {
             console.error('❌ Error auto-tracking trade:', error);
+            console.error('Stack trace:', error.stack);
           }
+        } else {
+          console.warn('⚠️ No pending trade data found in localStorage');
         }
       }
       
       renderTrades();
       startPriceUpdates();
+      startTimerUpdates();
       
       // Add event listeners for auto-preview
       document.getElementById('symbol').addEventListener('change', updateTradePreview);
@@ -866,6 +894,7 @@
         notes: '',
         journal: journal,
         imageUrl: uploadedImageUrl,
+        trackedAt: Date.now(), // Timestamp when trade tracking started
         entryTime: new Date().toISOString(),
         status: 'ACTIVE',
         exitPrice: null,
@@ -924,15 +953,31 @@
     async function loadTrades() {
       if (db) {
         try {
-          const snapshot = await db.collection('trades').orderBy('timestamp', 'desc').get();
+          // Don't use orderBy to avoid index requirement - we'll sort in memory
+          const snapshot = await db.collection('trades').get();
           trades = [];
           snapshot.forEach(doc => {
-            trades.push(doc.data());
+            const tradeData = doc.data();
+            
+            // Backward compatibility: add trackedAt if missing
+            if (!tradeData.trackedAt) {
+              tradeData.trackedAt = tradeData.id || Date.now();
+            }
+            
+            console.log('  📄 Loaded trade from Firebase:', tradeData.symbol, tradeData.status, tradeData.id);
+            trades.push(tradeData);
           });
+          
+          // Sort by ID (timestamp-based) descending
+          trades.sort((a, b) => b.id - a.id);
+          
           console.log('📦 Loaded', trades.length, 'trades from Firebase');
+          console.log('📋 Trade IDs:', trades.map(t => t.id));
+          console.log('📋 Trade statuses:', trades.map(t => `${t.symbol}:${t.status}`));
           return trades;
         } catch (error) {
           console.error('❌ Error loading from Firebase:', error);
+          console.error('Stack trace:', error.stack);
           // Fallback to localStorage
           trades = JSON.parse(localStorage.getItem('trackedTrades') || '[]');
           console.log('📦 Loaded', trades.length, 'trades from localStorage (fallback)');
@@ -956,6 +1001,37 @@
         console.error('Error fetching price:', error);
         return priceCache[symbol] || 0;
       }
+    }
+    
+    // Format elapsed time from timestamp
+    function formatElapsedTime(trackedAt) {
+      if (!trackedAt) return '00:00:00';
+      
+      const now = Date.now();
+      const elapsed = Math.floor((now - trackedAt) / 1000); // seconds
+      
+      const hours = Math.floor(elapsed / 3600);
+      const minutes = Math.floor((elapsed % 3600) / 60);
+      const seconds = elapsed % 60;
+      
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+    
+    // Update all trade timers
+    function updateTimers() {
+      trades.forEach(trade => {
+        const timerElement = document.getElementById(`timer-${trade.id}`);
+        if (timerElement && trade.trackedAt) {
+          timerElement.textContent = formatElapsedTime(trade.trackedAt);
+        }
+      });
+    }
+    
+    // Start timer updates (every second)
+    function startTimerUpdates() {
+      setInterval(() => {
+        updateTimers();
+      }, 1000);
     }
     
     // Start price updates
@@ -1299,6 +1375,9 @@
       // All text in yellow-white
       const signalColor = 'var(--color-yellow-75)';
       
+      // Calculate elapsed time for this trade
+      const elapsedTime = formatElapsedTime(trade.trackedAt);
+      
       row.innerHTML = `
         <td class="px-2 coin-name-cell" style="padding-top: 1rem; padding-bottom: 1rem; width: 150px; min-width: 150px; max-width: 150px;">
           <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
@@ -1320,11 +1399,17 @@
           </div>
         </td>
         
+        <td class="px-2 time-cell" data-label="Time:" style="width: 90px; min-width: 90px; max-width: 90px; padding-left: 1rem;">
+          <div id="timer-${trade.id}" style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.75rem; color: var(--color-yellow-75); text-align: left;">
+            ${elapsedTime}
+          </div>
+        </td>
+        
         <td class="px-2 details-button-cell" data-label="Details:" style="width: 120px; min-width: 120px; max-width: 120px; white-space: nowrap;">
           <button 
             onclick="toggleTradeDetails(${trade.id})"
-            class="btn-base btn-secondary px-3 py-1 text-xs rounded details-button"
-            style="font-family: var(--font-mathias); font-weight: bold; background-color: var(--color-yellow-75); color: #000000; border-color: var(--color-yellow-75); padding: 0.5rem 1rem;"
+            class="px-3 py-1 text-xs font-mathias font-bold"
+            style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
           >
             DETAILS
           </button>
@@ -1494,15 +1579,15 @@
             <div style="text-align: center; padding: 1rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
               <button 
                 onclick="toggleTradeDetails(${trade.id})"
-                class="btn-base btn-secondary px-4 py-2 text-sm rounded"
-                style="font-family: var(--font-mathias); font-weight: bold; background-color: var(--color-yellow-75); color: #000000; border-color: var(--color-yellow-75); padding: 0.5rem 1rem;"
+                class="px-3 py-1 text-xs font-mathias font-bold"
+                style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
               >
                 HIDE
               </button>
               <button 
                 onclick="deleteTrade(${trade.id})"
-                class="btn-base btn-secondary px-4 py-2 text-sm rounded"
-                style="font-family: var(--font-mathias); font-weight: bold; background-color: #ef4444; color: #ffffff; border-color: #ef4444; padding: 0.5rem 1rem;"
+                class="px-3 py-1 text-xs font-mathias font-bold"
+                style="background-color: #ef4444; color: #ffffff; border: 2px solid #ef4444; border-radius: var(--radius-md); transition: all 0.3s;"
               >
                 DELETE
               </button>
@@ -1586,12 +1671,14 @@
     async function renderTrades() {
       console.log('🔄 Rendering trades...', trades.length, 'total trades');
       
+      const pendingTrades = trades.filter(t => t.status === 'PENDING');
       const activeTrades = trades.filter(t => t.status === 'ACTIVE');
       const closedTrades = trades.filter(t => t.status === 'CLOSED');
+      const invalidatedTrades = trades.filter(t => t.status === 'INVALIDATED');
       
-      console.log('  Active:', activeTrades.length, '| Closed:', closedTrades.length);
+      console.log('  Pending:', pendingTrades.length, '| Active:', activeTrades.length, '| Closed:', closedTrades.length, '| Invalidated:', invalidatedTrades.length);
       
-      const allTrades = [...activeTrades, ...closedTrades];
+      const allTrades = [...pendingTrades, ...activeTrades, ...closedTrades, ...invalidatedTrades];
       const tradesTable = document.getElementById('tradesTable');
       
       if (!tradesTable) {
@@ -1603,9 +1690,10 @@
         tradesTable.innerHTML = '';
         console.log('  ℹ️ No trades to display');
       } else {
-        // Fetch market analysis for all active trades
-        console.log('📊 Fetching market analysis for active trades...');
-        const analysisPromises = activeTrades.map(trade => analyzeMarketForTrade(trade, priceCache[trade.symbol] || 0));
+        // Fetch market analysis for all active and pending trades (pending needs monitoring for entry)
+        console.log('📊 Fetching market analysis for active and pending trades...');
+        const tradesToAnalyze = [...pendingTrades, ...activeTrades];
+        const analysisPromises = tradesToAnalyze.map(trade => analyzeMarketForTrade(trade, priceCache[trade.symbol] || 0));
         await Promise.all(analysisPromises);
         
         tradesTable.innerHTML = '';
