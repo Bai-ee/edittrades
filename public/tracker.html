@@ -11,6 +11,11 @@
   <!-- Styles -->
   <link rel="stylesheet" href="/edittrax-styles.css">
   
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+  
   <style>
     /* Font Strategy: Mathias for labels/headings, System font for content */
     h1, h2, h3, h4, h5, h6 {
@@ -559,6 +564,20 @@
           <input type="number" id="stopLoss" class="form-input" step="0.01" placeholder="e.g. 41000" required>
         </div>
         
+        <div class="form-group mt-4">
+          <label class="form-label">Journal / Notes (Optional)</label>
+          <textarea 
+            id="journal" 
+            class="form-input" 
+            rows="4" 
+            placeholder="Add your trade thesis, setup notes, or any observations..."
+            style="resize: vertical; min-height: 100px;"
+          ></textarea>
+          <small style="color: rgba(230, 233, 224, 0.6); font-size: 0.75rem; margin-top: 0.25rem; display: block;">
+            Document your reasoning, market conditions, or anything relevant to this trade.
+          </small>
+        </div>
+        
         <div style="display: grid; grid-template-columns: 1fr; gap: 0.75rem; margin-top: 1rem;">
           <button 
             type="submit" 
@@ -592,11 +611,33 @@
 
   <!-- Scripts -->
   <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyByw1VY0xbEyHeCDbXKqNiKFvITAr55_fw",
+      authDomain: "edittrades.firebaseapp.com",
+      projectId: "edittrades",
+      storageBucket: "edittrades.appspot.com",
+      messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+    
+    // Initialize Firebase
+    let db, storage;
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      storage = firebase.storage();
+      console.log('✅ Firebase initialized successfully');
+    } catch (error) {
+      console.error('❌ Firebase initialization error:', error);
+      console.log('⚠️ Falling back to localStorage');
+    }
+    
     // Trade storage
-    let trades = JSON.parse(localStorage.getItem('trackedTrades') || '[]');
+    let trades = [];
     let priceCache = {};
     
-    console.log('📦 Loaded trades from localStorage:', trades.length, 'trades');
+    console.log('📦 Loading trades from Firebase...');
     
     // 1-minute candle timer
     function updateCandleTimer() {
@@ -717,8 +758,12 @@
     }
     
     // Initialize on page load
-    window.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('DOMContentLoaded', async () => {
       startCandleTimers();
+      
+      // Load trades from Firebase
+      await loadTrades();
+      
       renderTrades();
       startPriceUpdates();
       
@@ -737,8 +782,10 @@
       const direction = document.getElementById('direction').value;
       const entry = parseFloat(document.getElementById('entry').value);
       const stopLoss = parseFloat(document.getElementById('stopLoss').value);
+      const journal = document.getElementById('journal').value || '';
+      const uploadedImageUrl = document.getElementById('uploadedImageUrl')?.value || null;
       
-      console.log('📝 Form submitted:', { symbol, direction, entry, stopLoss });
+      console.log('📝 Form submitted:', { symbol, direction, entry, stopLoss, journal, imageUrl: uploadedImageUrl });
       
       // Validate inputs
       if (!symbol || !direction || !entry || !stopLoss) {
@@ -788,11 +835,14 @@
         strategy: strategy,
         riskPercent: 1,
         notes: '',
+        journal: journal,
+        imageUrl: uploadedImageUrl,
         entryTime: new Date().toISOString(),
         status: 'ACTIVE',
         exitPrice: null,
         exitTime: null,
-        outcome: null
+        outcome: null,
+        timestamp: firebase.firestore && firebase.firestore.FieldValue ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
       };
       
       console.log('➕ Adding new trade:', trade);
@@ -808,14 +858,63 @@
       document.getElementById('addTradeModal').style.display = 'none';
       calculatedTrade = null;
       
+      // Clear uploaded image URL
+      const imageUrlField = document.getElementById('uploadedImageUrl');
+      if (imageUrlField) {
+        imageUrlField.remove();
+      }
+      
       // Show success message
       alert(`✅ ${trade.direction} trade added for ${trade.symbol.replace('USDT', '')}!`);
     });
     
-    // Save trades to localStorage
-    function saveTrades() {
-      localStorage.setItem('trackedTrades', JSON.stringify(trades));
-      console.log('💾 Saved trades to localStorage:', trades.length, 'trades');
+    // Save trades to Firebase or localStorage
+    async function saveTrades() {
+      if (db) {
+        try {
+          // Save each trade to Firestore
+          for (const trade of trades) {
+            if (trade.id) {
+              await db.collection('trades').doc(String(trade.id)).set(trade);
+            }
+          }
+          console.log('💾 Saved trades to Firebase:', trades.length, 'trades');
+        } catch (error) {
+          console.error('❌ Error saving to Firebase:', error);
+          // Fallback to localStorage
+          localStorage.setItem('trackedTrades', JSON.stringify(trades));
+        }
+      } else {
+        // Fallback to localStorage
+        localStorage.setItem('trackedTrades', JSON.stringify(trades));
+        console.log('💾 Saved trades to localStorage:', trades.length, 'trades');
+      }
+    }
+    
+    // Load trades from Firebase or localStorage
+    async function loadTrades() {
+      if (db) {
+        try {
+          const snapshot = await db.collection('trades').orderBy('timestamp', 'desc').get();
+          trades = [];
+          snapshot.forEach(doc => {
+            trades.push(doc.data());
+          });
+          console.log('📦 Loaded', trades.length, 'trades from Firebase');
+          return trades;
+        } catch (error) {
+          console.error('❌ Error loading from Firebase:', error);
+          // Fallback to localStorage
+          trades = JSON.parse(localStorage.getItem('trackedTrades') || '[]');
+          console.log('📦 Loaded', trades.length, 'trades from localStorage (fallback)');
+          return trades;
+        }
+      } else {
+        // Fallback to localStorage
+        trades = JSON.parse(localStorage.getItem('trackedTrades') || '[]');
+        console.log('📦 Loaded', trades.length, 'trades from localStorage');
+        return trades;
+      }
     }
     
     // Fetch current price
@@ -1251,11 +1350,22 @@
                 </div>
               </div>
               
-              ${trade.notes ? `
+              ${trade.journal ? `
               <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Your Notes</div>
-                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.875rem; line-height: 1.6;">
-                  ${trade.notes}
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Trade Journal</div>
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.875rem; line-height: 1.6; white-space: pre-wrap;">
+                  ${trade.journal}
+                </div>
+              </div>
+              ` : ''}
+              
+              ${trade.imageUrl ? `
+              <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Trade Screenshot</div>
+                <div style="display: flex; justify-content: center; margin-top: 1rem;">
+                  <a href="${trade.imageUrl}" target="_blank" rel="noopener noreferrer">
+                    <img src="${trade.imageUrl}" alt="Trade Screenshot" style="max-width: 100%; max-height: 400px; border-radius: 0.5rem; border: 2px solid var(--color-yellow-75);" />
+                  </a>
                 </div>
               </div>
               ` : ''}
@@ -1425,7 +1535,7 @@
     };
     
     // Delete trade
-    window.deleteTrade = function(tradeId) {
+    window.deleteTrade = async function(tradeId) {
       if (!confirm('Are you sure you want to delete this trade? This action cannot be undone.')) {
         return;
       }
@@ -1441,7 +1551,28 @@
         const deletedTrade = trades.splice(index, 1)[0];
         console.log('✅ Deleted trade:', deletedTrade.symbol, deletedTrade.direction);
         
-        saveTrades();
+        // Delete from Firebase
+        if (db) {
+          try {
+            await db.collection('trades').doc(String(tradeId)).delete();
+            console.log('🗑️ Deleted from Firebase');
+            
+            // Also delete associated image if exists
+            if (deletedTrade.imageUrl && storage) {
+              try {
+                const imageRef = storage.refFromURL(deletedTrade.imageUrl);
+                await imageRef.delete();
+                console.log('🗑️ Deleted trade image from Firebase Storage');
+              } catch (imgError) {
+                console.warn('⚠️ Could not delete image:', imgError);
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error deleting from Firebase:', error);
+          }
+        }
+        
+        await saveTrades();
         renderTrades();
       } else {
         console.error('❌ Trade not found:', tradeId);
@@ -1478,6 +1609,24 @@
       `;
       
       try {
+        // Upload image to Firebase Storage first
+        let uploadedImageUrl = null;
+        if (storage) {
+          try {
+            const timestamp = Date.now();
+            const fileName = `trade_images/${timestamp}_${file.name}`;
+            const storageRef = storage.ref(fileName);
+            
+            console.log('📤 Uploading image to Firebase Storage...');
+            const uploadTask = await storageRef.put(file);
+            uploadedImageUrl = await uploadTask.ref.getDownloadURL();
+            console.log('✅ Image uploaded to Firebase:', uploadedImageUrl);
+          } catch (storageError) {
+            console.error('❌ Error uploading to Firebase Storage:', storageError);
+            alert('⚠️ Image upload failed, but we\'ll try to parse it anyway.');
+          }
+        }
+        
         // Convert image to base64
         const reader = new FileReader();
         reader.onload = async function(e) {
@@ -1521,6 +1670,19 @@
             
             if (data.stopLoss) {
               document.getElementById('stopLoss').value = data.stopLoss;
+            }
+            
+            // Store uploaded image URL in a hidden field
+            if (uploadedImageUrl) {
+              let imageUrlField = document.getElementById('uploadedImageUrl');
+              if (!imageUrlField) {
+                imageUrlField = document.createElement('input');
+                imageUrlField.type = 'hidden';
+                imageUrlField.id = 'uploadedImageUrl';
+                document.getElementById('addTradeForm').appendChild(imageUrlField);
+              }
+              imageUrlField.value = uploadedImageUrl;
+              console.log('💾 Stored image URL for trade submission');
             }
             
             // Trigger preview update
