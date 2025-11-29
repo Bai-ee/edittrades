@@ -1,8 +1,7 @@
 /**
  * Parse trade details from an uploaded image using OpenAI Vision API
+ * Uses raw fetch instead of SDK for better serverless compatibility
  */
-
-import OpenAI from 'openai';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -23,21 +22,14 @@ export default async function handler(req, res) {
 
   try {
     // Check for API key
-    if (!process.env.OPENAI_API_KEY) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
       console.error('❌ OPENAI_API_KEY not found in environment');
       return res.status(500).json({ 
         error: 'Server configuration error',
         message: 'OpenAI API key not configured'
       });
     }
-
-    console.log('✅ OpenAI API key found, initializing...');
-    
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 25000, // 25 second timeout (Vercel allows 30s)
-      maxRetries: 0 // Don't retry to avoid timeout
-    });
 
     const { imageData } = req.body;
 
@@ -47,17 +39,22 @@ export default async function handler(req, res) {
 
     console.log('🖼️ Parsing trade image with OpenAI Vision...');
 
-    // Call OpenAI Vision API with timeout
-    const response = await Promise.race([
-      openai.chat.completions.create({
+    // Call OpenAI Vision API using fetch (better serverless compatibility)
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
         model: 'gpt-4o',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `You are a trading assistant. Analyze this trading screenshot and extract the following information:
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `You are a trading assistant. Analyze this trading screenshot and extract the following information:
               
 - Symbol/Coin (e.g., BTC, ETH, SOL) - return as BTCUSDT, ETHUSDT, or SOLUSDT
 - Direction (LONG or SHORT)
@@ -77,28 +74,39 @@ Example response format:
 }
 
 Be precise with numbers. Do not include any markdown formatting or explanation, just the raw JSON object.`
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: imageData
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageData
+                }
               }
-            }
-          ]
-        }
-      ],
-      max_tokens: 300,
-      temperature: 0.1
-    }),
-    new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('OpenAI API timeout after 25 seconds')), 25000)
-    )
-  ]);
+            ]
+          }
+        ],
+        max_tokens: 300,
+        temperature: 0.1
+      })
+    });
 
-    const content = response.choices[0]?.message?.content;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ OpenAI API error:', response.status, errorText);
+      return res.status(500).json({
+        error: 'OpenAI API request failed',
+        message: `API returned ${response.status}: ${errorText.substring(0, 200)}`,
+        details: 'APIError'
+      });
+    }
+
+    const result = await response.json();
+    const content = result.choices[0]?.message?.content;
     
     if (!content) {
-      return res.status(500).json({ error: 'No response from OpenAI' });
+      return res.status(500).json({ 
+        error: 'No response from OpenAI',
+        message: 'OpenAI returned empty response'
+      });
     }
 
     console.log('📋 Raw response:', content);
@@ -111,14 +119,17 @@ Be precise with numbers. Do not include any markdown formatting or explanation, 
       tradeData = JSON.parse(cleanContent);
     } catch (parseError) {
       console.error('Failed to parse OpenAI response:', content);
-      return res.status(500).json({ error: 'Failed to parse trade data from image' });
+      return res.status(500).json({ 
+        error: 'Failed to parse trade data from image',
+        message: 'Could not extract structured data from the image. Try a clearer screenshot.'
+      });
     }
 
     // Validate extracted data
     if (!tradeData.symbol && !tradeData.direction && !tradeData.entry && !tradeData.stopLoss) {
       return res.status(400).json({ 
         error: 'Could not extract trade information from image',
-        hint: 'Please ensure the image clearly shows the coin, direction, entry price, and stop loss'
+        message: 'Please ensure the image clearly shows the coin, direction, entry price, and stop loss'
       });
     }
 
@@ -134,36 +145,14 @@ Be precise with numbers. Do not include any markdown formatting or explanation, 
     console.error('Error details:', {
       message: error.message,
       stack: error.stack,
-      name: error.name,
-      code: error.code,
-      type: error.type
+      name: error.name
     });
     
     // Return a graceful JSON error (never HTML)
-    let errorMessage = error.message || 'Unknown error occurred';
-    let errorType = 'UnknownError';
-    
-    // Categorize common errors
-    if (error.message?.includes('timeout')) {
-      errorMessage = 'OpenAI API took too long to respond. Try with a smaller or clearer image.';
-      errorType = 'TimeoutError';
-    } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      errorMessage = 'Could not connect to OpenAI API. Check your network connection.';
-      errorType = 'ConnectionError';
-    } else if (error.code === 'invalid_api_key' || error.status === 401) {
-      errorMessage = 'Invalid OpenAI API key. Please check your configuration.';
-      errorType = 'AuthenticationError';
-    } else if (error.code === 'rate_limit_exceeded' || error.status === 429) {
-      errorMessage = 'OpenAI API rate limit exceeded. Please wait a moment and try again.';
-      errorType = 'RateLimitError';
-    }
-    
     return res.status(500).json({ 
       error: 'Failed to analyze image',
-      message: errorMessage,
-      details: errorType,
-      code: error.code || null
+      message: error.message || 'Unknown error occurred. Please try again.',
+      details: error.name || 'UnknownError'
     });
   }
 }
-
