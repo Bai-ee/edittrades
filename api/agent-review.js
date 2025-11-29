@@ -5,8 +5,6 @@
  * and returns a formatted trade call with reasoning.
  */
 
-import fetch from 'node-fetch';
-
 // Market Review Handler (new)
 async function handleMarketReview(req, res, tradesData, systemPrompt) {
   try {
@@ -32,8 +30,9 @@ Remember: Keep it tight, observational, and focused on overall market behavior a
 
     console.log('📤 Calling OpenAI API...');
 
-    // Call OpenAI API (use global fetch available in Node 18+)
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Use native fetch (available in Node 18+)
+    const fetchFn = globalThis.fetch || (await import('node-fetch')).default;
+    const response = await fetchFn('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -316,7 +315,8 @@ Write naturally in flowing paragraphs. No bullet points or lists. Be conversatio
 End with your overall rating: A+, A, B, or SKIP`;
 
     // Call OpenAI API
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const fetchFn = globalThis.fetch || (await import('node-fetch')).default;
+    const response = await fetchFn('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
