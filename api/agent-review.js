@@ -5,6 +5,8 @@
  * and returns a formatted trade call with reasoning.
  */
 
+import OpenAI from 'openai';
+
 // Market Review Handler (new)
 async function handleMarketReview(req, res, tradesData, systemPrompt) {
   try {
@@ -30,47 +32,28 @@ Remember: Keep it tight, observational, and focused on overall market behavior a
 
     console.log('📤 Calling OpenAI API...');
 
-    // Use native fetch (available in Node 18+)
-    const fetchFn = globalThis.fetch || (await import('node-fetch')).default;
-    const response = await fetchFn('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: userPrompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 150
-      })
+    // Use OpenAI SDK
+    const openai = new OpenAI({ apiKey });
+    
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      max_tokens: 150
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API error:', response.status, errorText);
-      return res.status(response.status).json({ 
-        error: `OpenAI API error: ${response.status}` 
-      });
-    }
-
-    const data = await response.json();
-    const review = data.choices[0]?.message?.content;
+    const review = completion.choices[0]?.message?.content;
 
     if (!review) {
       return res.status(500).json({ 
         error: 'No review from AI' 
       });
     }
+
+    console.log('✅ Market review received:', review);
 
     return res.status(200).json({
       success: true,
@@ -314,55 +297,20 @@ Write naturally in flowing paragraphs. No bullet points or lists. Be conversatio
 
 End with your overall rating: A+, A, B, or SKIP`;
 
-    // Call OpenAI API
-    const fetchFn = globalThis.fetch || (await import('node-fetch')).default;
-    const response = await fetchFn('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: userPrompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 2000
-      })
+    // Call OpenAI API using SDK
+    const openai = new OpenAI({ apiKey });
+    
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 2000
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API error:');
-      console.error('Status:', response.status);
-      console.error('Response:', errorText);
-      
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch (e) {
-        errorData = { message: errorText };
-      }
-      
-      return res.status(response.status).json({ 
-        error: `OpenAI API returned ${response.status}`,
-        details: errorData,
-        hint: response.status === 401 ? 
-          'API key may be invalid. Check https://platform.openai.com/api-keys' : 
-          'Check OpenAI API status'
-      });
-    }
-
-    const data = await response.json();
-    const agentResponse = data.choices[0]?.message?.content;
+    const agentResponse = completion.choices[0]?.message?.content;
 
     if (!agentResponse) {
       return res.status(500).json({ 
