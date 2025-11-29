@@ -492,6 +492,118 @@ app.get('/api/crypto-news', async (req, res) => {
   }
 });
 
+// Parse Trade Image - OpenAI Vision Integration
+app.post('/api/parse-trade-image', async (req, res) => {
+  try {
+    const { imageData } = req.body;
+
+    if (!imageData) {
+      return res.status(400).json({ error: 'No image data provided' });
+    }
+
+    // Get OpenAI API key from environment variable
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return res.status(200).json({ 
+        success: false,
+        error: 'OpenAI API key not configured for local development',
+        data: null
+      });
+    }
+
+    console.log('🖼️ Parsing trade image with OpenAI Vision...');
+
+    // Call OpenAI Vision API
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `You are a trading assistant. Analyze this trading screenshot and extract the following information:
+                
+- Symbol/Coin (e.g., BTC, ETH, SOL) - return as BTCUSDT, ETHUSDT, or SOLUSDT
+- Direction (LONG or SHORT)
+- Entry Price (numeric value)
+- Stop Loss (numeric value)
+
+Return ONLY a JSON object with these exact keys: symbol, direction, entry, stopLoss
+
+If you cannot determine a value with confidence, use null for that field.
+
+Example response format:
+{
+  "symbol": "BTCUSDT",
+  "direction": "LONG",
+  "entry": 42000,
+  "stopLoss": 41000
+}
+
+Be precise with numbers. Do not include any markdown formatting or explanation, just the raw JSON object.`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: imageData
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 300,
+        temperature: 0.1
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenAI Vision API error:', response.status, errorText);
+      throw new Error('OpenAI API request failed');
+    }
+
+    const result = await response.json();
+    const content = result.choices[0]?.message?.content;
+    
+    if (!content) {
+      throw new Error('No response from OpenAI');
+    }
+
+    console.log('📋 Raw response:', content);
+
+    // Parse the JSON response
+    let tradeData;
+    try {
+      const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      tradeData = JSON.parse(cleanContent);
+    } catch (parseError) {
+      console.error('Failed to parse OpenAI response:', content);
+      throw new Error('Failed to parse trade data from image');
+    }
+
+    console.log('✅ Extracted trade data:', tradeData);
+
+    return res.status(200).json({
+      success: true,
+      data: tradeData
+    });
+
+  } catch (error) {
+    console.error('Error parsing trade image:', error);
+    return res.status(500).json({ 
+      error: 'Failed to analyze image',
+      message: error.message 
+    });
+  }
+});
+
 // AI Agent Review - OpenAI Integration
 app.post('/api/agent-review', async (req, res) => {
   try {

@@ -40,6 +40,10 @@
       "dest": "/api/crypto-news.js"
     },
     {
+      "src": "/api/parse-trade-image",
+      "dest": "/api/parse-trade-image.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "/public/$1"
     }
