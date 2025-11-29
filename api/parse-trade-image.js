@@ -4,16 +4,13 @@
 
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
@@ -25,6 +22,21 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Check for API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('❌ OPENAI_API_KEY not found in environment');
+      return res.status(500).json({ 
+        error: 'Server configuration error',
+        message: 'OpenAI API key not configured'
+      });
+    }
+
+    console.log('✅ OpenAI API key found, initializing...');
+    
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+
     const { imageData } = req.body;
 
     if (!imageData) {
@@ -111,12 +123,18 @@ Be precise with numbers. Do not include any markdown formatting or explanation, 
     });
 
   } catch (error) {
-    console.error('Error parsing trade image:', error);
+    console.error('❌ Error parsing trade image:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     
-    // Return a graceful error
+    // Return a graceful JSON error (never HTML)
     return res.status(500).json({ 
       error: 'Failed to analyze image',
-      message: error.message 
+      message: error.message || 'Unknown error occurred',
+      details: error.name || 'UnknownError'
     });
   }
 }
