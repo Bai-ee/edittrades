@@ -30,10 +30,13 @@ ${JSON.stringify(tradesData, null, 2)}
 
 Remember: Keep it tight, observational, and focused on overall market behavior and correlation between assets.`;
 
-    console.log('📤 Calling OpenAI API...');
+    console.log('📤 Calling OpenAI API for market review...');
 
-    // Use OpenAI SDK
-    const openai = new OpenAI({ apiKey });
+    // Use OpenAI SDK with timeout
+    const openai = new OpenAI({ 
+      apiKey,
+      timeout: 15000 // 15 second timeout for quick review
+    });
     
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -297,8 +300,13 @@ Write naturally in flowing paragraphs. No bullet points or lists. Be conversatio
 
 End with your overall rating: A+, A, B, or SKIP`;
 
-    // Call OpenAI API using SDK
-    const openai = new OpenAI({ apiKey });
+    // Call OpenAI API using SDK with timeout
+    const openai = new OpenAI({ 
+      apiKey,
+      timeout: 20000 // 20 second timeout
+    });
+    
+    console.log('🤖 Calling OpenAI for individual trade analysis...');
     
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -307,16 +315,19 @@ End with your overall rating: A+, A, B, or SKIP`;
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.3,
-      max_tokens: 2000
+      max_tokens: 800 // Reduced from 2000 for faster response
     });
 
     const agentResponse = completion.choices[0]?.message?.content;
 
     if (!agentResponse) {
+      console.error('❌ No response content from OpenAI');
       return res.status(500).json({ 
         error: 'No response from AI agent' 
       });
     }
+    
+    console.log('✅ Individual trade analysis complete');
 
     // Parse the response to extract priority rating if present
     let priority = 'A';
@@ -334,10 +345,25 @@ End with your overall rating: A+, A, B, or SKIP`;
     });
 
   } catch (error) {
-    console.error('Agent review error:', error);
+    console.error('❌ Agent review error:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // More specific error messages
+    let errorMsg = error.message;
+    if (error.name === 'APIConnectionError') {
+      errorMsg = 'Connection to OpenAI failed - network issue';
+    } else if (error.name === 'APITimeoutError') {
+      errorMsg = 'OpenAI API timed out - try again';
+    } else if (error.name === 'RateLimitError') {
+      errorMsg = 'OpenAI rate limit exceeded';
+    }
+    
     return res.status(500).json({ 
       error: 'Agent review failed',
-      message: error.message 
+      message: errorMsg,
+      errorType: error.name
     });
   }
 }
