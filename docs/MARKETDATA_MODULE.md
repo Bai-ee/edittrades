@@ -459,3 +459,4 @@ const data = await marketData.getMultiTimeframeData(symbol, intervals, limit);
 **Status:** Production Ready ✅
 
 
+

@@ -309,7 +309,7 @@ h1, h2, h3, h4, h5, h6 {
  * STATS CARDS
  * ======================================== */
 .stat-card {
-  background-color: var(--color-blue-830);
+  background-color: rgba(0, 0, 0, 0.6);
   border: var(--border-2) solid var(--color-yellow-75);
   border-radius: var(--radius-lg);
   padding: var(--spacing-6);

@@ -306,3 +306,4 @@ localStorage.getItem('favoriteSymbols')
 **Status:** Working! ✅
 
 
+

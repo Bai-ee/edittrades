@@ -184,16 +184,22 @@
       /* Mobile: add consistent padding to header and main content */
       .header-edittrax > div,
       main {
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        padding-left: 5px !important;
+        padding-right: 5px !important;
+      }
+      
+      /* Mobile: results container padding */
+      #resultsContainer {
+        padding-left: 5px !important;
+        padding-right: 5px !important;
       }
       
       /* Mobile: adjust trading indicators position and size */
-      .header-edittrax > div > div[style*="position: absolute"][style*="top: 15px"] {
-        top: 8px !important;
-        left: calc(1rem + 8px) !important;
+      .header-edittrax > div > div[style*="position: absolute"][style*="top: 25px"][style*="left: 0"] {
+        top: 18px !important;
+        left: 5px !important;
         font-size: 0.6rem !important;
-        gap: 4px !important;
+        gap: 8px !important;
       }
       
       #candle-timer-container,
@@ -203,14 +209,14 @@
       
       #candle-timer-container > div,
       #4h-timer-container > div {
-        width: 50px !important;
+        width: 25px !important;
         height: 2px !important;
       }
       
       /* Mobile: adjust top-right actions */
-      .header-edittrax > div > div[style*="top: 15px"][style*="right: 1rem"] {
-        top: 8px !important;
-        right: 1rem !important;
+      .header-edittrax > div > div[style*="top: 25px"][style*="right: 0"] {
+        top: 18px !important;
+        right: 5px !important;
         gap: 17px !important;
       }
       
@@ -233,16 +239,11 @@
       #newsMarquee {
         font-size: 0.75rem !important;
         padding: 0.4rem 0 !important;
-        margin-left: -1rem !important;
-        margin-right: -1rem !important;
-        width: calc(100% + 2rem) !important;
+        margin-left: -5px !important;
+        margin-right: -5px !important;
+        width: calc(100% + 10px) !important;
       }
       
-      /* Mobile: adjust copy toast position */
-      #copyToastContainer {
-        top: 58px !important;
-        left: calc(1rem + 8px) !important;
-      }
       
       /* Mobile: make strategy buttons stretch full width */
       .strategy-buttons-container {
@@ -760,20 +761,20 @@
   
   <!-- Header -->
   <header class="header-edittrax">
-    <div class="max-w-6xl mx-auto pt-3">
+    <div class="max-w-6xl mx-auto pt-3" style="position: relative;">
       <!-- Trading Indicators (Top Left) -->
-      <div style="position: absolute; top: 15px; display: flex; flex-direction: column; gap: 6px; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.75rem; z-index: 50;">
+      <div style="position: absolute; top: 25px; left: 0; display: flex; flex-direction: column; gap: 6px; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.75rem; z-index: 50;">
         <!-- 1M Candle Timer -->
         <div id="candle-timer-container" style="display: flex; align-items: center; gap: 8px;">
           <span>1M</span>
-          <div style="width: 100px; height: 3px; background-color: rgba(230, 233, 224, 0.2); border-radius: 2px; overflow: hidden;">
+          <div style="width: 50px; height: 3px; background-color: rgba(230, 233, 224, 0.2); border-radius: 2px; overflow: hidden;">
             <div id="candle-timer-bar" style="width: 100%; height: 100%; background-color: var(--color-yellow-75); transition: width 0.5s linear;"></div>
           </div>
         </div>
         <!-- 4H Candle Timer -->
         <div id="4h-timer-container" style="display: flex; align-items: center; gap: 8px;">
           <span>4H</span>
-          <div style="width: 100px; height: 3px; background-color: rgba(230, 233, 224, 0.2); border-radius: 2px; overflow: hidden;">
+          <div style="width: 50px; height: 3px; background-color: rgba(230, 233, 224, 0.2); border-radius: 2px; overflow: hidden;">
             <div id="4h-timer-bar" style="width: 100%; height: 100%; background-color: var(--color-yellow-75); transition: width 0.5s linear;"></div>
           </div>
         </div>
@@ -784,7 +785,7 @@
       </div>
       
       <!-- Top Right Actions -->
-      <div style="position: absolute; top: 15px; right: 1rem; display: flex; flex-direction: column; gap: 17px; align-items: flex-end; z-index: 50; font-family: var(--font-mathias); font-size: 0.75rem;">
+      <div style="position: absolute; top: 25px; right: 0; display: flex; flex-direction: column; gap: 17px; align-items: flex-end; z-index: 50; font-family: var(--font-mathias); font-size: 0.75rem;">
         <!-- Refresh -->
         <button 
           id="refreshBtn" 
@@ -798,19 +799,22 @@
           </svg>
         </button>
         
-        <!-- Data Copy -->
+        <!-- Copy Trade -->
         <button 
           id="dataCopyBtn" 
           onclick="copyAllCoins()"
           style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem;"
           title="Copy All Data"
         >
-          <span style="font-weight: bold;">DATA COPY</span>
+          <span style="font-weight: bold;">COPY TRADES</span>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
           </svg>
         </button>
+        
+        <!-- Copy Toast -->
+        <div id="copyToastContainer" style="pointer-events: none;"></div>
         
       </div>
       
@@ -844,9 +848,6 @@
   <!-- Main Content -->
   <main class="max-w-6xl mx-auto pb-4" style="width: 100%; box-sizing: border-box;overflow: visible; position: relative;">
     
-    <!-- Copy Success Toast Container (under signals on left) -->
-    <div id="copyToastContainer" style="position: fixed; top: 78px; left: 20px; z-index: 999; pointer-events: none;"></div>
-    
     <!-- Crypto News Marquee -->
     <div id="newsMarquee" style="background-color: rgba(0, 0, 0, 0.6); border-radius: 5px; padding: 0.5rem 0; margin: 0.5rem 0 1rem 0; overflow: hidden; position: relative;">
       <div id="newsMarqueeContent" style="display: flex; white-space: nowrap; animation: marquee 42s linear infinite; font-family: var(--font-mathias); color: var(--color-yellow-75); font-size: 0.875rem;">
@@ -870,7 +871,7 @@
     </div>
 
     <!-- Results Container -->
-    <div id="resultsContainer" class="hidden">
+    <div id="resultsContainer" class="hidden" style="padding-left: 1rem; padding-right: 1rem;">
       
       <!-- Opportunities Table -->
       <div class="card-edittrax rounded-lg mb-4" style="overflow: hidden; border: 2px solid var(--color-yellow-75);">
@@ -911,10 +912,8 @@
           <div style="padding: 0.75rem 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; justify-content: center;">
             <a 
               href="/strategy.html"
-              target="_blank"
-              rel="noopener noreferrer"
               style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem; text-decoration: none;"
-              title="Proof of Strategy (Opens in new tab)"
+              title="Proof of Strategy"
             >
               <span style="font-weight: bold;">PROOF OF STRATEGY</span>
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2612,7 +2611,7 @@
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
             >
-              DATA COPY
+              COPY TRADE
             </button>
           </div>
         </td>
@@ -2866,24 +2865,24 @@
         const rewardPercent2 = rr2 * parseFloat(riskPercent);
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-mathias); backdrop-filter: blur(10px);">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px);">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
-              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;">
+              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
                 ${symbol.replace('USDT', '')} — ${direction} (${setupType})
               </h2>
               <!-- Key Metrics Grid -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
                 <div>
-                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Confidence</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Confidence</div>
                   <div style="color: ${directionColor}; font-size: 1.5rem; font-weight: bold;">${confidence}%</div>
                 </div>
                 <div>
-                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Direction</div>
                   <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
                 </div>
                 <div>
-                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Setup Type</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Setup Type</div>
                   <div style="color: var(--color-yellow-75); font-size: 1rem; font-weight: bold;">${
                     setupType === 'SWING' ? 'Swing Trade' :
                     setupType === 'SCALP' ? '1H Scalp' :
@@ -2900,17 +2899,17 @@
               <!-- Left Column: Entry & Risk -->
               <div style="display: flex; flex-direction: column; gap: 1rem;">
                 <div>
-                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Entry</div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Entry</div>
                   <div style="color: var(--color-yellow-75); font-size: 1.125rem; font-weight: bold; line-height: 1.2;">${entryMin} – ${entryMax}</div>
                 </div>
                 
                 <div>
-                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Stop Loss</div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Stop Loss</div>
                   <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${stopLoss}</div>
                 </div>
                 
                 <div>
-                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Risk / Reward</div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Risk / Reward</div>
                   <div style="color: #22c55e; font-size: 1rem; font-weight: bold; line-height: 1.4;">
                     ${rr1}R to ${rr2}R${tp3 ? ` to ${rr3}R` : ''}
                     <div style="color: var(--color-yellow-75); font-size: 0.875rem; margin-top: 0.25rem;">${riskPercent}% risk → ${rewardPercent1.toFixed(1)}% reward</div>
@@ -2946,7 +2945,7 @@
             
             <!-- Full Width: Confluence Analysis -->
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Why This Trade</div>
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Why This Trade</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
                 <div style="margin-bottom: 0.5rem; color: rgba(255, 255, 255, 0.85);">Clear explanation of confluence:</div>
                 <div style="display: flex; flex-direction: column; gap: 0.4rem;">
@@ -2961,7 +2960,7 @@
             
             <!-- Full Width: Conditions -->
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Required</div>
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Conditions Required</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
                 ${conditionsRequired.map(cond => `<div style="color: rgba(255, 255, 255, 0.7);">${cond}</div>`).join('')}
               </div>
@@ -2969,7 +2968,7 @@
             
             <!-- Full Width: Time Horizon -->
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">How Long to Hold This Setup</div>
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">How Long to Hold This Setup</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
                 ${setupType === 'SWING' ? 'This is a multi-day swing play. Expect movement within 1–5 days. Requires waiting for daily/4H closes to confirm progression.' :
                   setupType === 'SCALP' ? 'Short-duration 1H–4H play. Expect movement within 2–8 hours. Monitor 1H and 4H closes.' :
@@ -2980,7 +2979,7 @@
             
             <!-- Full Width: Monitoring Requirement -->
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">How Close It Must Be Monitored</div>
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">How Close It Must Be Monitored</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
                 ${setupType === 'SWING' ? 'Low-touch swing setup — can be checked every 4–12 hours unless invalidation is close. Set alerts for key levels.' :
                   setupType === 'SCALP' ? 'Normal risk — check every 15–30 minutes during active hours. Tighten stops if momentum stalls.' :
@@ -2991,7 +2990,7 @@
             
             <!-- Full Width: Chop Guidance -->
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Recommended Action If Price Chops</div>
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Recommended Action If Price Chops</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
                 ${setupType === 'SWING' ? 'Cut early if daily stoch flips against trend or if 4H loses key structure. Do not hold through major macro shifts.' :
                   setupType === 'SCALP' ? 'Exit early if 1H stoch flips against trend or if we lose EMA21 with momentum. Do not hold if liquidity sweeps both sides.' :
@@ -3085,10 +3084,10 @@
         }
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-mathias); backdrop-filter: blur(10px);">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px);">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
-              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: #6b7280; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;">
+              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: #6b7280; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
                 ${symbol.replace('USDT', '')} — NO TRADE (${setupType})
               </h2>
               <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.875rem;">
@@ -3097,11 +3096,11 @@
               <!-- Key Metrics Grid -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
                 <div>
-                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Confidence</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Confidence</div>
                   <div style="color: #6b7280; font-size: 1.5rem; font-weight: bold;">${confidence}%</div>
                 </div>
                 <div>
-                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Direction</div>
                   <div style="color: #6b7280; font-size: 1.25rem; font-weight: bold;">⚪ NO TRADE</div>
                 </div>
               </div>
@@ -3154,10 +3153,10 @@
         const reason = data.microScalp.reason;
         
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-mathias); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
+          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
-              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: ${directionColor}; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase;">
+              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: ${directionColor}; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
                 ${symbol.replace('USDT', '')} — ${direction} (MICRO-SCALP)
               </h2>
               <div style="background-color: rgba(255, 193, 7, 0.15); border: 1px solid #ffc107; border-radius: var(--radius-sm); padding: 0.75rem; margin-top: 0.75rem;">
@@ -3166,11 +3165,11 @@
               <!-- Key Metrics Grid -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
                 <div>
-                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Confidence</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Confidence</div>
                   <div style="color: ${directionColor}; font-size: 1.5rem; font-weight: bold;">${confidence}%</div>
                 </div>
                 <div>
-                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Direction</div>
                   <div style="color: ${directionColor}; font-size: 1.25rem; font-weight: bold;">${directionIcon} ${direction}</div>
                 </div>
               </div>
@@ -3181,19 +3180,19 @@
               <!-- Left Column: Entry & Risk -->
               <div style="display: flex; flex-direction: column; gap: 1rem;">
                 <div>
-                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Entry</div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Entry</div>
                   <div style="color: var(--color-yellow-75); font-size: 1.125rem; font-weight: bold; line-height: 1.2;">${entryMin} – ${entryMax}</div>
                   <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">Avg 15m & 5m EMA21</div>
                 </div>
                 
                 <div>
-                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Stop Loss</div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Stop Loss</div>
                   <div style="color: ${direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${stopLoss}</div>
                   <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">${direction === 'LONG' ? 'Below' : 'Above'} 15m/5m swings</div>
                 </div>
                 
                 <div>
-                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Risk / Reward</div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Risk / Reward</div>
                   <div style="color: #22c55e; font-size: 1rem; font-weight: bold;">${rr1}R to ${rr2}R targets</div>
                 </div>
               </div>
@@ -3219,7 +3218,7 @@
             
             <!-- Full Width: Why This Trade -->
             <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Why This Trade</div>
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Why This Trade</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.7;">
                 ${reason}
               </div>
@@ -3244,11 +3243,11 @@
         <td colspan="5">
           <div class="details-content-wrapper">
             <!-- AI Reasoning Agent Section - TOP OF DETAILS -->
-            <div id="ai-review-section-${symbol}" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-mathias); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);">
+            <div id="ai-review-section-${symbol}" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);">
               <div id="ai-review-content-${symbol}">
                 <!-- Loading state (will be replaced by AI response) -->
                 <div style="display: flex; align-items: center; gap: 0.75rem; padding: 2rem; justify-content: center;">
-                  <img src="/logos/load.gif" alt="Loading" style="width: 40px; height: 40px;">
+                  <img src="/logos/load.gif" alt="Loading" style="width: 140px; height: auto;">
                   <span style="color: var(--color-yellow-75); font-size: 0.875rem; opacity: 0.7;">Analyzing Call</span>
                 </div>
               </div>
@@ -3434,14 +3433,14 @@
       if (!isAutoTrigger) {
         contentDiv.innerHTML = `
           <div style="display: flex; align-items: center; gap: 0.75rem; padding: 2rem; justify-content: center;">
-            <img src="/logos/load.gif" alt="Loading" style="width: 40px; height: 40px;">
+            <img src="/logos/load.gif" alt="Loading" style="width: 140px; height: auto;">
             <span style="color: var(--color-yellow-75); font-size: 0.875rem; opacity: 0.7;">Analyzing Call</span>
           </div>
         `;
       }
       
       try {
-        // Create the dashboard view (same JSON that DATA COPY exports)
+        // Create the dashboard view (same JSON that COPY TRADE exports)
         const marketSnapshot = createDashboardView(data);
         
         // Call the agent API
