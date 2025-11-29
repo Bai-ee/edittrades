@@ -102,24 +102,30 @@ export default async function handler(req, res) {
     }
 
     // Individual trade analysis mode (existing)
+    console.log('📊 Individual trade analysis mode');
+    console.log('Has marketSnapshot:', !!marketSnapshot);
+    console.log('Has setupType:', !!setupType);
+    console.log('Has symbol:', !!symbol);
+    
     if (!marketSnapshot || !setupType || !symbol) {
+      console.error('❌ Missing required fields');
       return res.status(400).json({ 
         error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt' 
       });
     }
 
+    console.log(`✅ Analyzing ${symbol} ${setupType} trade...`);
+
     // Get OpenAI API key from environment variable
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      console.error('OPENAI_API_KEY environment variable is not set');
+      console.error('❌ OPENAI_API_KEY not found in environment');
       return res.status(500).json({ 
         error: 'OpenAI API key not configured in environment variables' 
       });
     }
     
-    // Log key format for debugging (only first/last few chars for security)
-    console.log(`API Key found: ${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}`);
-    console.log(`API Key length: ${apiKey.length}`);
+    console.log(`✅ API Key found (length: ${apiKey.length})`);
 
     // Strategy-specific guidance
     const strategyGuidance = {
@@ -301,33 +307,52 @@ Write naturally in flowing paragraphs. No bullet points or lists. Be conversatio
 End with your overall rating: A+, A, B, or SKIP`;
 
     // Call OpenAI API using SDK with timeout
-    const openai = new OpenAI({ 
-      apiKey,
-      timeout: 20000 // 20 second timeout
-    });
+    console.log('🔧 Initializing OpenAI SDK...');
+    let openai;
+    try {
+      openai = new OpenAI({ 
+        apiKey,
+        timeout: 20000 // 20 second timeout
+      });
+      console.log('✅ OpenAI SDK initialized');
+    } catch (error) {
+      console.error('❌ Failed to initialize OpenAI SDK:', error.message);
+      throw error;
+    }
     
     console.log('🤖 Calling OpenAI for individual trade analysis...');
+    console.log('Model: gpt-4o-mini, max_tokens: 800, temperature: 0.3');
+    console.log('System prompt length:', tradeSystemPrompt.length);
+    console.log('User prompt length:', userPrompt.length);
     
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: tradeSystemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 800 // Reduced from 2000 for faster response
-    });
+    let completion;
+    try {
+      completion = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: tradeSystemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 800 // Reduced from 2000 for faster response
+      });
+      console.log('✅ OpenAI API call successful');
+    } catch (error) {
+      console.error('❌ OpenAI API call failed:', error.name, error.message);
+      throw error;
+    }
 
     const agentResponse = completion.choices[0]?.message?.content;
 
     if (!agentResponse) {
       console.error('❌ No response content from OpenAI');
+      console.error('Completion object:', JSON.stringify(completion, null, 2));
       return res.status(500).json({ 
         error: 'No response from AI agent' 
       });
     }
     
-    console.log('✅ Individual trade analysis complete');
+    console.log('✅ Individual trade analysis complete, response length:', agentResponse.length);
 
     // Parse the response to extract priority rating if present
     let priority = 'A';
