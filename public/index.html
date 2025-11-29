@@ -117,8 +117,11 @@
     }
     
     /* Mobile responsive table */
-    /* Desktop: hide mobile entry price, show desktop column */
+    /* Desktop: hide mobile entry price and entry label, show desktop column */
     .entry-price-mobile {
+      display: none;
+    }
+    .entry-label-mobile {
       display: none;
     }
     .entry-price-desktop {
@@ -257,6 +260,9 @@
       
       /* Mobile: show entry price under coin name, hide desktop column */
       .entry-price-mobile {
+        display: block !important;
+      }
+      .entry-label-mobile {
         display: block !important;
       }
       .entry-price-desktop {
@@ -2570,8 +2576,9 @@
         <td class="px-2 entry-price-desktop" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="Price:">
           <div style="color: var(--color-yellow-75); font-size: 0.875rem;">${currentPriceDisplay}</div>
         </td>
-        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="Entry:">
-          <div style="color: var(--color-yellow-75); font-size: 0.875rem; ${!entryHasSignal ? 'opacity: 0.7;' : ''}">${entryPriceDisplay}</div>
+        <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem; text-align: center;" data-label="Entry:">
+          <div class="entry-label-mobile" style="font-size: 1.125rem; font-family: var(--font-mathias); font-weight: bold; color: var(--color-yellow-75);">ENTRY</div>
+          <div style="color: var(--color-yellow-75); font-size: 0.9rem; margin-top: 0.25rem; ${!entryHasSignal ? 'opacity: 0.7;' : ''}">${entryPriceDisplay}</div>
         </td>
         <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="EditTrades:">
           <div class="flex strategy-buttons-container" style="gap: 0;">
