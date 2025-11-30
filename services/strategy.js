@@ -8,8 +8,74 @@
 import * as indicators from './indicators.js';
 
 /**
+ * INVARIANT VALIDATION: Validate strategy signal meets all requirements
+ * If valid=true, ALL required fields must be present and logically consistent
+ */
+function validateStrategySignal(signal) {
+  if (!signal) return false;
+  
+  // If valid=true, enforce strict requirements
+  if (signal.valid === true) {
+    // Entry zone must be valid
+    if (!signal.entryZone || 
+        signal.entryZone.min === null || 
+        signal.entryZone.max === null ||
+        isNaN(signal.entryZone.min) ||
+        isNaN(signal.entryZone.max) ||
+        signal.entryZone.min > signal.entryZone.max) {
+      console.error('❌ Invalid signal: valid=true but entryZone invalid', signal);
+      return false;
+    }
+    
+    // Stop loss must be valid number
+    if (signal.stopLoss === null || signal.stopLoss === undefined || isNaN(signal.stopLoss)) {
+      console.error('❌ Invalid signal: valid=true but stopLoss invalid', signal);
+      return false;
+    }
+    
+    // Invalidation level must be valid
+    if (signal.invalidationLevel === null || signal.invalidationLevel === undefined || isNaN(signal.invalidationLevel)) {
+      console.error('❌ Invalid signal: valid=true but invalidationLevel invalid', signal);
+      return false;
+    }
+    
+    // At least one target must be present
+    if (!signal.targets || signal.targets.length === 0 || 
+        signal.targets[0] === null || signal.targets[0] === undefined || isNaN(signal.targets[0])) {
+      console.error('❌ Invalid signal: valid=true but no valid targets', signal);
+      return false;
+    }
+    
+    // Direction must not be NO_TRADE
+    if (signal.direction === 'NO_TRADE' || signal.direction === 'flat' || !signal.direction) {
+      console.error('❌ Invalid signal: valid=true but direction is NO_TRADE', signal);
+      return false;
+    }
+    
+    // Confidence must be 0-100
+    const conf = typeof signal.confidence === 'number' ? signal.confidence : (signal.confidence * 100);
+    if (conf < 0 || conf > 100 || isNaN(conf)) {
+      console.error('❌ Invalid signal: confidence out of range', signal);
+      return false;
+    }
+    
+    // Stop loss must be logically correct for direction
+    if (signal.direction === 'long' && signal.stopLoss >= signal.entryZone.min) {
+      console.error('❌ Invalid signal: long trade stopLoss >= entryZone.min', signal);
+      return false;
+    }
+    if (signal.direction === 'short' && signal.stopLoss <= signal.entryZone.max) {
+      console.error('❌ Invalid signal: short trade stopLoss <= entryZone.max', signal);
+      return false;
+    }
+  }
+  
+  return true;
+}
+
+/**
  * Normalize signal to canonical JSON structure
- * Ensures all strategy returns have consistent shape
+ * REFACTORED: Now enforces invariants - if signal is invalid, returns NO_TRADE
  * @param {Object} rawSignal - Raw signal from strategy evaluation
  * @param {Object} multiTimeframeData - Full timeframe data
  * @param {string} mode - STANDARD or AGGRESSIVE
@@ -38,6 +104,15 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     }
   }
   
+  // Normalize confidence to 0-100 scale
+  let normalizedConfidence = 0;
+  if (rawSignal.confidence !== null && rawSignal.confidence !== undefined) {
+    normalizedConfidence = typeof rawSignal.confidence === 'number' 
+      ? (rawSignal.confidence > 1 ? rawSignal.confidence : rawSignal.confidence * 100)
+      : 0;
+    normalizedConfidence = Math.min(100, Math.max(0, normalizedConfidence));
+  }
+  
   // Normalize signal object - ensure all required fields exist
   const signal = {
     valid: rawSignal.valid || false,
@@ -45,7 +120,7 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     setupType: rawSignal.setupType || 'auto',
     selectedStrategy: rawSignal.selectedStrategy || 'NO_TRADE',
     strategiesChecked: rawSignal.strategiesChecked || [],
-    confidence: rawSignal.confidence || 0,
+    confidence: normalizedConfidence, // Always 0-100 scale
     reason: rawSignal.reason_summary || rawSignal.reason || 'No trade setup available',
     entryZone: rawSignal.entry_zone || rawSignal.entryZone || { min: null, max: null },
     stopLoss: rawSignal.stop_loss || rawSignal.stopLoss || null,
@@ -54,6 +129,33 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
             (rawSignal.targets?.tp1 ? [rawSignal.targets.tp1, rawSignal.targets.tp2] : [null, null]),
     riskReward: rawSignal.risk_reward || rawSignal.riskReward || { tp1RR: null, tp2RR: null }
   };
+  
+  // CRITICAL: If signal claims to be valid but fails validation, force it to invalid
+  if (signal.valid === true && !validateStrategySignal(signal)) {
+    console.warn('⚠️ Signal failed validation, forcing to invalid:', signal);
+    signal.valid = false;
+    signal.direction = 'NO_TRADE';
+    signal.confidence = 0;
+    signal.entryZone = { min: null, max: null };
+    signal.stopLoss = null;
+    signal.invalidationLevel = null;
+    signal.targets = [null, null];
+    signal.reason = 'Signal failed validation - missing required fields';
+  }
+  
+  // If invalid, ensure all fields are null/empty
+  if (signal.valid === false) {
+    signal.direction = 'NO_TRADE';
+    signal.confidence = 0;
+    if (!signal.entryZone || signal.entryZone.min !== null) {
+      signal.entryZone = { min: null, max: null };
+    }
+    if (signal.stopLoss !== null) signal.stopLoss = null;
+    if (signal.invalidationLevel !== null) signal.invalidationLevel = null;
+    if (signal.targets && signal.targets[0] !== null) {
+      signal.targets = [null, null];
+    }
+  }
   
   // Build meta object
   const meta = {
@@ -264,7 +366,7 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
           setupType: 'AGGRO_SCALP_1H',
           selectedStrategy: 'AGGRO_SCALP_1H',
           strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H'],
-          confidence: 0.55,
+          confidence: 55, // 0-100 scale
           reason_summary: `Aggressive 1H scalp LONG: 1H ${trend1h}, 15m ${dist15m.toFixed(2)}% from EMA21, stoch ${k15m.toFixed(0)}. Counter-trend fade with small size.`,
           entry_zone: { 
             min: parseFloat((entry * 0.997).toFixed(2)), 
@@ -340,7 +442,7 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
           setupType: 'AGGRO_SCALP_1H',
           selectedStrategy: 'AGGRO_SCALP_1H',
           strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H'],
-          confidence: 0.55,
+          confidence: 55, // 0-100 scale
           reason_summary: `Aggressive 1H scalp SHORT: 1H ${trend1h}, 15m ${dist15m.toFixed(2)}% from EMA21, stoch ${k15m.toFixed(0)}. Counter-trend fade with small size.`,
           entry_zone: { 
             min: parseFloat((entry * 0.997).toFixed(2)), 
@@ -1088,8 +1190,9 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   const entryMid = (entryZone.min + entryZone.max) / 2;
   const sltp = calculateSLTP(entryMid, direction, allStructures, setupType, rrTargets);
   
-  // Calculate confidence score
-  const confidence = calculateConfidence(analysis, direction);
+  // Calculate confidence score (0-1 scale) then convert to 0-100
+  const confidenceDecimal = calculateConfidence(analysis, direction);
+  const confidence = Math.round(confidenceDecimal * 100); // Convert to 0-100 scale
   
   // Build reason summary
   const reasonSummary = buildReasonSummary(analysis, direction, confidence);
@@ -1109,6 +1212,29 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     '15m': tf15m ? analyzeStochState(tf15m.indicators.stochRSI) : null,
     '5m': tf5m ? analyzeStochState(tf5m.indicators.stochRSI) : null
   };
+  
+  // VALIDATE: Ensure all required fields are present before creating signal
+  if (!entryZone || !sltp || !sltp.stopLoss || !sltp.invalidationLevel || 
+      !sltp.targets || !sltp.targets[0] || isNaN(sltp.targets[0])) {
+    // If any required field is missing, return NO_TRADE
+    const rawSignal = {
+      symbol,
+      direction: 'NO_TRADE',
+      setupType: '4h',
+      selectedStrategy: 'NO_TRADE',
+      strategiesChecked: ['SWING', 'TREND_4H'],
+      confidence: 0,
+      valid: false,
+      reason_summary: '4H trend setup failed validation - missing required fields',
+      entry_zone: { min: null, max: null },
+      stop_loss: null,
+      invalidation_level: null,
+      targets: [null, null],
+      risk_reward: { tp1RR: null, tp2RR: null },
+      risk_amount: null
+    };
+    return normalizeToCanonical(rawSignal, analysis, mode);
+  }
   
   const rawSignal = {
     symbol,
@@ -1131,8 +1257,9 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
       tp2RR: rrTargets[1]
     },
     risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
-    confidence: parseFloat(confidence.toFixed(2)),
+    confidence: Math.round(confidence), // Already 0-100 scale, just round
     reason_summary: reasonSummary,
+    valid: true, // Only set to true after all fields validated
     invalidation: {
       level: parseFloat(sltp.invalidationLevel.toFixed(2)),
       description: '4H trend invalidation – break of recent swing level'
@@ -1209,10 +1336,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const rrTargets = [1.5, 3.0]; // Scalp targets
           const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets);
           
-          // Confidence based on bias
+          // Confidence based on bias (already 0-100 scale from htfBias)
           const baseConfidence = 60;
           const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.2) : 0;
-          const confidence = Math.min(85, baseConfidence + biasBonus);
+          const confidence = Math.min(85, Math.round(baseConfidence + biasBonus)); // 0-100 scale
           
           const rawSignal = {
             symbol,
@@ -1235,12 +1362,13 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
               tp2RR: rrTargets[1]
             },
             risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
-            confidence: parseFloat(confidence.toFixed(2)),
+            confidence: Math.round(confidence), // Already 0-100 scale, just round
             reason_summary: `1H ${trend1h.toLowerCase()} scalp with 15m pullback and Stoch alignment (HTF bias: ${htfBias.direction}, ${htfBias.confidence}%)`,
             invalidation: {
               level: parseFloat(sltp.invalidationLevel.toFixed(2)),
               description: '1H scalp invalidation – loss of pullback structure on 15m/5m'
             },
+            valid: true, // Only set to true after all fields validated
             confluence: {
               trendAlignment: `${trend4h} on 4H, ${trend1h} on 1H`,
               stochMomentum: tf15m.indicators?.stochRSI?.condition || 'N/A',
@@ -1517,14 +1645,14 @@ function evaluateMicroScalp(multiTimeframeData) {
   const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 0);
   const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 0);
   const avgDist = (dist15m + dist5m) / 2;
-  const confidence = Math.max(60, Math.min(75, 75 - (avgDist * 60))); // Tighter = higher confidence
+  const confidence = Math.max(60, Math.min(75, 75 - (avgDist * 60))); // Already 0-100 scale
   
-  // Build signal
+  // Build signal - ENSURE ALL FIELDS ARE PRESENT BEFORE SETTING valid=true
   result.signal = {
     valid: true,
     direction: direction,
     setupType: 'MicroScalp',
-    confidence: parseFloat(confidence.toFixed(0)),
+    confidence: Math.round(confidence), // 0-100 scale, round to integer
     entry: {
       min: parseFloat(entryMin.toFixed(2)),
       max: parseFloat(entryMax.toFixed(2))
