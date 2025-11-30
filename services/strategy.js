@@ -1069,12 +1069,40 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
       };
       return normalizeToCanonical(rawSignal, analysis, mode);
     }
-    // If swing was requested but not valid, and setupType is explicitly 'Swing', return no trade
+    // If swing was requested but not valid, and setupType is explicitly 'Swing', return no trade with specific reason
     if (setupType === 'Swing') {
+      // Check specific failure reasons
+      const tf3d = analysis['3d'];
+      const tf1d = analysis['1d'];
+      const tf4h = analysis['4h'];
+      
+      let swingReason = '3D/1D/4H swing conditions not met';
+      if (!tf3d || !tf1d || !tf4h) {
+        const missing = [];
+        if (!tf3d) missing.push('3D');
+        if (!tf1d) missing.push('1D');
+        if (!tf4h) missing.push('4H');
+        swingReason = `3D/1D/4H structure not loaded - missing ${missing.join(', ')} timeframe data`;
+      } else {
+        const trend3d = tf3d.indicators?.trend;
+        const trend1d = tf1d.indicators?.trend;
+        const trend4h = tf4h.indicators?.trend;
+        
+        if (trend4h === 'FLAT') {
+          swingReason = '4H trend is FLAT - swing trades require clear 4H direction';
+        } else if (trend3d === 'FLAT') {
+          swingReason = '3D trend is FLAT - swing trades require clear 3D direction';
+        } else if (trend1d === 'FLAT') {
+          swingReason = '1D trend is FLAT - swing trades require clear 1D direction';
+        } else {
+          swingReason = '3D/1D/4H structure not aligned - swing setup conditions not met';
+        }
+      }
+      
       const rawSignal = {
         symbol,
         direction: 'flat',
-        reason: '3D + 1D swing conditions not met',
+        reason: swingReason,
         confidence: 0,
         valid: false,
         setupType: 'Swing',
@@ -1736,39 +1764,6 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
  */
 function normalizeStrategyResult(result, strategyName) {
   if (!result || !result.signal) {
-    // Provide specific reasons for SWING failures
-    if (strategyName === 'SWING') {
-      // Check if we have the required timeframes
-      const has3d = result?.multiTimeframeData?.['3d'];
-      const has1d = result?.multiTimeframeData?.['1d'];
-      const has4h = result?.multiTimeframeData?.['4h'];
-      
-      if (!has3d || !has1d || !has4h) {
-        const missing = [];
-        if (!has3d) missing.push('3D');
-        if (!has1d) missing.push('1D');
-        if (!has4h) missing.push('4H');
-        return createNoTradeStrategy(strategyName, `3D/1D/4H structure not loaded - missing ${missing.join(', ')} timeframe data`);
-      }
-      
-      // Check trend states
-      const trend3d = has3d?.indicators?.trend;
-      const trend1d = has1d?.indicators?.trend;
-      const trend4h = has4h?.indicators?.trend;
-      
-      if (trend4h === 'FLAT') {
-        return createNoTradeStrategy(strategyName, '4H trend is FLAT - swing trades require clear 4H direction');
-      }
-      if (trend3d === 'FLAT') {
-        return createNoTradeStrategy(strategyName, '3D trend is FLAT - swing trades require clear 3D direction');
-      }
-      if (trend1d === 'FLAT') {
-        return createNoTradeStrategy(strategyName, '1D trend is FLAT - swing trades require clear 1D direction');
-      }
-      
-      return createNoTradeStrategy(strategyName, '3D/1D/4H structure not aligned - swing setup conditions not met');
-    }
-    
     return createNoTradeStrategy(strategyName, 'Strategy evaluation failed - no signal returned');
   }
   
