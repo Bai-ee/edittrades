@@ -1931,10 +1931,15 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         chosenName = 'MICRO_SCALP';
       }
       
-      // Apply chosen strategy
+      // Apply chosen strategy - FORCE override for longs
       if (chosenStrategy && chosenName) {
+        console.log(`[AGGRESSIVE_FORCE] ${symbol}: FORCING ${chosenName} LONG to valid=true, direction=${chosenStrategy.direction}`);
         strategies[chosenName] = chosenStrategy;
+      } else {
+        console.log(`[AGGRESSIVE_FORCE] ${symbol}: No LONG strategy chosen despite conditions being met!`);
       }
+    } else {
+      console.log(`[AGGRESSIVE_FORCE] ${symbol}: LONG conditions NOT met. HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
     }
     
     // REQUIRED SHORT SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
