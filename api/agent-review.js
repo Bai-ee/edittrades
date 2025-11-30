@@ -128,16 +128,17 @@ export default async function handler(req, res) {
 
     console.log(`✅ Analyzing ${symbol} ${setupType} trade...`);
 
-    // Get OpenAI API key from environment variable
+    // Get OpenAI API key from environment variable (same pattern as parse-trade-image.js)
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       console.error('❌ OPENAI_API_KEY not found in environment');
       return res.status(500).json({ 
-        error: 'OpenAI API key not configured in environment variables' 
+        error: 'Server configuration error',
+        message: 'OpenAI API key not configured'
       });
     }
     
-    console.log(`✅ API Key found (length: ${apiKey.length})`);
+    console.log('✅ API Key found');
 
     // Strategy-specific guidance
     const strategyGuidance = {
@@ -318,9 +319,8 @@ Write naturally in flowing paragraphs. No bullet points or lists. Be conversatio
 
 End with your overall rating: A+, A, B, or SKIP`;
 
-    // Call OpenAI API using raw fetch (same approach as parse-trade-image.js which works)
-    console.log('🤖 Calling OpenAI for individual trade analysis (using raw fetch)...');
-    console.log('Model: gpt-4o-mini, max_tokens: 800, temperature: 0.3');
+    // Call OpenAI API using fetch (same exact pattern as parse-trade-image.js which works)
+    console.log('🤖 Calling OpenAI for individual trade analysis...');
     
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -339,12 +339,9 @@ End with your overall rating: A+, A, B, or SKIP`;
       })
     });
 
-    console.log('📥 OpenAI response status:', response.status);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ OpenAI API error:', response.status);
-      console.error('❌ Error response body:', errorText.substring(0, 500));
+      console.error('❌ OpenAI API error:', response.status, errorText);
       return res.status(500).json({
         error: 'OpenAI API request failed',
         message: `API returned ${response.status}: ${errorText.substring(0, 200)}`,
@@ -358,11 +355,12 @@ End with your overall rating: A+, A, B, or SKIP`;
     if (!agentResponse) {
       console.error('❌ No response content from OpenAI');
       return res.status(500).json({ 
-        error: 'No response from AI agent' 
+        error: 'No response from OpenAI',
+        message: 'OpenAI returned empty response'
       });
     }
     
-    console.log('✅ Individual trade analysis complete, response length:', agentResponse.length);
+    console.log('✅ Individual trade analysis complete');
 
     // Parse the response to extract priority rating if present
     let priority = 'A';
@@ -381,24 +379,17 @@ End with your overall rating: A+, A, B, or SKIP`;
 
   } catch (error) {
     console.error('❌ Agent review error:', error);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     
-    // More specific error messages
-    let errorMsg = error.message;
-    if (error.name === 'APIConnectionError') {
-      errorMsg = 'Connection to OpenAI failed - network issue';
-    } else if (error.name === 'APITimeoutError') {
-      errorMsg = 'OpenAI API timed out - try again';
-    } else if (error.name === 'RateLimitError') {
-      errorMsg = 'OpenAI rate limit exceeded';
-    }
-    
+    // Return a graceful JSON error (never HTML) - same pattern as parse-trade-image.js
     return res.status(500).json({ 
-      error: 'Agent review failed',
-      message: errorMsg,
-      errorType: error.name
+      error: 'Failed to analyze trade',
+      message: error.message || 'Unknown error occurred. Please try again.',
+      details: error.name || 'UnknownError'
     });
   }
 }
