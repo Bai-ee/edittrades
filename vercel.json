@@ -20,6 +20,10 @@
       "dest": "/api/analyze-compact.js"
     },
     {
+      "src": "/api/analyze-full",
+      "dest": "/api/analyze-full.js"
+    },
+    {
       "src": "/api/analyze/(.*)",
       "dest": "/api/analyze.js"
     },
