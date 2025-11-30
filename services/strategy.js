@@ -2043,7 +2043,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     }
   }
   
-  // Find best signal with priority rules
+  // Recalculate valid strategies after AGGRESSIVE forcing (if any were forced)
   const validStrategies = Object.entries(strategies)
     .filter(([_, s]) => s && s.valid === true)
     .map(([name, s]) => ({ name, confidence: s.confidence, strategy: s }));
