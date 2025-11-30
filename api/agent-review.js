@@ -325,9 +325,38 @@ Important:
     console.log('🚀 [AGENT-REVIEW] Analysis points selected for:', setupType);
 
     console.log('🚀 [AGENT-REVIEW] Constructing user prompt...');
+    console.log('🚀 [AGENT-REVIEW] Original marketSnapshot size:', JSON.stringify(marketSnapshot).length, 'chars');
+    
+    // Filter marketSnapshot to only essential fields (avoid sending massive candle arrays)
+    const essentialSnapshot = {
+      symbol: marketSnapshot.symbol || symbol,
+      currentPrice: marketSnapshot.currentPrice,
+      priceChange24h: marketSnapshot.priceChange24h,
+      signal: marketSnapshot.signal ? {
+        direction: marketSnapshot.signal.direction,
+        confidence: marketSnapshot.signal.confidence,
+        valid: marketSnapshot.signal.valid,
+        reason: marketSnapshot.signal.reason,
+        entryZone: marketSnapshot.signal.entryZone,
+        stopLoss: marketSnapshot.signal.stopLoss,
+        targets: marketSnapshot.signal.targets,
+        invalidation: marketSnapshot.signal.invalidation
+      } : null,
+      htfBias: marketSnapshot.htfBias,
+      analysis: marketSnapshot.analysis ? {
+        trendAlignment: marketSnapshot.analysis.trendAlignment,
+        stochMomentum: marketSnapshot.analysis.stochMomentum,
+        pullbackState: marketSnapshot.analysis.pullbackState,
+        liquidityZones: marketSnapshot.analysis.liquidityZones,
+        htfConfirmation: marketSnapshot.analysis.htfConfirmation
+      } : null
+    };
+    
+    console.log('🚀 [AGENT-REVIEW] Filtered snapshot size:', JSON.stringify(essentialSnapshot).length, 'chars');
+    
     const userPrompt = `Analyze this ${setupType.toUpperCase()} setup for ${symbol}:
 
-${JSON.stringify(marketSnapshot, null, 2)}
+${JSON.stringify(essentialSnapshot, null, 2)}
 
 Write a conversational analysis (3-5 paragraphs) evaluating:
 ${currentPoints}
