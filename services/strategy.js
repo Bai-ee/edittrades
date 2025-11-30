@@ -1736,6 +1736,39 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
  */
 function normalizeStrategyResult(result, strategyName) {
   if (!result || !result.signal) {
+    // Provide specific reasons for SWING failures
+    if (strategyName === 'SWING') {
+      // Check if we have the required timeframes
+      const has3d = result?.multiTimeframeData?.['3d'];
+      const has1d = result?.multiTimeframeData?.['1d'];
+      const has4h = result?.multiTimeframeData?.['4h'];
+      
+      if (!has3d || !has1d || !has4h) {
+        const missing = [];
+        if (!has3d) missing.push('3D');
+        if (!has1d) missing.push('1D');
+        if (!has4h) missing.push('4H');
+        return createNoTradeStrategy(strategyName, `3D/1D/4H structure not loaded - missing ${missing.join(', ')} timeframe data`);
+      }
+      
+      // Check trend states
+      const trend3d = has3d?.indicators?.trend;
+      const trend1d = has1d?.indicators?.trend;
+      const trend4h = has4h?.indicators?.trend;
+      
+      if (trend4h === 'FLAT') {
+        return createNoTradeStrategy(strategyName, '4H trend is FLAT - swing trades require clear 4H direction');
+      }
+      if (trend3d === 'FLAT') {
+        return createNoTradeStrategy(strategyName, '3D trend is FLAT - swing trades require clear 3D direction');
+      }
+      if (trend1d === 'FLAT') {
+        return createNoTradeStrategy(strategyName, '1D trend is FLAT - swing trades require clear 1D direction');
+      }
+      
+      return createNoTradeStrategy(strategyName, '3D/1D/4H structure not aligned - swing setup conditions not met');
+    }
+    
     return createNoTradeStrategy(strategyName, 'Strategy evaluation failed - no signal returned');
   }
   
@@ -1839,8 +1872,15 @@ export function buildTimeframeSummary(multiTimeframeData) {
     if (stoch.k > 80 && stoch.d > 80) stochState = 'overbought';
     else if (stoch.k < 20 && stoch.d < 20) stochState = 'oversold';
     
+    // Normalize trend enum: "up" | "down" | "flat" (consistent across all outputs)
+    let trend = (indicators.analysis?.trend || 'UNKNOWN').toLowerCase();
+    if (trend.includes('uptrend') || trend === 'up') trend = 'up';
+    else if (trend.includes('downtrend') || trend === 'down') trend = 'down';
+    else if (trend === 'flat') trend = 'flat';
+    else trend = 'flat'; // Default to flat for unknown
+    
     timeframes[tf] = {
-      trend: (indicators.analysis?.trend || 'UNKNOWN').toLowerCase(),
+      trend: trend, // Normalized: "up" | "down" | "flat"
       ema21: indicators.ema?.ema21 || null,
       ema200: indicators.ema?.ema200 || null,
       stochRsi: {

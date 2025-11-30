@@ -3467,91 +3467,80 @@
     }
 
 
-    // Track this trade automatically
-    function trackThisTrade(symbol) {
-      const data = scanResults[symbol];
-      if (!data) {
-        alert('No data available for ' + symbol);
-        return;
-      }
+    // Track this trade automatically - UNIFIED: Trade + Full Signal Snapshot
+    async function trackThisTrade(symbol) {
+      console.log(`🎯 Tracking trade for ${symbol}...`);
       
-      // Get the currently selected strategy's signal
-      const selectedStrategyIndex = strategyStates[symbol] || 0;
-      const templateSignal = evaluateTemplateSignal(symbol, selectedStrategyIndex);
-      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
+      // Determine current mode
+      const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
       
-      if (!tradeSignal || !tradeSignal.valid) {
-        alert(`No valid trade signal for ${symbol.replace('USDT', '')}. Cannot track without a signal.`);
-        return;
-      }
-      
-      // Build canonical signal snapshot from available data
-      // The data object should have the canonical structure if coming from API
-      const signalSnapshot = {
-        symbol: data.symbol || symbol,
-        price: data.price || data.currentPrice || 0,
-        htfBias: data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' },
-        timeframes: data.timeframes || {},
-        signal: {
-          valid: tradeSignal.valid,
-          direction: tradeSignal.direction || tradeSignal.direction,
-          setupType: tradeSignal.setupType || tradeSignal.selectedStrategy || 'auto',
-          selectedStrategy: tradeSignal.selectedStrategy || tradeSignal.setupType || 'NO_TRADE',
-          strategiesChecked: tradeSignal.strategiesChecked || [],
-          confidence: tradeSignal.confidence || 0,
-          reason: tradeSignal.reason || tradeSignal.reason_summary || 'No reason provided',
-          entryZone: tradeSignal.entryZone || tradeSignal.entry_zone || { min: null, max: null },
-          stopLoss: tradeSignal.stopLoss || tradeSignal.stop_loss || null,
-          invalidationLevel: tradeSignal.invalidationLevel || tradeSignal.invalidation_level || null,
-          targets: Array.isArray(tradeSignal.targets) ? tradeSignal.targets : 
-                  (tradeSignal.targets?.tp1 ? [tradeSignal.targets.tp1, tradeSignal.targets.tp2] : [null, null]),
-          riskReward: tradeSignal.riskReward || tradeSignal.risk_reward || { tp1RR: null, tp2RR: null }
-        },
-        meta: data.meta || {
-          scanTime: new Date().toISOString(),
-          mode: 'STANDARD',
-          currentPrice: data.currentPrice || 0
+      // Fetch full rich symbol snapshot (all strategies, all timeframes, htfBias)
+      let signalSnapshot = null;
+      try {
+        console.log(`  Fetching full snapshot for ${symbol} (${currentMode})...`);
+        const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${currentMode}`);
+        if (response.ok) {
+          signalSnapshot = await response.json();
+          console.log(`  ✅ Got snapshot from API: bestSignal=${signalSnapshot.bestSignal || 'null'}`);
+        } else {
+          throw new Error(`API returned ${response.status}`);
         }
-      };
+      } catch (error) {
+        console.warn(`  ⚠️ API failed, using fallback:`, error.message);
+        // Fallback to building from scanResults
+        signalSnapshot = buildRichSymbolFromScanResults(symbol, currentMode);
+        if (!signalSnapshot) {
+          alert(`No data available for ${symbol}. Please wait for scan to complete.`);
+          return;
+        }
+        console.log(`  ✅ Built snapshot from fallback: bestSignal=${signalSnapshot.bestSignal || 'null'}`);
+      }
       
-      // Extract trade details
-      const direction = (tradeSignal.direction || 'LONG').toUpperCase();
-      const entryZone = tradeSignal.entryZone || tradeSignal.entry_zone || {};
+      // Pick the strategy to trade (use bestSignal or user-selected strategy)
+      const selectedStrategyIndex = strategyStates[symbol] || 0;
+      const strategyOptions = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
+      const strategyMap = { '4h': 'TREND_4H', 'Swing': 'SWING', 'Scalp': 'SCALP_1H', 'MicroScalp': 'MICRO_SCALP' };
+      const selectedStrategyKey = strategyOptions[selectedStrategyIndex];
+      const strategyName = strategyMap[selectedStrategyKey] || signalSnapshot.bestSignal || 'TREND_4H';
+      
+      const strategy = signalSnapshot.strategies[strategyName];
+      
+      if (!strategy || !strategy.valid) {
+        alert(`No valid ${strategyName} signal for ${symbol.replace('USDT', '')}. Cannot track without a valid signal.`);
+        return;
+      }
+      
+      // Extract trade details from the selected strategy
+      const direction = (strategy.direction || 'long').toUpperCase();
+      const entryZone = strategy.entryZone || { min: null, max: null };
       const entryMin = entryZone.min || 0;
       const entryMax = entryZone.max || 0;
-      const entryAverage = (entryMin + entryMax) / 2;
+      const entryAverage = entryMin > 0 && entryMax > 0 ? (entryMin + entryMax) / 2 : signalSnapshot.currentPrice || 0;
       
-      const stopLoss = tradeSignal.stopLoss || tradeSignal.stop_loss || 0;
-      const targets = tradeSignal.targets || {};
-      const tp1 = targets.tp1 || targets[0] || 0;
-      const tp2 = targets.tp2 || targets[1] || 0;
-      const invalidationLevel = tradeSignal.invalidationLevel || tradeSignal.invalidation_level || stopLoss;
+      const stopLoss = strategy.stopLoss || 0;
+      const targets = Array.isArray(strategy.targets) ? strategy.targets : [];
+      const tp1 = targets[0] || null;
+      const tp2 = targets[1] || null;
+      const invalidationLevel = strategy.invalidationLevel || stopLoss;
       
-      // Get current price to determine if trade is PENDING or ACTIVE
-      const currentPrice = data.currentPrice || data.price || 0;
-      let status = 'PENDING'; // Default: waiting for entry
+      // Determine status (PENDING if price not in entry zone, ACTIVE if in zone)
+      const currentPrice = signalSnapshot.currentPrice || 0;
+      let status = 'PENDING';
       
-      // Check if price is in entry zone
       if (currentPrice > 0 && entryMin > 0 && entryMax > 0) {
-        if (direction === 'LONG' && currentPrice <= entryMax && currentPrice >= entryMin) {
-          status = 'ACTIVE'; // Price in entry zone
-        } else if (direction === 'SHORT' && currentPrice <= entryMax && currentPrice >= entryMin) {
-          status = 'ACTIVE'; // Price in entry zone
+        if (direction === 'LONG' && currentPrice >= entryMin && currentPrice <= entryMax) {
+          status = 'ACTIVE';
+        } else if (direction === 'SHORT' && currentPrice >= entryMin && currentPrice <= entryMax) {
+          status = 'ACTIVE';
         }
       }
       
-      // Get strategy type
-      const setupType = tradeSignal.setupType || tradeSignal.selectedStrategy || 'SCALP';
-      const playbook = `${setupType} ${direction}`; // e.g., "4H Trend Short"
-      
-      // Get confluence and invalidation info for monitoring
-      const confluence = tradeSignal.confluence || {};
-      const invalidationDesc = tradeSignal.invalidation?.description || 'Exit if stop loss is hit';
-      
-      // Create trade object for tracker with canonical signal snapshot
+      // Build unified trade object (trade fields + full signalSnapshot)
       const trackedTrade = {
         id: Date.now(),
         symbol: symbol,
+        mode: signalSnapshot.mode, // SAFE / AGGRESSIVE
+        strategyName: strategyName, // e.g., "TREND_4H"
         direction: direction,
         entry: parseFloat(entryAverage.toFixed(2)),
         entryZone: {
@@ -3562,22 +3551,23 @@
         invalidationLevel: invalidationLevel,
         target1: tp1,
         target2: tp2,
-        strategy: setupType.toUpperCase(),
-        playbook: playbook, // NEW: Auto-populated from signal
-        riskPercent: tradeSignal.risk_amount ? (tradeSignal.risk_amount * 100) : 1,
-        confidence: tradeSignal.confidence ? (tradeSignal.confidence * 100) : 0,
-        notes: `Imported from scanner at ${new Date().toLocaleString()}`,
-        journal: `Auto-tracked from ${symbol.replace('USDT', '')} signal\n\nSetup: ${setupType}\nConfidence: ${tradeSignal.confidence ? (tradeSignal.confidence * 100).toFixed(0) : 0}%\n\nConfluence:\n${JSON.stringify(confluence, null, 2)}\n\nInvalidation: ${invalidationDesc}`,
+        strategy: strategyName, // Keep for backward compatibility
+        playbook: `${strategyName} ${direction}`, // e.g., "TREND_4H LONG"
+        riskPercent: 1,
+        confidence: strategy.confidence || 0,
+        notes: `Auto-tracked from ${symbol.replace('USDT', '')} ${strategyName} signal`,
+        journal: `Auto-tracked from ${symbol.replace('USDT', '')} signal\n\nSetup: ${strategyName}\nConfidence: ${strategy.confidence || 0}%\nReason: ${strategy.reason || 'No reason provided'}`,
         imageUrl: null,
-        trackedAt: Date.now(), // Timestamp when trade tracking started
+        trackedAt: Date.now(),
         entryTime: new Date().toISOString(),
         status: status,
         exitPrice: null,
         exitTime: null,
         outcome: null,
         autoTracked: true,
-        signalSnapshot: signalSnapshot, // NEW: Full canonical signal snapshot
-        review: { // NEW: Review object structure
+        // 🔽 THE BIG ONE: Full signal snapshot (entire symbol object with all strategies, timeframes, htfBias)
+        signalSnapshot: signalSnapshot,
+        review: {
           whatWentRight: '',
           whatWentWrong: '',
           performanceSummary: ''
@@ -3593,46 +3583,73 @@
       const tradeJSON = JSON.stringify(trackedTrade);
       localStorage.setItem('pendingTradeToTrack', tradeJSON);
       
-      // Also store signal snapshot separately for auto-fill functionality
-      localStorage.setItem('pendingSignal', JSON.stringify(signalSnapshot));
-      
-      console.log('📊 Auto-tracking trade:', trackedTrade);
-      console.log('💾 Stored in localStorage:', tradeJSON);
-      console.log('🔍 Signal snapshot stored:', signalSnapshot);
+      console.log('📊 Unified trade object (trade + snapshot):', trackedTrade);
+      console.log('💾 Stored in localStorage');
       
       // Redirect to tracker
       console.log('🔀 Redirecting to tracker with autoTrack=true');
       window.location.href = '/tracker.html?autoTrack=true';
     }
 
-    // Copy single coin view
+    // Copy single coin view - UNIFIED: Trade + Full Signal Snapshot
     async function copyCoinView(symbol) {
-      console.log(`📋 Copying ${symbol} with rich format (all strategies included)...`);
+      console.log(`📋 Copying ${symbol} with unified format (trade + full snapshot)...`);
       
       // Determine current mode
       const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
       
+      // Fetch full rich symbol snapshot
+      let signalSnapshot = null;
       try {
-        // Fetch rich data for current mode
         const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${currentMode}`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch: ${response.status}`);
+        if (response.ok) {
+          signalSnapshot = await response.json();
+        } else {
+          throw new Error(`API returned ${response.status}`);
         }
-        
-        const richSymbol = await response.json();
-        const jsonString = JSON.stringify(richSymbol, null, 2);
-        
-        navigator.clipboard.writeText(jsonString).then(() => {
-          showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
-          console.log(`✅ ${symbol} copied to clipboard (rich format, mode: ${currentMode})`);
-        }).catch(err => {
-          console.error('Failed to copy:', err);
-          alert('Failed to copy');
-        });
       } catch (error) {
-        console.error(`Error fetching ${symbol}:`, error);
-        alert(`Failed to fetch data for ${symbol}`);
+        console.warn(`API failed, using fallback:`, error.message);
+        signalSnapshot = buildRichSymbolFromScanResults(symbol, currentMode);
+        if (!signalSnapshot) {
+          alert(`No data available for ${symbol}. Please wait for scan to complete.`);
+          return;
+        }
       }
+      
+      // Pick the strategy (use bestSignal or user-selected)
+      const selectedStrategyIndex = strategyStates[symbol] || 0;
+      const strategyOptions = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
+      const strategyMap = { '4h': 'TREND_4H', 'Swing': 'SWING', 'Scalp': 'SCALP_1H', 'MicroScalp': 'MICRO_SCALP' };
+      const selectedStrategyKey = strategyOptions[selectedStrategyIndex];
+      const strategyName = strategyMap[selectedStrategyKey] || signalSnapshot.bestSignal || 'TREND_4H';
+      
+      const strategy = signalSnapshot.strategies[strategyName];
+      
+      // Build unified object: trade fields + full signalSnapshot
+      const unifiedObject = {
+        // Trade fields (from selected strategy)
+        symbol: symbol,
+        mode: signalSnapshot.mode,
+        strategyName: strategyName,
+        direction: strategy?.direction || 'NO_TRADE',
+        entryZone: strategy?.entryZone || { min: null, max: null },
+        stopLoss: strategy?.stopLoss || null,
+        targets: strategy?.targets || [],
+        confidence: strategy?.confidence || 0,
+        reason: strategy?.reason || 'No trade available',
+        // Full signal snapshot (all strategies, timeframes, htfBias)
+        signalSnapshot: signalSnapshot
+      };
+      
+      const jsonString = JSON.stringify(unifiedObject, null, 2);
+      
+      navigator.clipboard.writeText(jsonString).then(() => {
+        showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
+        console.log(`✅ ${symbol} copied (unified format: trade + snapshot)`);
+      }).catch(err => {
+        console.error('Failed to copy:', err);
+        alert('Failed to copy');
+      });
     }
 
     // Build rich symbol object from existing scanResults data (fallback)

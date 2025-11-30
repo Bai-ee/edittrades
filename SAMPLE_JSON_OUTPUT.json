@@ -1,0 +1,853 @@
+{
+  "SAFE_MODE": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "mode": "SAFE",
+      "currentPrice": 91424.50,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 80,
+        "source": "4h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "down",
+          "ema21": 92000.00,
+          "ema200": 83000.00,
+          "stochRsi": {
+            "k": 82.5,
+            "d": 78.1,
+            "state": "overbought"
+          },
+          "confluenceScore": 0.78,
+          "structureSummary": "Lower highs, lower lows below 21 EMA",
+          "notes": "4H trend aligned short; price near prior support turned resistance"
+        },
+        "1h": {
+          "trend": "up",
+          "ema21": 91600.00,
+          "ema200": 89000.00,
+          "stochRsi": {
+            "k": 65.2,
+            "d": 70.4,
+            "state": "neutral"
+          },
+          "confluenceScore": 0.55,
+          "structureSummary": "Countertrend pullback into 4H resistance",
+          "notes": "1H showing countertrend bounce; 4H structure still bearish"
+        },
+        "15m": {
+          "trend": "up",
+          "ema21": 91500.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 45.3,
+            "d": 50.1,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "Short-term bounce in progress",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "up",
+          "ema21": 91450.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 38.2,
+            "d": 42.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "4H trend too flat for a clean swing setup - requires 3D/1D structure alignment",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 72,
+          "reason": "4H downtrend + 1H pullback to 21 EMA + overbought Stoch RSI",
+          "entryZone": {
+            "min": 91800.00,
+            "max": 92200.00
+          },
+          "stopLoss": 93200.00,
+          "invalidationLevel": 93000.00,
+          "targets": [90000.00, 88500.00],
+          "riskReward": {
+            "tp1RR": 1.3,
+            "tp2RR": 2.4
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "1H Stoch RSI not aligned with HTF short bias - 1H showing countertrend bounce",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Price in chop, no clear extreme or LVN for micro scalp - 15m/5m not in tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_4H",
+      "schemaVersion": "1.0.0",
+      "generatedAt": "2025-11-30T12:00:00.000Z"
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "mode": "SAFE",
+      "currentPrice": 3026.59,
+      "htfBias": {
+        "direction": "long",
+        "confidence": 75,
+        "source": "4h+1h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "up",
+          "ema21": 3000.00,
+          "ema200": 2800.00,
+          "stochRsi": {
+            "k": 25.5,
+            "d": 30.2,
+            "state": "oversold"
+          },
+          "confluenceScore": 0.82,
+          "structureSummary": "Higher highs, higher lows above 21 EMA",
+          "notes": "4H uptrend intact; price retracing to support"
+        },
+        "1h": {
+          "trend": "up",
+          "ema21": 3010.00,
+          "ema200": 2850.00,
+          "stochRsi": {
+            "k": 35.8,
+            "d": 40.1,
+            "state": "neutral"
+          },
+          "confluenceScore": 0.68,
+          "structureSummary": "Healthy pullback in uptrend",
+          "notes": "1H aligned with 4H; stoch curling up from oversold"
+        },
+        "15m": {
+          "trend": "up",
+          "ema21": 3015.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 42.3,
+            "d": 45.6,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "up",
+          "ema21": 3020.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 48.1,
+            "d": 50.3,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D structure not aligned for swing entry - awaiting higher timeframe confirmation",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "long",
+          "confidence": 78,
+          "reason": "4H uptrend + price near 21 EMA + oversold Stoch RSI curling up",
+          "entryZone": {
+            "min": 2995.00,
+            "max": 3015.00
+          },
+          "stopLoss": 2950.00,
+          "invalidationLevel": 2940.00,
+          "targets": [3080.00, 3150.00],
+          "riskReward": {
+            "tp1RR": 1.2,
+            "tp2RR": 2.1
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "long",
+          "confidence": 65,
+          "reason": "1H uptrend + 15m pullback to EMA21 + stoch aligned bullish",
+          "entryZone": {
+            "min": 3010.00,
+            "max": 3025.00
+          },
+          "stopLoss": 2990.00,
+          "invalidationLevel": 2985.00,
+          "targets": [3050.00, 3080.00],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "15m/5m not within ±0.25% of EMA21 - price too extended for micro scalp",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_4H",
+      "schemaVersion": "1.0.0",
+      "generatedAt": "2025-11-30T12:00:00.000Z"
+    },
+    "SOLUSDT": {
+      "symbol": "SOLUSDT",
+      "mode": "SAFE",
+      "currentPrice": 145.32,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 70,
+        "source": "1h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "flat",
+          "ema21": 146.00,
+          "ema200": 140.00,
+          "stochRsi": {
+            "k": 55.2,
+            "d": 58.3,
+            "state": "neutral"
+          },
+          "confluenceScore": 0.45,
+          "structureSummary": "Choppy structure, price consolidating",
+          "notes": "4H trend unclear - range-bound"
+        },
+        "1h": {
+          "trend": "down",
+          "ema21": 145.50,
+          "ema200": 142.00,
+          "stochRsi": {
+            "k": 75.8,
+            "d": 72.1,
+            "state": "overbought"
+          },
+          "confluenceScore": 0.62,
+          "structureSummary": "Lower highs forming, price below 21 EMA",
+          "notes": "1H showing bearish structure; 4H flat"
+        },
+        "15m": {
+          "trend": "down",
+          "ema21": 145.20,
+          "ema200": null,
+          "stochRsi": {
+            "k": 68.4,
+            "d": 65.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "down",
+          "ema21": 145.10,
+          "ema200": null,
+          "stochRsi": {
+            "k": 62.1,
+            "d": 58.9,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "4H trend is FLAT - swing trades require clear 4H direction",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "4H trend is FLAT - requires clear UPTREND or DOWNTREND",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 68,
+          "reason": "1H downtrend + 15m pullback to EMA21 + overbought Stoch RSI",
+          "entryZone": {
+            "min": 145.00,
+            "max": 146.00
+          },
+          "stopLoss": 147.50,
+          "invalidationLevel": 147.00,
+          "targets": [142.50, 140.00],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 58,
+          "reason": "1H downtrend + 15m/5m within ±0.25% of EMA21 + stoch overbought",
+          "entryZone": {
+            "min": 145.00,
+            "max": 145.50
+          },
+          "stopLoss": 146.00,
+          "invalidationLevel": 145.80,
+          "targets": [144.50, 144.00],
+          "riskReward": {
+            "tp1RR": 1.0,
+            "tp2RR": 1.5
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "SCALP_1H",
+      "schemaVersion": "1.0.0",
+      "generatedAt": "2025-11-30T12:00:00.000Z"
+    }
+  },
+  "AGGRESSIVE_MODE": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "mode": "AGGRESSIVE",
+      "currentPrice": 91424.50,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 80,
+        "source": "4h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "down",
+          "ema21": 92000.00,
+          "ema200": 83000.00,
+          "stochRsi": {
+            "k": 82.5,
+            "d": 78.1,
+            "state": "overbought"
+          },
+          "confluenceScore": 0.78,
+          "structureSummary": "Lower highs, lower lows below 21 EMA",
+          "notes": "4H trend aligned short; price near prior support turned resistance"
+        },
+        "1h": {
+          "trend": "up",
+          "ema21": 91600.00,
+          "ema200": 89000.00,
+          "stochRsi": {
+            "k": 65.2,
+            "d": 70.4,
+            "state": "neutral"
+          },
+          "confluenceScore": 0.55,
+          "structureSummary": "Countertrend pullback into 4H resistance",
+          "notes": "1H showing countertrend bounce; 4H structure still bearish"
+        },
+        "15m": {
+          "trend": "up",
+          "ema21": 91500.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 45.3,
+            "d": 50.1,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "Short-term bounce in progress",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "up",
+          "ema21": 91450.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 38.2,
+            "d": 42.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "4H trend too flat for a clean swing setup - requires 3D/1D structure alignment",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 72,
+          "reason": "4H downtrend + 1H pullback to 21 EMA + overbought Stoch RSI",
+          "entryZone": {
+            "min": 91800.00,
+            "max": 92200.00
+          },
+          "stopLoss": 93200.00,
+          "invalidationLevel": 93000.00,
+          "targets": [90000.00, 88500.00],
+          "riskReward": {
+            "tp1RR": 1.3,
+            "tp2RR": 2.4
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "1H Stoch RSI not aligned with HTF short bias - 1H showing countertrend bounce",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Price in chop, no clear extreme or LVN for micro scalp - 15m/5m not in tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_4H",
+      "schemaVersion": "1.0.0",
+      "generatedAt": "2025-11-30T12:00:00.000Z"
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "mode": "AGGRESSIVE",
+      "currentPrice": 3026.59,
+      "htfBias": {
+        "direction": "long",
+        "confidence": 75,
+        "source": "4h+1h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "up",
+          "ema21": 3000.00,
+          "ema200": 2800.00,
+          "stochRsi": {
+            "k": 25.5,
+            "d": 30.2,
+            "state": "oversold"
+          },
+          "confluenceScore": 0.82,
+          "structureSummary": "Higher highs, higher lows above 21 EMA",
+          "notes": "4H uptrend intact; price retracing to support"
+        },
+        "1h": {
+          "trend": "up",
+          "ema21": 3010.00,
+          "ema200": 2850.00,
+          "stochRsi": {
+            "k": 35.8,
+            "d": 40.1,
+            "state": "neutral"
+          },
+          "confluenceScore": 0.68,
+          "structureSummary": "Healthy pullback in uptrend",
+          "notes": "1H aligned with 4H; stoch curling up from oversold"
+        },
+        "15m": {
+          "trend": "up",
+          "ema21": 3015.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 42.3,
+            "d": 45.6,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "up",
+          "ema21": 3020.00,
+          "ema200": null,
+          "stochRsi": {
+            "k": 48.1,
+            "d": 50.3,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D structure not aligned for swing entry - awaiting higher timeframe confirmation",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "long",
+          "confidence": 78,
+          "reason": "4H uptrend + price near 21 EMA + oversold Stoch RSI curling up",
+          "entryZone": {
+            "min": 2995.00,
+            "max": 3015.00
+          },
+          "stopLoss": 2950.00,
+          "invalidationLevel": 2940.00,
+          "targets": [3080.00, 3150.00],
+          "riskReward": {
+            "tp1RR": 1.2,
+            "tp2RR": 2.1
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "long",
+          "confidence": 65,
+          "reason": "1H uptrend + 15m pullback to EMA21 + stoch aligned bullish",
+          "entryZone": {
+            "min": 3010.00,
+            "max": 3025.00
+          },
+          "stopLoss": 2990.00,
+          "invalidationLevel": 2985.00,
+          "targets": [3050.00, 3080.00],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "15m/5m not within ±0.75% of EMA21 (aggressive allows wider) - still too extended",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_4H",
+      "schemaVersion": "1.0.0",
+      "generatedAt": "2025-11-30T12:00:00.000Z"
+    },
+    "SOLUSDT": {
+      "symbol": "SOLUSDT",
+      "mode": "AGGRESSIVE",
+      "currentPrice": 145.32,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 70,
+        "source": "1h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "flat",
+          "ema21": 146.00,
+          "ema200": 140.00,
+          "stochRsi": {
+            "k": 55.2,
+            "d": 58.3,
+            "state": "neutral"
+          },
+          "confluenceScore": 0.45,
+          "structureSummary": "Choppy structure, price consolidating",
+          "notes": "4H trend unclear - range-bound"
+        },
+        "1h": {
+          "trend": "down",
+          "ema21": 145.50,
+          "ema200": 142.00,
+          "stochRsi": {
+            "k": 75.8,
+            "d": 72.1,
+            "state": "overbought"
+          },
+          "confluenceScore": 0.62,
+          "structureSummary": "Lower highs forming, price below 21 EMA",
+          "notes": "1H showing bearish structure; 4H flat"
+        },
+        "15m": {
+          "trend": "down",
+          "ema21": 145.20,
+          "ema200": null,
+          "stochRsi": {
+            "k": 68.4,
+            "d": 65.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "down",
+          "ema21": 145.10,
+          "ema200": null,
+          "stochRsi": {
+            "k": 62.1,
+            "d": 58.9,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "4H trend is FLAT - swing trades require clear 4H direction (even in aggressive mode)",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "4H trend is FLAT - requires clear UPTREND or DOWNTREND",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 68,
+          "reason": "1H downtrend + 15m pullback to EMA21 + overbought Stoch RSI",
+          "entryZone": {
+            "min": 145.00,
+            "max": 146.00
+          },
+          "stopLoss": 147.50,
+          "invalidationLevel": 147.00,
+          "targets": [142.50, 140.00],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 58,
+          "reason": "1H downtrend + 15m/5m within ±0.75% of EMA21 (aggressive allows wider) + stoch overbought",
+          "entryZone": {
+            "min": 145.00,
+            "max": 145.75
+          },
+          "stopLoss": 146.25,
+          "invalidationLevel": 146.00,
+          "targets": [144.25, 143.50],
+          "riskReward": {
+            "tp1RR": 1.0,
+            "tp2RR": 1.5
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "SCALP_1H",
+      "schemaVersion": "1.0.0",
+      "generatedAt": "2025-11-30T12:00:00.000Z"
+    }
+  }
+}
+
