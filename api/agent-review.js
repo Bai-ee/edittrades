@@ -343,10 +343,12 @@ End with your overall rating: A+, A, B, or SKIP`;
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ OpenAI API error:', response.status, errorText);
+      console.error('❌ OpenAI API error:', response.status);
+      console.error('❌ Error response body:', errorText.substring(0, 500));
       return res.status(500).json({
         error: 'OpenAI API request failed',
-        message: `API returned ${response.status}: ${errorText.substring(0, 200)}`
+        message: `API returned ${response.status}: ${errorText.substring(0, 200)}`,
+        details: 'APIError'
       });
     }
 

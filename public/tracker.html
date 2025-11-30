@@ -933,6 +933,11 @@
             window.history.replaceState({}, document.title, window.location.pathname);
             
             console.log('✅ Trade auto-tracked successfully!');
+            
+            // IMPORTANT: Re-render trades immediately so the new trade appears
+            console.log('🔄 Re-rendering trades to show new trade...');
+            await renderTrades();
+            console.log('✅ Trades re-rendered with new trade');
           } catch (error) {
             console.error('❌ Error auto-tracking trade:', error);
             console.error('Stack trace:', error.stack);
