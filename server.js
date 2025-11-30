@@ -310,15 +310,20 @@ app.get('/api/analyze/:symbol', async (req, res) => {
     const ticker = await marketData.getTickerPrice(symbol);
     console.log(`✅ Price: $${ticker.price.toLocaleString()}`);
 
+    // Get setupType and mode from query (default to 'auto' and 'STANDARD')
+    const setupType = req.query.setupType || 'auto';
+    const mode = req.query.mode || 'STANDARD';
+    
     // Run strategy evaluation (strategy.js remains unchanged)
-    console.log(`\n🎯 Running strategy evaluation...`);
-    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis);
+    console.log(`\n🎯 Running strategy evaluation (${setupType}, mode: ${mode})...`);
+    const canonicalResult = strategyService.evaluateStrategy(symbol, analysis, setupType, mode);
+    const tradeSignal = canonicalResult.signal; // Extract signal from canonical structure
     
     console.log(`\n${'='.repeat(60)}`);
     console.log(`📋 TRADE SIGNAL: ${tradeSignal.direction.toUpperCase()}`);
     if (tradeSignal.valid) {
-      console.log(`   Entry: $${tradeSignal.entry_zone.min} - $${tradeSignal.entry_zone.max}`);
-      console.log(`   SL: $${tradeSignal.stop_loss}`);
+      console.log(`   Entry: $${tradeSignal.entryZone.min} - $${tradeSignal.entryZone.max}`);
+      console.log(`   SL: $${tradeSignal.stopLoss}`);
       console.log(`   TP1: $${tradeSignal.targets[0]} | TP2: $${tradeSignal.targets[1]}`);
       console.log(`   Confidence: ${(tradeSignal.confidence * 100).toFixed(0)}%`);
     } else {
@@ -326,12 +331,13 @@ app.get('/api/analyze/:symbol', async (req, res) => {
     }
     console.log(`${'='.repeat(60)}\n`);
 
+    // Return canonical structure with backward compatibility
     res.json({
-      symbol,
+      ...canonicalResult,
       currentPrice: ticker.price,
       priceChange24h: ticker.priceChangePercent,
       analysis,
-      tradeSignal,
+      tradeSignal, // Backward compatibility alias
       timestamp: new Date().toISOString()
     });
 

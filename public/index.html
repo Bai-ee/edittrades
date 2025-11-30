@@ -3485,6 +3485,35 @@
         return;
       }
       
+      // Build canonical signal snapshot from available data
+      // The data object should have the canonical structure if coming from API
+      const signalSnapshot = {
+        symbol: data.symbol || symbol,
+        price: data.price || data.currentPrice || 0,
+        htfBias: data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' },
+        timeframes: data.timeframes || {},
+        signal: {
+          valid: tradeSignal.valid,
+          direction: tradeSignal.direction || tradeSignal.direction,
+          setupType: tradeSignal.setupType || tradeSignal.selectedStrategy || 'auto',
+          selectedStrategy: tradeSignal.selectedStrategy || tradeSignal.setupType || 'NO_TRADE',
+          strategiesChecked: tradeSignal.strategiesChecked || [],
+          confidence: tradeSignal.confidence || 0,
+          reason: tradeSignal.reason || tradeSignal.reason_summary || 'No reason provided',
+          entryZone: tradeSignal.entryZone || tradeSignal.entry_zone || { min: null, max: null },
+          stopLoss: tradeSignal.stopLoss || tradeSignal.stop_loss || null,
+          invalidationLevel: tradeSignal.invalidationLevel || tradeSignal.invalidation_level || null,
+          targets: Array.isArray(tradeSignal.targets) ? tradeSignal.targets : 
+                  (tradeSignal.targets?.tp1 ? [tradeSignal.targets.tp1, tradeSignal.targets.tp2] : [null, null]),
+          riskReward: tradeSignal.riskReward || tradeSignal.risk_reward || { tp1RR: null, tp2RR: null }
+        },
+        meta: data.meta || {
+          scanTime: new Date().toISOString(),
+          mode: 'STANDARD',
+          currentPrice: data.currentPrice || 0
+        }
+      };
+      
       // Extract trade details
       const direction = (tradeSignal.direction || 'LONG').toUpperCase();
       const entryZone = tradeSignal.entryZone || tradeSignal.entry_zone || {};
@@ -3499,7 +3528,7 @@
       const invalidationLevel = tradeSignal.invalidationLevel || tradeSignal.invalidation_level || stopLoss;
       
       // Get current price to determine if trade is PENDING or ACTIVE
-      const currentPrice = data.currentPrice || 0;
+      const currentPrice = data.currentPrice || data.price || 0;
       let status = 'PENDING'; // Default: waiting for entry
       
       // Check if price is in entry zone
@@ -3513,12 +3542,13 @@
       
       // Get strategy type
       const setupType = tradeSignal.setupType || tradeSignal.selectedStrategy || 'SCALP';
+      const playbook = `${setupType} ${direction}`; // e.g., "4H Trend Short"
       
       // Get confluence and invalidation info for monitoring
       const confluence = tradeSignal.confluence || {};
       const invalidationDesc = tradeSignal.invalidation?.description || 'Exit if stop loss is hit';
       
-      // Create trade object for tracker
+      // Create trade object for tracker with canonical signal snapshot
       const trackedTrade = {
         id: Date.now(),
         symbol: symbol,
@@ -3533,9 +3563,10 @@
         target1: tp1,
         target2: tp2,
         strategy: setupType.toUpperCase(),
+        playbook: playbook, // NEW: Auto-populated from signal
         riskPercent: tradeSignal.risk_amount ? (tradeSignal.risk_amount * 100) : 1,
         confidence: tradeSignal.confidence ? (tradeSignal.confidence * 100) : 0,
-        notes: '',
+        notes: `Imported from scanner at ${new Date().toLocaleString()}`,
         journal: `Auto-tracked from ${symbol.replace('USDT', '')} signal\n\nSetup: ${setupType}\nConfidence: ${tradeSignal.confidence ? (tradeSignal.confidence * 100).toFixed(0) : 0}%\n\nConfluence:\n${JSON.stringify(confluence, null, 2)}\n\nInvalidation: ${invalidationDesc}`,
         imageUrl: null,
         trackedAt: Date.now(), // Timestamp when trade tracking started
@@ -3545,7 +3576,12 @@
         exitTime: null,
         outcome: null,
         autoTracked: true,
-        sourceSignal: tradeSignal,
+        signalSnapshot: signalSnapshot, // NEW: Full canonical signal snapshot
+        review: { // NEW: Review object structure
+          whatWentRight: '',
+          whatWentWrong: '',
+          performanceSummary: ''
+        },
         monitorZones: {
           invalidation: invalidationLevel,
           entryMin: entryMin,
@@ -3557,9 +3593,12 @@
       const tradeJSON = JSON.stringify(trackedTrade);
       localStorage.setItem('pendingTradeToTrack', tradeJSON);
       
+      // Also store signal snapshot separately for auto-fill functionality
+      localStorage.setItem('pendingSignal', JSON.stringify(signalSnapshot));
+      
       console.log('📊 Auto-tracking trade:', trackedTrade);
       console.log('💾 Stored in localStorage:', tradeJSON);
-      console.log('🔍 Verify localStorage:', localStorage.getItem('pendingTradeToTrack'));
+      console.log('🔍 Signal snapshot stored:', signalSnapshot);
       
       // Redirect to tracker
       console.log('🔀 Redirecting to tracker with autoTrack=true');

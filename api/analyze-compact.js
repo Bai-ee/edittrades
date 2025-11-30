@@ -68,60 +68,62 @@ export default async function handler(req, res) {
     }
 
     const ticker = await marketData.getTickerPrice(symbol);
-    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis);
+    // Get canonical structure from evaluateStrategy
+    const canonicalResult = strategyService.evaluateStrategy(symbol, analysis, 'auto', 'STANDARD');
 
-    // Build COMPACT response - only essential trading info
+    // Build COMPACT response - canonical structure but streamlined
     const compactResponse = {
-      symbol,
-      price: parseFloat(ticker.price.toFixed(2)),
+      symbol: canonicalResult.symbol,
+      price: canonicalResult.price || parseFloat(ticker.price.toFixed(2)),
       change24h: parseFloat(ticker.priceChangePercent.toFixed(2)),
       
-      // Trade signal (most important!)
+      // HTF Bias
+      htfBias: canonicalResult.htfBias,
+      
+      // Trade signal (from canonical structure)
       signal: {
-        valid: tradeSignal.valid,
-        direction: tradeSignal.direction || 'NO_TRADE', // long | short | NO_TRADE
-        confidence: tradeSignal.confidence ? parseFloat((tradeSignal.confidence * 100).toFixed(0)) : 0,
-        reason: tradeSignal.reason_summary || tradeSignal.reason || 'Waiting for setup',
+        valid: canonicalResult.signal.valid,
+        direction: canonicalResult.signal.direction,
+        confidence: canonicalResult.signal.confidence ? parseFloat((canonicalResult.signal.confidence * 100).toFixed(0)) : 0,
+        reason: canonicalResult.signal.reason,
         
         // Only include trade levels if valid signal
-        ...(tradeSignal.valid && {
-          entry: {
-            min: tradeSignal.entry_zone.min,
-            max: tradeSignal.entry_zone.max
-          },
-          stopLoss: tradeSignal.stop_loss,
+        ...(canonicalResult.signal.valid && {
+          entry: canonicalResult.signal.entryZone,
+          stopLoss: canonicalResult.signal.stopLoss,
           targets: {
-            tp1: tradeSignal.targets[0],
-            tp2: tradeSignal.targets[1]
+            tp1: canonicalResult.signal.targets[0],
+            tp2: canonicalResult.signal.targets[1]
           },
-          riskReward: `1:${((Math.abs(tradeSignal.targets[1] - ((tradeSignal.entry_zone.min + tradeSignal.entry_zone.max) / 2)) / Math.abs(((tradeSignal.entry_zone.min + tradeSignal.entry_zone.max) / 2) - tradeSignal.stop_loss))).toFixed(2)}`
+          riskReward: canonicalResult.signal.riskReward.tp2RR ? 
+            `1:${canonicalResult.signal.riskReward.tp2RR.toFixed(2)}` : null
         })
       },
       
-      // Key timeframe info (only 4h and 1h for brevity)
+      // Key timeframe info (from canonical timeframes, only 4h and 1h for brevity)
       timeframes: {
-        '4h': analysis['4h'] ? {
-          trend: analysis['4h'].indicators.analysis.trend,
-          ema21: parseFloat(analysis['4h'].indicators.ema.ema21.toFixed(2)),
-          ema200: analysis['4h'].indicators.ema.ema200 ? parseFloat(analysis['4h'].indicators.ema.ema200.toFixed(2)) : null,
-          stoch: {
-            zone: analysis['4h'].indicators.stochRSI.condition,
-            k: parseFloat(analysis['4h'].indicators.stochRSI.k.toFixed(1)),
-            d: parseFloat(analysis['4h'].indicators.stochRSI.d.toFixed(1))
-          },
-          pullback: analysis['4h'].indicators.analysis.pullbackState,
-          swingHigh: analysis['4h'].structure.swingHigh ? parseFloat(analysis['4h'].structure.swingHigh.toFixed(2)) : null,
-          swingLow: analysis['4h'].structure.swingLow ? parseFloat(analysis['4h'].structure.swingLow.toFixed(2)) : null
+        '4h': canonicalResult.timeframes['4h'] ? {
+          trend: canonicalResult.timeframes['4h'].trend,
+          ema21: canonicalResult.timeframes['4h'].ema21,
+          ema200: canonicalResult.timeframes['4h'].ema200,
+          stoch: canonicalResult.timeframes['4h'].stoch ? {
+            zone: canonicalResult.timeframes['4h'].stoch.condition,
+            k: parseFloat(canonicalResult.timeframes['4h'].stoch.k.toFixed(1)),
+            d: parseFloat(canonicalResult.timeframes['4h'].stoch.d.toFixed(1))
+          } : null,
+          pullback: canonicalResult.timeframes['4h'].pullback?.state,
+          swingHigh: canonicalResult.timeframes['4h'].structure?.swingHigh,
+          swingLow: canonicalResult.timeframes['4h'].structure?.swingLow
         } : { error: 'No data' },
         
-        '1h': analysis['1h'] ? {
-          trend: analysis['1h'].indicators.analysis.trend,
-          ema21: parseFloat(analysis['1h'].indicators.ema.ema21.toFixed(2)),
-          stoch: {
-            zone: analysis['1h'].indicators.stochRSI.condition,
-            k: parseFloat(analysis['1h'].indicators.stochRSI.k.toFixed(1))
-          },
-          pullback: analysis['1h'].indicators.analysis.pullbackState
+        '1h': canonicalResult.timeframes['1h'] ? {
+          trend: canonicalResult.timeframes['1h'].trend,
+          ema21: canonicalResult.timeframes['1h'].ema21,
+          stoch: canonicalResult.timeframes['1h'].stoch ? {
+            zone: canonicalResult.timeframes['1h'].stoch.condition,
+            k: parseFloat(canonicalResult.timeframes['1h'].stoch.k.toFixed(1))
+          } : null,
+          pullback: canonicalResult.timeframes['1h'].pullback?.state
         } : { error: 'No data' }
       },
       

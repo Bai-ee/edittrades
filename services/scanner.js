@@ -52,24 +52,56 @@ async function scanSymbol(symbol, intervals = ['4h', '1h', '15m', '5m']) {
     // Get current price
     const ticker = await marketData.getTickerPrice(symbol);
     
-    // Run strategy evaluation
-    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis);
+    // Run strategy evaluation (returns canonical structure)
+    const canonicalResult = strategyService.evaluateStrategy(symbol, analysis, 'auto', 'STANDARD');
     
-    // Add additional metadata
+    // Canonical result already has: { symbol, price, htfBias, timeframes, signal, meta }
+    // Add scanner-specific metadata to meta object
+    const enhancedMeta = {
+      ...canonicalResult.meta,
+      scanTime: new Date().toISOString(),
+      volume24h: ticker.volume24h,
+      priceChange24h: ticker.priceChangePercent
+    };
+    
+    // Return canonical structure with enhanced metadata
     return {
-      ...tradeSignal,
+      ...canonicalResult,
+      price: ticker.price,
+      meta: enhancedMeta,
+      // Backward compatibility fields
       currentPrice: ticker.price,
       priceChange24h: ticker.priceChangePercent,
-      volume24h: ticker.volume24h,
-      scanTime: new Date().toISOString()
+      volume24h: ticker.volume24h
     };
     
   } catch (error) {
     console.error(`❌ Error scanning ${symbol}:`, error.message);
+    // Return canonical structure even for errors
     return {
       symbol,
-      error: error.message,
-      valid: false
+      price: null,
+      htfBias: { direction: 'neutral', confidence: 0, source: 'none' },
+      timeframes: {},
+      signal: {
+        valid: false,
+        direction: 'NO_TRADE',
+        setupType: 'auto',
+        selectedStrategy: 'NO_TRADE',
+        strategiesChecked: [],
+        confidence: 0,
+        reason: `Error: ${error.message}`,
+        entryZone: { min: null, max: null },
+        stopLoss: null,
+        invalidationLevel: null,
+        targets: [null, null],
+        riskReward: { tp1RR: null, tp2RR: null }
+      },
+      meta: {
+        scanTime: new Date().toISOString(),
+        mode: 'STANDARD',
+        error: error.message
+      }
     };
   }
 }

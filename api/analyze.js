@@ -187,27 +187,34 @@ export default async function handler(req, res) {
 
     // Run strategy evaluation (will check Swing first, then 4H/Scalp)
     console.log(`[Analyze] Running strategy evaluation (${setupType}, mode: ${mode})...`);
-    const tradeSignal = strategyService.evaluateStrategy(symbol, analysis, setupType, mode);
+    const canonicalResult = strategyService.evaluateStrategy(symbol, analysis, setupType, mode);
 
     // Evaluate Micro-Scalp Override (only relevant when 4H is FLAT and normal trade blocked)
     console.log(`[Analyze] Evaluating micro-scalp override...`);
     const microScalpResult = strategyService.evaluateMicroScalp(analysis);
 
-    // Extract htfBias to root level for clarity
-    const htfBias = tradeSignal.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
-    
-    // Build response matching frontend expectations (same as Express server format)
+    // Canonical result already has the structure: { symbol, price, htfBias, timeframes, signal, meta }
+    // Build response with canonical structure + backward compatibility fields
     const response = {
-      symbol,
-      price: parseFloat(ticker.price.toFixed(2)),
-      currentPrice: parseFloat(ticker.price.toFixed(2)),  // Keep for backward compatibility
+      // Canonical structure
+      ...canonicalResult,
+      price: canonicalResult.price || parseFloat(ticker.price.toFixed(2)),
+      
+      // Backward compatibility - keep old field names
+      currentPrice: canonicalResult.price || parseFloat(ticker.price.toFixed(2)),
       priceChange24h: parseFloat(ticker.priceChangePercent.toFixed(2)),
-      htfBias: htfBias,  // HTF Bias at root level (NEW)
-      signal: tradeSignal,  // Complete trade signal object
-      tradeSignal: tradeSignal,  // Keep for backward compatibility
-      analysis,  // Full analysis object with indicators for each timeframe
-      microScalpEligible: microScalpResult.eligible,  // Is micro-scalp override possible?
-      microScalp: microScalpResult.signal,  // Micro-scalp signal (null if not valid)
+      
+      // Signal aliases for backward compatibility
+      signal: canonicalResult.signal,
+      tradeSignal: canonicalResult.signal,  // Alias for backward compatibility
+      
+      // Full analysis object (for detailed UI)
+      analysis,
+      
+      // Micro-scalp info
+      microScalpEligible: microScalpResult.eligible,
+      microScalp: microScalpResult.signal,
+      
       timestamp: new Date().toISOString()
     };
 

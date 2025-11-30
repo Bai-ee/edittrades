@@ -556,6 +556,21 @@
           </a>
         </div>
       </div>
+      
+      <!-- Stats Panel (moved below table, collapsed by default) -->
+      <div id="statsPanel" style="margin-top: 2rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); border: 2px solid var(--color-yellow-75);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; cursor: pointer;" onclick="toggleStatsPanel()">
+          <h2 style="font-family: var(--font-mathias); font-size: 1.25rem; font-weight: bold; color: var(--color-yellow-75); text-transform: uppercase; margin: 0;">
+            Trade Analytics
+          </h2>
+          <span id="statsToggleIcon" style="color: var(--color-yellow-75); font-size: 1.5rem;">▶</span>
+        </div>
+        <div id="statsContent" style="display: none;">
+          <div id="statsDisplay" style="font-family: var(--font-system); font-size: 0.875rem; color: var(--text-secondary);">
+            <p>Loading statistics...</p>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
   
@@ -847,6 +862,7 @@
       console.log('🔍 URL Params:', window.location.search);
       console.log('🔍 autoTrack param:', urlParams.get('autoTrack'));
       
+      // If autoTrack=true, automatically add the trade (don't open modal)
       if (urlParams.get('autoTrack') === 'true') {
         const pendingTradeData = localStorage.getItem('pendingTradeToTrack');
         console.log('🔍 Pending trade data from localStorage:', pendingTradeData);
@@ -857,6 +873,49 @@
             console.log('🎯 Auto-tracking trade from homepage:', tradeToAdd);
             console.log('🔍 Current trades array length before add:', trades.length);
             
+            // Ensure new fields exist for backward compatibility
+            if (!tradeToAdd.signalSnapshot) {
+              // Try to reconstruct from available data
+              tradeToAdd.signalSnapshot = {
+                symbol: tradeToAdd.symbol,
+                price: tradeToAdd.entry || 0,
+                htfBias: { direction: 'neutral', confidence: 0, source: 'none' },
+                timeframes: {},
+                signal: {
+                  valid: true,
+                  direction: tradeToAdd.direction,
+                  setupType: tradeToAdd.strategy,
+                  selectedStrategy: tradeToAdd.strategy,
+                  strategiesChecked: [],
+                  confidence: tradeToAdd.confidence / 100 || 0,
+                  reason: 'Auto-tracked trade',
+                  entryZone: tradeToAdd.entryZone || { min: tradeToAdd.entry, max: tradeToAdd.entry },
+                  stopLoss: tradeToAdd.stopLoss,
+                  invalidationLevel: tradeToAdd.invalidationLevel,
+                  targets: [tradeToAdd.target1, tradeToAdd.target2],
+                  riskReward: { tp1RR: null, tp2RR: null }
+                },
+                meta: {
+                  scanTime: new Date().toISOString(),
+                  mode: 'STANDARD'
+                }
+              };
+            }
+            
+            // Ensure review object exists
+            if (!tradeToAdd.review) {
+              tradeToAdd.review = {
+                whatWentRight: '',
+                whatWentWrong: '',
+                performanceSummary: ''
+              };
+            }
+            
+            // Ensure playbook exists
+            if (!tradeToAdd.playbook) {
+              tradeToAdd.playbook = `${tradeToAdd.strategy} ${tradeToAdd.direction}`;
+            }
+            
             // Add to trades array
             trades.push(tradeToAdd);
             console.log('🔍 Current trades array length after add:', trades.length);
@@ -866,8 +925,9 @@
             await saveTrades();
             console.log('💾 Trade saved to Firebase');
             
-            // Clear the pending trade
+            // Clear the pending trade and signal snapshot (prevent modal from opening)
             localStorage.removeItem('pendingTradeToTrack');
+            localStorage.removeItem('pendingSignal'); // Clear signal snapshot too
             
             // Remove autoTrack param from URL (clean URL)
             window.history.replaceState({}, document.title, window.location.pathname);
@@ -943,6 +1003,7 @@
       const direction = document.getElementById('direction').value;
       const entry = parseFloat(document.getElementById('entry').value);
       const stopLoss = parseFloat(document.getElementById('stopLoss').value);
+      const notes = document.getElementById('tradeNotes')?.value || '';
       const journal = document.getElementById('journal').value || '';
       const uploadedImageUrl = document.getElementById('uploadedImageUrl')?.value || null;
       
@@ -985,6 +1046,36 @@
         console.log('Could not auto-detect strategy, using SCALP');
       }
       
+      // Build playbook from strategy and direction
+      const playbook = `${strategy} ${direction}`;
+      
+      // Create minimal signal snapshot for manually added trades
+      const signalSnapshot = {
+        symbol: symbol,
+        price: entry,
+        htfBias: { direction: 'neutral', confidence: 0, source: 'none' },
+        timeframes: {},
+        signal: {
+          valid: true,
+          direction: direction.toLowerCase(),
+          setupType: strategy,
+          selectedStrategy: strategy,
+          strategiesChecked: [],
+          confidence: 0,
+          reason: 'Manually added trade',
+          entryZone: { min: entry, max: entry },
+          stopLoss: stopLoss,
+          invalidationLevel: stopLoss,
+          targets: [target1, target2],
+          riskReward: { tp1RR: null, tp2RR: null }
+        },
+        meta: {
+          scanTime: new Date().toISOString(),
+          mode: 'STANDARD',
+          currentPrice: entry
+        }
+      };
+      
       const trade = {
         id: Date.now(),
         symbol: symbol,
@@ -994,8 +1085,9 @@
         target1: target1,
         target2: target2,
         strategy: strategy,
+        playbook: playbook, // NEW: Auto-populated
         riskPercent: 1,
-        notes: '',
+        notes: notes || '',
         journal: journal,
         imageUrl: uploadedImageUrl,
         trackedAt: Date.now(), // Timestamp when trade tracking started
@@ -1004,6 +1096,12 @@
         exitPrice: null,
         exitTime: null,
         outcome: null,
+        signalSnapshot: signalSnapshot, // NEW: Full canonical signal snapshot
+        review: { // NEW: Review object structure
+          whatWentRight: '',
+          whatWentWrong: '',
+          performanceSummary: ''
+        },
         timestamp: firebase.firestore && firebase.firestore.FieldValue ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
       };
       
@@ -1075,6 +1173,49 @@
             // Backward compatibility: add trackedAt if missing
             if (!tradeData.trackedAt) {
               tradeData.trackedAt = tradeData.id || Date.now();
+            }
+            
+            // Backward compatibility: add signalSnapshot if missing
+            if (!tradeData.signalSnapshot) {
+              tradeData.signalSnapshot = {
+                symbol: tradeData.symbol,
+                price: tradeData.entry || 0,
+                htfBias: { direction: 'neutral', confidence: 0, source: 'none' },
+                timeframes: {},
+                signal: {
+                  valid: true,
+                  direction: tradeData.direction?.toLowerCase() || 'long',
+                  setupType: tradeData.strategy || 'SCALP',
+                  selectedStrategy: tradeData.strategy || 'SCALP',
+                  strategiesChecked: [],
+                  confidence: tradeData.confidence ? tradeData.confidence / 100 : 0,
+                  reason: 'Legacy trade - signal snapshot reconstructed',
+                  entryZone: tradeData.entryZone || { min: tradeData.entry, max: tradeData.entry },
+                  stopLoss: tradeData.stopLoss,
+                  invalidationLevel: tradeData.invalidationLevel || tradeData.stopLoss,
+                  targets: [tradeData.target1, tradeData.target2],
+                  riskReward: { tp1RR: null, tp2RR: null }
+                },
+                meta: {
+                  scanTime: new Date(tradeData.trackedAt).toISOString(),
+                  mode: 'STANDARD',
+                  currentPrice: tradeData.entry || 0
+                }
+              };
+            }
+            
+            // Backward compatibility: add review object if missing
+            if (!tradeData.review) {
+              tradeData.review = {
+                whatWentRight: '',
+                whatWentWrong: '',
+                performanceSummary: ''
+              };
+            }
+            
+            // Backward compatibility: add playbook if missing
+            if (!tradeData.playbook) {
+              tradeData.playbook = `${tradeData.strategy || 'SCALP'} ${tradeData.direction || 'LONG'}`;
             }
             
             console.log('  ✅ Loaded trade from Firebase:', tradeData.symbol, tradeData.status, tradeData.id);
@@ -1681,12 +1822,13 @@
                     <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Invalidation</div>
                     <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.5;">
                       <div style="margin-bottom: 0.5rem;">
-                        ${setupType === 'SWING' ? 'HTF invalidation indicates macro trend shifted.' : 
+                        ${trade.signalSnapshot?.signal?.invalidation?.description || 
+                          (setupType === 'SWING' ? 'HTF invalidation indicates macro trend shifted.' : 
                           setupType === 'SCALP' ? 'LTF invalidation means scalp failed.' : 
                           setupType === 'MICROSCALP' ? 'Exit immediately if wrong - high risk countertrend.' :
-                          'Structure break invalidates setup.'}
+                          'Structure break invalidates setup.')}
                       </div>
-                      <div><strong>Level:</strong> $${trade.stopLoss.toLocaleString()} (${trade.direction === 'LONG' ? 'close below' : 'close above'})</div>
+                      <div><strong>Level:</strong> $${(trade.invalidationLevel || trade.stopLoss).toLocaleString()} (${trade.direction === 'LONG' ? 'close below' : 'close above'})</div>
                     </div>
                   </div>
                 </div>
@@ -1696,7 +1838,7 @@
               <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
                 <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">AI Trade Management Analysis</div>
                 <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
-                  ${feedbackText}
+                  ${trade.aiAnalysis ? trade.aiAnalysis : feedbackText}
                 </div>
               </div>
               
@@ -1705,10 +1847,10 @@
                 <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Market Context</div>
                 <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
                   <div style="display: flex; flex-direction: column; gap: 0.4rem;">
-                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Market alignment: ${marketAligned ? '✓ Aligned' : '⚠️ Against'}</div>
-                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Market trend: ${market.trend}</div>
-                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Momentum: ${market.momentum}</div>
-                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Confidence: ${market.confidence}%</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Market alignment: ${market.alignment === 'Aligned' ? '✓ Aligned' : '⚠️ Against'}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Market trend: ${market.trend || 'NEUTRAL'}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Momentum: ${market.momentum || 'NEUTRAL'}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Confidence: ${market.confidence || 0}%</div>
                   </div>
                 </div>
               </div>
@@ -1738,6 +1880,80 @@
                 ${trade.exitTime ? `<p>Exit Time: ${new Date(trade.exitTime).toLocaleString()}</p>` : ''}
               </div>
             </div>
+            
+            ${trade.status === 'CLOSED' && trade.exitPrice ? `
+            <!-- Trade Review Section -->
+            <div style="margin-top: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); border: 1px solid rgba(255, 255, 255, 0.1);">
+              <h3 style="font-family: var(--font-mathias); font-size: 1rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 1rem; text-transform: uppercase;">
+                Trade Review
+              </h3>
+              ${trade.review && trade.review.performanceSummary ? `
+                <div style="font-family: var(--font-system); font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6;">
+                  ${trade.review.whatWentRight ? `
+                    <div style="margin-bottom: 1rem;">
+                      <strong style="color: #22c55e; font-family: var(--font-mathias);">What Went Right:</strong>
+                      <p style="margin-top: 0.5rem; margin-bottom: 0;">${trade.review.whatWentRight}</p>
+                    </div>
+                  ` : ''}
+                  ${trade.review.whatWentWrong ? `
+                    <div style="margin-bottom: 1rem;">
+                      <strong style="color: #ef4444; font-family: var(--font-mathias);">What Went Wrong:</strong>
+                      <p style="margin-top: 0.5rem; margin-bottom: 0;">${trade.review.whatWentWrong}</p>
+                    </div>
+                  ` : ''}
+                  ${trade.review.performanceSummary ? `
+                    <div style="margin-bottom: 1rem;">
+                      <strong style="color: var(--color-yellow-75); font-family: var(--font-mathias);">Performance Summary:</strong>
+                      <p style="margin-top: 0.5rem; margin-bottom: 0;">${trade.review.performanceSummary}</p>
+                    </div>
+                  ` : ''}
+                  ${trade.review.lessons && trade.review.lessons.length > 0 ? `
+                    <div>
+                      <strong style="color: var(--color-yellow-75); font-family: var(--font-mathias);">Lessons:</strong>
+                      <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
+                        ${trade.review.lessons.map(lesson => `<li>${lesson}</li>`).join('')}
+                      </ul>
+                    </div>
+                  ` : ''}
+                </div>
+              ` : `
+                <p style="font-family: var(--font-system); font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                  No review generated yet. Click "Generate Review" to get AI-powered feedback on this trade.
+                </p>
+                <button 
+                  onclick="generateTradeReview(${trade.id})"
+                  class="px-3 py-1 text-xs font-mathias font-bold"
+                  style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; padding: 0.5rem 1rem;"
+                >
+                  GENERATE REVIEW
+                </button>
+              `}
+            </div>
+            ` : ''}
+            
+            ${trade.status !== 'CLOSED' ? `
+            <!-- AI Analysis Section for Active/Pending Trades -->
+            <div style="margin-top: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); border: 1px solid rgba(255, 255, 255, 0.1);">
+              <h3 style="font-family: var(--font-mathias); font-size: 1rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 1rem; text-transform: uppercase;">
+                AI Trade Analysis
+              </h3>
+              <div id="aiAnalysis-${trade.id}" style="font-family: var(--font-system); font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; min-height: 60px;">
+                ${trade.aiAnalysis ? `
+                  <p style="margin: 0; white-space: pre-wrap;">${trade.aiAnalysis}</p>
+                ` : `
+                  <p style="margin: 0; color: var(--text-secondary);">Click "ANALYZE" to get AI-powered feedback on your current position.</p>
+                `}
+              </div>
+              <button 
+                onclick="analyzeTrade(${trade.id})"
+                id="analyzeBtn-${trade.id}"
+                class="px-3 py-1 text-xs font-mathias font-bold"
+                style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; padding: 0.5rem 1rem; margin-top: 1rem;"
+              >
+                ANALYZE
+              </button>
+            </div>
+            ` : ''}
             
             <div style="text-align: center; padding: 1rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
               <button 
@@ -1838,11 +2054,223 @@
       }
     };
     
+    // Calculate trade statistics
+    function calculateStats(trades, filters = {}) {
+      // Apply filters
+      let filteredTrades = [...trades];
+      
+      if (filters.symbol) {
+        filteredTrades = filteredTrades.filter(t => t.symbol === filters.symbol);
+      }
+      if (filters.strategy) {
+        filteredTrades = filteredTrades.filter(t => t.strategy === filters.strategy);
+      }
+      if (filters.direction) {
+        filteredTrades = filteredTrades.filter(t => t.direction === filters.direction);
+      }
+      
+      // Only analyze closed trades
+      const closedTrades = filteredTrades.filter(t => t.status === 'CLOSED' && t.exitPrice);
+      
+      if (closedTrades.length === 0) {
+        return {
+          totalTrades: filteredTrades.length,
+          closedTrades: 0,
+          winRate: 0,
+          avgR: 0,
+          maxWin: 0,
+          maxLoss: 0,
+          totalPnL: 0,
+          byStrategy: {},
+          bySymbol: {}
+        };
+      }
+      
+      // Calculate overall stats
+      let wins = 0;
+      let losses = 0;
+      let totalR = 0;
+      let maxWin = -Infinity;
+      let maxLoss = Infinity;
+      let totalPnL = 0;
+      
+      closedTrades.forEach(trade => {
+        const risk = Math.abs(trade.entry - trade.stopLoss);
+        if (risk === 0) return;
+        
+        const pnl = trade.direction === 'LONG' ? 
+          (trade.exitPrice - trade.entry) :
+          (trade.entry - trade.exitPrice);
+        const rMultiple = pnl / risk;
+        
+        totalR += rMultiple;
+        totalPnL += pnl;
+        
+        if (rMultiple > 0) {
+          wins++;
+          if (rMultiple > maxWin) maxWin = rMultiple;
+        } else {
+          losses++;
+          if (rMultiple < maxLoss) maxLoss = rMultiple;
+        }
+      });
+      
+      const winRate = closedTrades.length > 0 ? (wins / closedTrades.length) * 100 : 0;
+      const avgR = closedTrades.length > 0 ? totalR / closedTrades.length : 0;
+      
+      // Calculate by strategy
+      const byStrategy = {};
+      const strategies = [...new Set(closedTrades.map(t => t.strategy))];
+      strategies.forEach(strategy => {
+        const strategyTrades = closedTrades.filter(t => t.strategy === strategy);
+        let strategyWins = 0;
+        let strategyTotalR = 0;
+        
+        strategyTrades.forEach(trade => {
+          const risk = Math.abs(trade.entry - trade.stopLoss);
+          if (risk === 0) return;
+          
+          const pnl = trade.direction === 'LONG' ? 
+            (trade.exitPrice - trade.entry) :
+            (trade.entry - trade.exitPrice);
+          const rMultiple = pnl / risk;
+          
+          strategyTotalR += rMultiple;
+          if (rMultiple > 0) strategyWins++;
+        });
+        
+        byStrategy[strategy] = {
+          count: strategyTrades.length,
+          winRate: strategyTrades.length > 0 ? (strategyWins / strategyTrades.length) * 100 : 0,
+          avgR: strategyTrades.length > 0 ? strategyTotalR / strategyTrades.length : 0
+        };
+      });
+      
+      // Calculate by symbol
+      const bySymbol = {};
+      const symbols = [...new Set(closedTrades.map(t => t.symbol))];
+      symbols.forEach(symbol => {
+        const symbolTrades = closedTrades.filter(t => t.symbol === symbol);
+        let symbolWins = 0;
+        let symbolTotalR = 0;
+        
+        symbolTrades.forEach(trade => {
+          const risk = Math.abs(trade.entry - trade.stopLoss);
+          if (risk === 0) return;
+          
+          const pnl = trade.direction === 'LONG' ? 
+            (trade.exitPrice - trade.entry) :
+            (trade.entry - trade.exitPrice);
+          const rMultiple = pnl / risk;
+          
+          symbolTotalR += rMultiple;
+          if (rMultiple > 0) symbolWins++;
+        });
+        
+        bySymbol[symbol] = {
+          count: symbolTrades.length,
+          winRate: symbolTrades.length > 0 ? (symbolWins / symbolTrades.length) * 100 : 0,
+          avgR: symbolTrades.length > 0 ? symbolTotalR / symbolTrades.length : 0
+        };
+      });
+      
+      return {
+        totalTrades: filteredTrades.length,
+        closedTrades: closedTrades.length,
+        winRate: winRate,
+        avgR: avgR,
+        maxWin: maxWin === -Infinity ? 0 : maxWin,
+        maxLoss: maxLoss === Infinity ? 0 : maxLoss,
+        totalPnL: totalPnL,
+        byStrategy: byStrategy,
+        bySymbol: bySymbol
+      };
+    }
+    
+    // Update stats display
+    function updateStatsDisplay() {
+      const stats = calculateStats(trades);
+      const statsDisplay = document.getElementById('statsDisplay');
+      
+      if (!statsDisplay) return;
+      
+      let html = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+          <div>
+            <div style="color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Total Trades</div>
+            <div style="color: var(--text-primary); font-size: 1.5rem; font-weight: bold;">${stats.totalTrades}</div>
+          </div>
+          <div>
+            <div style="color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Closed Trades</div>
+            <div style="color: var(--text-primary); font-size: 1.5rem; font-weight: bold;">${stats.closedTrades}</div>
+          </div>
+          <div>
+            <div style="color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Win Rate</div>
+            <div style="color: ${stats.winRate >= 50 ? '#22c55e' : '#ef4444'}; font-size: 1.5rem; font-weight: bold;">${stats.winRate.toFixed(1)}%</div>
+          </div>
+          <div>
+            <div style="color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Avg R</div>
+            <div style="color: ${stats.avgR >= 0 ? '#22c55e' : '#ef4444'}; font-size: 1.5rem; font-weight: bold;">${stats.avgR >= 0 ? '+' : ''}${stats.avgR.toFixed(2)}R</div>
+          </div>
+          <div>
+            <div style="color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Max Win</div>
+            <div style="color: #22c55e; font-size: 1.5rem; font-weight: bold;">+${stats.maxWin.toFixed(2)}R</div>
+          </div>
+          <div>
+            <div style="color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Max Loss</div>
+            <div style="color: #ef4444; font-size: 1.5rem; font-weight: bold;">${stats.maxLoss.toFixed(2)}R</div>
+          </div>
+        </div>
+      `;
+      
+      if (Object.keys(stats.byStrategy).length > 0) {
+        html += `
+          <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <h3 style="font-family: var(--font-mathias); font-size: 1rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 1rem; text-transform: uppercase;">By Strategy</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+        `;
+        
+        Object.entries(stats.byStrategy).forEach(([strategy, data]) => {
+          html += `
+            <div style="padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: 0.5rem; border: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="font-family: var(--font-mathias); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.5rem;">${strategy}</div>
+              <div style="font-size: 0.875rem; color: var(--text-secondary);">
+                <div>${data.count} trades | ${data.winRate.toFixed(1)}% win rate</div>
+                <div style="color: ${data.avgR >= 0 ? '#22c55e' : '#ef4444'}; margin-top: 0.25rem;">
+                  Avg: ${data.avgR >= 0 ? '+' : ''}${data.avgR.toFixed(2)}R
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        
+        html += `</div></div>`;
+      }
+      
+      statsDisplay.innerHTML = html;
+    }
+    
+    // Toggle stats panel
+    window.toggleStatsPanel = function() {
+      const content = document.getElementById('statsContent');
+      const icon = document.getElementById('statsToggleIcon');
+      if (content.style.display === 'none' || !content.style.display) {
+        content.style.display = 'block';
+        icon.textContent = '▼';
+      } else {
+        content.style.display = 'none';
+        icon.textContent = '▶';
+      }
+    };
+    
     // Render all trades
     async function renderTrades() {
       console.log('🟢 renderTrades() CALLED');
       console.log('🔢 trades.length:', trades.length);
       console.log('📋 trades array:', trades);
+      
+      // Update stats display
+      updateStatsDisplay();
       
       const pendingTrades = trades.filter(t => t.status === 'PENDING');
       const activeTrades = trades.filter(t => t.status === 'ACTIVE');
@@ -1912,6 +2340,232 @@
       
       saveTrades();
       renderTrades();
+    };
+    
+    // Analyze active trade position
+    window.analyzeTrade = async function(tradeId) {
+      const trade = trades.find(t => t.id === tradeId);
+      if (!trade) {
+        alert('Trade not found');
+        return;
+      }
+      
+      if (trade.status === 'CLOSED') {
+        alert('Analysis is only available for active or pending trades');
+        return;
+      }
+      
+      console.log('🤖 Analyzing trade position:', tradeId);
+      
+      // Show loading state
+      const button = document.getElementById(`analyzeBtn-${tradeId}`);
+      const analysisDiv = document.getElementById(`aiAnalysis-${tradeId}`);
+      const originalText = button ? button.textContent : 'ANALYZE';
+      
+      if (button) {
+        button.textContent = 'ANALYZING...';
+        button.disabled = true;
+      }
+      
+      if (analysisDiv) {
+        analysisDiv.innerHTML = '<p style="color: var(--color-yellow-75);">Analyzing trade position...</p>';
+      }
+      
+      try {
+        // Get current market snapshot for the symbol
+        const currentPrice = priceCache[trade.symbol] || trade.entry;
+        
+        // Fetch market data for analysis
+        const marketResponse = await fetch(`/api/analyze/${trade.symbol}`);
+        const marketData = await marketResponse.json();
+        
+        // Build market snapshot
+        const marketSnapshot = {
+          symbol: trade.symbol,
+          currentPrice: currentPrice,
+          priceChange24h: marketData.priceChange24h || 0,
+          analysis: marketData.analysis || {},
+          signal: marketData.signal || marketData.tradeSignal || {},
+          htfBias: marketData.htfBias || { direction: 'neutral', confidence: 0, source: 'none' }
+        };
+        
+        // Call AI analysis endpoint
+        const response = await fetch('/api/agent-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            marketSnapshot: marketSnapshot,
+            setupType: trade.strategy || 'SCALP',
+            symbol: trade.symbol
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to analyze trade');
+        }
+        
+        const data = await response.json();
+        console.log('✅ Trade analysis received:', data);
+        
+        // Extract analysis text
+        const analysisText = data.formattedText || data.analysis || 'Analysis complete';
+        
+        // Extract structured data from analysis if available
+        const priority = data.priority || 'B';
+        const formattedText = data.formattedText || '';
+        
+        // Update market context from the fetched market data
+        const marketTrend = marketData.htfBias?.direction === 'long' ? 'BULLISH' : 
+                           marketData.htfBias?.direction === 'short' ? 'BEARISH' : 'NEUTRAL';
+        const marketConfidence = marketData.htfBias?.confidence || 0;
+        const tradeDirection = trade.direction === 'LONG' ? 'LONG' : 'SHORT';
+        const marketAligned = (tradeDirection === 'LONG' && marketTrend === 'BULLISH') ||
+                             (tradeDirection === 'SHORT' && marketTrend === 'BEARISH');
+        
+        // Update market analysis cache
+        marketAnalysis[trade.id] = {
+          momentum: marketData.signal?.direction === trade.direction.toLowerCase() ? 'ALIGNED' : 'AGAINST',
+          trend: marketTrend,
+          confidence: marketConfidence,
+          alignment: marketAligned ? 'Aligned' : 'Against'
+        };
+        
+        // Update trade with analysis
+        trade.aiAnalysis = analysisText;
+        trade.aiAnalysisData = {
+          priority: priority,
+          formattedText: formattedText,
+          timestamp: new Date().toISOString(),
+          marketTrend: marketTrend,
+          marketConfidence: marketConfidence,
+          marketAligned: marketAligned
+        };
+        
+        // Update signal snapshot and trade values from fresh market data
+        if (marketData.signal && trade.signalSnapshot) {
+          // Update targets if available in signal
+          if (marketData.signal.targets && Array.isArray(marketData.signal.targets) && marketData.signal.targets.length >= 2) {
+            trade.target1 = marketData.signal.targets[0];
+            trade.target2 = marketData.signal.targets[1];
+          }
+          
+          // Update invalidation level if available
+          if (marketData.signal.invalidationLevel) {
+            trade.invalidationLevel = marketData.signal.invalidationLevel;
+          } else if (marketData.signal.stopLoss) {
+            trade.invalidationLevel = marketData.signal.stopLoss;
+          }
+          
+          // Update signal snapshot with fresh data
+          trade.signalSnapshot.signal = {
+            ...trade.signalSnapshot.signal,
+            ...marketData.signal,
+            invalidation: marketData.signal.invalidation || trade.signalSnapshot.signal.invalidation
+          };
+          trade.signalSnapshot.htfBias = marketData.htfBias || trade.signalSnapshot.htfBias;
+        }
+        
+        // Save to Firebase
+        await saveTrades();
+        
+        // Re-render the trade details to update all sections with new data
+        await renderTrades();
+        
+        // Re-expand the details if it was expanded
+        const detailsRow = document.getElementById(`trade-details-${tradeId}`);
+        if (detailsRow && expandedTradeIds.has(tradeId)) {
+          detailsRow.classList.add('expanded');
+          // Update button text
+          const hideButton = detailsRow.querySelector('button[onclick*="toggleTradeDetails"]');
+          if (hideButton) hideButton.textContent = 'HIDE';
+        }
+        
+        if (button) {
+          button.textContent = 'RE-ANALYZE';
+          button.disabled = false;
+        }
+        
+      } catch (error) {
+        console.error('❌ Error analyzing trade:', error);
+        if (analysisDiv) {
+          analysisDiv.innerHTML = `<p style="color: #ef4444;">Error: ${error.message}</p>`;
+        }
+        if (button) {
+          button.textContent = originalText;
+          button.disabled = false;
+        }
+      }
+    };
+    
+    // Generate trade review
+    window.generateTradeReview = async function(tradeId) {
+      const trade = trades.find(t => t.id === tradeId);
+      if (!trade) {
+        alert('Trade not found');
+        return;
+      }
+      
+      if (trade.status !== 'CLOSED' || !trade.exitPrice) {
+        alert('Review can only be generated for closed trades with an exit price');
+        return;
+      }
+      
+      if (!trade.signalSnapshot) {
+        alert('Cannot generate review: trade missing signal snapshot. This trade was created before the review feature was added.');
+        return;
+      }
+      
+      console.log('📝 Generating review for trade:', tradeId);
+      
+      // Show loading state
+      const button = event.target.closest('button');
+      const originalText = button.textContent;
+      button.textContent = 'GENERATING...';
+      button.disabled = true;
+      
+      try {
+        const response = await fetch('/api/review-trade', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ trade })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to generate review');
+        }
+        
+        const data = await response.json();
+        console.log('✅ Review generated:', data);
+        
+        // Update trade with review
+        trade.review = data.review;
+        
+        // Save to Firebase
+        await saveTrades();
+        
+        // Re-render to show review
+        await renderTrades();
+        
+        // Re-expand the details
+        const detailsRow = document.getElementById(`trade-details-${tradeId}`);
+        if (detailsRow) {
+          detailsRow.classList.add('expanded');
+          expandedTradeIds.add(tradeId);
+        }
+        
+        alert('Review generated successfully!');
+      } catch (error) {
+        console.error('❌ Error generating review:', error);
+        alert(`Failed to generate review: ${error.message}`);
+        button.textContent = originalText;
+        button.disabled = false;
+      }
     };
     
     // Delete trade

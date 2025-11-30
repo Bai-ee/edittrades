@@ -8,6 +8,74 @@
 import * as indicators from './indicators.js';
 
 /**
+ * Normalize signal to canonical JSON structure
+ * Ensures all strategy returns have consistent shape
+ * @param {Object} rawSignal - Raw signal from strategy evaluation
+ * @param {Object} multiTimeframeData - Full timeframe data
+ * @param {string} mode - STANDARD or AGGRESSIVE
+ * @returns {Object} Canonical signal structure
+ */
+function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') {
+  // Extract htfBias (should already be computed)
+  const htfBias = rawSignal.htfBias || computeHTFBias(multiTimeframeData);
+  
+  // Build timeframes object from multiTimeframeData
+  const timeframes = {};
+  for (const [tf, data] of Object.entries(multiTimeframeData)) {
+    if (data && data.indicators && !data.error) {
+      timeframes[tf] = {
+        trend: data.indicators.analysis?.trend || 'UNKNOWN',
+        ema21: data.indicators.ema?.ema21 || null,
+        ema200: data.indicators.ema?.ema200 || null,
+        stoch: data.indicators.stochRSI || null,
+        pullback: {
+          state: data.indicators.analysis?.pullbackState || 'UNKNOWN',
+          distanceFrom21EMA: data.indicators.analysis?.distanceFrom21EMA || null
+        },
+        structure: data.structure || null,
+        indicators: data.indicators || null
+      };
+    }
+  }
+  
+  // Normalize signal object - ensure all required fields exist
+  const signal = {
+    valid: rawSignal.valid || false,
+    direction: rawSignal.direction || 'NO_TRADE',
+    setupType: rawSignal.setupType || 'auto',
+    selectedStrategy: rawSignal.selectedStrategy || 'NO_TRADE',
+    strategiesChecked: rawSignal.strategiesChecked || [],
+    confidence: rawSignal.confidence || 0,
+    reason: rawSignal.reason_summary || rawSignal.reason || 'No trade setup available',
+    entryZone: rawSignal.entry_zone || rawSignal.entryZone || { min: null, max: null },
+    stopLoss: rawSignal.stop_loss || rawSignal.stopLoss || null,
+    invalidationLevel: rawSignal.invalidation_level || rawSignal.invalidationLevel || null,
+    targets: Array.isArray(rawSignal.targets) ? rawSignal.targets : 
+            (rawSignal.targets?.tp1 ? [rawSignal.targets.tp1, rawSignal.targets.tp2] : [null, null]),
+    riskReward: rawSignal.risk_reward || rawSignal.riskReward || { tp1RR: null, tp2RR: null }
+  };
+  
+  // Build meta object
+  const meta = {
+    scanTime: rawSignal.timestamp || new Date().toISOString(),
+    mode: mode,
+    currentPrice: rawSignal.currentPrice || null,
+    ema21: rawSignal.ema21 || null,
+    ema200: rawSignal.ema200 || null
+  };
+  
+  // Return canonical structure
+  return {
+    symbol: rawSignal.symbol,
+    price: rawSignal.currentPrice || null,
+    htfBias: htfBias,
+    timeframes: timeframes,
+    signal: signal,
+    meta: meta
+  };
+}
+
+/**
  * Trading Mode Thresholds
  * STANDARD: Conservative, high-probability setups
  * AGGRESSIVE: Looser requirements for more trade opportunities (smaller position sizes)
@@ -851,13 +919,17 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   
   // Must have at least 4h data
   if (!tf4h || !tf4h.indicators) {
-    return {
+    const rawSignal = {
       symbol,
       direction: 'flat',
       reason: 'Insufficient 4h data',
       confidence: 0,
-      valid: false
+      valid: false,
+      setupType: 'auto',
+      selectedStrategy: 'NO_TRADE',
+      strategiesChecked: []
     };
+    return normalizeToCanonical(rawSignal, analysis, mode);
   }
   
   const trend4h = tf4h.indicators.analysis.trend;
@@ -871,7 +943,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     const swingSignal = evaluateSwingSetup(analysis, currentPrice);
     if (swingSignal && swingSignal.valid) {
       // Return swing signal directly (already includes htfBias)
-      return {
+      const rawSignal = {
         ...swingSignal,
         symbol,
         setupType: 'Swing',
@@ -893,17 +965,21 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           '5m': tf5m ? analyzeStochState(tf5m.indicators.stochRSI) : null
         }
       };
+      return normalizeToCanonical(rawSignal, analysis, mode);
     }
     // If swing was requested but not valid, and setupType is explicitly 'Swing', return no trade
     if (setupType === 'Swing') {
-      return {
+      const rawSignal = {
         symbol,
         direction: 'flat',
         reason: '3D + 1D swing conditions not met',
         confidence: 0,
         valid: false,
-        setupType: 'Swing'
+        setupType: 'Swing',
+        selectedStrategy: 'NO_TRADE',
+        strategiesChecked: ['SWING']
       };
+      return normalizeToCanonical(rawSignal, analysis, mode);
     }
   }
   
@@ -976,17 +1052,21 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   }
   
   if (!setupValid || !direction) {
-    return {
+    const rawSignal = {
       symbol,
       direction: 'flat',
       reason: invalidationReasons.join('; ') || 'Setup requirements not met',
       confidence: 0,
       valid: false,
+      setupType: '4h',
+      selectedStrategy: 'NO_TRADE',
+      strategiesChecked: ['SWING', 'TREND_4H'],
       trend: {
         '4h': trend4h.toLowerCase(),
         '1h': tf1h ? tf1h.indicators.analysis.trend.toLowerCase() : 'unknown'
       }
     };
+    return normalizeToCanonical(rawSignal, analysis, mode);
   }
   
   // Gather all timeframe structures for conditional stop loss
@@ -1030,7 +1110,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     '5m': tf5m ? analyzeStochState(tf5m.indicators.stochRSI) : null
   };
   
-  return {
+  const rawSignal = {
     symbol,
     direction,
     setupType: setupType,
@@ -1080,6 +1160,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     ema200: ema200 ? parseFloat(ema200.toFixed(2)) : null,
     htfBias: htfBias
   };
+  return normalizeToCanonical(rawSignal, analysis, mode);
   } // End of 4H trend play
   
   // PRIORITY 3: Try 1H Scalp (works even when 4H is FLAT)
@@ -1133,7 +1214,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.2) : 0;
           const confidence = Math.min(85, baseConfidence + biasBonus);
           
-          return {
+          const rawSignal = {
             symbol,
             direction,
             setupType: 'Scalp',
@@ -1193,6 +1274,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             ema200: tf1h.indicators?.ema?.ema200 ? parseFloat(tf1h.indicators.ema.ema200.toFixed(2)) : null,
             htfBias: htfBias
           };
+          return normalizeToCanonical(rawSignal, analysis, mode);
         }
       }
     }
@@ -1202,13 +1284,14 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   if (mode === 'AGGRESSIVE') {
     const aggressiveSignal = tryAggressiveStrategies(symbol, analysis, htfBias, thresholds);
     if (aggressiveSignal.valid) {
-      return {
+      const rawSignal = {
         ...aggressiveSignal,
         mode: 'AGGRESSIVE',
         riskProfile: 'HIGH',
         aggressiveUsed: true,
         htfBias: htfBias
       };
+      return normalizeToCanonical(rawSignal, analysis, mode);
     }
   }
   
@@ -1217,7 +1300,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     ? ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H', 'AGGRO_MICRO_SCALP']
     : ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'];
     
-  return {
+  const rawSignal = {
     symbol,
     mode: mode,
     riskProfile: mode === 'AGGRESSIVE' ? 'HIGH' : 'NORMAL',
@@ -1275,6 +1358,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     ema200: ema200 ? parseFloat(ema200.toFixed(2)) : null,
     htfBias: htfBias
   };
+  return normalizeToCanonical(rawSignal, analysis, mode);
 }
 
 /**
