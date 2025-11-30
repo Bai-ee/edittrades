@@ -1209,17 +1209,41 @@
         const trend = signal.bias || signal.direction || 'NEUTRAL';
         const confidence = signal.confidence || 0;
         
+        // Get AI-generated trade analysis
+        let aiAnalysis = 'Analyzing trade...';
+        try {
+          const aiResponse = await fetch('/api/agent-review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              marketSnapshot: data,
+              setupType: trade.strategy || 'SCALP',
+              symbol: trade.symbol,
+              systemPrompt: 'When reviewing trade JSON, respond with a clear, direct sentiment summary of what the market is doing overall. Keep it short. Focus on how the setups relate to each other, which assets are leading/lagging, and whether signals agree or conflict. Avoid technical jargon—describe the market like a trader watching behavior, not indicators. If only one asset shows trades, explain what that implies about broader momentum. If setups align across modes, call that out as conviction. Tone should stay sharp, confident, and practical—no fluff, no long explanations.'
+            })
+          });
+          
+          if (aiResponse.ok) {
+            const aiData = await aiResponse.json();
+            aiAnalysis = aiData.analysis || aiData.message || 'Market analysis unavailable';
+          }
+        } catch (aiError) {
+          console.log(`⚠️ AI analysis failed for ${trade.symbol}:`, aiError);
+          aiAnalysis = 'AI analysis temporarily unavailable';
+        }
+        
         marketAnalysis[trade.id] = {
           momentum,
           trend,
           confidence,
+          aiAnalysis,
           timestamp: Date.now()
         };
         
         console.log(`📊 Market analysis for ${trade.symbol}:`, marketAnalysis[trade.id]);
       } catch (error) {
         console.log(`⚠️ Could not fetch market data for ${trade.symbol}:`, error);
-        marketAnalysis[trade.id] = { momentum: 'NEUTRAL', trend: 'NEUTRAL', confidence: 0 };
+        marketAnalysis[trade.id] = { momentum: 'NEUTRAL', trend: 'NEUTRAL', confidence: 0, aiAnalysis: 'Analysis unavailable' };
       }
     }
     
@@ -1584,7 +1608,7 @@
               <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
                 <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">AI Trade Management Analysis</div>
                 <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
-                  ${feedbackText}
+                  ${market.aiAnalysis || feedbackText}
                 </div>
               </div>
               
