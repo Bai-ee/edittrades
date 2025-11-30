@@ -88,57 +88,80 @@ Remember: Keep it tight, observational, and focused on overall market behavior a
 }
 
 export default async function handler(req, res) {
+  console.log('🚀 [AGENT-REVIEW] Handler called');
+  console.log('🚀 [AGENT-REVIEW] Method:', req.method);
+  
   // Enable CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
+    console.log('🚀 [AGENT-REVIEW] OPTIONS request, returning 200');
     return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
+    console.log('🚀 [AGENT-REVIEW] Wrong method, returning 405');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    console.log('📥 Request body keys:', Object.keys(req.body || {}));
+    console.log('🚀 [AGENT-REVIEW] POST request received');
+    console.log('🚀 [AGENT-REVIEW] Request body exists:', !!req.body);
+    console.log('🚀 [AGENT-REVIEW] Request body keys:', Object.keys(req.body || {}));
     const { marketSnapshot, setupType, symbol, tradesData, systemPrompt } = req.body;
+    console.log('🚀 [AGENT-REVIEW] Extracted params:', {
+      hasMarketSnapshot: !!marketSnapshot,
+      hasSetupType: !!setupType,
+      hasSymbol: !!symbol,
+      hasTradesData: !!tradesData,
+      hasSystemPrompt: !!systemPrompt
+    });
 
     // Market review mode (new)
     if (tradesData && systemPrompt) {
-      console.log('📊 Market review mode detected');
-      console.log('System prompt length:', systemPrompt?.length);
-      console.log('Trades data:', JSON.stringify(tradesData).substring(0, 200) + '...');
+      console.log('🚀 [AGENT-REVIEW] Market review mode detected');
+      console.log('🚀 [AGENT-REVIEW] System prompt length:', systemPrompt?.length);
+      console.log('🚀 [AGENT-REVIEW] Trades data preview:', JSON.stringify(tradesData).substring(0, 200) + '...');
       return await handleMarketReview(req, res, tradesData, systemPrompt);
     }
 
     // Individual trade analysis mode (existing)
-    console.log('📊 Individual trade analysis mode');
-    console.log('Has marketSnapshot:', !!marketSnapshot);
-    console.log('Has setupType:', !!setupType);
-    console.log('Has symbol:', !!symbol);
+    console.log('🚀 [AGENT-REVIEW] Individual trade analysis mode');
+    console.log('🚀 [AGENT-REVIEW] Has marketSnapshot:', !!marketSnapshot);
+    console.log('🚀 [AGENT-REVIEW] Has setupType:', !!setupType);
+    console.log('🚀 [AGENT-REVIEW] Has symbol:', !!symbol);
+    console.log('🚀 [AGENT-REVIEW] setupType value:', setupType);
+    console.log('🚀 [AGENT-REVIEW] symbol value:', symbol);
     
     if (!marketSnapshot || !setupType || !symbol) {
-      console.error('❌ Missing required fields');
+      console.error('🚀 [AGENT-REVIEW] ❌ Missing required fields');
+      console.error('🚀 [AGENT-REVIEW] Missing check:', {
+        marketSnapshot: !marketSnapshot,
+        setupType: !setupType,
+        symbol: !symbol
+      });
       return res.status(400).json({ 
         error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt' 
       });
     }
 
-    console.log(`✅ Analyzing ${symbol} ${setupType} trade...`);
+    console.log(`🚀 [AGENT-REVIEW] ✅ Analyzing ${symbol} ${setupType} trade...`);
 
     // Get OpenAI API key from environment variable (same pattern as parse-trade-image.js)
+    console.log('🚀 [AGENT-REVIEW] Checking for OPENAI_API_KEY...');
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      console.error('❌ OPENAI_API_KEY not found in environment');
+      console.error('🚀 [AGENT-REVIEW] ❌ OPENAI_API_KEY not found in environment');
+      console.error('🚀 [AGENT-REVIEW] Available env vars:', Object.keys(process.env).filter(k => k.includes('OPENAI')));
       return res.status(500).json({ 
         error: 'Server configuration error',
         message: 'OpenAI API key not configured'
       });
     }
     
-    console.log('✅ API Key found');
+    console.log('🚀 [AGENT-REVIEW] ✅ API Key found (length:', apiKey.length, ')');
 
     // Strategy-specific guidance
     const strategyGuidance = {
@@ -201,9 +224,13 @@ Focus ONLY on: 1H trend quality, 15m/5m EMA precision, stoch alignment on LTF
 DO NOT MENTION 4H TREND IN YOUR ANALYSIS - IT IS NOT A FACTOR`
     };
 
+    console.log('🚀 [AGENT-REVIEW] Building strategy guidance...');
     const currentGuidance = strategyGuidance[setupType] || strategyGuidance['4h'];
+    console.log('🚀 [AGENT-REVIEW] Strategy guidance selected for:', setupType);
+    console.log('🚀 [AGENT-REVIEW] Guidance length:', currentGuidance?.length);
 
     // Construct the system prompt based on the reasoning agent rules
+    console.log('🚀 [AGENT-REVIEW] Constructing system prompt...');
     const tradeSystemPrompt = `You are the Trading Reasoning Layer for EditTrades.
 
 Your job:
@@ -293,8 +320,11 @@ Important:
 - Final verdict: Is this a VALID MICRO-SCALP based ONLY on 1H/15m/5m? Be critical.`
     };
 
+    console.log('🚀 [AGENT-REVIEW] Building analysis points...');
     const currentPoints = analysisPoints[setupType] || analysisPoints['4h'];
+    console.log('🚀 [AGENT-REVIEW] Analysis points selected for:', setupType);
 
+    console.log('🚀 [AGENT-REVIEW] Constructing user prompt...');
     const userPrompt = `Analyze this ${setupType.toUpperCase()} setup for ${symbol}:
 
 ${JSON.stringify(marketSnapshot, null, 2)}
@@ -320,7 +350,24 @@ Write naturally in flowing paragraphs. No bullet points or lists. Be conversatio
 End with your overall rating: A+, A, B, or SKIP`;
 
     // Call OpenAI API using fetch (same exact pattern as parse-trade-image.js which works)
-    console.log('🤖 Calling OpenAI for individual trade analysis...');
+    console.log('🚀 [AGENT-REVIEW] 🤖 Step 1: Preparing OpenAI request...');
+    console.log('🚀 [AGENT-REVIEW] System prompt length:', tradeSystemPrompt?.length);
+    console.log('🚀 [AGENT-REVIEW] User prompt length:', userPrompt?.length);
+    
+    const requestBody = {
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: tradeSystemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 800
+    };
+    
+    console.log('🚀 [AGENT-REVIEW] 🤖 Step 2: Calling OpenAI API...');
+    console.log('🚀 [AGENT-REVIEW] Request URL: https://api.openai.com/v1/chat/completions');
+    console.log('🚀 [AGENT-REVIEW] Request model:', requestBody.model);
+    console.log('🚀 [AGENT-REVIEW] Request messages count:', requestBody.messages.length);
     
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -328,20 +375,19 @@ End with your overall rating: A+, A, B, or SKIP`;
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: tradeSystemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 800
-      })
+      body: JSON.stringify(requestBody)
     });
 
+    console.log('🚀 [AGENT-REVIEW] 🤖 Step 3: Received response');
+    console.log('🚀 [AGENT-REVIEW] Response status:', response.status);
+    console.log('🚀 [AGENT-REVIEW] Response ok:', response.ok);
+    console.log('🚀 [AGENT-REVIEW] Response headers:', Object.fromEntries(response.headers.entries()));
+
     if (!response.ok) {
+      console.error('🚀 [AGENT-REVIEW] ❌ Step 4: Response not OK');
       const errorText = await response.text();
-      console.error('❌ OpenAI API error:', response.status, errorText);
+      console.error('🚀 [AGENT-REVIEW] Error text length:', errorText.length);
+      console.error('🚀 [AGENT-REVIEW] Error text preview:', errorText.substring(0, 500));
       return res.status(500).json({
         error: 'OpenAI API request failed',
         message: `API returned ${response.status}: ${errorText.substring(0, 200)}`,
@@ -349,18 +395,25 @@ End with your overall rating: A+, A, B, or SKIP`;
       });
     }
 
+    console.log('🚀 [AGENT-REVIEW] ✅ Step 4: Parsing JSON response...');
     const data = await response.json();
+    console.log('🚀 [AGENT-REVIEW] Response data keys:', Object.keys(data || {}));
+    console.log('🚀 [AGENT-REVIEW] Choices count:', data.choices?.length);
+    
     const agentResponse = data.choices[0]?.message?.content;
+    console.log('🚀 [AGENT-REVIEW] Agent response exists:', !!agentResponse);
+    console.log('🚀 [AGENT-REVIEW] Agent response length:', agentResponse?.length);
 
     if (!agentResponse) {
-      console.error('❌ No response content from OpenAI');
+      console.error('🚀 [AGENT-REVIEW] ❌ Step 5: No response content from OpenAI');
+      console.error('🚀 [AGENT-REVIEW] Full data object:', JSON.stringify(data, null, 2));
       return res.status(500).json({ 
         error: 'No response from OpenAI',
         message: 'OpenAI returned empty response'
       });
     }
     
-    console.log('✅ Individual trade analysis complete');
+    console.log('🚀 [AGENT-REVIEW] ✅ Step 5: Individual trade analysis complete');
 
     // Parse the response to extract priority rating if present
     let priority = 'A';
@@ -378,12 +431,11 @@ End with your overall rating: A+, A, B, or SKIP`;
     });
 
   } catch (error) {
-    console.error('❌ Agent review error:', error);
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
+    console.error('🚀 [AGENT-REVIEW] ❌ CATCH BLOCK: Error occurred');
+    console.error('🚀 [AGENT-REVIEW] Error name:', error.name);
+    console.error('🚀 [AGENT-REVIEW] Error message:', error.message);
+    console.error('🚀 [AGENT-REVIEW] Error stack:', error.stack);
+    console.error('🚀 [AGENT-REVIEW] Full error object:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     
     // Return a graceful JSON error (never HTML) - same pattern as parse-trade-image.js
     return res.status(500).json({ 
