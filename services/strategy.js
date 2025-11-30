@@ -1118,9 +1118,9 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   
   // PRIORITY 2: Try 4H Trend Play
   // SAFE_MODE: Only if 4H is NOT FLAT
-  // AGGRESSIVE_MODE: Can use HTF bias + lower TFs even when 4H is FLAT
+  // AGGRESSIVE_MODE: Can use HTF bias + lower TFs even when 4H is FLAT (always allow in AGGRESSIVE)
   const canTry4HTrend = (mode === 'STANDARD' && trend4h !== 'FLAT') || 
-                        (mode === 'AGGRESSIVE' && (trend4h !== 'FLAT' || htfBias.confidence >= 70));
+                        (mode === 'AGGRESSIVE'); // AGGRESSIVE always allows 4H trend evaluation
   
   if (canTry4HTrend && (setupType === '4h' || setupType === 'auto')) {
     // Continue with existing 4H trend logic below
@@ -1773,8 +1773,11 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   }
   
   // AGGRESSIVE_MODE: Force valid trades when HTF bias + lower TFs align strongly
+  // IMPORTANT: This MUST run for AGGRESSIVE mode when 4H is flat to override SAFE blocking
   if (mode === 'AGGRESSIVE' && is4HFlat) {
+    // Recompute HTF bias to ensure we have fresh data
     const htfBias = computeHTFBias(multiTimeframeData);
+    console.log(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias=${htfBias.direction} (${htfBias.confidence}%), 4H flat, checking forcing conditions...`);
     const tf1h = multiTimeframeData['1h'];
     const tf15m = multiTimeframeData['15m'];
     const tf5m = multiTimeframeData['5m'];
@@ -1810,6 +1813,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     // REQUIRED LONG SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
     if (htfBias.direction === 'long' && htfBias.confidence >= 70 && 
         trend1hNorm === 'uptrend' && trend15mNorm === 'uptrend') {
+      
+      console.log(`[AGGRESSIVE_FORCE] ${symbol}: LONG conditions met! HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
       
       // Choose best strategy: Prefer TREND_4H, then SCALP_1H, then MICRO_SCALP
       let chosenStrategy = null;
@@ -2051,11 +2056,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         chosenName = 'MICRO_SCALP';
       }
       
-      // Apply chosen strategy
+      // Apply chosen strategy - FORCE override for shorts
       if (chosenStrategy && chosenName) {
+        console.log(`[AGGRESSIVE_FORCE] ${symbol}: FORCING ${chosenName} SHORT to valid=true`);
         strategies[chosenName] = chosenStrategy;
       }
+    } else {
+      console.log(`[AGGRESSIVE_FORCE] ${symbol}: SHORT conditions NOT met. HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
     }
+  } else if (mode === 'AGGRESSIVE' && !is4HFlat) {
+    console.log(`[AGGRESSIVE_FORCE] ${symbol}: 4H is NOT flat, forcing logic skipped`);
   }
   
   // Recalculate valid strategies after AGGRESSIVE forcing (if any were forced)
@@ -2106,8 +2116,11 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
 /**
  * Normalize a strategy result to the canonical strategy format
  * ALWAYS returns a strategy object, even if NO_TRADE
+ * @param {Object} result - Strategy evaluation result
+ * @param {string} strategyName - Name of the strategy
+ * @param {string} mode - STANDARD or AGGRESSIVE
  */
-function normalizeStrategyResult(result, strategyName) {
+function normalizeStrategyResult(result, strategyName, mode = 'STANDARD') {
   if (!result || !result.signal) {
     return createNoTradeStrategy(strategyName, 'Strategy evaluation failed - no signal returned');
   }
@@ -2117,12 +2130,23 @@ function normalizeStrategyResult(result, strategyName) {
   // If valid=false, ensure all fields are null/empty
   // IMPORTANT: In AGGRESSIVE_MODE, never use SAFE_MODE blocking reasons
   if (!signal.valid) {
-    let reason = signal.reason || 'No trade setup available';
+    let reason = signal.reason || signal.reason_summary || 'No trade setup available';
     
-    // AGGRESSIVE_MODE override: Replace SAFE_MODE blocking reasons
-    if (reason.includes('4H trend is FLAT - no trade allowed per') || 
-        reason.includes('4H trend is FLAT - no trade allowed per strategy rules')) {
-      reason = 'AGGRESSIVE_MODE: Evaluating lower timeframe confluence despite 4H flat';
+    // AGGRESSIVE_MODE override: Replace ANY SAFE_MODE blocking reasons
+    // Check for any variation of the blocking reason
+    if (mode === 'AGGRESSIVE') {
+      if (reason.includes('4H trend is FLAT') && reason.includes('no trade allowed')) {
+        reason = 'AGGRESSIVE_MODE: Evaluating lower timeframe confluence despite 4H flat';
+      }
+      if (reason.includes('4H trend is FLAT - no trade allowed per strategy rules')) {
+        reason = 'AGGRESSIVE_MODE: Evaluating lower timeframe confluence despite 4H flat';
+      }
+      if (reason.includes('4H trend is FLAT - no trade allowed per SAFE_MODE rules')) {
+        reason = 'AGGRESSIVE_MODE: Evaluating lower timeframe confluence despite 4H flat';
+      }
+      if (reason.includes('Setup requirements not met') && reason.includes('4H')) {
+        reason = 'AGGRESSIVE_MODE: Evaluating lower timeframe confluence despite 4H flat';
+      }
     }
     
     return {
