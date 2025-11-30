@@ -1758,9 +1758,10 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   const microScalpResult = evaluateMicroScalp(multiTimeframeData);
   
   // Normalize each to strategy format - always include, even if NO_TRADE
-  strategies.SWING = normalizeStrategyResult(swingResult, 'SWING');
-  strategies.TREND_4H = normalizeStrategyResult(trend4hResult, 'TREND_4H');
-  strategies.SCALP_1H = normalizeStrategyResult(scalp1hResult, 'SCALP_1H');
+  // Pass mode so normalizeStrategyResult can handle AGGRESSIVE differently
+  strategies.SWING = normalizeStrategyResult(swingResult, 'SWING', mode);
+  strategies.TREND_4H = normalizeStrategyResult(trend4hResult, 'TREND_4H', mode);
+  strategies.SCALP_1H = normalizeStrategyResult(scalp1hResult, 'SCALP_1H', mode);
   
   // MicroScalp needs special handling
   if (microScalpResult && microScalpResult.eligible && microScalpResult.signal && microScalpResult.signal.valid) {
