@@ -143,16 +143,16 @@ Keep each section concise (2-3 sentences max). Be honest but constructive.`;
         ],
         max_tokens: 800,
         temperature: 0.7
-      }),
-      timeout: 20000
+      })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error('[Review Trade] OpenAI API error:', response.status, errorText);
       return res.status(500).json({ 
-        error: 'Failed to generate trade review',
-        details: errorText
+        error: 'OpenAI API request failed',
+        message: `API returned ${response.status}: ${errorText.substring(0, 200)}`,
+        details: 'APIError'
       });
     }
 

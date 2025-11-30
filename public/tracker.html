@@ -2541,8 +2541,16 @@
         });
         
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to generate review');
+          // Try to parse error as JSON, but handle HTML error pages
+          let errorMessage = 'Failed to generate review';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch (e) {
+            const errorText = await response.text();
+            errorMessage = `Server error (${response.status}): ${errorText.substring(0, 100)}`;
+          }
+          throw new Error(errorMessage);
         }
         
         const data = await response.json();
