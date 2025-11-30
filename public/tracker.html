@@ -111,6 +111,28 @@
       display: table-row;
     }
     
+    /* Details row - fill table width */
+    .details-row.expanded td {
+      width: 100% !important;
+      max-width: 100% !important;
+      padding: 1rem !important;
+      box-sizing: border-box !important;
+    }
+    
+    .details-content-wrapper {
+      width: 100% !important;
+      max-width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    
+    /* Details content wrapper should stretch full width */
+    .details-content-wrapper {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin: 0 auto;
+    }
+    
     /* Table row styling */
     .coin-row {
       position: relative;
@@ -137,6 +159,17 @@
         rgba(239, 68, 68, 0.12) 30%,
         rgba(239, 68, 68, 0.06) 60%,
         rgba(239, 68, 68, 0.02) 100%
+      );
+    }
+    
+    /* Static glow background for PENDING trades */
+    .coin-row.has-trade-pending {
+      background: radial-gradient(
+        ellipse at 0% 50%,
+        rgba(255, 165, 0, 0.2) 0%,
+        rgba(255, 165, 0, 0.12) 30%,
+        rgba(255, 165, 0, 0.06) 60%,
+        rgba(255, 165, 0, 0.02) 100%
       );
     }
     
@@ -260,6 +293,13 @@
       
       .table-edittrax tbody tr.details-row.expanded td {
         display: block !important;
+        width: 100% !important;
+        padding: 1rem !important;
+      }
+      
+      .table-edittrax tbody tr.details-row.expanded .details-content-wrapper {
+        width: 100% !important;
+        max-width: 100% !important;
       }
       
       /* Create flex container for rows */
@@ -842,13 +882,49 @@
         }
       }
       
-      console.log('🎨 STEP 2: Calling renderTrades()...');
-      await renderTrades();
-      console.log('🎨 STEP 2 COMPLETE: renderTrades() finished');
+      // Fetch prices immediately for all trades before rendering
+      console.log('💰 STEP 2: Fetching initial prices for all trades...');
+      const allTradesToPrice = trades.filter(t => t.status === 'ACTIVE' || t.status === 'PENDING');
+      const uniqueSymbols = [...new Set(allTradesToPrice.map(t => t.symbol))];
+      console.log(`💰 Fetching prices for ${uniqueSymbols.length} unique symbols:`, uniqueSymbols);
       
-      console.log('⏱️ STEP 3: Starting price updates...');
+      let anyStatusChanged = false;
+      for (const symbol of uniqueSymbols) {
+        try {
+          const price = await fetchPrice(symbol);
+          if (price > 0) {
+            priceCache[symbol] = price;
+            console.log(`  ✅ ${symbol}: $${price.toLocaleString()}`);
+            
+            // Check status for all trades with this symbol
+            const tradesForSymbol = allTradesToPrice.filter(t => t.symbol === symbol);
+            tradesForSymbol.forEach(trade => {
+              const oldStatus = trade.status;
+              checkTradeStatus(trade, price);
+              if (trade.status !== oldStatus) {
+                anyStatusChanged = true;
+              }
+            });
+          }
+        } catch (error) {
+          console.error(`  ❌ Failed to fetch price for ${symbol}:`, error);
+        }
+      }
+      
+      // Save if any trades changed status (checkTradeStatus already saves individual changes, but this ensures batch save)
+      if (anyStatusChanged) {
+        await saveTrades();
+      }
+      
+      console.log('💰 STEP 2 COMPLETE: Initial prices fetched and trade statuses checked');
+      
+      console.log('🎨 STEP 3: Calling renderTrades()...');
+      await renderTrades();
+      console.log('🎨 STEP 3 COMPLETE: renderTrades() finished');
+      
+      console.log('⏱️ STEP 4: Starting price updates...');
       startPriceUpdates();
-      console.log('⏱️ STEP 4: Starting timer updates...');
+      console.log('⏱️ STEP 5: Starting timer updates...');
       startTimerUpdates();
       console.log('✅ ALL INITIALIZATION COMPLETE');
       
@@ -1079,18 +1155,54 @@
     
     // Start price updates
     async function startPriceUpdates() {
-      // Update prices every 5 seconds
+      // Monitor PENDING trades (every 30 seconds) - optimized to fetch each unique symbol only once
       setInterval(async () => {
-        const activeTrades = trades.filter(t => t.status === 'ACTIVE');
-        for (const trade of activeTrades) {
-          const currentPrice = await fetchPrice(trade.symbol);
+        const pendingTrades = trades.filter(t => t.status === 'PENDING');
+        if (pendingTrades.length === 0) return;
+        
+        // Get unique symbols to avoid duplicate API calls
+        const uniqueSymbols = [...new Set(pendingTrades.map(t => t.symbol))];
+        console.log(`🔄 Checking ${pendingTrades.length} pending trades (${uniqueSymbols.length} unique symbols)`);
+        
+        // Fetch prices for each unique symbol once
+        for (const symbol of uniqueSymbols) {
+          const currentPrice = await fetchPrice(symbol);
           if (currentPrice > 0) {
-            priceCache[trade.symbol] = currentPrice;
-            checkTradeStatus(trade, currentPrice);
+            priceCache[symbol] = currentPrice;
+            // Check all trades for this symbol
+            pendingTrades.filter(t => t.symbol === symbol).forEach(trade => {
+              checkTradeStatus(trade, currentPrice);
+            });
           }
         }
+        
+        // Re-render if any pending trades changed status
         renderTrades();
-      }, 5000);
+      }, 30000); // Check PENDING trades every 30 seconds (reduced from 10s to save API calls)
+      
+      // Monitor ACTIVE trades (every 60 seconds) - optimized to fetch each unique symbol only once
+      setInterval(async () => {
+        const activeTrades = trades.filter(t => t.status === 'ACTIVE');
+        if (activeTrades.length === 0) return;
+        
+        // Get unique symbols to avoid duplicate API calls
+        const uniqueSymbols = [...new Set(activeTrades.map(t => t.symbol))];
+        console.log(`🔄 Checking ${activeTrades.length} active trades (${uniqueSymbols.length} unique symbols)`);
+        
+        // Fetch prices for each unique symbol once
+        for (const symbol of uniqueSymbols) {
+          const currentPrice = await fetchPrice(symbol);
+          if (currentPrice > 0) {
+            priceCache[symbol] = currentPrice;
+            // Check all trades for this symbol
+            activeTrades.filter(t => t.symbol === symbol).forEach(trade => {
+              checkTradeStatus(trade, currentPrice);
+            });
+          }
+        }
+        
+        renderTrades();
+      }, 60000); // Check ACTIVE trades every 60 seconds (reduced from 30s to save API calls)
     }
     
     // Check if trade hit stop or target, or if pending trade hit entry
@@ -1409,12 +1521,12 @@
       // Check if we have valid price data
       const hasValidPrice = currentPrice > 0 && currentPrice !== trade.entry;
       
-      // Row background: green if profit, red if loss, neutral if closed/pending/loading
+      // Row background: green if profit, red if loss, orange if pending, neutral if closed/loading
       let rowBgClass = '';
       if (trade.status === 'ACTIVE' && hasValidPrice) {
         rowBgClass = pnlPercent >= 0 ? 'has-trade-long' : 'has-trade-short';
       } else if (trade.status === 'PENDING') {
-        rowBgClass = ''; // No background for pending trades
+        rowBgClass = 'has-trade-pending'; // Orange background for pending trades
       }
       row.className = `coin-row ${rowBgClass}`;
       
@@ -1495,8 +1607,8 @@
       
       
       detailsRow.innerHTML = `
-        <td colspan="4">
-          <div class="details-content-wrapper">
+        <td colspan="5" style="width: 100%; padding: 1rem;">
+          <div class="details-content-wrapper" style="width: 100%;">
             <!-- Trade Call Output (matching homepage) -->
             <div style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px);">
               
@@ -1702,6 +1814,8 @@
     window.toggleTradeDetails = function(tradeId) {
       const detailsRow = document.getElementById(`trade-details-${tradeId}`);
       const button = event.target.closest('button');
+      const cardContainer = document.querySelector('.card-edittrax');
+      const tableContainer = document.querySelector('.table-container');
       
       console.log('🔄 Toggling details for trade:', tradeId);
       
@@ -1710,11 +1824,17 @@
         expandedTradeIds.delete(tradeId);
         console.log('  ❌ Collapsed');
         if (button) button.textContent = 'DETAILS';
+        // Restore overflow
+        if (cardContainer) cardContainer.style.overflow = 'hidden';
+        if (tableContainer) tableContainer.style.overflowX = 'auto';
       } else {
         detailsRow.classList.add('expanded');
         expandedTradeIds.add(tradeId);
         console.log('  ✅ Expanded');
         if (button) button.textContent = 'HIDE';
+        // Allow overflow for full width
+        if (cardContainer) cardContainer.style.overflow = 'visible';
+        if (tableContainer) tableContainer.style.overflowX = 'visible';
       }
     };
     
