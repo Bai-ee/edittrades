@@ -1678,8 +1678,234 @@ function evaluateMicroScalp(multiTimeframeData) {
   return result;
 }
 
+/**
+ * Evaluate ALL strategies for a symbol and mode
+ * Returns a rich object with all strategies (even NO_TRADE ones)
+ * @param {string} symbol - Trading symbol
+ * @param {Object} multiTimeframeData - Multi-timeframe analysis data
+ * @param {string} mode - STANDARD or AGGRESSIVE
+ * @returns {Object} Rich strategy object with all strategies
+ */
+export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDARD') {
+  const strategies = {
+    SWING: null,
+    TREND_4H: null,
+    SCALP_1H: null,
+    MICRO_SCALP: null
+  };
+  
+  // Evaluate each strategy - ALWAYS evaluate all, even if they return NO_TRADE
+  const swingResult = evaluateStrategy(symbol, multiTimeframeData, 'Swing', mode);
+  const trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode);
+  const scalp1hResult = evaluateStrategy(symbol, multiTimeframeData, 'Scalp', mode);
+  const microScalpResult = evaluateMicroScalp(multiTimeframeData);
+  
+  // Normalize each to strategy format - always include, even if NO_TRADE
+  strategies.SWING = normalizeStrategyResult(swingResult, 'SWING');
+  strategies.TREND_4H = normalizeStrategyResult(trend4hResult, 'TREND_4H');
+  strategies.SCALP_1H = normalizeStrategyResult(scalp1hResult, 'SCALP_1H');
+  
+  // MicroScalp needs special handling
+  if (microScalpResult && microScalpResult.eligible && microScalpResult.signal && microScalpResult.signal.valid) {
+    strategies.MICRO_SCALP = normalizeMicroScalpResult(microScalpResult.signal, symbol);
+  } else {
+    strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', 
+      microScalpResult && !microScalpResult.eligible 
+        ? 'MicroScalp conditions not met - requires 1H trend + tight EMA confluence' 
+        : 'No MicroScalp setup available');
+  }
+  
+  // Find best signal (highest confidence valid strategy)
+  const validStrategies = Object.entries(strategies)
+    .filter(([_, s]) => s && s.valid === true)
+    .map(([name, s]) => ({ name, confidence: s.confidence, strategy: s }));
+  
+  const bestSignal = validStrategies.length > 0
+    ? validStrategies.sort((a, b) => b.confidence - a.confidence)[0].name
+    : null;
+  
+  return {
+    strategies,
+    bestSignal
+  };
+}
+
+/**
+ * Normalize a strategy result to the canonical strategy format
+ * ALWAYS returns a strategy object, even if NO_TRADE
+ */
+function normalizeStrategyResult(result, strategyName) {
+  if (!result || !result.signal) {
+    return createNoTradeStrategy(strategyName, 'Strategy evaluation failed - no signal returned');
+  }
+  
+  const signal = result.signal;
+  
+  // If valid=false, ensure all fields are null/empty
+  if (!signal.valid) {
+    return {
+      valid: false,
+      direction: 'NO_TRADE',
+      confidence: 0,
+      reason: signal.reason || 'No trade setup available',
+      entryZone: { min: null, max: null },
+      stopLoss: null,
+      invalidationLevel: null,
+      targets: [],
+      riskReward: { tp1RR: null, tp2RR: null },
+      validationErrors: []
+    };
+  }
+  
+  // If valid=true, ensure all required fields are present
+  return {
+    valid: true,
+    direction: signal.direction || 'NO_TRADE',
+    confidence: typeof signal.confidence === 'number' 
+      ? Math.round(signal.confidence > 1 ? signal.confidence : signal.confidence * 100)
+      : 0,
+    reason: signal.reason || 'Trade setup available',
+    entryZone: signal.entryZone || { min: null, max: null },
+    stopLoss: signal.stopLoss || null,
+    invalidationLevel: signal.invalidationLevel || null,
+    targets: Array.isArray(signal.targets) 
+      ? signal.targets.filter(t => t !== null && t !== undefined && !isNaN(t))
+      : [],
+    riskReward: signal.riskReward || { tp1RR: null, tp2RR: null },
+    validationErrors: []
+  };
+}
+
+/**
+ * Normalize MicroScalp result
+ */
+function normalizeMicroScalpResult(microScalpSignal, symbol) {
+  if (!microScalpSignal || !microScalpSignal.valid) {
+    return createNoTradeStrategy('MICRO_SCALP', 'MicroScalp conditions not met');
+  }
+  
+  return {
+    valid: true,
+    direction: microScalpSignal.direction || 'NO_TRADE',
+    confidence: typeof microScalpSignal.confidence === 'number'
+      ? (microScalpSignal.confidence > 1 ? microScalpSignal.confidence : microScalpSignal.confidence * 100)
+      : 0,
+    reason: microScalpSignal.reason || 'MicroScalp setup detected',
+    entryZone: microScalpSignal.entry || { min: null, max: null },
+    stopLoss: microScalpSignal.stopLoss || null,
+    invalidationLevel: microScalpSignal.invalidation_level || null,
+    targets: microScalpSignal.targets 
+      ? (Array.isArray(microScalpSignal.targets) 
+          ? microScalpSignal.targets 
+          : [microScalpSignal.targets.tp1, microScalpSignal.targets.tp2].filter(t => t !== null))
+      : [],
+    riskReward: microScalpSignal.riskReward || { tp1RR: null, tp2RR: null },
+    validationErrors: []
+  };
+}
+
+/**
+ * Create a NO_TRADE strategy object
+ */
+function createNoTradeStrategy(strategyName, reason) {
+  return {
+    valid: false,
+    direction: 'NO_TRADE',
+    confidence: 0,
+    reason: reason || 'No trade setup available',
+    entryZone: { min: null, max: null },
+    stopLoss: null,
+    invalidationLevel: null,
+    targets: [],
+    riskReward: { tp1RR: null, tp2RR: null },
+    validationErrors: []
+  };
+}
+
+/**
+ * Build rich timeframe summary from multiTimeframeData
+ */
+export function buildTimeframeSummary(multiTimeframeData) {
+  const timeframes = {};
+  
+  for (const [tf, data] of Object.entries(multiTimeframeData)) {
+    if (!data || data.error || !data.indicators) continue;
+    
+    const indicators = data.indicators;
+    const stoch = indicators.stochRSI || {};
+    
+    // Determine stoch state
+    let stochState = 'neutral';
+    if (stoch.k > 80 && stoch.d > 80) stochState = 'overbought';
+    else if (stoch.k < 20 && stoch.d < 20) stochState = 'oversold';
+    
+    timeframes[tf] = {
+      trend: (indicators.analysis?.trend || 'UNKNOWN').toLowerCase(),
+      ema21: indicators.ema?.ema21 || null,
+      ema200: indicators.ema?.ema200 || null,
+      stochRsi: {
+        k: stoch.k || null,
+        d: stoch.d || null,
+        state: stochState
+      },
+      confluenceScore: indicators.confluence?.overall || null,
+      structureSummary: buildStructureSummary(data.structure, indicators),
+      notes: buildTimeframeNotes(tf, indicators, data.structure)
+    };
+  }
+  
+  return timeframes;
+}
+
+/**
+ * Build structure summary text
+ */
+function buildStructureSummary(structure, indicators) {
+  if (!structure) return '';
+  
+  const { swingHigh, swingLow } = structure;
+  const price = indicators.price?.current;
+  const trend = indicators.analysis?.trend;
+  
+  if (!price) return '';
+  
+  if (trend === 'UPTREND') {
+    return `Higher highs, higher lows above 21 EMA`;
+  } else if (trend === 'DOWNTREND') {
+    return `Lower highs, lower lows below 21 EMA`;
+  } else {
+    return `Choppy structure, price consolidating`;
+  }
+}
+
+/**
+ * Build timeframe notes
+ */
+function buildTimeframeNotes(tf, indicators, structure) {
+  const notes = [];
+  const trend = indicators.analysis?.trend;
+  const pullbackState = indicators.analysis?.pullbackState;
+  const distance = indicators.analysis?.distanceFrom21EMA;
+  
+  if (trend && trend !== 'FLAT') {
+    notes.push(`${tf.toUpperCase()} trend: ${trend}`);
+  }
+  
+  if (pullbackState) {
+    notes.push(`Pullback: ${pullbackState}`);
+  }
+  
+  if (distance !== undefined && distance !== null) {
+    notes.push(`${Math.abs(distance).toFixed(2)}% from 21 EMA`);
+  }
+  
+  return notes.join('; ');
+}
+
 export default {
   evaluateStrategy,
+  evaluateAllStrategies,
+  buildTimeframeSummary,
   analyzeStochState,
   calculateConfidence,
   evaluateMicroScalp,

@@ -3606,107 +3606,91 @@
     }
 
     // Copy single coin view
-    function copyCoinView(symbol) {
-      const data = scanResults[symbol];
-      if (!data) {
-        alert('No data available for ' + symbol);
-        return;
+    async function copyCoinView(symbol) {
+      console.log(`📋 Copying ${symbol} with rich format (all strategies included)...`);
+      
+      // Determine current mode
+      const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
+      
+      try {
+        // Fetch rich data for current mode
+        const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${currentMode}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.status}`);
+        }
+        
+        const richSymbol = await response.json();
+        const jsonString = JSON.stringify(richSymbol, null, 2);
+        
+        navigator.clipboard.writeText(jsonString).then(() => {
+          showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
+          console.log(`✅ ${symbol} copied to clipboard (rich format, mode: ${currentMode})`);
+        }).catch(err => {
+          console.error('Failed to copy:', err);
+          alert('Failed to copy');
+        });
+      } catch (error) {
+        console.error(`Error fetching ${symbol}:`, error);
+        alert(`Failed to fetch data for ${symbol}`);
       }
-      
-      const dashboardView = createDashboardView(data);
-      const jsonString = JSON.stringify(dashboardView, null, 2);
-      
-      navigator.clipboard.writeText(jsonString).then(() => {
-        showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
-      }).catch(err => {
-        console.error('Failed to copy:', err);
-        alert('Failed to copy');
-      });
     }
 
-    // Copy all coins with ALL strategies from BOTH modes
-    function copyAllCoins() {
-      // Store current state
-      const originalScanResults = scanResults;
+    // Copy all coins with ALL strategies from BOTH modes (RICH FORMAT)
+    async function copyAllCoins() {
+      console.log('📋 Copying all trades with rich format (all strategies included)...');
       
       const allViews = {
         SAFE_MODE: {},
         AGGRESSIVE_MODE: {}
       };
       
-      const strategyKeys = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
       const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      const modes = ['STANDARD', 'AGGRESSIVE'];
       
-      console.log('📋 Copying all trades across all strategies and modes...');
-      
-      // SAFE MODE - iterate through all strategies
-      scanResults = scanResultsSafe; // Temporarily switch to safe mode
-      
+      // Fetch rich data for each symbol and mode
       for (const symbol of symbols) {
-        const safeData = scanResultsSafe[symbol];
-        if (!safeData) continue;
-        
-        allViews.SAFE_MODE[symbol] = {
-          currentPrice: safeData.currentPrice,
-          strategies: {}
-        };
-        
-        strategyKeys.forEach((strategyKey) => {
-          const signal = evaluateTemplateSignal(symbol, strategyKey);
-          if (signal && signal.valid) {
-            allViews.SAFE_MODE[symbol].strategies[strategyKey] = {
-              direction: signal.direction,
-              setupType: signal.setupType,
-              confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%',
-              entryZone: signal.entryZone || signal.entry_zone,
-              stopLoss: signal.stopLoss || signal.stop_loss,
-              targets: signal.targets,
-              invalidationLevel: signal.invalidationLevel || signal.invalidation_level,
-              riskReward: signal.risk_reward
+        for (const mode of modes) {
+          try {
+            console.log(`  Fetching ${symbol} (${mode})...`);
+            const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${mode}`);
+            if (!response.ok) {
+              console.error(`  ❌ Failed to fetch ${symbol} (${mode}):`, response.status);
+              continue;
+            }
+            
+            const richSymbol = await response.json();
+            const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
+            allViews[modeKey][symbol] = richSymbol;
+            console.log(`  ✅ ${symbol} (${mode}): bestSignal=${richSymbol.bestSignal || 'null'}`);
+          } catch (error) {
+            console.error(`  ❌ Error fetching ${symbol} (${mode}):`, error);
+            // Create empty structure on error
+            const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
+            allViews[modeKey][symbol] = {
+              symbol,
+              mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
+              currentPrice: null,
+              htfBias: { direction: 'neutral', confidence: 0, source: 'none' },
+              timeframes: {},
+              strategies: {
+                SWING: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
+                TREND_4H: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
+                SCALP_1H: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
+                MICRO_SCALP: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] }
+              },
+              bestSignal: null,
+              schemaVersion: '1.0.0',
+              generatedAt: new Date().toISOString()
             };
-            console.log(`  ✓ SAFE ${symbol} ${strategyKey}:`, signal.direction, signal.confidence);
           }
-        });
+        }
       }
-      
-      // AGGRESSIVE MODE - iterate through all strategies
-      scanResults = scanResultsAggressive; // Temporarily switch to aggressive mode
-      
-      for (const symbol of symbols) {
-        const aggressiveData = scanResultsAggressive[symbol];
-        if (!aggressiveData) continue;
-        
-        allViews.AGGRESSIVE_MODE[symbol] = {
-          currentPrice: aggressiveData.currentPrice,
-          strategies: {}
-        };
-        
-        strategyKeys.forEach((strategyKey) => {
-          const signal = evaluateTemplateSignal(symbol, strategyKey);
-          if (signal && signal.valid) {
-            allViews.AGGRESSIVE_MODE[symbol].strategies[strategyKey] = {
-              direction: signal.direction,
-              setupType: signal.setupType,
-              confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%',
-              entryZone: signal.entryZone || signal.entry_zone,
-              stopLoss: signal.stopLoss || signal.stop_loss,
-              targets: signal.targets,
-              invalidationLevel: signal.invalidationLevel || signal.invalidation_level,
-              riskReward: signal.risk_reward
-            };
-            console.log(`  ✓ AGGRESSIVE ${symbol} ${strategyKey}:`, signal.direction, signal.confidence);
-          }
-        });
-      }
-      
-      // Restore original scan results
-      scanResults = originalScanResults;
       
       const jsonString = JSON.stringify(allViews, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
         showCopySuccess('ALL COINS COPIED!');
-        console.log('✅ All trades copied to clipboard');
+        console.log('✅ All trades copied to clipboard (rich format)');
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy');
