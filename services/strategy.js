@@ -1805,8 +1805,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       let chosenStrategy = null;
       let chosenName = null;
       
-      // Try TREND_4H first
-      if (!strategies.TREND_4H.valid) {
+      // Try TREND_4H first - FORCE override (always create if conditions met)
+      {
         const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
         const ema21_15m = tf15m?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = (ema21_1h + ema21_15m) / 2;
@@ -1843,8 +1843,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         chosenName = 'TREND_4H';
       }
       
-      // If TREND_4H not chosen, try SCALP_1H
-      if (!chosenStrategy && !strategies.SCALP_1H.valid) {
+      // If TREND_4H not chosen, try SCALP_1H - FORCE override
+      if (!chosenStrategy) {
         const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = ema21_1h;
         const entryZone = {
@@ -1930,8 +1930,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       let chosenStrategy = null;
       let chosenName = null;
       
-      // Try TREND_4H first
-      if (!strategies.TREND_4H.valid) {
+      // Try TREND_4H first - FORCE override for shorts (always create if conditions met)
+      {
         const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
         const ema21_15m = tf15m?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = (ema21_1h + ema21_15m) / 2;
@@ -1968,8 +1968,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         chosenName = 'TREND_4H';
       }
       
-      // If TREND_4H not chosen, try SCALP_1H
-      if (!chosenStrategy && !strategies.SCALP_1H.valid) {
+      // If TREND_4H not chosen, try SCALP_1H - FORCE override for shorts
+      if (!chosenStrategy) {
         const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = ema21_1h;
         const entryZone = {
