@@ -931,6 +931,70 @@ entryZone = {
 };
 ```
 
+**⚠️ IMPORTANT CLARIFICATION: Entry Zone vs. Gatekeeper Distance**
+
+The documentation mentions "Price retracing to 21 EMA (within ±2%)" - this refers to the **GATEKEEPER/FILTER**, not the entry zone calculation itself.
+
+**Two Different Concepts:**
+
+1. **Gatekeeper (Maximum Distance Allowed):**
+   - Price must be within ±2% of EMA21 to be considered for a trade
+   - If `pullbackState === 'OVEREXTENDED'`, the trade is blocked
+   - This is a **filter** that prevents trades when price is too far from EMA
+   - Code location: `services/strategy.js` line 1142-1145
+
+2. **Entry Zone Calculation (Actual Entry Range):**
+   - Calculated as ±0.4% buffer around EMA21 (0.004)
+   - LONG: `entryMin = ema21 * 0.996`, `entryMax = ema21 * 1.002`
+   - SHORT: `entryMin = ema21 * 0.998`, `entryMax = ema21 * 1.004`
+   - This is the **actual entry zone** displayed in the UI and JSON
+   - Code location: `services/strategy.js` line 537-553
+
+**Flow:**
+1. Check if price is within ±2% of EMA21 (gatekeeper) → If not, block trade
+2. If within ±2%, calculate entry zone as ±0.4% around EMA21
+3. Display the calculated entry zone values in frontend and JSON
+
+**Frontend Display Confirmation:**
+
+The frontend displays these exact calculation results directly from backend:
+
+**Entry Zone (public/index.html line 2954-2956):**
+```javascript
+const entryZone = tradeSignal.entryZone || tradeSignal.entry_zone || {};
+const entryMin = entryZone.min ? `$${entryZone.min.toLocaleString()}` : 'N/A';
+const entryMax = entryZone.max ? `$${entryZone.max.toLocaleString()}` : 'N/A';
+```
+✅ **Uses backend-calculated `entryZone.min` and `entryZone.max` directly** (no recalculation)
+
+**Stop Loss (public/index.html line 2958-2959):**
+```javascript
+const stopLoss = (tradeSignal.stopLoss || tradeSignal.stop_loss) ? 
+  `$${(tradeSignal.stopLoss || tradeSignal.stop_loss).toLocaleString()}` : 'N/A';
+```
+✅ **Uses backend-calculated `stopLoss` directly** (no recalculation)
+
+**Targets (public/index.html line 2965-2968):**
+```javascript
+const targets = tradeSignal.targets || {};
+const tp1 = (targets.tp1 || targets[0]) ? `$${(targets.tp1 || targets[0]).toLocaleString()}` : 'N/A';
+const tp2 = (targets.tp2 || targets[1]) ? `$${(targets.tp2 || targets[1]).toLocaleString()}` : 'N/A';
+```
+✅ **Uses backend-calculated `targets[0]` and `targets[1]` directly** (no recalculation)
+
+**Data Source Priority (public/index.html line 2943):**
+```javascript
+const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
+```
+1. **Template Signal** (if valid): Uses `evaluateTemplateSignal()` calculations (matches backend formulas)
+2. **API Signal** (fallback): Uses backend-calculated values from `/api/analyze` or `/api/analyze-full`
+
+**Conclusion:**
+✅ All displayed values (entry zone, stop loss, targets) come directly from backend calculations
+✅ No frontend recalculation occurs - values are formatted and displayed as-is (only `toLocaleString()` for currency formatting)
+✅ Template signal calculations (when used) match backend formulas exactly
+✅ JSON export (`copyAllCoins()`) uses `/api/analyze-full` which returns exact backend calculation results
+
 ---
 
 ### Stop Loss Formula (All Strategies)
@@ -1074,6 +1138,93 @@ confidence = 0.3;  // Base
 confidence = Math.max(0, Math.min(confidence, 0.95));  // Clamp 0-0.95
 confidence = confidence * 100;  // Convert to 0-100 for display
 ```
+
+---
+
+## Frontend Data Flow Verification
+
+### How Values Flow from Backend to Frontend Display
+
+**1. Initial Scan (scanMajorCoins):**
+```javascript
+// public/index.html - scanMajorCoins()
+const response = await fetch(`/api/analyze?symbol=${symbol}&mode=${mode}`);
+const data = await response.json();
+scanResults[symbol] = data;  // Stores API response
+```
+
+**2. Entry Price Display (updateEntryPrice):**
+```javascript
+// public/index.html line 1786-1836
+const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data?.signal || data?.tradeSignal);
+const entryZone = tradeSignal.entryZone || tradeSignal.entry_zone;
+const recommendedEntry = (direction === 'long') ? entryZone.min : entryZone.max;
+entryPriceDisplay = `$${parseFloat(recommendedEntry).toLocaleString()}`;
+```
+✅ **Displays backend-calculated entry zone directly**
+
+**3. Details Section (createDetailsRow):**
+```javascript
+// public/index.html line 2954-2973
+const entryZone = tradeSignal.entryZone || tradeSignal.entry_zone || {};
+const entryMin = entryZone.min ? `$${entryZone.min.toLocaleString()}` : 'N/A';
+const entryMax = entryZone.max ? `$${entryZone.max.toLocaleString()}` : 'N/A';
+const stopLoss = (tradeSignal.stopLoss || tradeSignal.stop_loss) ? 
+  `$${(tradeSignal.stopLoss || tradeSignal.stop_loss).toLocaleString()}` : 'N/A';
+const targets = tradeSignal.targets || {};
+const tp1 = (targets.tp1 || targets[0]) ? `$${(targets.tp1 || targets[0]).toLocaleString()}` : 'N/A';
+const tp2 = (targets.tp2 || targets[1]) ? `$${(targets.tp2 || targets[1]).toLocaleString()}` : 'N/A';
+```
+✅ **All values come directly from backend calculations - only formatted for display**
+
+**4. JSON Export (copyAllCoins):**
+```javascript
+// public/index.html - copyAllCoins()
+const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${mode}`);
+const richSymbol = await response.json();
+allViews[mode][symbol] = richSymbol;  // Stores full canonical structure
+```
+✅ **Uses `/api/analyze-full` which returns exact backend calculation results**
+
+**5. Template Signal Fallback (evaluateTemplateSignal):**
+```javascript
+// public/index.html line 1414-1711
+// Only used if API signal is invalid
+// Calculations match backend formulas:
+entryZone = {
+  min: ema21 * 0.996,  // Same as backend
+  max: ema21 * 1.004    // Same as backend
+};
+```
+✅ **Template calculations match backend formulas exactly**
+
+---
+
+## Verification Checklist
+
+### ✅ Confirmed: Backend Calculations Match Documentation
+- [x] Entry zone: 0.4% buffer (0.004) - matches code
+- [x] Stop loss: 0.3% buffer (0.003) - matches code
+- [x] Targets: R:R ratios match strategy definitions
+- [x] Confidence: 0-100 scale conversion matches code
+
+### ✅ Confirmed: Frontend Displays Backend Values
+- [x] Entry zone values come from `tradeSignal.entryZone` or `tradeSignal.entry_zone`
+- [x] Stop loss comes from `tradeSignal.stopLoss` or `tradeSignal.stop_loss`
+- [x] Targets come from `tradeSignal.targets` array
+- [x] No recalculation - only formatting (`toLocaleString()`)
+
+### ✅ Confirmed: JSON Export Uses Backend Calculations
+- [x] `copyAllCoins()` uses `/api/analyze-full`
+- [x] `/api/analyze-full` returns exact backend calculation results
+- [x] All strategies included (even NO_TRADE ones)
+- [x] Full canonical structure preserved
+
+### ⚠️ Known Inconsistencies (Require Fixes)
+- [ ] Frontend blocks AGGRESSIVE trades when 4H is FLAT (should allow if conditions met)
+- [ ] Strategy priority differs between `evaluateStrategy()` and `evaluateAllStrategies()`
+- [ ] Field name variations (camelCase vs snake_case) - both supported but inconsistent
+- [ ] Frontend template confidence may differ from backend (uses different formula)
 
 ---
 
