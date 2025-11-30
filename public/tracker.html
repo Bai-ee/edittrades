@@ -1286,6 +1286,11 @@
         const marketAligned = (trade.direction === 'LONG' && market.trend === 'BULLISH') ||
                              (trade.direction === 'SHORT' && market.trend === 'BEARISH');
         
+        // Calculate R-multiples for targets
+        const risk = Math.abs(trade.entry - trade.stopLoss);
+        const rr1 = trade.target1 ? Math.abs((trade.target1 - trade.entry) / risk) : 0;
+        const rr2 = trade.target2 ? Math.abs((trade.target2 - trade.entry) / risk) : 0;
+        
         // Distance to targets
         const distanceToTP1 = Math.abs(currentPrice - trade.target1);
         const distanceToStop = Math.abs(currentPrice - trade.stopLoss);
