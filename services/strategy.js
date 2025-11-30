@@ -1775,10 +1775,20 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     // SAFE_MODE: Block all trades when 4H is flat
     const flatReason = '4H trend is FLAT - no trade allowed per SAFE_MODE rules';
     console.log(`[evaluateAllStrategies] ${symbol} SAFE_MODE: Blocking all strategies (4H flat)`);
+    console.log(`[TEST_CASE_A] ${symbol} SAFE_MODE: 4H flat - all strategies blocked, bestSignal=null`);
     strategies.SWING = createNoTradeStrategy('SWING', flatReason);
     strategies.TREND_4H = createNoTradeStrategy('TREND_4H', flatReason);
     strategies.SCALP_1H = createNoTradeStrategy('SCALP_1H', flatReason);
     strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', flatReason);
+    
+    // Log test case A results
+    console.log(`[TEST_CASE_A] ${symbol} SAFE_MODE results:`, {
+      TREND_4H: { valid: strategies.TREND_4H.valid, reason: strategies.TREND_4H.reason },
+      SCALP_1H: { valid: strategies.SCALP_1H.valid, reason: strategies.SCALP_1H.reason },
+      MICRO_SCALP: { valid: strategies.MICRO_SCALP.valid, reason: strategies.MICRO_SCALP.reason },
+      SWING: { valid: strategies.SWING.valid, reason: strategies.SWING.reason },
+      bestSignal: null
+    });
     
     return {
       strategies,
