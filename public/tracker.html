@@ -260,7 +260,7 @@
       }
       
       .coin-row td {
-        padding: 0.5rem 0 !important;
+        padding: 1.65rem 0 !important;
         border: none;
         text-align: left !important;
         max-width: 100%;
@@ -639,13 +639,22 @@
     
     // Initialize Firebase
     let db, storage;
+    console.log('🔥 INITIALIZING FIREBASE...');
+    console.log('🔥 firebaseConfig:', firebaseConfig);
     try {
+      console.log('🔥 Calling firebase.initializeApp()...');
       firebase.initializeApp(firebaseConfig);
+      console.log('🔥 Getting Firestore instance...');
       db = firebase.firestore();
+      console.log('🔥 Getting Storage instance...');
       storage = firebase.storage();
-      console.log('✅ Firebase initialized successfully');
+      console.log('✅ FIREBASE INITIALIZED SUCCESSFULLY');
+      console.log('✅ db exists?', !!db);
+      console.log('✅ storage exists?', !!storage);
     } catch (error) {
-      console.error('❌ Firebase initialization error:', error);
+      console.error('❌ FIREBASE INITIALIZATION ERROR:', error);
+      console.error('❌ Error message:', error.message);
+      console.error('❌ Error stack:', error.stack);
       console.log('⚠️ Falling back to localStorage');
     }
     
@@ -775,10 +784,13 @@
     
     // Initialize on page load
     window.addEventListener('DOMContentLoaded', async () => {
+      console.log('🚀 PAGE LOADED - DOMContentLoaded fired');
       startCandleTimers();
       
       // Load trades from Firebase
+      console.log('📥 STEP 1: Calling loadTrades()...');
       await loadTrades();
+      console.log('📥 STEP 1 COMPLETE: loadTrades() finished. Trades array:', trades);
       
       // Check if auto-tracking a trade from homepage
       const urlParams = new URLSearchParams(window.location.search);
@@ -820,9 +832,15 @@
         }
       }
       
-      renderTrades();
+      console.log('🎨 STEP 2: Calling renderTrades()...');
+      await renderTrades();
+      console.log('🎨 STEP 2 COMPLETE: renderTrades() finished');
+      
+      console.log('⏱️ STEP 3: Starting price updates...');
       startPriceUpdates();
+      console.log('⏱️ STEP 4: Starting timer updates...');
       startTimerUpdates();
+      console.log('✅ ALL INITIALIZATION COMPLETE');
       
       // Add event listeners for auto-preview
       document.getElementById('symbol').addEventListener('change', updateTradePreview);
@@ -951,42 +969,57 @@
     
     // Load trades from Firebase or localStorage
     async function loadTrades() {
+      console.log('🔵 loadTrades() CALLED');
+      console.log('🔍 db exists?', !!db);
+      console.log('🔍 db value:', db);
+      
       if (db) {
+        console.log('✅ Firebase DB is initialized, fetching from Firestore...');
         try {
           // Don't use orderBy to avoid index requirement - we'll sort in memory
+          console.log('📡 Calling db.collection("trades").get()...');
           const snapshot = await db.collection('trades').get();
+          console.log('📡 Snapshot received! Size:', snapshot.size);
+          
           trades = [];
           snapshot.forEach(doc => {
             const tradeData = doc.data();
+            console.log('  📄 Doc ID:', doc.id, '| Data:', tradeData);
             
             // Backward compatibility: add trackedAt if missing
             if (!tradeData.trackedAt) {
               tradeData.trackedAt = tradeData.id || Date.now();
             }
             
-            console.log('  📄 Loaded trade from Firebase:', tradeData.symbol, tradeData.status, tradeData.id);
+            console.log('  ✅ Loaded trade from Firebase:', tradeData.symbol, tradeData.status, tradeData.id);
             trades.push(tradeData);
           });
           
           // Sort by ID (timestamp-based) descending
           trades.sort((a, b) => b.id - a.id);
           
-          console.log('📦 Loaded', trades.length, 'trades from Firebase');
+          console.log('📦 LOADED', trades.length, 'trades from Firebase');
           console.log('📋 Trade IDs:', trades.map(t => t.id));
           console.log('📋 Trade statuses:', trades.map(t => `${t.symbol}:${t.status}`));
+          console.log('📋 Full trades array:', trades);
           return trades;
         } catch (error) {
-          console.error('❌ Error loading from Firebase:', error);
-          console.error('Stack trace:', error.stack);
+          console.error('❌ ERROR loading from Firebase:', error);
+          console.error('❌ Error message:', error.message);
+          console.error('❌ Stack trace:', error.stack);
           // Fallback to localStorage
           trades = JSON.parse(localStorage.getItem('trackedTrades') || '[]');
-          console.log('📦 Loaded', trades.length, 'trades from localStorage (fallback)');
+          console.log('📦 FALLBACK: Loaded', trades.length, 'trades from localStorage');
           return trades;
         }
       } else {
+        console.log('⚠️ NO FIREBASE DB - Using localStorage');
         // Fallback to localStorage
-        trades = JSON.parse(localStorage.getItem('trackedTrades') || '[]');
+        const storedTrades = localStorage.getItem('trackedTrades');
+        console.log('🔍 localStorage "trackedTrades":', storedTrades);
+        trades = JSON.parse(storedTrades || '[]');
         console.log('📦 Loaded', trades.length, 'trades from localStorage');
+        console.log('📋 Full trades array:', trades);
         return trades;
       }
     }
@@ -1219,31 +1252,35 @@
         const inZone = currentPrice >= entryZone.min && currentPrice <= entryZone.max;
         
         if (inZone) {
-          signal = 'ENTERING NOW';
-          feedbackText = `<strong>🎯 Price in entry zone!</strong><br><br>
-            <strong>Status:</strong> Current price $${currentPrice.toLocaleString()} is within your entry zone ($${entryZone.min.toLocaleString()} - $${entryZone.max.toLocaleString()}). This trade will automatically activate when confirmed.<br><br>
-            <strong>Action:</strong> Monitor closely. Entry conditions are being met. Your targets are TP1: $${trade.target1.toLocaleString()}, TP2: $${trade.target2.toLocaleString()}. Stop: $${trade.stopLoss.toLocaleString()}.`;
+          signal = 'Price reached zone - entry triggering';
+          feedbackText = `<strong>Entry zone hit</strong><br><br>
+            <strong>What's happening:</strong> Price just entered your zone at $${currentPrice.toLocaleString()} (entry: $${entryZone.min.toLocaleString()} - $${entryZone.max.toLocaleString()}). This is what you were waiting for. Trade activating.<br><br>
+            <strong>Next move:</strong> Watch closely. Targets are TP1: $${trade.target1.toLocaleString()}, TP2: $${trade.target2.toLocaleString()}. Stop: $${trade.stopLoss.toLocaleString()}. If price holds here, you're in. If it fakes and reverses, be ready.`;
         } else if (distanceToEntryMin > 0) {
-          signal = 'WAITING FOR ENTRY';
-          feedbackText = `<strong>⏳ Waiting for price to reach entry zone</strong><br><br>
-            <strong>Status:</strong> Trade is pending entry. Current price: $${currentPrice.toLocaleString()}. Entry zone: $${entryZone.min.toLocaleString()} - $${entryZone.max.toLocaleString()} (${Math.abs(distanceToEntryMin).toFixed(2)}% away).<br><br>
-            <strong>Market context:</strong> ${market.trend} trend with ${market.momentum} momentum. ${trade.direction === 'LONG' ? 'Waiting for pullback to entry zone.' : 'Waiting for rally to entry zone.'}<br><br>
-            <strong>Action:</strong> Be patient. Set price alerts at entry zone. Don't chase the trade - let it come to you. If price invalidates (hits $${trade.stopLoss.toLocaleString()}) before entry, the trade will be cancelled automatically.`;
+          signal = 'Waiting for price to pull back into zone';
+          feedbackText = `<strong>Setup waiting for entry</strong><br><br>
+            <strong>Where we are:</strong> Current price is $${currentPrice.toLocaleString()}. Your entry zone is $${entryZone.min.toLocaleString()} - $${entryZone.max.toLocaleString()} (${Math.abs(distanceToEntryMin).toFixed(2)}% away). ${trade.direction === 'LONG' ? 'Waiting for pullback to buy zone.' : 'Waiting for bounce to short zone.'}<br><br>
+            <strong>Market's behavior:</strong> ${market.trend} with ${market.momentum} momentum. ${trade.direction === 'LONG' ? 'If it retraces cleanly, you get your entry. If it keeps running, you miss it - that\'s discipline.' : 'If it rallies into your zone, you get the short. If it keeps dumping without you, let it go.'}<br><br>
+            <strong>What to do:</strong> Be patient. Set alerts at entry. Don't chase. If price hits $${trade.stopLoss.toLocaleString()} before entering, setup's dead.`;
         } else {
-          signal = 'ENTRY MISSED';
-          feedbackText = `<strong>⚠️ Price moved past entry zone</strong><br><br>
-            <strong>Status:</strong> Current price $${currentPrice.toLocaleString()} has moved beyond your entry zone ($${entryZone.min.toLocaleString()} - $${entryZone.max.toLocaleString()}). The ideal entry point was missed.<br><br>
-            <strong>Action:</strong> Do NOT chase this trade. Wait for a pullback or look for the next setup. Discipline > FOMO. Delete this pending trade and wait for re-entry signal.`;
+          signal = 'Price ran without you - do not chase';
+          feedbackText = `<strong>Entry missed</strong><br><br>
+            <strong>What happened:</strong> ${trade.direction === 'LONG' ? 'Price pumped past your buy zone' : 'Price dumped past your short zone'} without giving you an entry. Current: $${currentPrice.toLocaleString()}. Entry was: $${entryZone.min.toLocaleString()} - $${entryZone.max.toLocaleString()}.<br><br>
+            <strong>Market's telling you:</strong> ${market.trend} trend, ${market.momentum} momentum. The move happened, and you weren't in it. That's fine. Chasing now is how you turn a missed trade into a losing one.<br><br>
+            <strong>What to do:</strong> Delete this pending trade. Wait for a pullback or the next clean setup. Discipline beats FOMO every time.`;
         }
       } else if (trade.status === 'INVALIDATED') {
-        signal = 'TRADE CANCELLED';
-        feedbackText = `<strong>❌ Trade invalidated before entry</strong><br><br>
-          <strong>What happened:</strong> Price hit your stop loss level ($${trade.stopLoss.toLocaleString()}) before reaching the entry zone. This means the setup failed before you even got in - a perfect example of why we wait for entries.<br><br>
-          <strong>Outcome:</strong> You saved capital by NOT entering early. This is a win for discipline. Delete this trade and move on.`;
+        signal = 'Setup failed before entry - capital saved';
+        feedbackText = `<strong>Trade invalidated pre-entry</strong><br><br>
+          <strong>What happened:</strong> Price hit $${trade.stopLoss.toLocaleString()} before you even got in. Setup died before activation. This is exactly why we don't chase or enter early.<br><br>
+          <strong>Why this is good:</strong> You saved capital by waiting for proper entry. No loss taken. This is what discipline looks like. Delete this trade and move on to the next setup.`;
       } else if (trade.status === 'CLOSED') {
-        const outcome = trade.outcome === 'WIN' ? '✅ Trade closed in profit' : '❌ Trade closed at stop loss';
-        feedbackText = `${outcome}. Final result: ${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%). ${trade.outcome === 'WIN' ? 'Well executed. This trade followed your plan and reached its target. Review what confluence factors confirmed this setup to repeat success.' : 'Part of the process - every losing trade teaches you what not to do. The market invalidated this setup, which is why risk management exists. Move on to the next opportunity with a clear head.'}`;
-        signal = trade.outcome === 'WIN' ? 'CLOSED PROFIT' : 'CLOSED LOSS';
+        const outcome = trade.outcome === 'WIN' ? 'Closed in profit' : 'Stopped out';
+        signal = trade.outcome === 'WIN' ? 'Winner - plan executed correctly' : 'Loser - setup invalidated, risk managed';
+        feedbackText = `<strong>${outcome}: ${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
+          ${trade.outcome === 'WIN' ? 
+            '<strong>What worked:</strong> You trusted your plan, let the trade develop, and took profit at targets. This is textbook execution. Review what confluence confirmed this setup so you can spot it again.<br><br><strong>Next:</strong> Don\'t get cocky. Every trade is independent. Stay disciplined.' : 
+            '<strong>What happened:</strong> Market invalidated your thesis. You took the stop like you were supposed to. This is good trading - you followed your risk management plan.<br><br><strong>Next:</strong> Review what failed (structure? timing? momentum?). Learn from it. Move on with a clear head. Losing trades are part of the game.'}`;
       } else {
         // Check if market aligns with position
         const marketAligned = (trade.direction === 'LONG' && market.trend === 'BULLISH') ||
@@ -1254,81 +1291,80 @@
         const distanceToStop = Math.abs(currentPrice - trade.stopLoss);
         const distanceToEntry = Math.abs(currentPrice - trade.entry);
         
-        // Active trade analysis with detailed reasoning
+        // Active trade analysis with market-behavior focused language
         if (rMultiple >= 1.5) {
-          signal = 'TAKE PROFIT NOW';
+          signal = `Market gave you the move - lock it in before it takes it back`;
           feedbackText = `<strong>Strong profit at +${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
-            <strong>Why this signal:</strong> You've exceeded 1.5R profit, which is a significant win. At this point, the risk of giving back profits increases.<br><br>
-            <strong>Market context:</strong> Current market is ${market.trend} with ${market.momentum} momentum. ${marketAligned ? 'Your position is aligned with the trend, but profit-taking is still wise at these levels.' : 'Market momentum is shifting away from your position, making this an ideal exit.'}<br><br>
-            <strong>Action items:</strong><br>
-            • Scale out at least 50-75% of your position here<br>
-            • Move your stop loss to breakeven or better<br>
-            • If holding remaining position, set alerts at your next target<br>
-            • Don't regret taking profit - a realized gain is always better than a reversal`;
+            <strong>What the market is doing:</strong> ${marketAligned ? 'Price delivered exactly what you wanted, and while the broader trend still supports your direction, this much profit rarely lasts. Markets don\'t hand out free money - they give, then take back.' : 'You\'re sitting on gains while the market is starting to shift gears. Momentum is fading, and what got you here won\'t keep you here.'}<br><br>
+            <strong>Why this matters:</strong> You've banked 1.5R+. The easy part is over. From here, every tick you hold increases the odds of giving profits back. ${marketAligned ? 'Even in strong trends, price needs to breathe - and when it does, unrealized gains evaporate fast.' : 'The market\'s already showing you it wants to reverse. Don\'t be the last one holding the bag.'}<br><br>
+            <strong>What to do:</strong><br>
+            • Scale out 50-75% now - a bird in the hand beats two reversals<br>
+            • Move stops to breakeven on remaining position<br>
+            • If you stay greedy here, you'll regret it when this flips<br>
+            • Profit-taking is never wrong; holding through reversals is`;
         } else if (rMultiple >= 0.8) {
-          signal = marketAligned ? 'HOLD FOR MORE' : 'SECURE PROFITS';
-          feedbackText = `<strong>Good profit at +${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
-            <strong>Why this signal:</strong> You're near your TP1 target (${rr1.toFixed(1)}R). ${marketAligned ? 'Market is confirming your setup and showing continuation potential.' : 'Market is showing weakness despite your profit, signaling potential reversal.'}<br><br>
-            <strong>Market context:</strong> ${marketAligned ? `Trend is ${market.trend} and momentum is ${market.momentum}, both supporting your ${trade.direction} position. Your original thesis is still valid.` : `Market showing ${market.trend} trend, which conflicts with your ${trade.direction} position. Momentum is ${market.momentum}, suggesting the move may be exhausting.`}<br><br>
-            <strong>Action items:</strong><br>
+          signal = marketAligned ? `Trend confirming - let it run to next target` : `Market's tired - take the W while it's there`;
+          feedbackText = `<strong>Solid profit at +${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
+            <strong>What the market is doing:</strong> ${marketAligned ? 'Price is behaving exactly as you'd expect in a clean '+trade.direction.toLowerCase()+' setup. Structure is holding, momentum is aligned, and your thesis is playing out. This is what confirmation looks like - don\'t second-guess it.' : 'You\'re profitable, but the market isn\'t backing you up. Price is struggling to push further in your direction, which means the easy money is already made. What comes next is chop or reversal.'}<br><br>
+            <strong>Why this matters:</strong> You're near TP1 (${rr1.toFixed(1)}R). ${marketAligned ? 'The trend is still intact, so there\'s room to run if you manage it right. But don\'t get complacent - even good setups can stall or retrace.' : 'You got lucky with timing, but the bigger picture isn\'t supporting more upside. The market\'s telling you to exit - listen to it.'}<br><br>
+            <strong>What to do:</strong><br>
             ${marketAligned ? 
-              '• Consider taking 25-50% profit here to lock in gains<br>• Move stop to breakeven to protect capital<br>• Hold remaining position for TP2 ('+rr2.toFixed(1)+'R)<br>• Watch for continuation signals on your timeframe' : 
-              '• Take profit on at least 50-75% of position<br>• Tighten stops significantly<br>• Market not confirming - don\'t be greedy<br>• A profit secured now beats a reversal later'}<br><br>
-            <strong>Risk assessment:</strong> $${distanceToStop.toFixed(2)} away from stop loss. Currently $${distanceToTP1.toFixed(2)} from TP1.`;
+              '• Take 25-50% off here to lock gains<br>• Move stop to breakeven - protect your capital<br>• Let the rest ride to TP2 ('+rr2.toFixed(1)+'R) with alerts set<br>• Trust the process, but don\'t be stubborn if momentum shifts' : 
+              '• Take 50-75% profit now before this flips<br>• Tighten stops aggressively - market\'s not your friend here<br>• Don\'t hold hoping for a miracle - take the win<br>• You entered at the right time, now exit before it\'s too late'}<br><br>
+            <strong>Levels that matter:</strong> $${distanceToStop.toFixed(2)} to stop, $${distanceToTP1.toFixed(2)} to TP1`;
         } else if (rMultiple >= 0.3) {
-          signal = marketAligned ? 'TRUST YOUR SETUP' : 'WATCH CLOSELY';
-          feedbackText = `<strong>Trade showing profit at +${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
-            <strong>Why this signal:</strong> You're in profit but not yet at major targets. ${marketAligned ? 'Your setup is playing out as expected with market confirmation.' : 'Market is not strongly confirming your direction, requiring closer monitoring.'}<br><br>
-            <strong>Market context:</strong> Current market trend is ${market.trend} with ${market.momentum} momentum (confidence: ${market.confidence}%). ${marketAligned ? 'This aligns with your '+trade.direction+' position, suggesting your entry timing was good. Trust your analysis and let it run to targets.' : 'This creates some conflict with your '+trade.direction+' position. While you\'re profitable, the market isn\'t giving strong confirmation of continuation.'}<br><br>
-            <strong>Action items:</strong><br>
+          signal = marketAligned ? `Setup clean, price developing - hold tight` : `Market hesitating - be ready to bail`;
+          feedbackText = `<strong>Trade in profit at +${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
+            <strong>What the market is doing:</strong> ${marketAligned ? 'Price is moving in your direction, but it\'s not explosive yet. This is normal - markets don\'t go straight up or down. The broader trend supports you, momentum is aligned, and your entry looks smart. Let it cook.' : 'You\'re green, but barely. Price isn\'t committing to your direction, which means either this setup is about to fail or you\'re way too early. The market isn\'t confirming your thesis - it\'s just chopping around.'}<br><br>
+            <strong>Why this matters:</strong> ${marketAligned ? 'Your targets are TP1: $'+trade.target1.toLocaleString()+' ('+rr1.toFixed(1)+'R) and TP2: $'+trade.target2.toLocaleString()+' ('+rr2.toFixed(1)+'R). You\'re not there yet, but the path is clear. Don\'t exit early just because it feels slow - that\'s how you miss the best part of the move.' : 'While you\'re technically profitable, the market\'s behavior says this could reverse at any moment. You entered hoping for follow-through, but price is giving you doubt instead.'}<br><br>
+            <strong>What to do:</strong><br>
             ${marketAligned ?
-              '• Let the trade run - don\'t exit early on minor chop<br>• Your targets are TP1: $'+trade.target1.toLocaleString()+' ('+rr1.toFixed(1)+'R), TP2: $'+trade.target2.toLocaleString()+' ('+rr2.toFixed(1)+'R)<br>• Keep stop at entry ($'+trade.stopLoss.toLocaleString()+') until TP1 hit<br>• Avoid checking every 5 minutes - trust your plan' :
-              '• Monitor this closely - set alerts on key levels<br>• Prepare to exit if market momentum continues against you<br>• Consider taking profit early if setup shows further invalidation<br>• Don\'t hold stubbornly if confluence breaks down'}<br><br>
-            <strong>Distance to targets:</strong> TP1 is $${distanceToTP1.toFixed(2)} away. Currently $${distanceToEntry.toFixed(2)} from your entry.`;
+              '• Let it run - don\'t kill a good trade with weak hands<br>• Keep stop at $'+trade.stopLoss.toLocaleString()+' until TP1 hits<br>• Stop checking every 5 minutes; your plan is solid<br>• If it stops out, it stops out - that\'s the game' :
+              '• Watch this closely - set alerts on key levels<br>• If momentum dies or structure breaks, cut it<br>• Don\'t hold stubbornly waiting for a miracle<br>• Better to exit small green than big red'}<br><br>
+            <strong>Distance to TP1:</strong> $${distanceToTP1.toFixed(2)} away. Entry was $${distanceToEntry.toFixed(2)} back.`;
         } else if (rMultiple > -0.2) {
-          signal = marketAligned ? 'NORMAL PULLBACK' : 'SETUP FAILING';
-          feedbackText = `<strong>Price near entry at ${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
-            <strong>Why this signal:</strong> You're essentially at breakeven. ${marketAligned ? 'This is normal retracement behavior in trending markets. Your stop loss exists for a reason - let it do its job.' : 'Market is not confirming your setup. Price is struggling to move in your direction, which is a yellow flag.'}<br><br>
-            <strong>Market context:</strong> Market is ${market.trend} with ${market.momentum} momentum. ${marketAligned ? 'Even though trend supports you, price needs time to develop. Pullbacks are healthy and expected - this is why you placed your stop where you did.' : 'Market structure is not supporting your position. You entered expecting '+trade.direction+' movement, but price is not cooperating. This could be a failed setup.'}<br><br>
-            <strong>Action items:</strong><br>
+          signal = marketAligned ? `Healthy pullback - stop exists for a reason` : `Setup's not working - stop may be mercy`;
+          feedbackText = `<strong>Price hovering near entry at ${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
+            <strong>What the market is doing:</strong> ${marketAligned ? 'Price is retesting your entry, which is completely normal in trending markets. The broader trend still supports you, but it needs to shake out weak hands before the real move. This is why you set your stop where you did - let it do its job.' : 'Market\'s not buying your thesis. You entered expecting a move, and instead you got chop. Price is struggling to go anywhere, which means this setup is either dead or about to invalidate.'}<br><br>
+            <strong>Why this matters:</strong> ${marketAligned ? 'You\'re essentially flat. In strong trends, pullbacks are healthy - but they feel terrible. Don\'t panic exit just because you\'re not up big yet. Your stop is at $'+trade.stopLoss.toLocaleString()+' for a reason. If it hits, the trade was wrong. If it doesn\'t, you\'re still in.' : 'You thought you had a setup, but the market disagrees. Structure isn\'t holding, and price is telling you this entry was premature or flat-out wrong. If you have a discretionary exit rule, now\'s the time.'}<br><br>
+            <strong>What to do:</strong><br>
             ${marketAligned ?
-              '• This is normal - do NOT panic exit<br>• Your stop is at $'+trade.stopLoss.toLocaleString()+' for a reason<br>• Trust your plan and let the setup develop<br>• If stopped out, it means the trade invalidated (correct outcome)<br>• Avoid the urge to move stops or "break even"' :
-              '• Watch very closely - this setup may be failing<br>• If you have a discretionary exit rule (structure break, momentum shift), consider using it<br>• Prepare mentally to take the loss if stopped<br>• Better to take a small loss than a large one<br>• Re-evaluate if your entry was premature'}<br><br>
-            <strong>Critical levels:</strong> Stop loss at $${trade.stopLoss.toLocaleString()} ($${distanceToStop.toFixed(2)} away). Entry was $${trade.entry.toLocaleString()}.`;
+              '• Do NOT panic exit - this is normal<br>• Trust your stop at $'+trade.stopLoss.toLocaleString()+'<br>• If it stops out, the setup failed (correct outcome)<br>• Don\'t move stops trying to "survive" - that\'s how accounts die' :
+              '• Watch this like a hawk - it could roll over any second<br>• If you see structure break or momentum shift, bail<br>• Prepare mentally to take a small loss<br>• Better to cut now than bleed later'}<br><br>
+            <strong>Critical:</strong> Stop at $${trade.stopLoss.toLocaleString()} ($${distanceToStop.toFixed(2)} away)`;
         } else if (rMultiple > -0.5) {
-          signal = 'CUT LOSS SOON';
-          feedbackText = `<strong>⚠️ Trade underwater at ${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
-            <strong>Why this signal:</strong> You're in drawdown but haven't hit your stop yet. ${marketAligned ? 'Even though the broader trend supports your direction, this particular entry isn\'t working out. That\'s trading - timing matters.' : 'Market is moving against you and your thesis is being invalidated. The setup you entered is breaking down.'}<br><br>
-            <strong>Market context:</strong> Market showing ${market.trend} trend with ${market.momentum} momentum. ${marketAligned ? 'While the trend eventually may resume in your favor, this specific entry is underwater. Sometimes even good setups in trending markets fail due to timing or liquidity sweeps. Don\'t fight the tape if it continues against you.' : 'Market structure is clearly not supporting your position. Your '+trade.direction+' bias is not playing out. The confluence you relied on has broken down.'}<br><br>
-            <strong>Action items:</strong><br>
-            • Prepare mentally to take this loss - it's part of trading<br>
-            • Do NOT move your stop loss further away (that's emotional trading)<br>
-            • If you have a discretionary exit rule and it's triggered, cut now<br>
-            • Your stop is at $${trade.stopLoss.toLocaleString()} - only $${distanceToStop.toFixed(2)} away<br>
-            • Review what went wrong: Was entry timing off? Did market structure shift?<br>
-            • Accept that not every setup works - risk management exists for this<br><br>
-            <strong>Risk assessment:</strong> You're down ${Math.abs(pnlPercent).toFixed(2)}%. Stop loss will limit this to ${Math.abs((trade.stopLoss - trade.entry) / trade.entry * 100).toFixed(2)}% loss. That's why stops exist.`;
+          signal = `Market's rejecting your entry - stop's coming`;
+          feedbackText = `<strong>Trade underwater at ${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</strong><br><br>
+            <strong>What the market is doing:</strong> ${marketAligned ? 'Even though the broader trend technically aligns with you, THIS specific entry isn\'t working. Timing matters in trading, and yours was off. It happens. The market can trend in your favor while your position still bleeds.' : 'Market\'s moving against you, plain and simple. Your '+trade.direction.toLowerCase()+' thesis is failing. Structure broke, momentum flipped, and now you\'re holding a loser. The confluence you relied on didn\'t hold.'}<br><br>
+            <strong>Why this matters:</strong> You're in drawdown and approaching your stop at $${trade.stopLoss.toLocaleString()}. ${marketAligned ? 'Sometimes good setups in strong trends still fail due to liquidity sweeps or bad timing. Don\'t take it personally - just don\'t fight it either.' : 'The market invalidated your setup. Accept it. Every trader takes losses - the good ones take them when they\'re small.'}<br><br>
+            <strong>What to do:</strong><br>
+            • Prepare to take this loss - it's happening<br>
+            • Do NOT move your stop (that's emotional trading)<br>
+            • Stop is $${distanceToStop.toFixed(2)} away - let it hit or cut now<br>
+            • After exit, review: bad entry? Bad timing? Wrong read?<br>
+            • This is the game - not every setup works<br><br>
+            <strong>Max damage:</strong> Stop limits loss to ${Math.abs((trade.stopLoss - trade.entry) / trade.entry * 100).toFixed(2)}%`;
         } else if (rMultiple > -0.8) {
-          signal = 'EXIT IMMEDIATELY';
-          feedbackText = `<strong>🚨 Major drawdown at ${rMultiple.toFixed(2)}R (${pnlPercent.toFixed(2)}%)</strong><br><br>
-            <strong>Why this signal:</strong> You're in significant drawdown approaching your stop loss. ${trade.stopLoss ? 'Your stop is about to be hit, which means the setup has completely failed.' : '⚠️ CRITICAL: You have no stop loss set, which is extremely dangerous. You should have exited long ago.'}<br><br>
-            <strong>Market context:</strong> Market is ${market.trend} with ${market.momentum} momentum. ${marketAligned ? 'Even though the trend generally aligns, THIS trade entry was wrong. The market can be right while you\'re still wrong on timing or execution.' : 'Market is clearly moving against your '+trade.direction+' position. Your thesis was incorrect or the market structure shifted after entry.'}<br><br>
-            <strong>URGENT action items:</strong><br>
+          signal = `Stop's about to hit - accept it and move on`;
+          feedbackText = `<strong>Major drawdown at ${rMultiple.toFixed(2)}R (${pnlPercent.toFixed(2)}%)</strong><br><br>
+            <strong>What the market is doing:</strong> ${marketAligned ? 'Even with the trend on your side overall, THIS trade is toast. You can be right about direction and still wrong about entry. The market doesn\'t care about your thesis - it cares about liquidity and momentum, and both are against you now.' : 'You\'re fighting the tape and losing. Market\'s clearly moving against your '+trade.direction.toLowerCase()+' position. Your thesis was wrong, or the market shifted after you entered. Either way, you\'re on the wrong side.'}<br><br>
+            <strong>Why this matters:</strong> ${trade.stopLoss ? 'Your stop at $'+trade.stopLoss.toLocaleString()+' is about to be hit. This isn\'t negotiable. The setup completely failed. You can exit now to save a few cents of slippage, or let the stop do its job. Either way, this trade is over.' : '⚠️ You have NO STOP SET. You\'re in freefall with no safety net. This is how accounts blow up.'}<br><br>
+            <strong>What to do NOW:</strong><br>
             ${trade.stopLoss ? 
-              '• Accept this loss is happening - your stop is about to hit<br>• Do NOT move your stop (that\'s the #1 mistake traders make)<br>• If you manually exit now vs letting stop hit, you save a few dollars of slippage<br>• Prepare to review what went wrong AFTER you exit<br>• Every losing trade is education - learn from it' :
-              '• 🚨 EXIT IMMEDIATELY - you have no stop loss protection<br>• You are in freefall without risk management<br>• Every second you delay, losses compound<br>• SET A STOP LOSS on your next trade - this is non-negotiable<br>• Never trade without stops again'}<br><br>
-            <strong>Loss projection:</strong> Currently down ${Math.abs(pnlPercent).toFixed(2)}%. ${trade.stopLoss ? 'Stop will limit to '+(Math.abs((trade.stopLoss - trade.entry) / trade.entry * 100).toFixed(2))+'% max loss.' : 'NO STOP SET - losses unlimited!'}`;
+              '• Accept the loss - it\'s already baked in<br>• Do NOT move your stop hoping for a bounce<br>• Exit now or let stop hit in seconds<br>• After this, review what went wrong (later, not now)<br>• Every loss is education - but only if you learn' :
+              '• EXIT IMMEDIATELY - no stop = unlimited risk<br>• You\'re bleeding capital with no plan<br>• Close this NOW before it gets worse<br>• Set a stop on your next trade - non-negotiable'}<br><br>
+            <strong>Damage:</strong> Down ${Math.abs(pnlPercent).toFixed(2)}%. ${trade.stopLoss ? 'Stop limits to '+Math.abs((trade.stopLoss - trade.entry) / trade.entry * 100).toFixed(2)+'%' : 'NO STOP = spiraling'}`;
         } else {
-          signal = 'GET OUT NOW';
-          feedbackText = `<strong>💥 CRITICAL LOSS at ${rMultiple.toFixed(2)}R (${pnlPercent.toFixed(2)}%)</strong><br><br>
-            <strong>Why this signal:</strong> ${trade.stopLoss ? 'Your stop loss is being hit or has been hit. This trade is completely invalidated and needs to be closed immediately.' : '💥 EMERGENCY: You have NO STOP LOSS and are in freefall. This is catastrophic risk management failure.'}<br><br>
-            <strong>Market reality:</strong> Market is ${market.trend} (${market.momentum}). Your ${trade.direction} position is fundamentally wrong. ${marketAligned ? 'Even if trend eventually agrees with you, THIS entry failed. You cannot hold through massive drawdown hoping for a bounce.' : 'You are fighting the market and losing. Market structure completely invalidated your thesis.'}<br><br>
-            <strong>EMERGENCY ACTIONS - DO NOW:</strong><br>
+          signal = `Dead trade - close it now or watch it burn`;
+          feedbackText = `<strong>Critical loss at ${rMultiple.toFixed(2)}R (${pnlPercent.toFixed(2)}%)</strong><br><br>
+            <strong>What the market is doing:</strong> ${marketAligned ? 'Doesn\'t matter if the trend "agrees" with you - THIS entry is catastrophically wrong. You can\'t hold through this kind of drawdown hoping for a miracle bounce. The market is ruthless, and right now it\'s eating you alive.' : 'Market completely invalidated your setup. You\'re fighting the tape, and the tape always wins. Your '+trade.direction.toLowerCase()+' position is fundamentally wrong, and every second you hold makes it worse.'}<br><br>
+            <strong>Why this matters:</strong> ${trade.stopLoss ? 'Your stop should have been hit already. If it didn\'t trigger, close manually NOW. This trade is dead - accept it and preserve what capital you have left.' : '💥 You have NO STOP LOSS. This is catastrophic. Every second you wait, losses compound. This is how traders blow up accounts.'}<br><br>
+            <strong>EMERGENCY - DO NOW:</strong><br>
             ${trade.stopLoss ?
-              '• CLOSE THIS TRADE IMMEDIATELY<br>• Your stop should have been hit - close manually if it didn\'t<br>• Accept the loss - it\'s already happened<br>• Do not average down, do not "wait for bounce"<br>• Take the loss and move on with capital preservation mindset' :
-              '• 🚨🚨🚨 EMERGENCY EXIT REQUIRED 🚨🚨🚨<br>• You have NO STOP LOSS - losses are UNLIMITED<br>• CLOSE NOW before you lose more<br>• This is NOT optional - EXIT IMMEDIATELY<br>• Never, EVER trade without a stop loss again<br>• You are risking total account blow-up'}<br><br>
-            <strong>Current damage:</strong> Down ${Math.abs(pnlPercent).toFixed(2)}%. ${trade.stopLoss ? 'Max designed loss was '+Math.abs((trade.stopLoss - trade.entry) / trade.entry * 100).toFixed(2)+'%.' : 'NO STOP = losses spiraling out of control.'}<br><br>
-            <strong>After you exit:</strong> Step away from the screen. Review what went wrong. Learn from this. Come back with a clear head and ALWAYS use stop losses.`;
+              '• CLOSE THIS IMMEDIATELY<br>• Stop should have hit - don\'t wait, manual exit<br>• Do not average down or "wait for bounce"<br>• Loss is real - take it and move on<br>• Capital preservation > being "right"' :
+              '• 🚨 EXIT NOW - NO EXCEPTIONS 🚨<br>• NO STOP = you\'re risking total account ruin<br>• Close this trade RIGHT NOW<br>• Never trade without a stop again<br>• This is a career-ending mistake if you don\'t exit'}<br><br>
+            <strong>Damage:</strong> Down ${Math.abs(pnlPercent).toFixed(2)}%. ${trade.stopLoss ? 'Planned max was '+Math.abs((trade.stopLoss - trade.entry) / trade.entry * 100).toFixed(2)+'%' : 'NO STOP = freefall'}<br><br>
+            <strong>After exit:</strong> Step away. Breathe. Review what happened. Come back with a clear head.`;
         }
       }
       
@@ -1379,7 +1415,7 @@
       const elapsedTime = formatElapsedTime(trade.trackedAt);
       
       row.innerHTML = `
-        <td class="px-2 coin-name-cell" style="padding-top: 1rem; padding-bottom: 1rem; width: 150px; min-width: 150px; max-width: 150px;">
+        <td class="px-2 coin-name-cell" style="padding-top: 1.65rem; padding-bottom: 1.65rem; width: 150px; min-width: 150px; max-width: 150px;">
           <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
             <div style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.9rem; color: ${coinNameColor}; text-align: center;">
               ${coinName}
@@ -1387,29 +1423,29 @@
           </div>
         </td>
         
-        <td class="px-2" data-label="P&L:" style="width: 100px; min-width: 100px; max-width: 100px; white-space: nowrap; padding-left: 1rem;">
+        <td class="px-2" data-label="P&L:" style="padding-top: 1.65rem; padding-bottom: 1.65rem; width: 100px; min-width: 100px; max-width: 100px; white-space: nowrap; padding-left: 1rem;">
           <div style="font-family: var(--font-mathias); font-weight: bold; color: ${pnlColor}; font-size: 0.85rem; text-align: left;">
             ${trade.status === 'PENDING' ? 'PENDING' : (hasValidPrice ? `${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%` : '--')}
           </div>
         </td>
         
-        <td class="px-2" data-label="Status:" style="padding-left: 1rem;">
-          <div style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.85rem; color: ${signalColor}; text-align: left;">
+        <td class="px-2" data-label="Status:" style="padding-top: 1.65rem; padding-bottom: 1.65rem; padding-left: 1rem; min-width: 250px;">
+          <div style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.75rem; color: ${signalColor}; text-align: left; line-height: 1.3;">
             ${trade.status === 'PENDING' || trade.status === 'INVALIDATED' ? signal : (hasValidPrice ? signal : '--')}
           </div>
         </td>
         
-        <td class="px-2 time-cell" data-label="Time:" style="width: 90px; min-width: 90px; max-width: 90px; padding-left: 1rem;">
+        <td class="px-2 time-cell" data-label="Time:" style="padding-top: 1.65rem; padding-bottom: 1.65rem; width: 90px; min-width: 90px; max-width: 90px; padding-left: 1rem;">
           <div id="timer-${trade.id}" style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.75rem; color: var(--color-yellow-75); text-align: left;">
             ${elapsedTime}
           </div>
         </td>
         
-        <td class="px-2 details-button-cell" data-label="Details:" style="width: 120px; min-width: 120px; max-width: 120px; white-space: nowrap;">
+        <td class="px-2 details-button-cell" data-label="Details:" style="padding-top: 1.65rem; padding-bottom: 1.65rem; width: 120px; min-width: 120px; max-width: 120px; white-space: nowrap;">
           <button 
             onclick="toggleTradeDetails(${trade.id})"
             class="px-3 py-1 text-xs font-mathias font-bold"
-            style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
+            style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; min-width: 80px; padding: 0.5rem 1rem;"
           >
             DETAILS
           </button>
@@ -1452,12 +1488,12 @@
               <!-- Header -->
               <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
                 <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
-                  ${trade.symbol.replace('USDT', '')} — ${trade.direction} (${setupType})
+                  ${trade.symbol.replace('USDT', '')} - ${trade.direction} (${setupType})
                 </h2>
                 
                 ${trade.status === 'PENDING' ? `
                 <div style="background-color: rgba(255, 193, 7, 0.15); border: 1px solid #ffc107; border-radius: 0.375rem; padding: 0.75rem; margin-bottom: 1rem;">
-                  <p style="color: #ffc107; font-size: 0.875rem; margin: 0;">⏳ PENDING ENTRY — Waiting for price to reach entry zone: $${trade.entryZone?.min?.toLocaleString() || 'N/A'} - $${trade.entryZone?.max?.toLocaleString() || 'N/A'}</p>
+                  <p style="color: #ffc107; font-size: 0.875rem; margin: 0;">⏳ PENDING ENTRY - Waiting for price to reach entry zone: $${trade.entryZone?.min?.toLocaleString() || 'N/A'} - $${trade.entryZone?.max?.toLocaleString() || 'N/A'}</p>
                 </div>
                 ` : ''}
                 
@@ -1580,14 +1616,14 @@
               <button 
                 onclick="toggleTradeDetails(${trade.id})"
                 class="px-3 py-1 text-xs font-mathias font-bold"
-                style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
+                style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; min-width: 80px; padding: 0.5rem 1rem;"
               >
                 HIDE
               </button>
               <button 
                 onclick="deleteTrade(${trade.id})"
                 class="px-3 py-1 text-xs font-mathias font-bold"
-                style="background-color: #ef4444; color: #ffffff; border: 2px solid #ef4444; border-radius: var(--radius-md); transition: all 0.3s;"
+                style="background-color: #ef4444; color: #ffffff; border: 2px solid #ef4444; border-radius: var(--radius-md); transition: all 0.3s; padding: 0.5rem 1rem;"
               >
                 DELETE
               </button>
@@ -1669,27 +1705,33 @@
     
     // Render all trades
     async function renderTrades() {
-      console.log('🔄 Rendering trades...', trades.length, 'total trades');
+      console.log('🟢 renderTrades() CALLED');
+      console.log('🔢 trades.length:', trades.length);
+      console.log('📋 trades array:', trades);
       
       const pendingTrades = trades.filter(t => t.status === 'PENDING');
       const activeTrades = trades.filter(t => t.status === 'ACTIVE');
       const closedTrades = trades.filter(t => t.status === 'CLOSED');
       const invalidatedTrades = trades.filter(t => t.status === 'INVALIDATED');
       
-      console.log('  Pending:', pendingTrades.length, '| Active:', activeTrades.length, '| Closed:', closedTrades.length, '| Invalidated:', invalidatedTrades.length);
+      console.log('  📊 Pending:', pendingTrades.length, '| Active:', activeTrades.length, '| Closed:', closedTrades.length, '| Invalidated:', invalidatedTrades.length);
       
       const allTrades = [...pendingTrades, ...activeTrades, ...closedTrades, ...invalidatedTrades];
+      console.log('  📊 allTrades.length:', allTrades.length);
+      
       const tradesTable = document.getElementById('tradesTable');
+      console.log('  🔍 tradesTable element exists?', !!tradesTable);
       
       if (!tradesTable) {
-        console.error('❌ tradesTable element not found!');
+        console.error('❌ tradesTable element NOT FOUND!');
         return;
       }
       
       if (allTrades.length === 0) {
+        console.log('  ℹ️ NO TRADES TO DISPLAY - clearing table');
         tradesTable.innerHTML = '';
-        console.log('  ℹ️ No trades to display');
       } else {
+        console.log('  ✅ RENDERING', allTrades.length, 'trades...');
         // Fetch market analysis for all active and pending trades (pending needs monitoring for entry)
         console.log('📊 Fetching market analysis for active and pending trades...');
         const tradesToAnalyze = [...pendingTrades, ...activeTrades];
