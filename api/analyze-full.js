@@ -97,9 +97,16 @@ export default async function handler(req, res) {
     // Build timeframe summary
     const timeframes = strategyService.buildTimeframeSummary(analysis);
     
-    // Get HTF bias (from first strategy evaluation)
-    const sampleResult = strategyService.evaluateStrategy(symbol, analysis, 'auto', mode);
-    const htfBias = sampleResult.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+    // Get HTF bias from strategy service (compute from analysis directly)
+    // Use the exported computeHTFBias function
+    const htfBiasRaw = strategyService.computeHTFBias(analysis);
+    const htfBias = {
+      direction: htfBiasRaw.direction || 'neutral',
+      confidence: typeof htfBiasRaw.confidence === 'number' 
+        ? (htfBiasRaw.confidence > 1 ? htfBiasRaw.confidence : htfBiasRaw.confidence * 100)
+        : 0,
+      source: htfBiasRaw.source || 'none'
+    };
     
     // Build rich symbol object
     const richSymbol = {

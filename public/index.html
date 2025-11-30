@@ -1411,6 +1411,98 @@
       }
     }
     
+    /**
+     * Get backend strategy for a symbol and template key
+     * Returns strategy object from richSymbol.strategies, or null if not available
+     * @param {string} symbol - Trading symbol
+     * @param {string} templateKey - Frontend strategy key ('4h', 'Swing', 'Scalp', 'MicroScalp')
+     * @returns {Object|null} Backend strategy object or null
+     */
+    function getBackendStrategy(symbol, templateKey) {
+      const data = scanResults[symbol];
+      if (!data) return null;
+      
+      const richSymbol = data?.richSymbol || data;
+      if (!richSymbol?.strategies) return null;
+      
+      // Map frontend keys to backend strategy names
+      const strategyMap = {
+        '4h': 'TREND_4H',
+        'Swing': 'SWING',
+        'Scalp': 'SCALP_1H',
+        'MicroScalp': 'MICRO_SCALP'
+      };
+      
+      const backendStrategyName = strategyMap[templateKey];
+      if (!backendStrategyName) return null;
+      
+      return richSymbol.strategies[backendStrategyName] || null;
+    }
+    
+    /**
+     * Get active signal for a symbol (uses bestSignal or selected strategy)
+     * @param {string} symbol - Trading symbol
+     * @param {string} templateKey - Optional: specific strategy key, otherwise uses bestSignal
+     * @returns {Object|null} Signal object or null
+     */
+    function getActiveSignal(symbol, templateKey = null) {
+      const data = scanResults[symbol];
+      if (!data) return null;
+      
+      const richSymbol = data?.richSymbol || data;
+      if (!richSymbol?.strategies) {
+        // Fallback to legacy signal
+        return data?.signal || data?.tradeSignal || null;
+      }
+      
+      // If templateKey provided, use that strategy
+      if (templateKey) {
+        const strategy = getBackendStrategy(symbol, templateKey);
+        if (strategy && strategy.valid) {
+          return {
+            valid: true,
+            direction: strategy.direction,
+            confidence: strategy.confidence,
+            reason: strategy.reason,
+            entryZone: strategy.entryZone,
+            stopLoss: strategy.stopLoss,
+            invalidationLevel: strategy.invalidationLevel,
+            targets: strategy.targets,
+            riskReward: strategy.riskReward,
+            setupType: templateKey
+          };
+        }
+        return null;
+      }
+      
+      // Use bestSignal if available
+      if (richSymbol.bestSignal && richSymbol.strategies[richSymbol.bestSignal]) {
+        const bestStrategy = richSymbol.strategies[richSymbol.bestSignal];
+        if (bestStrategy && bestStrategy.valid) {
+          return {
+            valid: true,
+            direction: bestStrategy.direction,
+            confidence: bestStrategy.confidence,
+            reason: bestStrategy.reason,
+            entryZone: bestStrategy.entryZone,
+            stopLoss: bestStrategy.stopLoss,
+            invalidationLevel: bestStrategy.invalidationLevel,
+            targets: bestStrategy.targets,
+            riskReward: bestStrategy.riskReward,
+            setupType: richSymbol.bestSignal === 'TREND_4H' ? '4h' :
+                       richSymbol.bestSignal === 'SWING' ? 'Swing' :
+                       richSymbol.bestSignal === 'SCALP_1H' ? 'Scalp' :
+                       richSymbol.bestSignal === 'MICRO_SCALP' ? 'MicroScalp' : 'auto'
+          };
+        }
+      }
+      
+      // Fallback to legacy signal
+      return data?.signal || data?.tradeSignal || null;
+    }
+    
+    // DEPRECATED: evaluateTemplateSignal - kept for backward compatibility but should not be used
+    // All new code should use getBackendStrategy() or getActiveSignal()
     function evaluateTemplateSignal(symbol, templateKey) {
       try {
         const data = scanResults[symbol];
@@ -1717,32 +1809,45 @@
       // Update button appearance
       updateStrategyButtons(symbol);
       
-      // Re-evaluate signal based on selected strategy
-      const templateKey = strategyOptions[strategyIndex];
+      // Map frontend strategy keys to backend strategy names
+      const strategyKeyMap = {
+        '4h': 'TREND_4H',
+        'Swing': 'SWING',
+        'Scalp': 'SCALP_1H',
+        'MicroScalp': 'MICRO_SCALP'
+      };
       
-      let templateSignal;
-      if (templateKey === 'MicroScalp') {
-        // For Micro-Scalp, show the microScalp signal from API if available
-        const data = scanResults[symbol];
-        if (data && data.microScalp && data.microScalp.valid) {
-          templateSignal = {
-            valid: true,
-            direction: data.microScalp.direction,
-            confidence: data.microScalp.confidence,
-            entryZone: data.microScalp.entry,
-            setupType: 'MicroScalp'
-          };
-        } else {
-          templateSignal = {
-            valid: false,
-            direction: 'NO_TRADE',
-            reason: '1H/15m/5m conditions not met for micro-scalp',
-            confidence: 0,
-            setupType: 'MicroScalp'
-          };
-        }
+      const templateKey = strategyOptions[strategyIndex];
+      const backendStrategyName = strategyKeyMap[templateKey] || 'TREND_4H';
+      
+      // Get backend strategy directly from rich symbol (NO template evaluation)
+      const data = scanResults[symbol];
+      const richSymbol = data?.richSymbol || data;
+      const backendStrategy = richSymbol?.strategies?.[backendStrategyName];
+      
+      // Convert backend strategy to frontend signal format
+      let templateSignal = null;
+      if (backendStrategy && backendStrategy.valid) {
+        templateSignal = {
+          valid: true,
+          direction: backendStrategy.direction,
+          confidence: backendStrategy.confidence,
+          reason: backendStrategy.reason,
+          entryZone: backendStrategy.entryZone,
+          stopLoss: backendStrategy.stopLoss,
+          invalidationLevel: backendStrategy.invalidationLevel,
+          targets: backendStrategy.targets,
+          riskReward: backendStrategy.riskReward,
+          setupType: templateKey
+        };
       } else {
-        templateSignal = evaluateTemplateSignal(symbol, templateKey);
+        templateSignal = {
+          valid: false,
+          direction: 'NO_TRADE',
+          reason: backendStrategy?.reason || 'No trade setup available',
+          confidence: 0,
+          setupType: templateKey
+        };
       }
       
       // Update signal display with template-specific evaluation
@@ -1757,9 +1862,8 @@
         // Remove existing trade classes
         row.classList.remove('has-trade-long', 'has-trade-short');
         
-        // Use template signal if valid, otherwise fall back to API signal
-        const data = scanResults[symbol];
-        const activeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data?.signal || data?.tradeSignal);
+        // Use backend strategy signal (already extracted above)
+        const activeSignal = templateSignal;
         
         // Add appropriate class if there's any valid trade
         if (activeSignal && activeSignal.valid) {
@@ -1786,8 +1890,21 @@
     function updateEntryPrice(symbol, templateSignal) {
       const data = scanResults[symbol];
       
-      // Use template signal if valid, otherwise fall back to API signal
-      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data?.signal || data?.tradeSignal);
+      // Get active signal from backend (use provided templateSignal if it's from backend, otherwise get from backend)
+      let tradeSignal = null;
+      if (templateSignal && templateSignal.valid) {
+        tradeSignal = templateSignal;
+      } else {
+        // Get from backend using current selected strategy
+        const currentStrategyIndex = strategyStates[symbol] || 0;
+        const currentStrategy = strategyOptions[currentStrategyIndex];
+        tradeSignal = getActiveSignal(symbol, currentStrategy);
+        
+        // Fallback to legacy signal if backend not available
+        if (!tradeSignal) {
+          tradeSignal = data?.signal || data?.tradeSignal;
+        }
+      }
       
       let entryPriceDisplay = 'NO TRADE';
       let hasSignal = false;
@@ -1927,46 +2044,29 @@
       
       // Evaluate ALL strategies for color coding
       // For each strategy, use template signal if valid, otherwise check if API signal matches that strategy
-      let strategy4hSignal = evaluateTemplateSignal(symbol, '4h');
+      // Get ALL strategies from backend for color coding (NO template evaluation)
+      const richSymbol = data?.richSymbol || data;
+      const strategy4h = getBackendStrategy(symbol, '4h');
+      const strategySwing = getBackendStrategy(symbol, 'Swing');
+      const strategyScalp = getBackendStrategy(symbol, 'Scalp');
       
-      if (symbol === 'BTCUSDT') {
-        console.log('4H Template Signal:', evaluateTemplateSignal(symbol, '4h'));
-        console.log('API Signal setupType:', apiSignal?.setupType);
-        console.log('API Signal valid:', apiSignal?.valid);
-      }
+      const strategy4hSignal = strategy4h && strategy4h.valid ? {
+        valid: true,
+        direction: strategy4h.direction,
+        confidence: strategy4h.confidence
+      } : null;
       
-      // If template signal invalid, check API signal
-      // Handle both standard types (4h, Swing, Scalp) and aggressive mode types (AGGRO_SCALP_1H, etc)
-      if (!strategy4hSignal?.valid && apiSignal?.valid) {
-        const setupType = (apiSignal.setupType || '').toLowerCase();
-        // Match 4h, or aggressive mode types containing '1h', '4h', or default if no setupType
-        if (setupType.includes('4h') || setupType.includes('1h') || !apiSignal.setupType) {
-          strategy4hSignal = apiSignal;
-          if (symbol === 'BTCUSDT') {
-            console.log('✅ Using API signal for 4H:', apiSignal);
-          }
-        }
-      }
+      const strategySwingSignal = strategySwing && strategySwing.valid ? {
+        valid: true,
+        direction: strategySwing.direction,
+        confidence: strategySwing.confidence
+      } : null;
       
-      if (symbol === 'BTCUSDT') {
-        console.log('4H Final Signal:', strategy4hSignal);
-      }
-      
-      let strategySwingSignal = evaluateTemplateSignal(symbol, 'Swing');
-      if (!strategySwingSignal?.valid && apiSignal?.valid) {
-        const setupType = (apiSignal.setupType || '').toLowerCase();
-        if (setupType.includes('swing')) {
-          strategySwingSignal = apiSignal;
-        }
-      }
-      
-      let strategyScalpSignal = evaluateTemplateSignal(symbol, 'Scalp');
-      if (!strategyScalpSignal?.valid && apiSignal?.valid) {
-        const setupType = (apiSignal.setupType || '').toLowerCase();
-        if (setupType.includes('scalp')) {
-          strategyScalpSignal = apiSignal;
-        }
-      }
+      const strategyScalpSignal = strategyScalp && strategyScalp.valid ? {
+        valid: true,
+        direction: strategyScalp.direction,
+        confidence: strategyScalp.confidence
+      } : null;
       
       // Get micro-scalp signal from API data
       const microScalpSignal = data && data.microScalp && data.microScalp.valid ? {
@@ -2116,24 +2216,25 @@
             const originalScanResults = scanResults;
             scanResults = results;
             
-            let templateSignal = evaluateTemplateSignal(symbol, strategy);
+            // Get backend strategy directly (NO template evaluation)
+            const strategyMap = {
+              '4h': 'TREND_4H',
+              'Swing': 'SWING',
+              'Scalp': 'SCALP_1H',
+              'MicroScalp': 'MICRO_SCALP'
+            };
+            const backendStrategyName = strategyMap[strategy];
+            const richSymbol = results[symbol]?.richSymbol || results[symbol];
+            const backendStrategy = richSymbol?.strategies?.[backendStrategyName];
             
             // Restore original scanResults
             scanResults = originalScanResults;
             
-            // Fallback to API signal if template signal invalid
-            if (!templateSignal?.valid && apiSignal?.valid) {
-              const apiSetupType = (apiSignal.setupType || '').toLowerCase();
-              const strategyLower = strategy.toLowerCase();
-              
-              // Match strategy to API signal setupType (handles both standard and aggressive mode)
-              if (apiSetupType.includes(strategyLower) || 
-                  (strategyLower === '4h' && (apiSetupType.includes('1h') || apiSetupType.includes('4h'))) ||
-                  (strategyLower === 'microscalp' && apiSetupType.includes('micro'))) {
-                templateSignal = apiSignal;
-                console.log(`${symbol} ${strategy} [${modeName}]: Using API signal (${apiSignal.setupType})`);
-              }
-            }
+            const templateSignal = backendStrategy && backendStrategy.valid ? {
+              valid: true,
+              direction: backendStrategy.direction,
+              confidence: backendStrategy.confidence
+            } : null;
             
             if (templateSignal && templateSignal.valid) {
               activeSignalsCount++;
@@ -2217,12 +2318,27 @@
           };
           
           strategyKeys.forEach((strategyKey) => {
-            const signal = evaluateTemplateSignal(symbol, strategyKey);
+            // Get backend strategy directly (NO template evaluation)
+            const strategyMap = {
+              '4h': 'TREND_4H',
+              'Swing': 'SWING',
+              'Scalp': 'SCALP_1H',
+              'MicroScalp': 'MICRO_SCALP'
+            };
+            const backendStrategyName = strategyMap[strategyKey];
+            const richSymbol = safeData?.richSymbol || safeData;
+            const backendStrategy = richSymbol?.strategies?.[backendStrategyName];
+            const signal = backendStrategy && backendStrategy.valid ? {
+              valid: true,
+              direction: backendStrategy.direction,
+              setupType: strategyKey,
+              confidence: backendStrategy.confidence
+            } : null;
             if (signal && signal.valid) {
               allTradesData.SAFE_MODE[symbol].strategies[strategyKey] = {
                 direction: signal.direction,
                 setupType: signal.setupType,
-                confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%'
+                confidence: signal.confidence ? signal.confidence.toFixed(0) + '%' : '0%'
               };
             }
           });
@@ -2240,12 +2356,27 @@
           };
           
           strategyKeys.forEach((strategyKey) => {
-            const signal = evaluateTemplateSignal(symbol, strategyKey);
+            // Get backend strategy directly (NO template evaluation)
+            const strategyMap = {
+              '4h': 'TREND_4H',
+              'Swing': 'SWING',
+              'Scalp': 'SCALP_1H',
+              'MicroScalp': 'MICRO_SCALP'
+            };
+            const backendStrategyName = strategyMap[strategyKey];
+            const richSymbol = aggressiveData?.richSymbol || aggressiveData;
+            const backendStrategy = richSymbol?.strategies?.[backendStrategyName];
+            const signal = backendStrategy && backendStrategy.valid ? {
+              valid: true,
+              direction: backendStrategy.direction,
+              setupType: strategyKey,
+              confidence: backendStrategy.confidence
+            } : null;
             if (signal && signal.valid) {
               allTradesData.AGGRESSIVE_MODE[symbol].strategies[strategyKey] = {
                 direction: signal.direction,
                 setupType: signal.setupType,
-                confidence: signal.confidence ? (signal.confidence * 100).toFixed(0) + '%' : '0%'
+                confidence: signal.confidence ? signal.confidence.toFixed(0) + '%' : '0%'
               };
             }
           });
@@ -2369,36 +2500,51 @@
         // Fetch data for BOTH modes to count all signals
         const mode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
         
-        // Fetch current mode (for display)
+        // Fetch current mode (for display) - USE /api/analyze-full for rich structure
         const currentModePromises = symbols.map(symbol => 
-          fetch(`/api/analyze/${symbol}?intervals=1M,1w,3d,1d,4h,1h,15m,5m,1m&mode=${mode}`)
+          fetch(`/api/analyze-full?symbol=${symbol}&mode=${mode}`)
             .then(res => {
               if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
               return res.json();
             })
-            .then(data => ({ symbol, data, mode }))
+            .then(richSymbol => {
+              // Convert rich symbol to legacy format for backward compatibility
+              const legacyData = convertRichSymbolToLegacy(richSymbol);
+              return { symbol, data: legacyData, mode, richSymbol };
+            })
         );
         
-        // Fetch opposite mode (for counting)
+        // Fetch opposite mode (for counting) - USE /api/analyze-full for rich structure
         const oppositeMode = aggressiveMode ? 'STANDARD' : 'AGGRESSIVE';
         const oppositeModePromises = symbols.map(symbol => 
-          fetch(`/api/analyze/${symbol}?intervals=1M,1w,3d,1d,4h,1h,15m,5m,1m&mode=${oppositeMode}`)
+          fetch(`/api/analyze-full?symbol=${symbol}&mode=${oppositeMode}`)
             .then(res => {
               if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
               return res.json();
             })
-            .then(data => ({ symbol, data, mode: oppositeMode }))
+            .then(richSymbol => {
+              // Convert rich symbol to legacy format for backward compatibility
+              const legacyData = convertRichSymbolToLegacy(richSymbol);
+              return { symbol, data: legacyData, mode: oppositeMode, richSymbol };
+            })
         );
         
         // Fetch both modes in parallel
         const allResults = await Promise.all([...currentModePromises, ...oppositeModePromises]);
         
-        // Store results by mode
-        allResults.forEach(({ symbol, data, mode: resultMode }) => {
+        // Store results by mode (store both legacy data and rich symbol)
+        allResults.forEach(({ symbol, data, mode: resultMode, richSymbol }) => {
+          const resultData = data;
+          // Store rich symbol for direct backend access
+          if (richSymbol) {
+            resultData.richSymbol = richSymbol;
+            resultData.strategies = richSymbol.strategies;
+            resultData.bestSignal = richSymbol.bestSignal;
+          }
           if (resultMode === 'AGGRESSIVE') {
-            scanResultsAggressive[symbol] = data;
+            scanResultsAggressive[symbol] = resultData;
           } else {
-            scanResultsSafe[symbol] = data;
+            scanResultsSafe[symbol] = resultData;
           }
         });
         
@@ -2449,24 +2595,23 @@
       for (let i = 0; i < strategies.length; i++) {
         const strategy = strategies[i];
         
-        // Check template signal first
-        let signal = evaluateTemplateSignal(symbol, strategy);
+        // Map frontend strategy key to backend strategy name
+        const strategyKeyMap = {
+          '4h': 'TREND_4H',
+          'Swing': 'SWING',
+          'Scalp': 'SCALP_1H',
+          'MicroScalp': 'MICRO_SCALP'
+        };
+        const backendStrategyName = strategyKeyMap[strategy];
         
-        // If no template signal, check if API signal matches this strategy
-        // Handle both standard types and aggressive mode types (e.g., AGGRO_SCALP_1H)
-        if (!signal?.valid && apiSignal?.valid) {
-          const apiSetupType = (apiSignal.setupType || '').toLowerCase();
-          const strategyLower = strategy.toLowerCase();
-          
-          // Match by exact name or by contains for aggressive mode types
-          if (apiSetupType === strategyLower || 
-              (strategyLower === '4h' && (apiSetupType.includes('4h') || apiSetupType.includes('1h'))) ||
-              (strategyLower === 'swing' && apiSetupType.includes('swing')) ||
-              (strategyLower === 'scalp' && apiSetupType.includes('scalp')) ||
-              (strategyLower === 'microscalp' && apiSetupType.includes('microscalp'))) {
-            signal = apiSignal;
-          }
-        }
+        // Get backend strategy directly (NO template evaluation)
+        const richSymbol = data?.richSymbol || data;
+        const backendStrategy = richSymbol?.strategies?.[backendStrategyName];
+        const signal = backendStrategy && backendStrategy.valid ? {
+          valid: true,
+          direction: backendStrategy.direction,
+          confidence: backendStrategy.confidence
+        } : null;
         
         if (signal && signal.valid) {
           // Found a valid signal, select this strategy
@@ -2592,12 +2737,11 @@
       };
       const strategyName = strategyNames[currentStrategy] || '4 HOUR';
       
-      // Evaluate signal based on current template
-      const template = tradeTemplates[currentStrategy];
-      const templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
+      // Get active signal from backend (no template evaluation)
+      const templateSignal = getActiveSignal(symbol, currentStrategy);
       
-      // Use template signal if valid, otherwise fall back to API signal (same as entry price logic)
-      const activeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
+      // Use backend signal if available, otherwise fall back to legacy signal
+      const activeSignal = templateSignal || (data.signal || data.tradeSignal);
       
       // Set row class based on active signal (template or API)
       const hasValidTrade = activeSignal && activeSignal.valid;
@@ -2626,46 +2770,46 @@
       // Get API signal as fallback
       const apiSignal = data?.signal || data?.tradeSignal;
       
-      // Evaluate ALL strategies for this symbol to color-code the indicator buttons
-      // For each strategy, use template signal if valid, otherwise check if API signal matches that strategy
-      // Handle both standard types and aggressive mode types (e.g., AGGRO_SCALP_1H)
-      let strategy4hSignal = evaluateTemplateSignal(symbol, '4h');
-      if (!strategy4hSignal?.valid && apiSignal?.valid) {
-        const setupType = (apiSignal.setupType || '').toLowerCase();
-        if (setupType.includes('4h') || setupType.includes('1h') || !apiSignal.setupType) {
-          strategy4hSignal = apiSignal;
-        }
-      }
+      // Get ALL strategies from backend to color-code the indicator buttons
+      const richSymbol = data?.richSymbol || data;
+      const strategies = richSymbol?.strategies || {};
       
-      let strategySwingSignal = evaluateTemplateSignal(symbol, 'Swing');
-      if (!strategySwingSignal?.valid && apiSignal?.valid) {
-        const setupType = (apiSignal.setupType || '').toLowerCase();
-        if (setupType.includes('swing')) {
-          strategySwingSignal = apiSignal;
-        }
-      }
+      // Get backend strategies directly (NO template evaluation)
+      const strategy4h = getBackendStrategy(symbol, '4h');
+      const strategySwing = getBackendStrategy(symbol, 'Swing');
+      const strategyScalp = getBackendStrategy(symbol, 'Scalp');
+      const strategyMicroScalp = getBackendStrategy(symbol, 'MicroScalp');
       
-      let strategyScalpSignal = evaluateTemplateSignal(symbol, 'Scalp');
-      if (!strategyScalpSignal?.valid && apiSignal?.valid) {
-        const setupType = (apiSignal.setupType || '').toLowerCase();
-        if (setupType.includes('scalp')) {
-          strategyScalpSignal = apiSignal;
-        }
-      }
+      const strategy4hSignal = strategy4h && strategy4h.valid ? {
+        valid: true,
+        direction: strategy4h.direction,
+        confidence: strategy4h.confidence
+      } : null;
+      
+      const strategySwingSignal = strategySwing && strategySwing.valid ? {
+        valid: true,
+        direction: strategySwing.direction,
+        confidence: strategySwing.confidence
+      } : null;
+      
+      const strategyScalpSignal = strategyScalp && strategyScalp.valid ? {
+        valid: true,
+        direction: strategyScalp.direction,
+        confidence: strategyScalp.confidence
+      } : null;
       
       // Check if ANY strategy has a valid trade for coin name color
       const hasAnyTrade = (strategy4hSignal && strategy4hSignal.valid) || 
                           (strategySwingSignal && strategySwingSignal.valid) || 
                           (strategyScalpSignal && strategyScalpSignal.valid) ||
-                          (data.microScalp && data.microScalp.valid);
+                          (strategyMicroScalp && strategyMicroScalp.valid);
       
       
       // Calculate current price display
       const currentPriceDisplay = data.currentPrice ? `$${data.currentPrice.toLocaleString()}` : 'N/A';
       
-      // Calculate entry price - use same logic as details section
-      // Use template signal if valid, otherwise fall back to API signal
-      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
+      // Calculate entry price - use backend signal
+      const tradeSignal = templateSignal || (data.signal || data.tradeSignal);
       
       let entryPriceDisplay = 'NO TRADE';
       let entryHasSignal = false;
@@ -2936,11 +3080,12 @@
           };
         }
       } else {
-        templateSignal = evaluateTemplateSignal(symbol, currentStrategy);
+        // Get backend strategy for current strategy
+        templateSignal = getActiveSignal(symbol, currentStrategy);
       }
       
-      // Use template signal if active, otherwise fall back to original trade signal
-      const tradeSignal = (templateSignal && templateSignal.valid) ? templateSignal : (data.signal || data.tradeSignal);
+      // Use backend signal if available, otherwise fall back to legacy signal
+      const tradeSignal = templateSignal || (data.signal || data.tradeSignal);
       let tradeCallHtml = '';
       
       if (tradeSignal && tradeSignal.valid) {
@@ -3663,6 +3808,72 @@
       });
     }
 
+    // Convert rich symbol from /api/analyze-full to legacy format for backward compatibility
+    function convertRichSymbolToLegacy(richSymbol) {
+      if (!richSymbol) return null;
+      
+      // Extract best signal strategy
+      const bestStrategy = richSymbol.bestSignal 
+        ? richSymbol.strategies[richSymbol.bestSignal]
+        : null;
+      
+      // Build legacy signal format
+      const legacySignal = bestStrategy && bestStrategy.valid ? {
+        valid: true,
+        direction: bestStrategy.direction,
+        confidence: bestStrategy.confidence,
+        reason: bestStrategy.reason,
+        entryZone: bestStrategy.entryZone,
+        stopLoss: bestStrategy.stopLoss,
+        invalidationLevel: bestStrategy.invalidationLevel,
+        targets: bestStrategy.targets,
+        riskReward: bestStrategy.riskReward,
+        setupType: richSymbol.bestSignal === 'TREND_4H' ? '4h' :
+                   richSymbol.bestSignal === 'SWING' ? 'Swing' :
+                   richSymbol.bestSignal === 'SCALP_1H' ? 'Scalp' :
+                   richSymbol.bestSignal === 'MICRO_SCALP' ? 'MicroScalp' : 'auto'
+      } : {
+        valid: false,
+        direction: 'NO_TRADE',
+        confidence: 0,
+        reason: 'No valid strategy available'
+      };
+      
+      // Build analysis structure from timeframes
+      const analysis = {};
+      if (richSymbol.timeframes) {
+        for (const [tf, tfData] of Object.entries(richSymbol.timeframes)) {
+          analysis[tf] = {
+            indicators: {
+              analysis: {
+                trend: tfData.trend || 'UNKNOWN',
+                pullbackState: tfData.pullback?.state || 'UNKNOWN',
+                distanceFrom21EMA: tfData.pullback?.distanceFrom21EMA || null
+              },
+              ema: {
+                ema21: tfData.ema21 || null,
+                ema200: tfData.ema200 || null
+              },
+              stochRSI: tfData.stochRsi || null
+            },
+            structure: tfData.structure || null
+          };
+        }
+      }
+      
+      return {
+        symbol: richSymbol.symbol,
+        currentPrice: richSymbol.currentPrice,
+        signal: legacySignal,
+        tradeSignal: legacySignal,
+        htfBias: richSymbol.htfBias,
+        analysis: analysis,
+        strategies: richSymbol.strategies,
+        bestSignal: richSymbol.bestSignal,
+        richSymbol: richSymbol // Keep reference to full rich symbol
+      };
+    }
+
     // Build rich symbol object from existing scanResults data (fallback)
     function buildRichSymbolFromScanResults(symbol, mode) {
       const originalScanResults = scanResults;
@@ -3687,7 +3898,32 @@
       const strategyNames = ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'];
       
       strategyKeys.forEach((key, idx) => {
-        const signal = evaluateTemplateSignal(symbol, key);
+        // Get backend strategy directly (NO template evaluation) - this is fallback only
+        const strategyMap = {
+          '4h': 'TREND_4H',
+          'Swing': 'SWING',
+          'Scalp': 'SCALP_1H',
+          'MicroScalp': 'MICRO_SCALP'
+        };
+        const backendStrategyName = strategyMap[key];
+        const richSymbol = data?.richSymbol || data;
+        const backendStrategy = richSymbol?.strategies?.[backendStrategyName];
+        
+        // Use backend strategy if available, otherwise fall back to template evaluation (legacy)
+        const signal = backendStrategy ? {
+          valid: backendStrategy.valid || false,
+          direction: backendStrategy.direction || 'NO_TRADE',
+          confidence: typeof backendStrategy.confidence === 'number'
+            ? backendStrategy.confidence
+            : 0,
+          reason: backendStrategy.reason || 'No trade setup available',
+          entryZone: backendStrategy.entryZone || { min: null, max: null },
+          stopLoss: backendStrategy.stopLoss || null,
+          invalidationLevel: backendStrategy.invalidationLevel || null,
+          targets: backendStrategy.targets || [],
+          riskReward: backendStrategy.riskReward || { tp1RR: null, tp2RR: null }
+        } : evaluateTemplateSignal(symbol, key); // Legacy fallback only
+        
         if (signal) {
           strategies[strategyNames[idx]] = {
             valid: signal.valid || false,

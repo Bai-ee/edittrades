@@ -8,6 +8,22 @@
 import * as indicators from './indicators.js';
 
 /**
+ * Normalize trend value to consistent lowercase format
+ * Converts: "UPTREND", "uptrend", "UP" → "uptrend"
+ * Converts: "DOWNTREND", "downtrend", "DOWN" → "downtrend"
+ * Everything else → "flat"
+ * @param {string} trend - Raw trend value
+ * @returns {string} Normalized trend: "uptrend" | "downtrend" | "flat"
+ */
+function normalizeTrend(trend) {
+  if (!trend || typeof trend !== 'string') return 'flat';
+  const lower = trend.toLowerCase().trim();
+  if (lower.includes('up')) return 'uptrend';
+  if (lower.includes('down')) return 'downtrend';
+  return 'flat';
+}
+
+/**
  * INVARIANT VALIDATION: Validate strategy signal meets all requirements
  * If valid=true, ALL required fields must be present and logically consistent
  */
@@ -213,7 +229,7 @@ const THRESHOLDS = {
  * @param {Object} timeframes - All timeframe data
  * @returns {Object} HTF bias { direction, confidence, source }
  */
-function computeHTFBias(timeframes) {
+export function computeHTFBias(timeframes) {
   const tf4h = timeframes['4h'];
   const tf1h = timeframes['1h'];
 
@@ -224,13 +240,17 @@ function computeHTFBias(timeframes) {
   let longScore = 0;
   let shortScore = 0;
 
+  // Normalize trends for consistent comparison
+  const trend4h = normalizeTrend(tf4h.indicators?.analysis?.trend);
+  const trend1h = normalizeTrend(tf1h.indicators?.analysis?.trend);
+
   // 4H trend (weighted higher)
-  if (tf4h.indicators?.analysis?.trend === 'UPTREND') longScore += 2;
-  if (tf4h.indicators?.analysis?.trend === 'DOWNTREND') shortScore += 2;
+  if (trend4h === 'uptrend') longScore += 2;
+  if (trend4h === 'downtrend') shortScore += 2;
 
   // 1H trend
-  if (tf1h.indicators?.analysis?.trend === 'UPTREND') longScore += 1;
-  if (tf1h.indicators?.analysis?.trend === 'DOWNTREND') shortScore += 1;
+  if (trend1h === 'uptrend') longScore += 1;
+  if (trend1h === 'downtrend') shortScore += 1;
 
   // Stoch conditions (4H + 1H)
   const stochs = [
@@ -250,17 +270,14 @@ function computeHTFBias(timeframes) {
 
   // Handle ties - prefer trending timeframe over stoch
   if (longScore === shortScore && longScore > 0) {
-    // Check actual trends for tie-breaker
-    const trend4h = tf4h.indicators?.analysis?.trend;
-    const trend1h = tf1h.indicators?.analysis?.trend;
-    
-    if (trend1h === 'UPTREND') {
+    // Check actual trends for tie-breaker (already normalized above)
+    if (trend1h === 'uptrend') {
       return { direction: 'long', confidence: 60, source: '1h' };
-    } else if (trend1h === 'DOWNTREND') {
+    } else if (trend1h === 'downtrend') {
       return { direction: 'short', confidence: 60, source: '1h' };
-    } else if (trend4h === 'UPTREND') {
+    } else if (trend4h === 'uptrend') {
       return { direction: 'long', confidence: 50, source: '4h' };
-    } else if (trend4h === 'DOWNTREND') {
+    } else if (trend4h === 'downtrend') {
       return { direction: 'short', confidence: 50, source: '4h' };
     }
     // True tie - mixed signals
@@ -272,14 +289,14 @@ function computeHTFBias(timeframes) {
     return { 
       direction: 'long', 
       confidence: conf, 
-      source: tf4h.indicators?.analysis?.trend !== 'FLAT' ? '4h' : '1h' 
+      source: trend4h !== 'flat' ? '4h' : '1h' 
     };
   } else if (shortScore > longScore) {
     const conf = Math.min(100, Math.round((shortScore / (longScore + shortScore)) * 100));
     return { 
       direction: 'short', 
       confidence: conf, 
-      source: tf4h.indicators?.analysis?.trend !== 'FLAT' ? '4h' : '1h' 
+      source: trend4h !== 'flat' ? '4h' : '1h' 
     };
   } else {
     return { direction: 'neutral', confidence: 0, source: 'mixed' };
@@ -638,17 +655,19 @@ function calculateConfidence(analysis, direction) {
   
   if (!tf4h || !tf1h) return 0;
   
-  // 1. 4h trend alignment (0-0.4)
-  const trend4h = tf4h.indicators.analysis.trend;
-  if (direction === 'long' && trend4h === 'UPTREND') score += 0.4;
-  else if (direction === 'short' && trend4h === 'DOWNTREND') score += 0.4;
-  else if (trend4h === 'FLAT') score += 0.1; // Partial credit
+  // 1. 4h trend alignment (0-0.4) - normalize trends
+  const trend4hRaw = tf4h.indicators.analysis.trend;
+  const trend4h = normalizeTrend(trend4hRaw);
+  if (direction === 'long' && trend4h === 'uptrend') score += 0.4;
+  else if (direction === 'short' && trend4h === 'downtrend') score += 0.4;
+  else if (trend4h === 'flat') score += 0.1; // Partial credit
   
-  // 2. 1h confirmation (0-0.2)
-  const trend1h = tf1h.indicators.analysis.trend;
-  if (direction === 'long' && trend1h === 'UPTREND') score += 0.2;
-  else if (direction === 'short' && trend1h === 'DOWNTREND') score += 0.2;
-  else if (trend1h === 'FLAT') score += 0.1;
+  // 2. 1h confirmation (0-0.2) - normalize trends
+  const trend1hRaw = tf1h.indicators.analysis.trend;
+  const trend1h = normalizeTrend(trend1hRaw);
+  if (direction === 'long' && trend1h === 'uptrend') score += 0.2;
+  else if (direction === 'short' && trend1h === 'downtrend') score += 0.2;
+  else if (trend1h === 'flat') score += 0.1;
   
   // 3. Stoch alignment (0-0.2)
   if (tf15m && tf5m) {
@@ -1034,7 +1053,9 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     return normalizeToCanonical(rawSignal, analysis, mode);
   }
   
-  const trend4h = tf4h.indicators.analysis.trend;
+  // Normalize trend for consistent comparison
+  const trend4hRaw = tf4h.indicators.analysis.trend;
+  const trend4h = normalizeTrend(trend4hRaw);
   const currentPrice = tf4h.indicators.price.current;
   const ema21 = tf4h.indicators.ema.ema21;
   const ema200 = tf4h.indicators.ema.ema200;
@@ -1119,7 +1140,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   // PRIORITY 2: Try 4H Trend Play
   // SAFE_MODE: Only if 4H is NOT FLAT
   // AGGRESSIVE_MODE: Can use HTF bias + lower TFs even when 4H is FLAT (always allow in AGGRESSIVE)
-  const canTry4HTrend = (mode === 'STANDARD' && trend4h !== 'FLAT') || 
+  const canTry4HTrend = (mode === 'STANDARD' && trend4h !== 'flat') || 
                         (mode === 'AGGRESSIVE'); // AGGRESSIVE always allows 4H trend evaluation
   
   if (canTry4HTrend && (setupType === '4h' || setupType === 'auto')) {
@@ -1129,12 +1150,12 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     const invalidationReasons = [];
     
     // AGGRESSIVE_MODE: When 4H is flat, use HTF bias + lower TFs for direction
-    const effectiveTrend4h = (mode === 'AGGRESSIVE' && trend4h === 'FLAT' && htfBias.confidence >= 70)
-      ? (htfBias.direction === 'long' ? 'UPTREND' : htfBias.direction === 'short' ? 'DOWNTREND' : trend4h)
+    const effectiveTrend4h = (mode === 'AGGRESSIVE' && trend4h === 'flat' && htfBias.confidence >= 70)
+      ? (htfBias.direction === 'long' ? 'uptrend' : htfBias.direction === 'short' ? 'downtrend' : trend4h)
       : trend4h;
   
   // PRD 3.2: Long Setup Requirements
-  if (effectiveTrend4h === 'UPTREND') {
+  if (effectiveTrend4h === 'uptrend') {
     direction = 'long';
     setupValid = true;
     
@@ -1145,7 +1166,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     }
     
     // Check: 1h structure not breaking down
-    if (tf1h && tf1h.indicators.analysis.trend === 'DOWNTREND') {
+    const trend1h = normalizeTrend(tf1h?.indicators?.analysis?.trend);
+    if (tf1h && trend1h === 'downtrend') {
       invalidationReasons.push('1h breaking down');
       setupValid = false;
     }
@@ -1163,7 +1185,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   }
   
   // PRD 3.3: Short Setup Requirements
-  else if (effectiveTrend4h === 'DOWNTREND') {
+  else if (effectiveTrend4h === 'downtrend') {
     direction = 'short';
     setupValid = true;
     
@@ -1174,7 +1196,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     }
     
     // Check: 1h structure showing lower highs
-    if (tf1h && tf1h.indicators.analysis.trend === 'UPTREND') {
+    const trend1hShort = normalizeTrend(tf1h?.indicators?.analysis?.trend);
+    if (tf1h && trend1hShort === 'uptrend') {
       invalidationReasons.push('1h breaking up');
       setupValid = false;
     }
@@ -1336,9 +1359,12 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     const pullbackState1h = tf1h.indicators?.analysis?.pullbackState;
     const pullbackState15m = tf15m.indicators?.analysis?.pullbackState;
     
+    // Normalize 1H trend
+    const trend1hNorm = normalizeTrend(trend1h);
+    
     // Need 1H trend (not FLAT)
-    if (trend1h && trend1h !== 'FLAT') {
-      const isLong = trend1h === 'UPTREND';
+    if (trend1hNorm && trend1hNorm !== 'flat') {
+      const isLong = trend1hNorm === 'uptrend';
       const direction = isLong ? 'long' : 'short';
       
       // Check if price near 1H EMA21 and 15m EMA21
@@ -1572,8 +1598,11 @@ function evaluateMicroScalp(multiTimeframeData) {
   }
   
   // 2.1 HIGH-TIMEFRAME GUARDRAILS
+  // Normalize 1H trend
+  const trend1hNorm = normalizeTrend(trend1h);
+  
   // 1H must be trending (not FLAT)
-  if (trend1h === 'FLAT') {
+  if (trend1hNorm === 'flat') {
     return result;
   }
   
@@ -1590,7 +1619,7 @@ function evaluateMicroScalp(multiTimeframeData) {
   let reason = '';
   
   // Check for LONG micro-scalp
-  if (trend1h === 'UPTREND') {
+  if (trend1hNorm === 'uptrend') {
     // Both 15m & 5m must be near EMA21 (within 0.25%)
     const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 999);
     const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 999);
@@ -1620,7 +1649,7 @@ function evaluateMicroScalp(multiTimeframeData) {
   }
   
   // Check for SHORT micro-scalp
-  if (trend1h === 'DOWNTREND') {
+  if (trend1hNorm === 'downtrend') {
     const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 999);
     const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 999);
     
@@ -1725,6 +1754,8 @@ function evaluateMicroScalp(multiTimeframeData) {
  * @returns {Object} Rich strategy object with all strategies
  */
 export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDARD') {
+  console.log(`[evaluateAllStrategies] ${symbol} mode=${mode}`);
+  
   const strategies = {
     SWING: null,
     TREND_4H: null,
@@ -1734,12 +1765,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   
   // SAFE_MODE: Strict 4H trend gate - if 4H is FLAT, all strategies must be NO_TRADE
   const tf4h = multiTimeframeData['4h'];
-  const trend4h = tf4h?.indicators?.analysis?.trend;
-  const is4HFlat = trend4h === 'FLAT' || trend4h === 'flat';
+  const trend4hRaw = tf4h?.indicators?.analysis?.trend;
+  const trend4h = normalizeTrend(trend4hRaw);
+  const is4HFlat = trend4h === 'flat';
+  
+  console.log(`[evaluateAllStrategies] ${symbol} 4H trend=${trend4hRaw} (normalized=${trend4h}), is4HFlat=${is4HFlat}`);
   
   if (mode === 'STANDARD' && is4HFlat) {
     // SAFE_MODE: Block all trades when 4H is flat
     const flatReason = '4H trend is FLAT - no trade allowed per SAFE_MODE rules';
+    console.log(`[evaluateAllStrategies] ${symbol} SAFE_MODE: Blocking all strategies (4H flat)`);
     strategies.SWING = createNoTradeStrategy('SWING', flatReason);
     strategies.TREND_4H = createNoTradeStrategy('TREND_4H', flatReason);
     strategies.SCALP_1H = createNoTradeStrategy('SCALP_1H', flatReason);
@@ -1779,6 +1814,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     // Recompute HTF bias to ensure we have fresh data
     const htfBias = computeHTFBias(multiTimeframeData);
     console.log(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias=${htfBias.direction} (${htfBias.confidence}%), 4H flat, checking forcing conditions...`);
+    console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: 4H flat, HTF bias=${htfBias.direction} (${htfBias.confidence}%)`);
     const tf1h = multiTimeframeData['1h'];
     const tf15m = multiTimeframeData['15m'];
     const tf5m = multiTimeframeData['5m'];
@@ -1935,9 +1971,11 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       // Apply chosen strategy - FORCE override for longs
       if (chosenStrategy && chosenName) {
         console.log(`[AGGRESSIVE_FORCE] ${symbol}: FORCING ${chosenName} LONG to valid=true, direction=${chosenStrategy.direction}`);
+        console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: FORCED ${chosenName} valid=true, reason="${chosenStrategy.reason}"`);
         strategies[chosenName] = chosenStrategy;
       } else {
         console.log(`[AGGRESSIVE_FORCE] ${symbol}: No LONG strategy chosen despite conditions being met!`);
+        console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: FAILED - No strategy forced despite conditions`);
       }
     } else {
       console.log(`[AGGRESSIVE_FORCE] ${symbol}: LONG conditions NOT met. HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
@@ -2065,6 +2103,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       // Apply chosen strategy - FORCE override for shorts
       if (chosenStrategy && chosenName) {
         console.log(`[AGGRESSIVE_FORCE] ${symbol}: FORCING ${chosenName} SHORT to valid=true`);
+        console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: FORCED ${chosenName} valid=true, reason="${chosenStrategy.reason}"`);
         strategies[chosenName] = chosenStrategy;
       }
     } else {
@@ -2112,6 +2151,9 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       }
     }
   }
+  
+  console.log(`[evaluateAllStrategies] ${symbol} mode=${mode} bestSignal=${bestSignal}, validStrategies=${validStrategies.length}`);
+  console.log(`[TEST_CASE_${mode === 'STANDARD' ? 'A' : 'B'}] ${symbol} ${mode}: bestSignal=${bestSignal}, strategies valid: ${Object.entries(strategies).filter(([_, s]) => s && s.valid).map(([name]) => name).join(', ')}`);
   
   return {
     strategies,
@@ -2334,7 +2376,8 @@ export default {
   analyzeStochState,
   calculateConfidence,
   evaluateMicroScalp,
-  evaluateSwingSetup
+  evaluateSwingSetup,
+  computeHTFBias
 };
 
 
