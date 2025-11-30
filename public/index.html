@@ -3591,14 +3591,14 @@
       window.location.href = '/tracker.html?autoTrack=true';
     }
 
-    // Copy single coin view - UNIFIED: Trade + Full Signal Snapshot
+    // Copy single coin view - UNIFIED: Trade + Full Signal Snapshot (ONE COIN ONLY)
     async function copyCoinView(symbol) {
       console.log(`📋 Copying ${symbol} with unified format (trade + full snapshot)...`);
       
       // Determine current mode
       const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
       
-      // Fetch full rich symbol snapshot
+      // Fetch full rich symbol snapshot for THIS COIN ONLY
       let signalSnapshot = null;
       try {
         const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${currentMode}`);
@@ -3628,7 +3628,7 @@
       // Build unified payload: trade fields + full signalSnapshot
       // Matches the exact structure: symbol, mode, htfBias, strategies, bestSignal, currentPrice, generatedAt, timeframes
       const unifiedPayload = {
-        // Core symbol data
+        // Core symbol data (ONE COIN ONLY)
         symbol: signalSnapshot.symbol,
         mode: signalSnapshot.mode, // SAFE / AGGRESSIVE
         currentPrice: signalSnapshot.currentPrice,
@@ -3656,7 +3656,7 @@
       
       navigator.clipboard.writeText(jsonString).then(() => {
         showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
-        console.log(`✅ ${symbol} copied (unified format: trade + snapshot)`);
+        console.log(`✅ ${symbol} copied (unified format: ONE COIN, trade + snapshot)`);
       }).catch(err => {
         console.error('Failed to copy:', err);
         alert('Failed to copy');

@@ -1722,6 +1722,25 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     MICRO_SCALP: null
   };
   
+  // SAFE_MODE: Strict 4H trend gate - if 4H is FLAT, all strategies must be NO_TRADE
+  const tf4h = multiTimeframeData['4h'];
+  const trend4h = tf4h?.indicators?.analysis?.trend;
+  const is4HFlat = trend4h === 'FLAT' || trend4h === 'flat';
+  
+  if (mode === 'STANDARD' && is4HFlat) {
+    // SAFE_MODE: Block all trades when 4H is flat
+    const flatReason = '4H trend is FLAT - no trade allowed per SAFE_MODE rules';
+    strategies.SWING = createNoTradeStrategy('SWING', flatReason);
+    strategies.TREND_4H = createNoTradeStrategy('TREND_4H', flatReason);
+    strategies.SCALP_1H = createNoTradeStrategy('SCALP_1H', flatReason);
+    strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', flatReason);
+    
+    return {
+      strategies,
+      bestSignal: null // No valid strategy when 4H is flat in SAFE_MODE
+    };
+  }
+  
   // Evaluate each strategy - ALWAYS evaluate all, even if they return NO_TRADE
   const swingResult = evaluateStrategy(symbol, multiTimeframeData, 'Swing', mode);
   const trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode);
@@ -1743,14 +1762,44 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         : 'No MicroScalp setup available');
   }
   
-  // Find best signal (highest confidence valid strategy)
+  // Find best signal with priority rules
   const validStrategies = Object.entries(strategies)
     .filter(([_, s]) => s && s.valid === true)
     .map(([name, s]) => ({ name, confidence: s.confidence, strategy: s }));
   
-  const bestSignal = validStrategies.length > 0
-    ? validStrategies.sort((a, b) => b.confidence - a.confidence)[0].name
-    : null;
+  let bestSignal = null;
+  
+  if (validStrategies.length > 0) {
+    if (mode === 'STANDARD') {
+      // SAFE_MODE priority: TREND_4H → SWING → SCALP_1H → MICRO_SCALP
+      const priority = ['TREND_4H', 'SWING', 'SCALP_1H', 'MICRO_SCALP'];
+      for (const priorityName of priority) {
+        const found = validStrategies.find(s => s.name === priorityName);
+        if (found) {
+          bestSignal = found.name;
+          break;
+        }
+      }
+      // Fallback to highest confidence if priority doesn't match
+      if (!bestSignal) {
+        bestSignal = validStrategies.sort((a, b) => b.confidence - a.confidence)[0].name;
+      }
+    } else {
+      // AGGRESSIVE_MODE priority: TREND_4H → SCALP_1H → MICRO_SCALP → SWING
+      const priority = ['TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'SWING'];
+      for (const priorityName of priority) {
+        const found = validStrategies.find(s => s.name === priorityName);
+        if (found) {
+          bestSignal = found.name;
+          break;
+        }
+      }
+      // Fallback to highest confidence if priority doesn't match
+      if (!bestSignal) {
+        bestSignal = validStrategies.sort((a, b) => b.confidence - a.confidence)[0].name;
+      }
+    }
+  }
   
   return {
     strategies,
