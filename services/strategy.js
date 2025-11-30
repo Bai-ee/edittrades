@@ -1779,9 +1779,19 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     const tf15m = multiTimeframeData['15m'];
     const tf5m = multiTimeframeData['5m'];
     
-    const trend1h = tf1h?.indicators?.analysis?.trend?.toLowerCase() || 'unknown';
-    const trend15m = tf15m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown';
-    const trend5m = tf5m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown';
+    // Normalize trends to lowercase for comparison (handle both UPTREND/uptrend)
+    const trend1hRaw = tf1h?.indicators?.analysis?.trend || 'UNKNOWN';
+    const trend15mRaw = tf15m?.indicators?.analysis?.trend || 'UNKNOWN';
+    const trend5mRaw = tf5m?.indicators?.analysis?.trend || 'UNKNOWN';
+    
+    const trend1h = trend1hRaw.toLowerCase().replace('trend', '').trim() || 'unknown';
+    const trend15m = trend15mRaw.toLowerCase().replace('trend', '').trim() || 'unknown';
+    const trend5m = trend5mRaw.toLowerCase().replace('trend', '').trim() || 'unknown';
+    
+    // Normalize to 'up', 'down', or 'flat'
+    const trend1hNorm = trend1h.includes('up') ? 'uptrend' : trend1h.includes('down') ? 'downtrend' : 'flat';
+    const trend15mNorm = trend15m.includes('up') ? 'uptrend' : trend15m.includes('down') ? 'downtrend' : 'flat';
+    const trend5mNorm = trend5m.includes('up') ? 'uptrend' : trend5m.includes('down') ? 'downtrend' : 'flat';
     
     const stoch1h = tf1h?.indicators?.stochRSI || {};
     const stoch15m = tf15m?.indicators?.stochRSI || {};
@@ -1799,7 +1809,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     
     // REQUIRED LONG SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
     if (htfBias.direction === 'long' && htfBias.confidence >= 70 && 
-        trend1h === 'uptrend' && trend15m === 'uptrend') {
+        trend1hNorm === 'uptrend' && trend15mNorm === 'uptrend') {
       
       // Choose best strategy: Prefer TREND_4H, then SCALP_1H, then MICRO_SCALP
       let chosenStrategy = null;
@@ -1881,7 +1891,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       }
       
       // If still not chosen, try MICRO_SCALP - FORCE override
-      if (!chosenStrategy && trend5m === 'uptrend') {
+      if (!chosenStrategy && trend5mNorm === 'uptrend') {
         const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = ema21_5m;
         const entryZone = {
@@ -1924,7 +1934,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     
     // REQUIRED SHORT SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
     if (htfBias.direction === 'short' && htfBias.confidence >= 70 && 
-        trend1h === 'downtrend' && trend15m === 'downtrend') {
+        trend1hNorm === 'downtrend' && trend15mNorm === 'downtrend') {
       
       // Similar logic for shorts
       let chosenStrategy = null;
@@ -2006,7 +2016,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       }
       
       // If still not chosen, try MICRO_SCALP - FORCE override for shorts
-      if (!chosenStrategy && trend5m === 'downtrend') {
+      if (!chosenStrategy && trend5mNorm === 'downtrend') {
         const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = ema21_5m;
         const entryZone = {
