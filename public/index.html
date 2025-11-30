@@ -3635,6 +3635,126 @@
       }
     }
 
+    // Build rich symbol object from existing scanResults data (fallback)
+    function buildRichSymbolFromScanResults(symbol, mode) {
+      const originalScanResults = scanResults;
+      const results = mode === 'STANDARD' ? scanResultsSafe : scanResultsAggressive;
+      scanResults = results; // Temporarily set for evaluateTemplateSignal
+      
+      const data = results[symbol];
+      if (!data) {
+        scanResults = originalScanResults;
+        return null;
+      }
+      
+      const strategies = {
+        SWING: null,
+        TREND_4H: null,
+        SCALP_1H: null,
+        MICRO_SCALP: null
+      };
+      
+      // Evaluate all strategies using existing frontend logic
+      const strategyKeys = ['Swing', '4h', 'Scalp', 'MicroScalp'];
+      const strategyNames = ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'];
+      
+      strategyKeys.forEach((key, idx) => {
+        const signal = evaluateTemplateSignal(symbol, key);
+        if (signal) {
+          strategies[strategyNames[idx]] = {
+            valid: signal.valid || false,
+            direction: signal.direction || 'NO_TRADE',
+            confidence: typeof signal.confidence === 'number'
+              ? Math.round(signal.confidence > 1 ? signal.confidence : signal.confidence * 100)
+              : 0,
+            reason: signal.reason || 'No trade setup available',
+            entryZone: signal.entryZone || { min: null, max: null },
+            stopLoss: signal.stopLoss || null,
+            invalidationLevel: signal.invalidationLevel || null,
+            targets: signal.targets 
+              ? (Array.isArray(signal.targets) 
+                  ? signal.targets.filter(t => t !== null && t !== undefined)
+                  : signal.targets.tp1 ? [signal.targets.tp1, signal.targets.tp2].filter(t => t !== null) : [])
+              : [],
+            riskReward: signal.riskReward || { tp1RR: null, tp2RR: null },
+            validationErrors: []
+          };
+        } else {
+          strategies[strategyNames[idx]] = {
+            valid: false,
+            direction: 'NO_TRADE',
+            confidence: 0,
+            reason: 'Strategy evaluation returned null',
+            entryZone: { min: null, max: null },
+            stopLoss: null,
+            invalidationLevel: null,
+            targets: [],
+            riskReward: { tp1RR: null, tp2RR: null },
+            validationErrors: []
+          };
+        }
+      });
+      
+      // Find best signal
+      const validStrategies = Object.entries(strategies)
+        .filter(([_, s]) => s && s.valid === true)
+        .map(([name, s]) => ({ name, confidence: s.confidence }));
+      
+      const bestSignal = validStrategies.length > 0
+        ? validStrategies.sort((a, b) => b.confidence - a.confidence)[0].name
+        : null;
+      
+      // Build htfBias from data
+      const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+      
+      // Build timeframes summary
+      const timeframes = {};
+      if (data.analysis) {
+        for (const [tf, tfData] of Object.entries(data.analysis)) {
+          if (tfData && tfData.indicators) {
+            const stoch = tfData.indicators.stochRSI || {};
+            let stochState = 'neutral';
+            if (stoch.k > 80 && stoch.d > 80) stochState = 'overbought';
+            else if (stoch.k < 20 && stoch.d < 20) stochState = 'oversold';
+            
+            timeframes[tf] = {
+              trend: (tfData.indicators.analysis?.trend || 'UNKNOWN').toLowerCase(),
+              ema21: tfData.indicators.ema?.ema21 || null,
+              ema200: tfData.indicators.ema?.ema200 || null,
+              stochRsi: {
+                k: stoch.k || null,
+                d: stoch.d || null,
+                state: stochState
+              },
+              confluenceScore: null,
+              structureSummary: '',
+              notes: ''
+            };
+          }
+        }
+      }
+      
+      scanResults = originalScanResults;
+      
+      return {
+        symbol,
+        mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
+        currentPrice: data.currentPrice || null,
+        htfBias: {
+          direction: htfBias.direction || 'neutral',
+          confidence: typeof htfBias.confidence === 'number'
+            ? (htfBias.confidence > 1 ? htfBias.confidence : htfBias.confidence * 100)
+            : 0,
+          source: htfBias.source || 'none'
+        },
+        timeframes,
+        strategies,
+        bestSignal,
+        schemaVersion: '1.0.0',
+        generatedAt: new Date().toISOString()
+      };
+    }
+
     // Copy all coins with ALL strategies from BOTH modes (RICH FORMAT)
     async function copyAllCoins() {
       console.log('📋 Copying all trades with rich format (all strategies included)...');
@@ -3647,46 +3767,63 @@
       const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
       const modes = ['STANDARD', 'AGGRESSIVE'];
       
-      // Fetch rich data for each symbol and mode
+      // Try API first, fallback to scanResults
       for (const symbol of symbols) {
         for (const mode of modes) {
           try {
-            console.log(`  Fetching ${symbol} (${mode})...`);
+            console.log(`  Fetching ${symbol} (${mode}) from API...`);
             const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${mode}`);
-            if (!response.ok) {
-              console.error(`  ❌ Failed to fetch ${symbol} (${mode}):`, response.status);
-              continue;
+            if (response.ok) {
+              const richSymbol = await response.json();
+              const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
+              allViews[modeKey][symbol] = richSymbol;
+              console.log(`  ✅ ${symbol} (${mode}) from API: bestSignal=${richSymbol.bestSignal || 'null'}`);
+            } else {
+              throw new Error(`API returned ${response.status}`);
             }
-            
-            const richSymbol = await response.json();
-            const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
-            allViews[modeKey][symbol] = richSymbol;
-            console.log(`  ✅ ${symbol} (${mode}): bestSignal=${richSymbol.bestSignal || 'null'}`);
           } catch (error) {
-            console.error(`  ❌ Error fetching ${symbol} (${mode}):`, error);
-            // Create empty structure on error
-            const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
-            allViews[modeKey][symbol] = {
-              symbol,
-              mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
-              currentPrice: null,
-              htfBias: { direction: 'neutral', confidence: 0, source: 'none' },
-              timeframes: {},
-              strategies: {
-                SWING: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
-                TREND_4H: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
-                SCALP_1H: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
-                MICRO_SCALP: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Error fetching data', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] }
-              },
-              bestSignal: null,
-              schemaVersion: '1.0.0',
-              generatedAt: new Date().toISOString()
-            };
+            console.warn(`  ⚠️ API failed for ${symbol} (${mode}), using fallback:`, error.message);
+            // Fallback to existing scanResults
+            const richSymbol = buildRichSymbolFromScanResults(symbol, mode);
+            if (richSymbol) {
+              const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
+              allViews[modeKey][symbol] = richSymbol;
+              console.log(`  ✅ ${symbol} (${mode}) from fallback: bestSignal=${richSymbol.bestSignal || 'null'}`);
+            } else {
+              // Last resort: create structure with NO_TRADE for all strategies
+              const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
+              allViews[modeKey][symbol] = {
+                symbol,
+                mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
+                currentPrice: null,
+                htfBias: { direction: 'neutral', confidence: 0, source: 'none' },
+                timeframes: {},
+                strategies: {
+                  SWING: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'No data available', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
+                  TREND_4H: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'No data available', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
+                  SCALP_1H: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'No data available', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] },
+                  MICRO_SCALP: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'No data available', entryZone: { min: null, max: null }, stopLoss: null, invalidationLevel: null, targets: [], riskReward: { tp1RR: null, tp2RR: null }, validationErrors: [] }
+                },
+                bestSignal: null,
+                schemaVersion: '1.0.0',
+                generatedAt: new Date().toISOString()
+              };
+              console.log(`  ⚠️ ${symbol} (${mode}): Created empty structure (no data available)`);
+            }
           }
         }
       }
       
+      // Verify we have data
+      const hasData = Object.keys(allViews.SAFE_MODE).length > 0 || Object.keys(allViews.AGGRESSIVE_MODE).length > 0;
+      if (!hasData) {
+        console.error('❌ No data collected for any symbol!');
+        alert('No data available to copy. Please wait for scan to complete.');
+        return;
+      }
+      
       const jsonString = JSON.stringify(allViews, null, 2);
+      console.log('📋 Final JSON structure:', JSON.stringify(Object.keys(allViews.SAFE_MODE), null, 2));
       
       navigator.clipboard.writeText(jsonString).then(() => {
         showCopySuccess('ALL COINS COPIED!');
