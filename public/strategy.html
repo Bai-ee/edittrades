@@ -183,14 +183,14 @@
           <div class="card rounded-lg p-6">
             <h3 class="text-lg font-semibold mb-3 stat-positive">LONG Setup</h3>
             <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-              <li>✅ <strong>4H Trend:</strong> UPTREND (price above 21 EMA, not FLAT)</li>
-              <li>✅ <strong>4H Pullback:</strong> Price retracing to 21 EMA (within ±2%)</li>
-              <li>✅ <strong>4H Stoch RSI:</strong> Oversold or bullish curl</li>
-              <li>✅ <strong>1H Alignment:</strong> Trend aligned with 4H or neutral</li>
-              <li>✅ <strong>15M & 5M:</strong> Price near EMA21, stoch bullish</li>
-              <li>✅ <strong>Entry Zone:</strong> Average of 4H/1H EMA21</li>
-              <li>✅ <strong>SL:</strong> Below recent 4H swing low</li>
+              <li>✅ <strong>4H Trend:</strong> UPTREND (SAFE_MODE: must NOT be FLAT; AGGRESSIVE_MODE: can use HTF bias if 4H flat + confidence ≥70%)</li>
+              <li>✅ <strong>4H Pullback:</strong> Price NOT OVEREXTENDED from 21 EMA (gatekeeper: within ±2%)</li>
+              <li>✅ <strong>Entry Zone:</strong> ±0.4% buffer around 4H EMA21 (actual entry: 0.996-1.002x EMA21 for LONG)</li>
+              <li>✅ <strong>1H Alignment:</strong> 1H trend NOT breaking down (not DOWNTREND)</li>
+              <li>✅ <strong>15M & 5M Stoch:</strong> NOT both curling down (bullish alignment)</li>
+              <li>✅ <strong>SL:</strong> Below 4H swing low (with 0.3% buffer) or 3% below entry</li>
               <li>✅ <strong>TP:</strong> 1.0R (TP1), 2.0R (TP2)</li>
+              <li>✅ <strong>Confidence:</strong> 0-100 scale based on trend alignment, stoch, structure, MA confluence</li>
             </ul>
           </div>
           
@@ -198,27 +198,28 @@
           <div class="card rounded-lg p-6">
             <h3 class="text-lg font-semibold mb-3 stat-negative">SHORT Setup</h3>
             <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-              <li>✅ <strong>4H Trend:</strong> DOWNTREND (price below 21 EMA, not FLAT)</li>
-              <li>✅ <strong>4H Pullback:</strong> Price retracing to 21 EMA (within ±2%)</li>
-              <li>✅ <strong>4H Stoch RSI:</strong> Overbought or bearish curl</li>
-              <li>✅ <strong>1H Alignment:</strong> Trend aligned with 4H or neutral</li>
-              <li>✅ <strong>15M & 5M:</strong> Price near EMA21, stoch bearish</li>
-              <li>✅ <strong>Entry Zone:</strong> Average of 4H/1H EMA21</li>
-              <li>✅ <strong>SL:</strong> Above recent 4H swing high</li>
+              <li>✅ <strong>4H Trend:</strong> DOWNTREND (SAFE_MODE: must NOT be FLAT; AGGRESSIVE_MODE: can use HTF bias if 4H flat + confidence ≥70%)</li>
+              <li>✅ <strong>4H Pullback:</strong> Price NOT OVEREXTENDED from 21 EMA (gatekeeper: within ±2%)</li>
+              <li>✅ <strong>Entry Zone:</strong> ±0.4% buffer around 4H EMA21 (actual entry: 0.996-1.004x EMA21 for SHORT)</li>
+              <li>✅ <strong>1H Alignment:</strong> 1H trend NOT breaking up (not DOWNTREND)</li>
+              <li>✅ <strong>15M & 5M Stoch:</strong> NOT both curling up (bearish alignment)</li>
+              <li>✅ <strong>SL:</strong> Above 4H swing high (with 0.3% buffer) or 3% above entry</li>
               <li>✅ <strong>TP:</strong> 1.0R (TP1), 2.0R (TP2)</li>
+              <li>✅ <strong>Confidence:</strong> 0-100 scale based on trend alignment, stoch, structure, MA confluence</li>
             </ul>
           </div>
         </div>
         
-        <div class="card rounded-lg p-6">
-          <h3 class="text-lg font-semibold mb-3">Key Filters (NO TRADE if...)</h3>
-          <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-            <li>❌ 4H trend is <strong>FLAT</strong> (sideways/choppy market)</li>
-            <li>❌ Price is <strong>OVEREXTENDED</strong> from 21 EMA (>2% away)</li>
-            <li>❌ Stoch RSI conditions not aligned across timeframes</li>
-            <li>❌ 1H trend conflicts with 4H direction</li>
-          </ul>
-        </div>
+          <div class="card rounded-lg p-6">
+            <h3 class="text-lg font-semibold mb-3">Key Filters (NO TRADE if...)</h3>
+            <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
+              <li>❌ <strong>SAFE_MODE:</strong> 4H trend is FLAT (hard block - no trade allowed)</li>
+              <li>❌ <strong>AGGRESSIVE_MODE:</strong> 4H flat BUT HTF bias confidence &lt;70% or lower TFs not aligned</li>
+              <li>❌ Price is <strong>OVEREXTENDED</strong> from 21 EMA (>2% away - gatekeeper check)</li>
+              <li>❌ 1H trend conflicts with 4H direction (1H breaking down for longs, breaking up for shorts)</li>
+              <li>❌ 15m/5m stoch both curling against trade direction</li>
+            </ul>
+          </div>
       </section>
 
       <!-- Best Practices (Horizontal Layout) -->
@@ -289,40 +290,47 @@
           <div class="card rounded-lg p-6">
             <h3 class="text-lg font-semibold mb-3 stat-positive">LONG Swing Setup</h3>
             <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-              <li>✅ <strong>4H Trend:</strong> NOT FLAT (must show direction)</li>
-              <li>✅ <strong>3D Pullback:</strong> OVEREXTENDED (8-15% below 21 EMA)</li>
-              <li>✅ <strong>3D Stoch:</strong> Oversold or bullish pivot</li>
-              <li>✅ <strong>1D Trend:</strong> Downtrend BUT with bullish stoch pivot</li>
+              <li>✅ <strong>4H Trend:</strong> NOT FLAT (must show direction - hard gatekeeper)</li>
+              <li>✅ <strong>3D Trend:</strong> NOT FLAT (must show direction)</li>
+              <li>✅ <strong>1D Trend:</strong> NOT FLAT (must show direction)</li>
+              <li>✅ <strong>3D Pullback:</strong> OVEREXTENDED (8-15% below 21 EMA) OR (FLAT + stoch BULLISH/OVERSOLD)</li>
+              <li>✅ <strong>1D Trend:</strong> DOWNTREND BUT with bullish stoch pivot (k &lt; 25)</li>
               <li>✅ <strong>1D Pullback:</strong> RETRACING or ENTRY_ZONE</li>
-              <li>✅ <strong>Entry:</strong> Reclaim level (mid between 1D swing low and 1D EMA21) ±0.5%</li>
-              <li>✅ <strong>SL:</strong> Min of 3D/1D swing lows</li>
+              <li>✅ <strong>4H Confirmation:</strong> UPTREND or (FLAT + stoch BULLISH) + pullback RETRACING/ENTRY_ZONE</li>
+              <li>✅ <strong>Entry Zone:</strong> Reclaim level (mid between 1D swing low and 1D EMA21) ±0.5%</li>
+              <li>✅ <strong>SL:</strong> Min of 3D/1D swing lows (HTF invalidation)</li>
               <li>✅ <strong>TP:</strong> 3R (TP1), 4R (TP2), 5R (TP3)</li>
+              <li>✅ <strong>Confidence:</strong> 70-90% (base 70 + stoch/entry/structure bonuses)</li>
             </ul>
           </div>
           
           <div class="card rounded-lg p-6">
             <h3 class="text-lg font-semibold mb-3 stat-negative">SHORT Swing Setup</h3>
             <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-              <li>✅ <strong>4H Trend:</strong> NOT FLAT (must show direction)</li>
-              <li>✅ <strong>3D Pullback:</strong> OVEREXTENDED (8-15% above 21 EMA)</li>
-              <li>✅ <strong>3D Stoch:</strong> Overbought or bearish rejection</li>
-              <li>✅ <strong>1D Trend:</strong> Uptrend BUT with bearish stoch pivot</li>
+              <li>✅ <strong>4H Trend:</strong> NOT FLAT (must show direction - hard gatekeeper)</li>
+              <li>✅ <strong>3D Trend:</strong> NOT FLAT (must show direction)</li>
+              <li>✅ <strong>1D Trend:</strong> NOT FLAT (must show direction)</li>
+              <li>✅ <strong>3D Pullback:</strong> OVEREXTENDED (8-15% above 21 EMA) OR (FLAT + stoch BEARISH/OVERBOUGHT)</li>
+              <li>✅ <strong>1D Trend:</strong> UPTREND BUT with bearish stoch pivot (k > 75)</li>
               <li>✅ <strong>1D Pullback:</strong> RETRACING or ENTRY_ZONE</li>
-              <li>✅ <strong>Entry:</strong> Rejection level (mid between 1D swing high and 1D EMA21) ±0.5%</li>
-              <li>✅ <strong>SL:</strong> Max of 3D/1D swing highs</li>
+              <li>✅ <strong>4H Confirmation:</strong> DOWNTREND or (FLAT + stoch BEARISH) + pullback RETRACING/ENTRY_ZONE</li>
+              <li>✅ <strong>Entry Zone:</strong> Rejection level (mid between 1D swing high and 1D EMA21) ±0.5%</li>
+              <li>✅ <strong>SL:</strong> Max of 3D/1D swing highs (HTF invalidation)</li>
               <li>✅ <strong>TP:</strong> 3R (TP1), 4R (TP2), 5R (TP3)</li>
+              <li>✅ <strong>Confidence:</strong> 70-90% (base 70 + stoch/entry/structure bonuses)</li>
             </ul>
           </div>
         </div>
         
         <div class="card rounded-lg p-6">
           <h3 class="text-lg font-semibold mb-3">Key Filters (NO TRADE if...)</h3>
-          <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-            <li>❌ 4H trend is <strong>FLAT</strong> (instant disqualification)</li>
-            <li>❌ 3D trend is <strong>FLAT</strong></li>
-            <li>❌ 1D is not trending (must be UPTREND or DOWNTREND)</li>
-            <li>❌ 3D pullback is not OVEREXTENDED or RETRACING</li>
-          </ul>
+            <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
+              <li>❌ 4H trend is <strong>FLAT</strong> (instant disqualification - hard gatekeeper)</li>
+              <li>❌ 3D trend is <strong>FLAT</strong> (must show direction)</li>
+              <li>❌ 1D trend is <strong>FLAT</strong> (must show direction)</li>
+              <li>❌ 3D pullback is not OVEREXTENDED or RETRACING (or FLAT without stoch pivot)</li>
+              <li>❌ 1D/4H structure not aligned (1D downtrend without bullish pivot for longs, etc.)</li>
+            </ul>
         </div>
       </section>
 
@@ -412,30 +420,34 @@
           <div class="card rounded-lg p-6">
             <h3 class="text-lg font-semibold mb-3 stat-positive">LONG Scalp Setup</h3>
             <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-              <li>✅ <strong>4H Trend:</strong> UPTREND (NOT FLAT - instant block)</li>
-              <li>✅ <strong>1H Trend:</strong> Aligned with 4H or neutral</li>
-              <li>✅ <strong>1H Pullback:</strong> Price near 21 EMA (within ±2%)</li>
-              <li>✅ <strong>15M Pullback:</strong> ENTRY_ZONE (near 21 EMA)</li>
-              <li>✅ <strong>15M Stoch:</strong> Oversold or bullish curl</li>
-              <li>✅ <strong>5M Stoch:</strong> Bullish curl/momentum</li>
-              <li>✅ <strong>Entry:</strong> Average of 1H/15M EMA21</li>
-              <li>✅ <strong>SL:</strong> Below 15M swing low</li>
+              <li>✅ <strong>1H Trend:</strong> UPTREND (NOT FLAT - required gatekeeper)</li>
+              <li>✅ <strong>4H Trend:</strong> DISREGARDED (scalp uses 1H bias, ignores 4H)</li>
+              <li>✅ <strong>1H Pullback:</strong> Price near 21 EMA (within ±2% - gatekeeper)</li>
+              <li>✅ <strong>15M Pullback:</strong> Price near 15M EMA21 (within ±1.5%)</li>
+              <li>✅ <strong>1H Pullback State:</strong> ENTRY_ZONE or RETRACING</li>
+              <li>✅ <strong>15M Pullback State:</strong> ENTRY_ZONE or RETRACING</li>
+              <li>✅ <strong>15M Stoch:</strong> Aligned with 1H trend (BULLISH/OVERSOLD for longs)</li>
+              <li>✅ <strong>Entry Zone:</strong> ±0.4% buffer around 1H EMA21 (0.996-1.004x EMA21 for LONG)</li>
+              <li>✅ <strong>SL:</strong> Below 15M/5M swing low (LTF invalidation) with 0.3% buffer</li>
               <li>✅ <strong>TP:</strong> 1.5R (TP1), 3.0R (TP2)</li>
+              <li>✅ <strong>Confidence:</strong> 60-85% (base 60 + HTF bias bonus)</li>
             </ul>
           </div>
           
           <div class="card rounded-lg p-6">
             <h3 class="text-lg font-semibold mb-3 stat-negative">SHORT Scalp Setup</h3>
             <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-              <li>✅ <strong>4H Trend:</strong> DOWNTREND (NOT FLAT - instant block)</li>
-              <li>✅ <strong>1H Trend:</strong> Aligned with 4H or neutral</li>
-              <li>✅ <strong>1H Pullback:</strong> Price near 21 EMA (within ±2%)</li>
-              <li>✅ <strong>15M Pullback:</strong> ENTRY_ZONE (near 21 EMA)</li>
-              <li>✅ <strong>15M Stoch:</strong> Overbought or bearish curl</li>
-              <li>✅ <strong>5M Stoch:</strong> Bearish curl/momentum</li>
-              <li>✅ <strong>Entry:</strong> Average of 1H/15M EMA21</li>
-              <li>✅ <strong>SL:</strong> Above 15M swing high</li>
+              <li>✅ <strong>1H Trend:</strong> DOWNTREND (NOT FLAT - required gatekeeper)</li>
+              <li>✅ <strong>4H Trend:</strong> DISREGARDED (scalp uses 1H bias, ignores 4H)</li>
+              <li>✅ <strong>1H Pullback:</strong> Price near 21 EMA (within ±2% - gatekeeper)</li>
+              <li>✅ <strong>15M Pullback:</strong> Price near 15M EMA21 (within ±1.5%)</li>
+              <li>✅ <strong>1H Pullback State:</strong> ENTRY_ZONE or RETRACING</li>
+              <li>✅ <strong>15M Pullback State:</strong> ENTRY_ZONE or RETRACING</li>
+              <li>✅ <strong>15M Stoch:</strong> Aligned with 1H trend (BEARISH/OVERBOUGHT for shorts)</li>
+              <li>✅ <strong>Entry Zone:</strong> ±0.4% buffer around 1H EMA21 (0.998-1.004x EMA21 for SHORT)</li>
+              <li>✅ <strong>SL:</strong> Above 15M/5M swing high (LTF invalidation) with 0.3% buffer</li>
               <li>✅ <strong>TP:</strong> 1.5R (TP1), 3.0R (TP2)</li>
+              <li>✅ <strong>Confidence:</strong> 60-85% (base 60 + HTF bias bonus)</li>
             </ul>
           </div>
         </div>
@@ -443,10 +455,12 @@
         <div class="card rounded-lg p-6">
           <h3 class="text-lg font-semibold mb-3">Key Filters (NO TRADE if...)</h3>
           <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
-            <li>❌ 4H trend is <strong>FLAT</strong> (golden rule: 4H must show direction)</li>
-            <li>❌ 1H trend conflicts with 4H</li>
-            <li>❌ 15M not in ENTRY_ZONE (price too far from EMA21)</li>
-            <li>❌ Stoch not aligned on 15M and 5M</li>
+            <li>❌ 1H trend is <strong>FLAT</strong> (required gatekeeper - 1H must show direction)</li>
+            <li>❌ 1H pullback not ENTRY_ZONE or RETRACING</li>
+            <li>❌ 15M pullback not ENTRY_ZONE or RETRACING</li>
+            <li>❌ Price not near 1H EMA21 (within ±2%) or 15M EMA21 (within ±1.5%)</li>
+            <li>❌ 15M stoch not aligned with 1H trend direction</li>
+            <li>⚠️ <strong>Note:</strong> 4H trend is DISREGARDED for scalps (uses 1H bias only)</li>
           </ul>
         </div>
       </section>
@@ -540,13 +554,14 @@
               <li>⚠️ <strong>4H Trend:</strong> DISREGARDED - independent of HTF</li>
               <li>✅ <strong>1H Trend:</strong> UPTREND (not FLAT)</li>
               <li>✅ <strong>1H Pullback:</strong> ENTRY_ZONE or RETRACING</li>
-              <li>✅ <strong>15M Price:</strong> Within ±0.25% of 15M EMA21</li>
-              <li>✅ <strong>15M Stoch:</strong> OVERSOLD or BULLISH</li>
-              <li>✅ <strong>5M Price:</strong> Within ±0.25% of 5M EMA21</li>
-              <li>✅ <strong>5M Stoch:</strong> OVERSOLD or BULLISH</li>
-              <li>✅ <strong>Entry:</strong> Average of 15M/5M EMA21</li>
-              <li>✅ <strong>SL:</strong> Min of 15M/5M swing low</li>
+              <li>✅ <strong>15M Price:</strong> Within ±0.25% of 15M EMA21 (SAFE_MODE) or ±0.75% (AGGRESSIVE_MODE)</li>
+              <li>✅ <strong>5M Price:</strong> Within ±0.25% of 5M EMA21 (SAFE_MODE) or ±0.75% (AGGRESSIVE_MODE)</li>
+              <li>✅ <strong>15M Stoch:</strong> OVERSOLD or BULLISH (aligned with 1H uptrend)</li>
+              <li>✅ <strong>5M Stoch:</strong> OVERSOLD or BULLISH (aligned with 1H uptrend)</li>
+              <li>✅ <strong>Entry Zone:</strong> Average of 15M/5M EMA21 ±0.4% buffer</li>
+              <li>✅ <strong>SL:</strong> Min of 15M/5M swing low (LTF invalidation)</li>
               <li>✅ <strong>TP:</strong> 1.0R (TP1), 1.5R (TP2)</li>
+              <li>✅ <strong>Confidence:</strong> 60-75% (base 60 + confluence/stoch bonuses)</li>
             </ul>
           </div>
           
@@ -556,13 +571,14 @@
               <li>⚠️ <strong>4H Trend:</strong> DISREGARDED - independent of HTF</li>
               <li>✅ <strong>1H Trend:</strong> DOWNTREND (not FLAT)</li>
               <li>✅ <strong>1H Pullback:</strong> ENTRY_ZONE or RETRACING</li>
-              <li>✅ <strong>15M Price:</strong> Within ±0.25% of 15M EMA21</li>
-              <li>✅ <strong>15M Stoch:</strong> OVERBOUGHT or BEARISH</li>
-              <li>✅ <strong>5M Price:</strong> Within ±0.25% of 5M EMA21</li>
-              <li>✅ <strong>5M Stoch:</strong> OVERBOUGHT or BEARISH</li>
-              <li>✅ <strong>Entry:</strong> Average of 15M/5M EMA21</li>
-              <li>✅ <strong>SL:</strong> Max of 15M/5M swing high</li>
+              <li>✅ <strong>15M Price:</strong> Within ±0.25% of 15M EMA21 (SAFE_MODE) or ±0.75% (AGGRESSIVE_MODE)</li>
+              <li>✅ <strong>5M Price:</strong> Within ±0.25% of 5M EMA21 (SAFE_MODE) or ±0.75% (AGGRESSIVE_MODE)</li>
+              <li>✅ <strong>15M Stoch:</strong> OVERBOUGHT or BEARISH (aligned with 1H downtrend)</li>
+              <li>✅ <strong>5M Stoch:</strong> OVERBOUGHT or BEARISH (aligned with 1H downtrend)</li>
+              <li>✅ <strong>Entry Zone:</strong> Average of 15M/5M EMA21 ±0.4% buffer</li>
+              <li>✅ <strong>SL:</strong> Max of 15M/5M swing high (LTF invalidation)</li>
               <li>✅ <strong>TP:</strong> 1.0R (TP1), 1.5R (TP2)</li>
+              <li>✅ <strong>Confidence:</strong> 60-75% (base 60 + confluence/stoch bonuses)</li>
             </ul>
           </div>
         </div>
@@ -571,10 +587,11 @@
           <h3 class="text-lg font-semibold mb-3">⚠️ Critical Rules (NO TRADE if...)</h3>
           <ul class="space-y-2 text-sm" style="color: var(--text-secondary);">
             <li>⚠️ <strong>4H Trend:</strong> DISREGARDED - Micro-scalps ignore HTF direction</li>
-            <li>❌ 1H trend is FLAT (need 1H trending for bias)</li>
+            <li>❌ 1H trend is FLAT (required gatekeeper - 1H must show direction)</li>
             <li>❌ 1H pullback is not ENTRY_ZONE or RETRACING</li>
-            <li>❌ Price not within ±0.25% of BOTH 15M and 5M EMA21</li>
-            <li>❌ Stoch not aligned on both 15M and 5M</li>
+            <li>❌ Price not within ±0.25% (SAFE) or ±0.75% (AGGRESSIVE) of BOTH 15M and 5M EMA21</li>
+            <li>❌ Stoch not aligned on both 15M and 5M with 1H trend direction</li>
+            <li>⚠️ <strong>Note:</strong> 4H trend is DISREGARDED entirely - micro-scalp is independent of HTF</li>
           </ul>
         </div>
       </section>
