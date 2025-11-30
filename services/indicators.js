@@ -159,8 +159,9 @@ export function calculateAllIndicators(candles) {
       ema200History: ema200
     },
     stochRSI: {
-      k: currentStochRSI?.k || null,
-      d: currentStochRSI?.d || null,
+      // Clamp k and d to [0, 100] to prevent floating-point noise
+      k: currentStochRSI?.k != null ? Math.min(100, Math.max(0, currentStochRSI.k)) : null,
+      d: currentStochRSI?.d != null ? Math.min(100, Math.max(0, currentStochRSI.d)) : null,
       condition: stochCondition,
       history: stochRSI
     },

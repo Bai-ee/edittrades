@@ -3625,11 +3625,21 @@
       
       const strategy = signalSnapshot.strategies[strategyName];
       
-      // Build unified object: trade fields + full signalSnapshot
-      const unifiedObject = {
-        // Trade fields (from selected strategy)
-        symbol: symbol,
-        mode: signalSnapshot.mode,
+      // Build unified payload: trade fields + full signalSnapshot
+      // Matches the exact structure: symbol, mode, htfBias, strategies, bestSignal, currentPrice, generatedAt, timeframes
+      const unifiedPayload = {
+        // Core symbol data
+        symbol: signalSnapshot.symbol,
+        mode: signalSnapshot.mode, // SAFE / AGGRESSIVE
+        currentPrice: signalSnapshot.currentPrice,
+        htfBias: signalSnapshot.htfBias,
+        timeframes: signalSnapshot.timeframes,
+        strategies: signalSnapshot.strategies,
+        bestSignal: signalSnapshot.bestSignal, // Currently null if no valid strategy
+        schemaVersion: signalSnapshot.schemaVersion || '1.0.0',
+        generatedAt: signalSnapshot.generatedAt,
+        
+        // Trade fields (from selected strategy, if valid)
         strategyName: strategyName,
         direction: strategy?.direction || 'NO_TRADE',
         entryZone: strategy?.entryZone || { min: null, max: null },
@@ -3637,11 +3647,12 @@
         targets: strategy?.targets || [],
         confidence: strategy?.confidence || 0,
         reason: strategy?.reason || 'No trade available',
-        // Full signal snapshot (all strategies, timeframes, htfBias)
+        
+        // Full signal snapshot for journaling/analytics (self-reference for convenience)
         signalSnapshot: signalSnapshot
       };
       
-      const jsonString = JSON.stringify(unifiedObject, null, 2);
+      const jsonString = JSON.stringify(unifiedPayload, null, 2);
       
       navigator.clipboard.writeText(jsonString).then(() => {
         showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);

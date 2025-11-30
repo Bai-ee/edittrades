@@ -1862,10 +1862,16 @@ export function buildTimeframeSummary(multiTimeframeData) {
     const indicators = data.indicators;
     const stoch = indicators.stochRSI || {};
     
+    // Clamp Stoch RSI k and d to [0, 100] to prevent floating-point noise
+    const stochK = stoch.k != null ? Math.min(100, Math.max(0, stoch.k)) : null;
+    const stochD = stoch.d != null ? Math.min(100, Math.max(0, stoch.d)) : null;
+    
     // Determine stoch state
     let stochState = 'neutral';
-    if (stoch.k > 80 && stoch.d > 80) stochState = 'overbought';
-    else if (stoch.k < 20 && stoch.d < 20) stochState = 'oversold';
+    if (stochK != null && stochD != null) {
+      if (stochK > 80 && stochD > 80) stochState = 'overbought';
+      else if (stochK < 20 && stochD < 20) stochState = 'oversold';
+    }
     
     // Normalize trend enum: "up" | "down" | "flat" (consistent across all outputs)
     let trend = (indicators.analysis?.trend || 'UNKNOWN').toLowerCase();
@@ -1879,8 +1885,8 @@ export function buildTimeframeSummary(multiTimeframeData) {
       ema21: indicators.ema?.ema21 || null,
       ema200: indicators.ema?.ema200 || null,
       stochRsi: {
-        k: stoch.k || null,
-        d: stoch.d || null,
+        k: stochK, // Clamped to [0, 100]
+        d: stochD, // Clamped to [0, 100]
         state: stochState
       },
       confluenceScore: indicators.confluence?.overall || null,
