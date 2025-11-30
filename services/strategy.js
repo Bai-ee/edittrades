@@ -1127,9 +1127,14 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     let direction = null;
     let setupValid = false;
     const invalidationReasons = [];
+    
+    // AGGRESSIVE_MODE: When 4H is flat, use HTF bias + lower TFs for direction
+    const effectiveTrend4h = (mode === 'AGGRESSIVE' && trend4h === 'FLAT' && htfBias.confidence >= 70)
+      ? (htfBias.direction === 'long' ? 'UPTREND' : htfBias.direction === 'short' ? 'DOWNTREND' : trend4h)
+      : trend4h;
   
   // PRD 3.2: Long Setup Requirements
-  if (trend4h === 'UPTREND') {
+  if (effectiveTrend4h === 'UPTREND') {
     direction = 'long';
     setupValid = true;
     
@@ -1158,7 +1163,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   }
   
   // PRD 3.3: Short Setup Requirements
-  else if (trend4h === 'DOWNTREND') {
+  else if (effectiveTrend4h === 'DOWNTREND') {
     direction = 'short';
     setupValid = true;
     
@@ -1792,8 +1797,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     
     const currentPrice = tf4h?.indicators?.price?.current || tf1h?.indicators?.price?.current || 0;
     
-    // REQUIRED LONG SETUP IN AGGRESSIVE_MODE
-    if (htfBias.direction === 'long' && htfBias.confidence >= 80 && 
+    // REQUIRED LONG SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
+    if (htfBias.direction === 'long' && htfBias.confidence >= 70 && 
         trend1h === 'uptrend' && trend15m === 'uptrend') {
       
       // Choose best strategy: Prefer TREND_4H, then SCALP_1H, then MICRO_SCALP
@@ -1875,8 +1880,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         chosenName = 'SCALP_1H';
       }
       
-      // If still not chosen, try MICRO_SCALP
-      if (!chosenStrategy && !strategies.MICRO_SCALP.valid && trend5m === 'uptrend') {
+      // If still not chosen, try MICRO_SCALP - FORCE override
+      if (!chosenStrategy && trend5m === 'uptrend') {
         const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = ema21_5m;
         const entryZone = {
@@ -1917,8 +1922,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       }
     }
     
-    // REQUIRED SHORT SETUP IN AGGRESSIVE_MODE
-    if (htfBias.direction === 'short' && htfBias.confidence >= 80 && 
+    // REQUIRED SHORT SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
+    if (htfBias.direction === 'short' && htfBias.confidence >= 70 && 
         trend1h === 'downtrend' && trend15m === 'downtrend') {
       
       // Similar logic for shorts
@@ -2000,8 +2005,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         chosenName = 'SCALP_1H';
       }
       
-      // If still not chosen, try MICRO_SCALP
-      if (!chosenStrategy && !strategies.MICRO_SCALP.valid && trend5m === 'downtrend') {
+      // If still not chosen, try MICRO_SCALP - FORCE override for shorts
+      if (!chosenStrategy && trend5m === 'downtrend') {
         const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
         const entryMid = ema21_5m;
         const entryZone = {
@@ -2100,12 +2105,21 @@ function normalizeStrategyResult(result, strategyName) {
   const signal = result.signal;
   
   // If valid=false, ensure all fields are null/empty
+  // IMPORTANT: In AGGRESSIVE_MODE, never use SAFE_MODE blocking reasons
   if (!signal.valid) {
+    let reason = signal.reason || 'No trade setup available';
+    
+    // AGGRESSIVE_MODE override: Replace SAFE_MODE blocking reasons
+    if (reason.includes('4H trend is FLAT - no trade allowed per') || 
+        reason.includes('4H trend is FLAT - no trade allowed per strategy rules')) {
+      reason = 'AGGRESSIVE_MODE: Evaluating lower timeframe confluence despite 4H flat';
+    }
+    
     return {
       valid: false,
       direction: 'NO_TRADE',
       confidence: 0,
-      reason: signal.reason || 'No trade setup available',
+      reason: reason,
       entryZone: { min: null, max: null },
       stopLoss: null,
       invalidationLevel: null,
