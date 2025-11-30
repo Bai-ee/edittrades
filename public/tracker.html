@@ -1748,8 +1748,8 @@
                            (trade.direction === 'SHORT' && market.trend === 'BEARISH');
       
       // Calculate R-multiples for targets
-      const rr1 = Math.abs((trade.target1 - trade.entry) / risk);
-      const rr2 = Math.abs((trade.target2 - trade.entry) / risk);
+      const rr1 = trade.target1 ? Math.abs((trade.target1 - trade.entry) / risk) : 0;
+      const rr2 = trade.target2 ? Math.abs((trade.target2 - trade.entry) / risk) : 0;
       
       
       detailsRow.innerHTML = `
@@ -1802,13 +1802,13 @@
                   
                   <div>
                     <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Stop Loss</div>
-                    <div style="color: ${trade.direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">$${trade.stopLoss.toLocaleString()}</div>
+                    <div style="color: ${trade.direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${trade.stopLoss ? `$${trade.stopLoss.toLocaleString()}` : 'Not set'}</div>
                   </div>
                   
                   <div>
                     <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Risk / Reward</div>
                     <div style="color: #22c55e; font-size: 1rem; font-weight: bold; line-height: 1.4;">
-                      ${rr1.toFixed(1)}R to ${rr2.toFixed(1)}R
+                      ${rr1 > 0 ? `${rr1.toFixed(1)}R` : 'N/A'} ${rr2 > 0 ? `to ${rr2.toFixed(1)}R` : ''}
                     </div>
                   </div>
                 </div>
@@ -1818,7 +1818,7 @@
                   <div>
                     <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Targets</div>
                     <div style="color: var(--color-yellow-75); font-size: 0.875rem; font-weight: bold; line-height: 1.6;">
-                      <div>TP1 (${rr1.toFixed(1)}R): $${trade.target1.toLocaleString()}</div>
+                      ${trade.target1 ? `<div>TP1 (${rr1.toFixed(1)}R): $${trade.target1.toLocaleString()}</div>` : '<div>TP1: Not set</div>'}
                       ${trade.target2 ? `<div style="margin-top: 0.25rem;">TP2 (${rr2.toFixed(1)}R): $${trade.target2.toLocaleString()}</div>` : ''}
                     </div>
                   </div>
@@ -1833,7 +1833,7 @@
                           setupType === 'MICROSCALP' ? 'Exit immediately if wrong - high risk countertrend.' :
                           'Structure break invalidates setup.')}
                       </div>
-                      <div><strong>Level:</strong> $${(trade.invalidationLevel || trade.stopLoss).toLocaleString()} (${trade.direction === 'LONG' ? 'close below' : 'close above'})</div>
+                      <div><strong>Level:</strong> ${(trade.invalidationLevel || trade.stopLoss) ? `$${(trade.invalidationLevel || trade.stopLoss).toLocaleString()}` : 'Not set'} (${trade.direction === 'LONG' ? 'close below' : 'close above'})</div>
                     </div>
                   </div>
                 </div>
