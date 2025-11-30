@@ -1116,8 +1116,13 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   // NEW: Compute HTF Bias instead of hard 4H gate
   const htfBias = computeHTFBias(analysis);
   
-  // PRIORITY 2: Try 4H Trend Play (only if 4H is NOT FLAT)
-  if (trend4h !== 'FLAT' && (setupType === '4h' || setupType === 'auto')) {
+  // PRIORITY 2: Try 4H Trend Play
+  // SAFE_MODE: Only if 4H is NOT FLAT
+  // AGGRESSIVE_MODE: Can use HTF bias + lower TFs even when 4H is FLAT
+  const canTry4HTrend = (mode === 'STANDARD' && trend4h !== 'FLAT') || 
+                        (mode === 'AGGRESSIVE' && (trend4h !== 'FLAT' || htfBias.confidence >= 70));
+  
+  if (canTry4HTrend && (setupType === '4h' || setupType === 'auto')) {
     // Continue with existing 4H trend logic below
     let direction = null;
     let setupValid = false;
@@ -1760,6 +1765,282 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       microScalpResult && !microScalpResult.eligible 
         ? 'MicroScalp conditions not met - requires 1H trend + tight EMA confluence' 
         : 'No MicroScalp setup available');
+  }
+  
+  // AGGRESSIVE_MODE: Force valid trades when HTF bias + lower TFs align strongly
+  if (mode === 'AGGRESSIVE' && is4HFlat) {
+    const htfBias = computeHTFBias(multiTimeframeData);
+    const tf1h = multiTimeframeData['1h'];
+    const tf15m = multiTimeframeData['15m'];
+    const tf5m = multiTimeframeData['5m'];
+    
+    const trend1h = tf1h?.indicators?.analysis?.trend?.toLowerCase() || 'unknown';
+    const trend15m = tf15m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown';
+    const trend5m = tf5m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown';
+    
+    const stoch1h = tf1h?.indicators?.stochRSI || {};
+    const stoch15m = tf15m?.indicators?.stochRSI || {};
+    const stoch1m = multiTimeframeData['1m']?.indicators?.stochRSI || {};
+    
+    // Determine stoch states
+    const stoch1hState = (stoch1h.k > 80 && stoch1h.d > 80) ? 'overbought' : 
+                        (stoch1h.k < 20 && stoch1h.d < 20) ? 'oversold' : 'neutral';
+    const stoch15mState = (stoch15m.k > 80 && stoch15m.d > 80) ? 'overbought' : 
+                          (stoch15m.k < 20 && stoch15m.d < 20) ? 'oversold' : 'neutral';
+    const stoch1mState = (stoch1m.k > 80 && stoch1m.d > 80) ? 'overbought' : 
+                         (stoch1m.k < 20 && stoch1m.d < 20) ? 'oversold' : 'neutral';
+    
+    const currentPrice = tf4h?.indicators?.price?.current || tf1h?.indicators?.price?.current || 0;
+    
+    // REQUIRED LONG SETUP IN AGGRESSIVE_MODE
+    if (htfBias.direction === 'long' && htfBias.confidence >= 80 && 
+        trend1h === 'uptrend' && trend15m === 'uptrend') {
+      
+      // Choose best strategy: Prefer TREND_4H, then SCALP_1H, then MICRO_SCALP
+      let chosenStrategy = null;
+      let chosenName = null;
+      
+      // Try TREND_4H first
+      if (!strategies.TREND_4H.valid) {
+        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
+        const ema21_15m = tf15m?.indicators?.ema?.ema21 || currentPrice;
+        const entryMid = (ema21_1h + ema21_15m) / 2;
+        const entryZone = {
+          min: entryMid * 0.995,
+          max: entryMid * 1.005
+        };
+        
+        const swingLow1h = tf1h?.indicators?.swingLow || ema21_1h * 0.98;
+        const stopLoss = swingLow1h;
+        const R = Math.abs(entryMid - stopLoss);
+        
+        const tp1 = entryMid + (R * 1.5);
+        const tp2 = entryMid + (R * 3.0);
+        
+        chosenStrategy = {
+          valid: true,
+          direction: 'long',
+          confidence: Math.min(100, htfBias.confidence),
+          reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend aligned, using lower TFs despite 4H flat`,
+          entryZone: {
+            min: parseFloat(entryZone.min.toFixed(2)),
+            max: parseFloat(entryZone.max.toFixed(2))
+          },
+          stopLoss: parseFloat(stopLoss.toFixed(2)),
+          invalidationLevel: parseFloat(stopLoss.toFixed(2)),
+          targets: [parseFloat(tp1.toFixed(2)), parseFloat(tp2.toFixed(2))],
+          riskReward: {
+            tp1RR: 1.5,
+            tp2RR: 3.0
+          },
+          validationErrors: []
+        };
+        chosenName = 'TREND_4H';
+      }
+      
+      // If TREND_4H not chosen, try SCALP_1H
+      if (!chosenStrategy && !strategies.SCALP_1H.valid) {
+        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
+        const entryMid = ema21_1h;
+        const entryZone = {
+          min: entryMid * 0.998,
+          max: entryMid * 1.002
+        };
+        
+        const swingLow15m = tf15m?.indicators?.swingLow || ema21_1h * 0.995;
+        const stopLoss = swingLow15m;
+        const R = Math.abs(entryMid - stopLoss);
+        
+        const tp1 = entryMid + (R * 1.5);
+        const tp2 = entryMid + (R * 3.0);
+        
+        chosenStrategy = {
+          valid: true,
+          direction: 'long',
+          confidence: Math.min(100, htfBias.confidence - 10), // Slightly lower for scalp
+          reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend, scalp entry despite 4H flat`,
+          entryZone: {
+            min: parseFloat(entryZone.min.toFixed(2)),
+            max: parseFloat(entryZone.max.toFixed(2))
+          },
+          stopLoss: parseFloat(stopLoss.toFixed(2)),
+          invalidationLevel: parseFloat(stopLoss.toFixed(2)),
+          targets: [parseFloat(tp1.toFixed(2)), parseFloat(tp2.toFixed(2))],
+          riskReward: {
+            tp1RR: 1.5,
+            tp2RR: 3.0
+          },
+          validationErrors: []
+        };
+        chosenName = 'SCALP_1H';
+      }
+      
+      // If still not chosen, try MICRO_SCALP
+      if (!chosenStrategy && !strategies.MICRO_SCALP.valid && trend5m === 'uptrend') {
+        const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
+        const entryMid = ema21_5m;
+        const entryZone = {
+          min: entryMid * 0.999,
+          max: entryMid * 1.001
+        };
+        
+        const stopLoss = entryMid * 0.998;
+        const R = Math.abs(entryMid - stopLoss);
+        
+        const tp1 = entryMid + (R * 1.0);
+        const tp2 = entryMid + (R * 1.5);
+        
+        chosenStrategy = {
+          valid: true,
+          direction: 'long',
+          confidence: Math.min(100, htfBias.confidence - 15), // Lower for micro
+          reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m/5m uptrend, micro scalp despite 4H flat`,
+          entryZone: {
+            min: parseFloat(entryZone.min.toFixed(2)),
+            max: parseFloat(entryZone.max.toFixed(2))
+          },
+          stopLoss: parseFloat(stopLoss.toFixed(2)),
+          invalidationLevel: parseFloat(stopLoss.toFixed(2)),
+          targets: [parseFloat(tp1.toFixed(2)), parseFloat(tp2.toFixed(2))],
+          riskReward: {
+            tp1RR: 1.0,
+            tp2RR: 1.5
+          },
+          validationErrors: []
+        };
+        chosenName = 'MICRO_SCALP';
+      }
+      
+      // Apply chosen strategy
+      if (chosenStrategy && chosenName) {
+        strategies[chosenName] = chosenStrategy;
+      }
+    }
+    
+    // REQUIRED SHORT SETUP IN AGGRESSIVE_MODE
+    if (htfBias.direction === 'short' && htfBias.confidence >= 80 && 
+        trend1h === 'downtrend' && trend15m === 'downtrend') {
+      
+      // Similar logic for shorts
+      let chosenStrategy = null;
+      let chosenName = null;
+      
+      // Try TREND_4H first
+      if (!strategies.TREND_4H.valid) {
+        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
+        const ema21_15m = tf15m?.indicators?.ema?.ema21 || currentPrice;
+        const entryMid = (ema21_1h + ema21_15m) / 2;
+        const entryZone = {
+          min: entryMid * 0.995,
+          max: entryMid * 1.005
+        };
+        
+        const swingHigh1h = tf1h?.indicators?.swingHigh || ema21_1h * 1.02;
+        const stopLoss = swingHigh1h;
+        const R = Math.abs(stopLoss - entryMid);
+        
+        const tp1 = entryMid - (R * 1.5);
+        const tp2 = entryMid - (R * 3.0);
+        
+        chosenStrategy = {
+          valid: true,
+          direction: 'short',
+          confidence: Math.min(100, htfBias.confidence),
+          reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend aligned, using lower TFs despite 4H flat`,
+          entryZone: {
+            min: parseFloat(entryZone.min.toFixed(2)),
+            max: parseFloat(entryZone.max.toFixed(2))
+          },
+          stopLoss: parseFloat(stopLoss.toFixed(2)),
+          invalidationLevel: parseFloat(stopLoss.toFixed(2)),
+          targets: [parseFloat(tp1.toFixed(2)), parseFloat(tp2.toFixed(2))],
+          riskReward: {
+            tp1RR: 1.5,
+            tp2RR: 3.0
+          },
+          validationErrors: []
+        };
+        chosenName = 'TREND_4H';
+      }
+      
+      // If TREND_4H not chosen, try SCALP_1H
+      if (!chosenStrategy && !strategies.SCALP_1H.valid) {
+        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
+        const entryMid = ema21_1h;
+        const entryZone = {
+          min: entryMid * 0.998,
+          max: entryMid * 1.002
+        };
+        
+        const swingHigh15m = tf15m?.indicators?.swingHigh || ema21_1h * 1.005;
+        const stopLoss = swingHigh15m;
+        const R = Math.abs(stopLoss - entryMid);
+        
+        const tp1 = entryMid - (R * 1.5);
+        const tp2 = entryMid - (R * 3.0);
+        
+        chosenStrategy = {
+          valid: true,
+          direction: 'short',
+          confidence: Math.min(100, htfBias.confidence - 10),
+          reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend, scalp entry despite 4H flat`,
+          entryZone: {
+            min: parseFloat(entryZone.min.toFixed(2)),
+            max: parseFloat(entryZone.max.toFixed(2))
+          },
+          stopLoss: parseFloat(stopLoss.toFixed(2)),
+          invalidationLevel: parseFloat(stopLoss.toFixed(2)),
+          targets: [parseFloat(tp1.toFixed(2)), parseFloat(tp2.toFixed(2))],
+          riskReward: {
+            tp1RR: 1.5,
+            tp2RR: 3.0
+          },
+          validationErrors: []
+        };
+        chosenName = 'SCALP_1H';
+      }
+      
+      // If still not chosen, try MICRO_SCALP
+      if (!chosenStrategy && !strategies.MICRO_SCALP.valid && trend5m === 'downtrend') {
+        const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
+        const entryMid = ema21_5m;
+        const entryZone = {
+          min: entryMid * 0.999,
+          max: entryMid * 1.001
+        };
+        
+        const stopLoss = entryMid * 1.002;
+        const R = Math.abs(stopLoss - entryMid);
+        
+        const tp1 = entryMid - (R * 1.0);
+        const tp2 = entryMid - (R * 1.5);
+        
+        chosenStrategy = {
+          valid: true,
+          direction: 'short',
+          confidence: Math.min(100, htfBias.confidence - 15),
+          reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m/5m downtrend, micro scalp despite 4H flat`,
+          entryZone: {
+            min: parseFloat(entryZone.min.toFixed(2)),
+            max: parseFloat(entryZone.max.toFixed(2))
+          },
+          stopLoss: parseFloat(stopLoss.toFixed(2)),
+          invalidationLevel: parseFloat(stopLoss.toFixed(2)),
+          targets: [parseFloat(tp1.toFixed(2)), parseFloat(tp2.toFixed(2))],
+          riskReward: {
+            tp1RR: 1.0,
+            tp2RR: 1.5
+          },
+          validationErrors: []
+        };
+        chosenName = 'MICRO_SCALP';
+      }
+      
+      // Apply chosen strategy
+      if (chosenStrategy && chosenName) {
+        strategies[chosenName] = chosenStrategy;
+      }
+    }
   }
   
   // Find best signal with priority rules
