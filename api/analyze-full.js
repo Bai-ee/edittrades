@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     const { intervals } = req.query;
     const intervalList = intervals 
       ? intervals.split(',').map(i => i.trim()) 
-      : ['3d', '1d', '4h', '1h', '15m', '5m', '1m'];
+      : ['1M', '1w', '3d', '1d', '4h', '1h', '15m', '5m', '3m', '1m'];
 
     console.log(`[Analyze-Full] Processing ${symbol} (mode: ${mode}) for intervals: ${intervalList.join(', ')}`);
 

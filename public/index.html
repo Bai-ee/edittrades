@@ -1117,6 +1117,17 @@
     
     const strategyOptions = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
     
+    // Helper function to normalize confidence to 0-100 scale
+    // Handles both 0-1 (decimal) and 0-100 (percentage) formats
+    function normalizeConfidence(confidence) {
+      if (confidence === null || confidence === undefined || isNaN(confidence)) return 0;
+      if (typeof confidence !== 'number') return 0;
+      // If already 0-100 scale, return as-is (clamped)
+      if (confidence > 1) return Math.min(100, Math.max(0, Math.round(confidence)));
+      // If 0-1 scale, convert to 0-100
+      return Math.min(100, Math.max(0, Math.round(confidence * 100)));
+    }
+
     // Trade Templates Configuration
     const tradeTemplates = {
       '4h': {
@@ -1462,7 +1473,7 @@
           return {
             valid: true,
             direction: strategy.direction,
-            confidence: strategy.confidence,
+            confidence: normalizeConfidence(strategy.confidence),
             reason: strategy.reason,
             entryZone: strategy.entryZone,
             stopLoss: strategy.stopLoss,
@@ -1745,7 +1756,7 @@
         return {
           valid: false,
           direction: 'NO_TRADE',
-          reason: `Confidence ${(confidence * 100).toFixed(0)}% below minimum ${(template.minConfidence * 100).toFixed(0)}% for ${templateKey}`,
+          reason: `Confidence ${normalizeConfidence(confidence)}% below minimum ${normalizeConfidence(template.minConfidence)}% for ${templateKey}`,
           confidence: confidence
         };
       }
@@ -1777,7 +1788,7 @@
         direction: direction,
         setupType: templateKey,
         confidence: confidence,  // Already clamped above
-        reason: `${template.label}: ${anchorTrend}, confidence ${(confidence * 100).toFixed(0)}%`,
+        reason: `${template.label}: ${anchorTrend}, confidence ${normalizeConfidence(confidence)}%`,
         entryZone: entryZone,
         stopLoss: stopLoss,
         invalidationLevel: invalidationLevel,  // Added: HTF/LTF invalidation
@@ -2338,7 +2349,7 @@
               allTradesData.SAFE_MODE[symbol].strategies[strategyKey] = {
                 direction: signal.direction,
                 setupType: signal.setupType,
-                confidence: signal.confidence ? signal.confidence.toFixed(0) + '%' : '0%'
+                confidence: normalizeConfidence(signal.confidence) + '%'
               };
             }
           });
@@ -2376,7 +2387,7 @@
               allTradesData.AGGRESSIVE_MODE[symbol].strategies[strategyKey] = {
                 direction: signal.direction,
                 setupType: signal.setupType,
-                confidence: signal.confidence ? signal.confidence.toFixed(0) + '%' : '0%'
+                confidence: normalizeConfidence(signal.confidence) + '%'
               };
             }
           });
@@ -2956,7 +2967,7 @@
       detailsRow.id = `details-${symbol}`;
       
       // Create detailed timeframe cards - ALL TIMEFRAMES (1m first, 1 Month last)
-      const timeframes = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w', '1M'];
+      const timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d', '3d', '1w', '1M'];
       const tfCards = timeframes.map(tf => {
         const analysis = data.analysis?.[tf];
         if (!analysis || analysis.error || !analysis.indicators) {
@@ -3091,7 +3102,7 @@
       if (tradeSignal && tradeSignal.valid) {
         const direction = tradeSignal.direction.toUpperCase();
         const setupType = tradeSignal.setupType ? tradeSignal.setupType.toUpperCase() : '4H';
-        const confidence = tradeSignal.confidence ? (tradeSignal.confidence * 100).toFixed(0) : '0';
+        const confidence = normalizeConfidence(tradeSignal.confidence).toFixed(0);
         const directionIcon = direction === 'LONG' ? '🟢⬆️' : direction === 'SHORT' ? '🔴⬇️' : '⚪';
         const directionColor = direction === 'LONG' ? '#22c55e' : direction === 'SHORT' ? '#ef4444' : '#9ca3af';
         
@@ -3736,29 +3747,69 @@
       window.location.href = '/tracker.html?autoTrack=true';
     }
 
-    // Copy single coin view - UNIFIED: Trade + Full Signal Snapshot (ONE COIN ONLY)
-    async function copyCoinView(symbol) {
-      console.log(`📋 Copying ${symbol} with unified format (trade + full snapshot)...`);
+    // Copy to clipboard - synchronous for mobile compatibility
+    function copyToClipboardSync(text) {
+      // Try Clipboard API first - must be called synchronously in user gesture
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        // Fire and forget - works on desktop, may fail on mobile but we have fallback
+        navigator.clipboard.writeText(text).then(() => {
+          return { success: true };
+        }).catch(() => {
+          // Fall through to execCommand
+        });
+        // Optimistically return success for desktop
+        return { success: true };
+      }
       
-      // Determine current mode
-      const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
+      // Fallback: execCommand with textarea (works on mobile when clipboard API fails)
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '0';
+      textArea.style.top = '0';
+      textArea.style.width = '2px';
+      textArea.style.height = '2px';
+      textArea.style.opacity = '0';
+      textArea.style.pointerEvents = 'none';
+      textArea.style.zIndex = '-1';
+      document.body.appendChild(textArea);
       
-      // Fetch full rich symbol snapshot for THIS COIN ONLY
-      let signalSnapshot = null;
+      // For iOS
+      if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+        textArea.contentEditable = true;
+        textArea.readOnly = false;
+        const range = document.createRange();
+        range.selectNodeContents(textArea);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        textArea.setSelectionRange(0, text.length);
+      } else {
+        textArea.focus();
+        textArea.select();
+      }
+      
       try {
-        const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${currentMode}`);
-        if (response.ok) {
-          signalSnapshot = await response.json();
-        } else {
-          throw new Error(`API returned ${response.status}`);
-        }
-      } catch (error) {
-        console.warn(`API failed, using fallback:`, error.message);
-        signalSnapshot = buildRichSymbolFromScanResults(symbol, currentMode);
-        if (!signalSnapshot) {
-          alert(`No data available for ${symbol}. Please wait for scan to complete.`);
-          return;
-        }
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return { success: successful };
+      } catch (err) {
+        document.body.removeChild(textArea);
+        return { success: false, error: err.message };
+      }
+    }
+
+    // Copy single coin view - UNIFIED: Trade + Full Signal Snapshot (ONE COIN ONLY)
+    function copyCoinView(symbol) {
+      console.log(`📋 Copying ${symbol}...`);
+      
+      // Use existing scanResults data - NO ASYNC FETCH (preserves user gesture for mobile)
+      const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
+      const signalSnapshot = buildRichSymbolFromScanResults(symbol, currentMode);
+      
+      if (!signalSnapshot) {
+        alert(`No data available for ${symbol}. Please wait for scan to complete.`);
+        return;
       }
       
       // Pick the strategy (use bestSignal or user-selected)
@@ -3790,7 +3841,7 @@
         entryZone: strategy?.entryZone || { min: null, max: null },
         stopLoss: strategy?.stopLoss || null,
         targets: strategy?.targets || [],
-        confidence: strategy?.confidence || 0,
+        confidence: normalizeConfidence(strategy?.confidence || 0),
         reason: strategy?.reason || 'No trade available',
         
         // Full signal snapshot for journaling/analytics (self-reference for convenience)
@@ -3799,13 +3850,13 @@
       
       const jsonString = JSON.stringify(unifiedPayload, null, 2);
       
-      navigator.clipboard.writeText(jsonString).then(() => {
+      // Copy immediately while still in user gesture context (critical for mobile)
+      const result = copyToClipboardSync(jsonString);
+      if (result.success) {
         showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
-        console.log(`✅ ${symbol} copied (unified format: ONE COIN, trade + snapshot)`);
-      }).catch(err => {
-        console.error('Failed to copy:', err);
-        alert('Failed to copy');
-      });
+      } else {
+        // Error already handled in copyToClipboardSync
+      }
     }
 
     // Convert rich symbol from /api/analyze-full to legacy format for backward compatibility
@@ -3928,9 +3979,7 @@
           strategies[strategyNames[idx]] = {
             valid: signal.valid || false,
             direction: signal.direction || 'NO_TRADE',
-            confidence: typeof signal.confidence === 'number'
-              ? Math.round(signal.confidence > 1 ? signal.confidence : signal.confidence * 100)
-              : 0,
+            confidence: normalizeConfidence(signal.confidence),
             reason: signal.reason || 'No trade setup available',
             entryZone: signal.entryZone || { min: null, max: null },
             stopLoss: signal.stopLoss || null,
@@ -4006,9 +4055,7 @@
         currentPrice: data.currentPrice || null,
         htfBias: {
           direction: htfBias.direction || 'neutral',
-          confidence: typeof htfBias.confidence === 'number'
-            ? (htfBias.confidence > 1 ? htfBias.confidence : htfBias.confidence * 100)
-            : 0,
+          confidence: normalizeConfidence(htfBias.confidence),
           source: htfBias.source || 'none'
         },
         timeframes,
@@ -4020,7 +4067,7 @@
     }
 
     // Copy all coins with ALL strategies from BOTH modes (RICH FORMAT)
-    async function copyAllCoins() {
+    function copyAllCoins() {
       console.log('📋 Copying all trades with rich format (all strategies included)...');
       
       const allViews = {
@@ -4031,29 +4078,14 @@
       const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
       const modes = ['STANDARD', 'AGGRESSIVE'];
       
-      // Try API first, fallback to scanResults
+      // Use existing scanResults data - NO ASYNC FETCH (preserves user gesture for mobile)
       for (const symbol of symbols) {
         for (const mode of modes) {
-          try {
-            console.log(`  Fetching ${symbol} (${mode}) from API...`);
-            const response = await fetch(`/api/analyze-full?symbol=${symbol}&mode=${mode}`);
-            if (response.ok) {
-              const richSymbol = await response.json();
-              const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
-              allViews[modeKey][symbol] = richSymbol;
-              console.log(`  ✅ ${symbol} (${mode}) from API: bestSignal=${richSymbol.bestSignal || 'null'}`);
-            } else {
-              throw new Error(`API returned ${response.status}`);
-            }
-          } catch (error) {
-            console.warn(`  ⚠️ API failed for ${symbol} (${mode}), using fallback:`, error.message);
-            // Fallback to existing scanResults
-            const richSymbol = buildRichSymbolFromScanResults(symbol, mode);
-            if (richSymbol) {
-              const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
-              allViews[modeKey][symbol] = richSymbol;
-              console.log(`  ✅ ${symbol} (${mode}) from fallback: bestSignal=${richSymbol.bestSignal || 'null'}`);
-            } else {
+          const richSymbol = buildRichSymbolFromScanResults(symbol, mode);
+          if (richSymbol) {
+            const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
+            allViews[modeKey][symbol] = richSymbol;
+          } else {
               // Last resort: create structure with NO_TRADE for all strategies
               const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
               allViews[modeKey][symbol] = {
@@ -4073,7 +4105,6 @@
                 generatedAt: new Date().toISOString()
               };
               console.log(`  ⚠️ ${symbol} (${mode}): Created empty structure (no data available)`);
-            }
           }
         }
       }
@@ -4087,15 +4118,14 @@
       }
       
       const jsonString = JSON.stringify(allViews, null, 2);
-      console.log('📋 Final JSON structure:', JSON.stringify(Object.keys(allViews.SAFE_MODE), null, 2));
       
-      navigator.clipboard.writeText(jsonString).then(() => {
+      // Copy immediately while still in user gesture context (critical for mobile)
+      const result = copyToClipboardSync(jsonString);
+      if (result.success) {
         showCopySuccess('ALL COINS COPIED!');
-        console.log('✅ All trades copied to clipboard (rich format)');
-      }).catch(err => {
-        console.error('Failed to copy:', err);
-        alert('Failed to copy');
-      });
+      } else {
+        // Error already handled in copyToClipboardSync
+      }
     }
 
     // Generate formatted trade call text (matches text file format exactly)
@@ -4300,8 +4330,7 @@
           setupType: setupType,
           selectedStrategy: selectedStrategy,
           strategiesChecked: strategiesChecked,
-          confidence: tradeSignal.confidence ? 
-            parseFloat((tradeSignal.confidence * 100).toFixed(0)) : 0,
+          confidence: normalizeConfidence(tradeSignal.confidence),
           reason: tradeSignal.reason_summary || tradeSignal.reason,
           
           // Entry/SL/Targets - include even if null (shows structure)
@@ -4422,7 +4451,7 @@
       // Store formatted trade call for easy GPT consumption
       view.formattedTradeCall = generateFormattedTradeCallText(data, view.signal);
       
-      // Timeframes - Includes all fetched intervals (1M, 1w, 3d, 1d, 4h, 1h, 15m, 5m, 1m)
+      // Timeframes - Includes all fetched intervals (1M, 1w, 3d, 1d, 4h, 1h, 15m, 5m, 3m, 1m)
       if (data.analysis) {
         for (const [interval, analysis] of Object.entries(data.analysis)) {
           if (analysis.error || !analysis.indicators) {

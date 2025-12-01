@@ -79,19 +79,81 @@ function aggregate3DayCandles(dailyCandles) {
     if (chunk.length === 0) continue;
     
     // Aggregate 3 days into 1 candle
+    const lastCandle = chunk[chunk.length - 1];
     const aggregated = {
       timestamp: chunk[0].timestamp,
       open: chunk[0].open,
       high: Math.max(...chunk.map(c => c.high)),
       low: Math.min(...chunk.map(c => c.low)),
-      close: chunk[chunk.length - 1].close,
-      volume: chunk.reduce((sum, c) => sum + c.volume, 0)
+      close: lastCandle.close,
+      volume: chunk.reduce((sum, c) => sum + c.volume, 0),
+      closeTime: lastCandle.closeTime || (lastCandle.timestamp + (3 * 24 * 60 * 60 * 1000))
     };
     
     threeDayCandles.push(aggregated);
   }
   
   return threeDayCandles;
+}
+
+/**
+ * Aggregate 1D candles into 1W (weekly) candles
+ * @param {Array} dailyCandles - Array of 1D OHLCV candles
+ * @returns {Array} Array of 1W OHLCV candles
+ */
+function aggregateWeeklyCandles(dailyCandles) {
+  const weeklyCandles = [];
+  
+  for (let i = 0; i < dailyCandles.length; i += 7) {
+    const chunk = dailyCandles.slice(i, i + 7);
+    if (chunk.length === 0) continue;
+    
+    // Aggregate 7 days into 1 week candle
+    const lastCandle = chunk[chunk.length - 1];
+    const aggregated = {
+      timestamp: chunk[0].timestamp,
+      open: chunk[0].open,
+      high: Math.max(...chunk.map(c => c.high)),
+      low: Math.min(...chunk.map(c => c.low)),
+      close: lastCandle.close,
+      volume: chunk.reduce((sum, c) => sum + c.volume, 0),
+      closeTime: lastCandle.closeTime || (lastCandle.timestamp + (7 * 24 * 60 * 60 * 1000))
+    };
+    
+    weeklyCandles.push(aggregated);
+  }
+  
+  return weeklyCandles;
+}
+
+/**
+ * Aggregate 1D candles into 1M (monthly) candles
+ * @param {Array} dailyCandles - Array of 1D OHLCV candles
+ * @returns {Array} Array of 1M OHLCV candles
+ */
+function aggregateMonthlyCandles(dailyCandles) {
+  const monthlyCandles = [];
+  
+  for (let i = 0; i < dailyCandles.length; i += 30) {
+    const chunk = dailyCandles.slice(i, i + 30);
+    if (chunk.length === 0) continue;
+    
+    // Aggregate ~30 days into 1 month candle
+    const lastCandle = chunk[chunk.length - 1];
+    const aggregated = {
+      timestamp: chunk[0].timestamp,
+      open: chunk[0].open,
+      high: Math.max(...chunk.map(c => c.high)),
+      low: Math.min(...chunk.map(c => c.low)),
+      close: lastCandle.close,
+      volume: chunk.reduce((sum, c) => sum + c.volume, 0),
+      closeTime: lastCandle.closeTime || (lastCandle.timestamp + (30 * 24 * 60 * 60 * 1000))
+    };
+    
+    monthlyCandles.push(aggregated);
+  }
+  
+  return monthlyCandles;
 }
 
 /**
@@ -106,21 +168,30 @@ async function fetchFromKraken(symbol, interval, limit = 500) {
     const krakenSymbol = SYMBOL_MAP[symbol]?.kraken || 'XBTUSD';
     
     // Kraken interval mapping
-    // For 3d, fetch daily data and aggregate
+    // For 3d, 1w, and 1M, fetch daily data and aggregate
     if (interval === '3d') {
       const dailyData = await fetchFromKraken(symbol, '1d', limit * 3);
       return aggregate3DayCandles(dailyData);
     }
     
+    if (interval === '1w') {
+      const dailyData = await fetchFromKraken(symbol, '1d', limit * 7);
+      return aggregateWeeklyCandles(dailyData);
+    }
+    
+    if (interval === '1M') {
+      const dailyData = await fetchFromKraken(symbol, '1d', limit * 30);
+      return aggregateMonthlyCandles(dailyData);
+    }
+    
     const krakenInterval = {
       '1m': 1,
+      '3m': 3,
       '5m': 5,
       '15m': 15,
       '1h': 60,
       '4h': 240,
-      '1d': 1440,
-      '1w': 10080,      // 7 days
-      '1M': 21600       // 15 days (Kraken's max)
+      '1d': 1440
     }[interval] || 60;
 
     const response = await axios.get('https://api.kraken.com/0/public/OHLC', {

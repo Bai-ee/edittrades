@@ -705,6 +705,252 @@ function calculateConfidence(analysis, direction) {
 }
 
 /**
+ * Calculate confidence with hierarchical weighting
+ * Uses macro (1M, 1W, 3D, 1D), primary (4H, 1H), and execution (15m, 5m, 3m, 1m) layers
+ * @param {Object} multiTimeframeData - All timeframe analysis data
+ * @param {string} direction - 'long' or 'short'
+ * @param {string} mode - 'STANDARD' or 'AGGRESSIVE'
+ * @returns {Object} { confidence: 0-100, penaltiesApplied: [], capsApplied: [], explanation: string }
+ */
+function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 'STANDARD') {
+  const penaltiesApplied = [];
+  const capsApplied = [];
+  let baseConfidence = 0;
+  
+  // Configuration - make caps configurable
+  const CAPS = {
+    STANDARD: {
+      MACRO_CONTRADICTION: 75,
+      PRIMARY_CONTRADICTION: 65,
+      MACRO_PRIMARY_CONTRADICTION: 55,
+      EXHAUSTION_CONTRADICTION: 45
+    },
+    AGGRESSIVE: {
+      MACRO_CONTRADICTION: 80,
+      PRIMARY_CONTRADICTION: 70,
+      MACRO_PRIMARY_CONTRADICTION: 60,
+      EXHAUSTION_CONTRADICTION: 50
+    }
+  };
+  
+  const caps = CAPS[mode] || CAPS.STANDARD;
+  
+  // 1. MACRO TREND LAYER (40% weight)
+  const macroTfs = ['1M', '1w', '3d', '1d'];
+  const macroTrends = {};
+  let macroAlignment = 0;
+  let macroContradiction = false;
+  let macroContradictionLevel = 'none';
+  let availableMacroTfs = 0;
+  
+  for (const tf of macroTfs) {
+    const data = multiTimeframeData[tf];
+    if (data && data.indicators && data.indicators.analysis) {
+      const trend = normalizeTrend(data.indicators.analysis.trend);
+      macroTrends[tf] = trend;
+      availableMacroTfs++;
+      
+      if (trend === 'uptrend' && direction === 'long') {
+        macroAlignment += 0.1;
+      } else if (trend === 'downtrend' && direction === 'short') {
+        macroAlignment += 0.1;
+      } else if (trend !== 'flat' && (
+        (trend === 'uptrend' && direction === 'short') ||
+        (trend === 'downtrend' && direction === 'long')
+      )) {
+        macroContradiction = true;
+        if (tf === '1d') {
+          macroContradictionLevel = 'severe';
+        } else if (macroContradictionLevel === 'none') {
+          macroContradictionLevel = 'moderate';
+        }
+      }
+    }
+  }
+  
+  // Normalize macro alignment if not all TFs available
+  if (availableMacroTfs > 0) {
+    macroAlignment = macroAlignment / availableMacroTfs * macroTfs.length;
+  }
+  
+  const macroWeight = 0.4;
+  baseConfidence = macroAlignment * macroWeight * 100;
+  
+  // Apply macro penalties
+  if (macroContradiction) {
+    const multiplier = macroContradictionLevel === 'severe' ? 0.4 : 
+                      macroContradictionLevel === 'moderate' ? 0.6 : 0.75;
+    baseConfidence *= multiplier;
+    penaltiesApplied.push({
+      layer: 'macro',
+      level: macroContradictionLevel,
+      multiplier: multiplier,
+      reason: `${macroContradictionLevel} macro contradiction detected`
+    });
+  }
+  
+  // 2. PRIMARY TREND LAYER (35% weight)
+  const tf4h = multiTimeframeData['4h'];
+  const tf1h = multiTimeframeData['1h'];
+  let primaryAlignment = 0;
+  let primaryContradiction = false;
+  
+  if (tf4h && tf1h && tf4h.indicators && tf1h.indicators) {
+    const trend4h = normalizeTrend(tf4h.indicators.analysis?.trend);
+    const trend1h = normalizeTrend(tf1h.indicators.analysis?.trend);
+    
+    if (trend4h === 'flat' && trend1h !== 'flat') {
+      // 4H flat but 1H aligned
+      if ((trend1h === 'uptrend' && direction === 'long') ||
+          (trend1h === 'downtrend' && direction === 'short')) {
+        primaryAlignment = 0.85;
+        penaltiesApplied.push({
+          layer: 'primary',
+          reason: '4H flat but 1H aligned',
+          multiplier: 0.85
+        });
+      }
+    } else if ((trend4h === 'uptrend' && direction === 'long') ||
+               (trend4h === 'downtrend' && direction === 'short')) {
+      primaryAlignment = 1.0;
+    } else if (trend4h !== 'flat') {
+      primaryContradiction = true;
+      primaryAlignment = 0.5;
+      penaltiesApplied.push({
+        layer: 'primary',
+        reason: '4H contradicts direction',
+        multiplier: 0.5
+      });
+    }
+    
+    if (trend1h === 'uptrend' && direction === 'long') {
+      primaryAlignment = Math.min(1.0, primaryAlignment + 0.15);
+    } else if (trend1h === 'downtrend' && direction === 'short') {
+      primaryAlignment = Math.min(1.0, primaryAlignment + 0.15);
+    }
+  }
+  
+  const primaryWeight = 0.35;
+  baseConfidence += (primaryAlignment * primaryWeight * 100);
+  
+  // 3. EXECUTION LAYER (25% weight)
+  const execTfs = ['15m', '5m', '3m', '1m'];
+  let execAlignment = 0;
+  let exhaustionCount = 0;
+  let availableExecTfs = 0;
+  
+  for (const tf of execTfs) {
+    const data = multiTimeframeData[tf];
+    if (data && data.indicators && data.indicators.stochRSI) {
+      availableExecTfs++;
+      const stoch = data.indicators.stochRSI;
+      const isOverbought = stoch.k > 80 && stoch.d > 80;
+      const isOversold = stoch.k < 20 && stoch.d < 20;
+      
+      if (direction === 'long' && isOverbought) {
+        exhaustionCount++;
+        execAlignment += 0.9;
+      } else if (direction === 'short' && isOversold) {
+        exhaustionCount++;
+        execAlignment += 0.9;
+      } else {
+        execAlignment += 1.0;
+      }
+    }
+  }
+  
+  const execWeight = 0.25;
+  const avgExecAlignment = availableExecTfs > 0 ? execAlignment / availableExecTfs : 1.0;
+  baseConfidence += (avgExecAlignment * execWeight * 100);
+  
+  if (exhaustionCount >= 2) {
+    penaltiesApplied.push({
+      layer: 'execution',
+      reason: `${exhaustionCount} lower timeframes show exhaustion`,
+      multiplier: 0.7
+    });
+    baseConfidence *= 0.7;
+  }
+  
+  // Apply hard caps
+  let finalConfidence = Math.min(100, Math.max(0, baseConfidence));
+  
+  if (macroContradiction && primaryContradiction) {
+    if (finalConfidence > caps.MACRO_PRIMARY_CONTRADICTION) {
+      capsApplied.push('MACRO_PRIMARY_CONTRADICTION');
+      finalConfidence = Math.min(finalConfidence, caps.MACRO_PRIMARY_CONTRADICTION);
+    }
+  } else if (macroContradiction) {
+    if (finalConfidence > caps.MACRO_CONTRADICTION) {
+      capsApplied.push('MACRO_CONTRADICTION');
+      finalConfidence = Math.min(finalConfidence, caps.MACRO_CONTRADICTION);
+    }
+  } else if (primaryContradiction) {
+    if (finalConfidence > caps.PRIMARY_CONTRADICTION) {
+      capsApplied.push('PRIMARY_CONTRADICTION');
+      finalConfidence = Math.min(finalConfidence, caps.PRIMARY_CONTRADICTION);
+    }
+  }
+  
+  if (exhaustionCount >= 2 && (macroContradiction || primaryContradiction)) {
+    if (finalConfidence > caps.EXHAUSTION_CONTRADICTION) {
+      capsApplied.push('EXHAUSTION_CONTRADICTION');
+      finalConfidence = Math.min(finalConfidence, caps.EXHAUSTION_CONTRADICTION);
+    }
+  }
+  
+  // Build explanation
+  const explanation = buildConfidenceExplanation(
+    macroTrends, macroContradiction, primaryContradiction, 
+    exhaustionCount, penaltiesApplied, capsApplied, finalConfidence, baseConfidence
+  );
+  
+  return {
+    confidence: Math.round(finalConfidence),
+    penaltiesApplied,
+    capsApplied,
+    explanation
+  };
+}
+
+/**
+ * Build confidence explanation string
+ */
+function buildConfidenceExplanation(macroTrends, macroContradiction, primaryContradiction, 
+                                   exhaustionCount, penaltiesApplied, capsApplied, 
+                                   finalConfidence, baseConfidence) {
+  let explanation = '';
+  
+  // Macro alignment
+  const macroTfList = Object.keys(macroTrends).filter(tf => macroTrends[tf] !== 'flat').join('/');
+  explanation += `Macro alignment (${macroTfList || 'none'}): `;
+  explanation += macroContradiction ? 'contradiction detected. ' : 'aligned. ';
+  
+  // Primary alignment
+  explanation += `Primary trend (4H+1H): `;
+  explanation += primaryContradiction ? 'contradiction. ' : 'aligned. ';
+  
+  // Penalties
+  if (penaltiesApplied.length > 0) {
+    explanation += `Penalties: ${penaltiesApplied.map(p => p.reason).join(', ')}. `;
+  }
+  
+  // Caps
+  if (capsApplied.length > 0) {
+    explanation += `Caps applied: ${capsApplied.join(', ')}. `;
+  }
+  
+  // Final confidence
+  if (baseConfidence !== finalConfidence) {
+    explanation += `Confidence reduced from ${Math.round(baseConfidence)}% → ${finalConfidence}%`;
+  } else {
+    explanation += `Final confidence: ${finalConfidence}%`;
+  }
+  
+  return explanation;
+}
+
+/**
  * Build reason summary string
  * @param {Object} analysis - Multi-timeframe analysis
  * @param {string} direction - Trade direction
@@ -940,22 +1186,28 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
     tp3 = midEntry - (R * 5);
   }
   
-  // Confidence: 70-90 (3D + 1D confluence → higher confidence)
-  let confidence = 70;
+  // Use hierarchical confidence system for Swing
+  const confidenceResult = calculateConfidenceWithHierarchy(multiTimeframeData, direction, 'STANDARD');
+  let confidence = confidenceResult.confidence;
+  const penaltiesApplied = confidenceResult.penaltiesApplied;
+  const capsApplied = confidenceResult.capsApplied;
+  const confidenceExplanation = confidenceResult.explanation;
+  
+  // Swing-specific bonuses (applied after hierarchical calculation)
   // Boost for strong stoch alignment
   if (direction === 'long' && stoch3d.condition === 'OVERSOLD' && stoch1d.condition === 'BULLISH') {
-    confidence += 10;
+    confidence = Math.min(90, confidence + 5);
   } else if (direction === 'short' && stoch3d.condition === 'OVERBOUGHT' && stoch1d.condition === 'BEARISH') {
-    confidence += 10;
+    confidence = Math.min(90, confidence + 5);
   }
   // Boost for tight 4H entry
   if (Math.abs(currentPrice - ema21_4h) / currentPrice <= 0.005) { // within ±0.5%
-    confidence += 5;
+    confidence = Math.min(90, confidence + 3);
   }
   // Boost for strong 3D overextension
   const dist3d = Math.abs(pullback3d.distanceFrom21EMA);
   if (dist3d >= 10) {
-    confidence += 5;
+    confidence = Math.min(90, confidence + 2);
   }
   
   confidence = Math.min(confidence, 90);
@@ -970,9 +1222,12 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
     setupType: 'Swing',
     selectedStrategy: 'SWING',
     strategiesChecked: ['SWING'],
-    confidence: confidence / 100, // Convert to 0-1 scale
+    confidence: Math.round(confidence), // Keep as 0-100 scale
     reason: reason,
-    reason_summary: reason,
+    reason_summary: confidenceExplanation ? `${reason} [${confidenceExplanation}]` : reason,
+    penaltiesApplied: penaltiesApplied,
+    capsApplied: capsApplied,
+    explanation: confidenceExplanation,
     entry_zone: {
       min: parseFloat(entryMin.toFixed(2)),
       max: parseFloat(entryMax.toFixed(2))
@@ -1251,12 +1506,16 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   const entryMid = (entryZone.min + entryZone.max) / 2;
   const sltp = calculateSLTP(entryMid, direction, allStructures, setupType, rrTargets);
   
-  // Calculate confidence score (0-1 scale) then convert to 0-100
-  const confidenceDecimal = calculateConfidence(analysis, direction);
-  const confidence = Math.round(confidenceDecimal * 100); // Convert to 0-100 scale
+  // Calculate confidence with hierarchical weighting system
+  const confidenceResult = calculateConfidenceWithHierarchy(analysis, direction, mode);
+  const confidence = confidenceResult.confidence;
+  const penaltiesApplied = confidenceResult.penaltiesApplied;
+  const capsApplied = confidenceResult.capsApplied;
+  const confidenceExplanation = confidenceResult.explanation;
   
-  // Build reason summary
+  // Build reason summary (include confidence explanation)
   const reasonSummary = buildReasonSummary(analysis, direction, confidence);
+  const enhancedReason = confidenceExplanation ? `${reasonSummary} [${confidenceExplanation}]` : reasonSummary;
   
   // Build trend object
   const trendObj = {
@@ -1319,7 +1578,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     },
     risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
     confidence: Math.round(confidence), // Already 0-100 scale, just round
-    reason_summary: reasonSummary,
+    reason_summary: enhancedReason || reasonSummary,
+    penaltiesApplied: penaltiesApplied,
+    capsApplied: capsApplied,
+    explanation: confidenceExplanation,
     valid: true, // Only set to true after all fields validated
     invalidation: {
       level: parseFloat(sltp.invalidationLevel.toFixed(2)),
@@ -1400,10 +1662,16 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const rrTargets = [1.5, 3.0]; // Scalp targets
           const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets);
           
-          // Confidence based on bias (already 0-100 scale from htfBias)
-          const baseConfidence = 60;
-          const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.2) : 0;
-          const confidence = Math.min(85, Math.round(baseConfidence + biasBonus)); // 0-100 scale
+          // Use hierarchical confidence system for Scalp
+          const confidenceResult = calculateConfidenceWithHierarchy(analysis, direction, mode);
+          let confidence = confidenceResult.confidence;
+          const penaltiesApplied = confidenceResult.penaltiesApplied;
+          const capsApplied = confidenceResult.capsApplied;
+          const confidenceExplanation = confidenceResult.explanation;
+          
+          // Scalp-specific bonus: bias alignment
+          const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.1) : 0;
+          confidence = Math.min(85, Math.round(confidence + biasBonus));
           
           const rawSignal = {
             symbol,
@@ -1427,7 +1695,12 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             },
             risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
             confidence: Math.round(confidence), // Already 0-100 scale, just round
-            reason_summary: `1H ${trend1h.toLowerCase()} scalp with 15m pullback and Stoch alignment (HTF bias: ${htfBias.direction}, ${htfBias.confidence}%)`,
+            reason_summary: confidenceExplanation ? 
+              `1H ${trend1h.toLowerCase()} scalp with 15m pullback and Stoch alignment (HTF bias: ${htfBias.direction}, ${htfBias.confidence}%) [${confidenceExplanation}]` :
+              `1H ${trend1h.toLowerCase()} scalp with 15m pullback and Stoch alignment (HTF bias: ${htfBias.direction}, ${htfBias.confidence}%)`,
+            penaltiesApplied: penaltiesApplied,
+            capsApplied: capsApplied,
+            explanation: confidenceExplanation,
             invalidation: {
               level: parseFloat(sltp.invalidationLevel.toFixed(2)),
               description: '1H scalp invalidation – loss of pullback structure on 15m/5m'
@@ -2236,7 +2509,11 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD') {
       ? signal.targets.filter(t => t !== null && t !== undefined && !isNaN(t))
       : [],
     riskReward: signal.riskReward || { tp1RR: null, tp2RR: null },
-    validationErrors: []
+    validationErrors: [],
+    // NEW FIELDS (optional, backward compatible)
+    penaltiesApplied: signal.penaltiesApplied || [],
+    capsApplied: signal.capsApplied || [],
+    explanation: signal.explanation || null
   };
 }
 
