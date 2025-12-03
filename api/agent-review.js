@@ -200,6 +200,11 @@ ${depth === 'short' ? '- Keep it to 1-2 lines maximum' : depth === 'normal' ? '-
 
 ${tone === 'neutral' ? 'Use a balanced, observational tone.' : tone === 'optimistic' ? 'Use a positive, encouraging tone while staying realistic.' : tone === 'cautionary' ? 'Use a warning, careful tone highlighting risks.' : 'Use a confident, assertive tone.'}
 
+IMPORTANT: Match your language to signal direction:
+- If there's a LONG signal: Use bullish language (e.g., "uptrend", "bullish momentum", "buying pressure", "upward movement")
+- If there's a SHORT signal: Use bearish language (e.g., "downtrend", "bearish momentum", "selling pressure", "downward movement")
+- The tone should reflect the direction of any active signals, not just general market conditions
+
 ${target === 'dashboard' ? 'Format for dashboard overview - concise and actionable.' : target === 'trade-panel' ? 'Format for trade panel - specific to this symbol with actionable insights.' : 'Format for marquee banner - bold, clear trend pulse, very concise.'}
 
 Explain why signals are or aren't appearing. If no signals, explain what needs to happen for signals to trigger.`;
@@ -540,7 +545,14 @@ Rules:
 
 Write your response in this conversational style:
 
-[Opening paragraph: Current setup assessment - is this a good ${setupType.toUpperCase()} trade? State clearly if it's valid or not and why.]
+CRITICAL: Match your language tone to the trade direction:
+- For LONG trades: Use bullish, optimistic language (e.g., "strong upward momentum", "bullish structure", "uptrend continuation", "buying pressure", "price breaking higher", "bullish alignment")
+- For SHORT trades: Use bearish, cautionary language (e.g., "downward pressure", "bearish structure", "downtrend continuation", "selling pressure", "price breaking lower", "bearish alignment")
+- The tone should reflect the direction of the trade, not just general market conditions
+- If the signal direction is LONG, your entire analysis should sound bullish
+- If the signal direction is SHORT, your entire analysis should sound bearish
+
+[Opening paragraph: Current setup assessment - is this a good ${setupType.toUpperCase()} trade? State clearly if it's valid or not and why. Use direction-appropriate language (bullish for longs, bearish for shorts).]
 
 [Body paragraphs: Discuss the key factors FOR THIS SPECIFIC STRATEGY:
 ${setupType === 'MicroScalp' ? 
@@ -552,6 +564,7 @@ ${setupType === 'MicroScalp' ?
   '- 15m and 5m precision (±0.25% from EMA21 on both is critical)' :
   '- Any conflicts between higher and lower timeframes'}
 - What's working or what's blocking this setup]
+- Use direction-appropriate language throughout (bullish for longs, bearish for shorts)
 
 [If NO TRADE: Explain what to watch for to make it valid:
 - Which timeframes need to change and how
@@ -559,7 +572,7 @@ ${setupType === 'MicroScalp' ?
 - What conditions need to happen (stoch movements, trend changes, etc.)
 - Timeline expectations (how many hours/candles)]
 
-[Closing paragraph: Overall assessment with rating (A+, A, B, or SKIP). Be direct about trade quality.]
+[Closing paragraph: Overall assessment with rating (A+, A, B, or SKIP). Be direct about trade quality. Use direction-appropriate language.]
 
 Important:
 - Write like you're talking to a trader, not writing a checklist
@@ -567,7 +580,8 @@ Important:
 - No bullet points, no dashes, no lists
 - Just conversational paragraphs
 - Be concise but insightful (3-5 paragraphs total)
-- Always mention what to watch for if the trade isn't valid yet`;
+- Always mention what to watch for if the trade isn't valid yet
+- Match your language tone to the trade direction (bullish for longs, bearish for shorts)`;
 
     // Strategy-specific analysis points
     const analysisPoints = {
