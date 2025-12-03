@@ -1245,7 +1245,7 @@ function buildReasonSummary(analysis, direction, confidence) {
  * @param {number} currentPrice - Current market price
  * @returns {Object|null} Swing signal or null
  */
-function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD', marketData = null, dflowData = null) {
+function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD', marketData = null, dflowData = null, overrideUsed = false) {
   const tf3d = multiTimeframeData['3d'];
   const tf1d = multiTimeframeData['1d'];
   const tf4h = multiTimeframeData['4h'];
@@ -1293,8 +1293,8 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
   const trend1dNorm = normalizeTrend(trend1d);
   const trend4hNorm = normalizeTrend(trend4h);
   
-  // 4H trend must NOT be FLAT for swing trades
-  if (trend4hNorm === 'flat') {
+  // 4H trend must NOT be FLAT for swing trades, UNLESS override is used
+  if (trend4hNorm === 'flat' && !overrideUsed) {
     return null;
   }
   
@@ -1514,8 +1514,9 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     };
   }
   
-  // Compute HTF Bias for Swing
-  const htfBias = computeHTFBias(multiTimeframeData);
+  // Compute HTF Bias for Swing - use fallback to prevent null reference
+  const htfBiasRaw = computeHTFBias(multiTimeframeData);
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
   
   // Build swing signal
   return {
@@ -1583,7 +1584,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
  * @param {string} setupType - 'Swing', 'Scalp', or '4h' (default '4h')
  * @returns {Object} Trade signal object
  */
-export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', mode = 'STANDARD', marketData = null, dflowData = null) {
+export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', mode = 'STANDARD', marketData = null, dflowData = null, overrideUsed = false) {
   const analysis = multiTimeframeData;
   const tf3d = analysis['3d'];
   const tf1d = analysis['1d'];
@@ -1693,15 +1694,20 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   }
   
   // NEW: Compute HTF Bias instead of hard 4H gate
-  // Compute HTF bias with fallback to prevent null reference
-  const htfBiasRaw = computeHTFBias(analysis);
+  // Compute HTF bias with fallback to prevent null reference - MUST be computed before use
+  let htfBiasRaw = null;
+  try {
+    htfBiasRaw = computeHTFBias(analysis);
+  } catch (biasError) {
+    console.error(`[evaluateStrategy] ${symbol} ERROR computing HTF bias:`, biasError.message);
+  }
   const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
   
   // PRIORITY 2: Try 4H Trend Play
-  // SAFE_MODE: Only if 4H is NOT FLAT
+  // SAFE_MODE: Only if 4H is NOT FLAT, UNLESS override is used
   // AGGRESSIVE_MODE: Can use HTF bias + lower TFs even when 4H is FLAT (always allow in AGGRESSIVE)
-  const canTry4HTrend = (mode === 'STANDARD' && trend4h !== 'flat') || 
-                        (mode === 'AGGRESSIVE'); // AGGRESSIVE always allows 4H trend evaluation
+  const canTry4HTrend = (mode === 'STANDARD' && (trend4h !== 'flat' || overrideUsed)) || 
+                        (mode === 'AGGRESSIVE'); // AGGRESSIVE always allows 4H trend evaluation, STANDARD allows if override used
   
   if (canTry4HTrend && (setupType === '4h' || setupType === 'auto')) {
     // Continue with existing 4H trend logic below
@@ -1709,8 +1715,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     let setupValid = false;
     const invalidationReasons = [];
     
-    // AGGRESSIVE_MODE: When 4H is flat, use HTF bias + lower TFs for direction
-    const effectiveTrend4h = (mode === 'AGGRESSIVE' && trend4h === 'flat' && htfBias.confidence >= 70)
+    // AGGRESSIVE_MODE or STANDARD with override: When 4H is flat, use HTF bias + lower TFs for direction
+    // htfBias is now safely initialized above
+    const effectiveTrend4h = ((mode === 'AGGRESSIVE' && trend4h === 'flat' && htfBias.confidence >= 70) ||
+                              (mode === 'STANDARD' && trend4h === 'flat' && overrideUsed && htfBias && htfBias.confidence >= 60))
       ? (htfBias.direction === 'long' ? 'uptrend' : htfBias.direction === 'short' ? 'downtrend' : trend4h)
       : trend4h;
   
@@ -2174,7 +2182,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const minConfidence = mode === 'STANDARD' ? minConfidenceSafe : minConfidenceAggressive;
           
           // Fuzzy tolerance: Allow ±1% if HTF bias aligns
-          const htfBias = computeHTFBias(analysis);
+          const htfBiasRaw = computeHTFBias(analysis);
+          const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
           const fuzzyTolerance = 1.0;
           const withinFuzzyRange = confidence >= (minConfidence - fuzzyTolerance) && confidence < minConfidence;
           const allowFuzzyOverride = withinFuzzyRange && htfBias && htfBias.direction === direction && htfBias.confidence >= 60;
@@ -2355,7 +2364,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
  * @param {Object} multiTimeframeData - All timeframe data
  * @returns {Object} Micro-scalp signal or null
  */
-function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = null) {
+function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = null, overrideUsed = false) {
   const tf1h = multiTimeframeData['1h'];
   const tf15m = multiTimeframeData['15m'];
   const tf5m = multiTimeframeData['5m'];
@@ -2574,7 +2583,7 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
  * @param {string} mode               - STANDARD or AGGRESSIVE
  * @returns {Object|null} Strategy signal or null
  */
-export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STANDARD', marketData = null, dflowData = null) {
+export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STANDARD', marketData = null, dflowData = null, overrideUsed = false) {
   if (!multiTimeframeData) return null;
 
   const tf4h  = multiTimeframeData['4h'];
@@ -3061,26 +3070,31 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       // Override allowed: Continue with strategy evaluation but mark as relaxed
       overrideUsed = true;
       overrideNotes = [
-        `Override used due to strong HTF bias (${htfBias.confidence}%) + short-term alignment`,
+        `SAFE override: HTF bias + 1H/15m trend alignment`,
+        `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`,
         `1H trend: ${trend1h} matches HTF bias direction`,
-        trend15mMatches ? `15m trend: ${trend15m} matches HTF bias direction` : `15m stoch: ${stoch15mK} confirms direction (oversold/overbought)`
+        `15m trend: ${trend15m} matches HTF bias direction`,
+        `1H Stoch K: ${stoch1hK} (momentum confirmation)`
       ];
-      console.log(`[evaluateAllStrategies] ${symbol} STANDARD: 4H flat but override conditions met (HTF bias: ${htfBias.direction} ${htfBias.confidence}%, 1H matches, 15m matches or stoch confirming)`);
+      console.log(`[evaluateAllStrategies] ${symbol} STANDARD: 4H flat but override conditions met (HTF bias: ${htfBias.direction} ${htfBias.confidence}%, 1H=${trend1h}, 15m=${trend15m}, stoch1hK=${stoch1hK})`);
       console.log(`[evaluateAllStrategies] ${symbol} STANDARD: Override notes:`, overrideNotes);
+      console.log(`[evaluateAllStrategies] ${symbol} STANDARD: SAFE override triggered - allowing strategy evaluation to continue`);
     }
   }
   
   // Evaluate each strategy - ALWAYS evaluate all, even if they return NO_TRADE
   // Pass marketData and dflowData to all strategy evaluations
-  const swingResult = evaluateSwingSetup(multiTimeframeData, multiTimeframeData['4h']?.indicators?.price?.current || 0, mode, marketData, dflowData);
-  const trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode, marketData, dflowData);
-  const scalp1hResult = evaluateStrategy(symbol, multiTimeframeData, 'Scalp', mode, marketData, dflowData);
-  const microScalpResult = evaluateMicroScalp(multiTimeframeData, marketData, dflowData);
+  // IMPORTANT: When override is used, strategies should allow 4H flat
+  // We'll pass overrideUsed as part of the context, but strategies need to check it
+  const swingResult = evaluateSwingSetup(multiTimeframeData, multiTimeframeData['4h']?.indicators?.price?.current || 0, mode, marketData, dflowData, overrideUsed);
+  const trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode, marketData, dflowData, overrideUsed);
+  const scalp1hResult = evaluateStrategy(symbol, multiTimeframeData, 'Scalp', mode, marketData, dflowData, overrideUsed);
+  const microScalpResult = evaluateMicroScalp(multiTimeframeData, marketData, dflowData, overrideUsed);
   
   // TREND_RIDER: Evaluate directly to ensure it's always included
   const currentPrice = tf4h?.indicators?.price?.current || multiTimeframeData['1h']?.indicators?.price?.current || 0;
   // htfBias already computed above - use it
-  const trendRiderRaw = evaluateTrendRider(multiTimeframeData, currentPrice, mode, marketData, dflowData);
+  const trendRiderRaw = evaluateTrendRider(multiTimeframeData, currentPrice, mode, marketData, dflowData, overrideUsed);
   
   // Normalize each to strategy format - always include, even if NO_TRADE
   // Pass mode so normalizeStrategyResult can handle AGGRESSIVE differently
