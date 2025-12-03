@@ -3569,17 +3569,22 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const tp1 = entryMid - (R * 1.5);
         const tp2 = entryMid - (R * 3.0);
         
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneShortScalp2 = calculateAggressiveEntryZone(currentPrice, 'short');
         chosenStrategy = {
           valid: true,
           direction: 'short',
           confidence: Math.min(100, htfBias.confidence - 10),
           reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend, scalp entry despite 4H flat`,
-          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          entryType: 'breakout', // AGGRESSIVE forced trades use aggressive entry (close to price)
           override: true,
-          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
-          entryZone: {
-            min: parseFloat(entryZone.min.toFixed(2)),
-            max: parseFloat(entryZone.max.toFixed(2))
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat', 'Aggressive entry: close to current price'],
+          entryZone: aggressiveEntryZoneShortScalp2 ? {
+            min: parseFloat(aggressiveEntryZoneShortScalp2.min.toFixed(2)),
+            max: parseFloat(aggressiveEntryZoneShortScalp2.max.toFixed(2))
+          } : {
+            min: parseFloat((currentPrice * 0.9995).toFixed(2)),
+            max: parseFloat((currentPrice * 0.9999).toFixed(2))
           },
           stopLoss: parseFloat(stopLoss.toFixed(2)),
           invalidationLevel: parseFloat(stopLoss.toFixed(2)),
