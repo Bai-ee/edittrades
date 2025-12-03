@@ -119,17 +119,30 @@ export async function executeTrade(signal, tradeType = 'spot', amountUSD = null)
       outputMint = usdcAddress;
       
       // For sells, we need to calculate how many tokens to sell based on USD amount
-      // We'll get a quote first to determine the token amount, then use that
-      // For now, we'll estimate based on current price from entryZone
-      const estimatedPrice = (signal.entryZone.min + signal.entryZone.max) / 2;
-      const tokenAmount = amountIn / estimatedPrice;
+      // Use current price from signal if available, otherwise use entryZone midpoint
+      const currentPrice = signal.currentPrice || ((signal.entryZone.min + signal.entryZone.max) / 2);
+      
+      // Add a small buffer (1%) to account for price movement and slippage
+      // This ensures we sell slightly more tokens to guarantee we get the desired USD amount
+      const bufferMultiplier = 1.01;
+      const tokenAmount = (amountIn / currentPrice) * bufferMultiplier;
       
       // Convert token amount to smallest units
       amountInSmallestUnit = tokenMapping.toTokenAmount(tokenAmount, symbol);
       
       console.log('[TradeExecution] SHORT/SELL: Selling', tokenAmount, baseToken, 'for', amountIn, 'USDC');
-      console.log('[TradeExecution] Estimated price:', estimatedPrice);
+      console.log('[TradeExecution] Current price used:', currentPrice);
+      console.log('[TradeExecution] Token amount (human, with buffer):', tokenAmount);
       console.log('[TradeExecution] Token amount (smallest units):', amountInSmallestUnit);
+      
+      // Validate we have enough tokens (this is a rough check - actual validation happens on-chain)
+      if (amountInSmallestUnit <= 0) {
+        throw new Error(`Invalid token amount calculated: ${tokenAmount} tokens. Price may be incorrect.`);
+      }
+      
+      if (isNaN(amountInSmallestUnit) || !isFinite(amountInSmallestUnit)) {
+        throw new Error(`Invalid token amount: ${amountInSmallestUnit}. Check price calculation.`);
+      }
     }
 
     console.log('[TradeExecution] ========================================');

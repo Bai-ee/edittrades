@@ -2992,20 +2992,24 @@
         console.log('[Tracker] Sell amount:', sellAmountUSD, 'USD');
         
         // Build signal for sell (opposite direction)
-        // Note: stopLoss and targets are required by validation but not used for sells
+        // Use current price for accurate entryZone (not entry price which might be stale)
+        const sellEntryZone = {
+          min: currentPrice * 0.9995, // Very tight zone around current price
+          max: currentPrice * 1.0005
+        };
+        
         const sellSignal = {
           valid: true,
           direction: trade.direction === 'LONG' ? 'short' : 'long',
-          entryZone: {
-            min: currentPrice * 0.999,
-            max: currentPrice * 1.001
-          },
+          entryZone: sellEntryZone,
           stopLoss: currentPrice * (trade.direction === 'LONG' ? 1.1 : 0.9), // Dummy value for validation
           targets: [currentPrice * (trade.direction === 'LONG' ? 0.95 : 1.05)], // Dummy value for validation
           symbol: trade.symbol,
           strategyName: 'SELL',
           confidence: 100,
-          reason: `Selling ${sellAmountUSD.toFixed(2)} USD from tracked position`
+          reason: `Selling ${sellAmountUSD.toFixed(2)} USD from tracked position`,
+          // Add current price hint for better token amount calculation
+          currentPrice: currentPrice
         };
         
         // Call execute trade API
