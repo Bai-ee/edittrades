@@ -99,6 +99,17 @@ Located in `docs/templates/`:
   - Documentation update guidelines
   - **Use this to avoid development pitfalls and maintain code quality**
 
+## AI System Documentation
+
+- **`AI_SYSTEM_DOCUMENTATION.md`** - Complete AI analysis system reference
+  - Marquee AI (market review)
+  - Details Section AI (individual trade analysis)
+  - Trade Tracker AI (active position analysis)
+  - System prompts for each component
+  - LLM configuration (OpenAI GPT-4o-mini)
+  - Enhancement guide
+  - Troubleshooting
+
 ## Other Documentation
 
 - **`BACKTEST_GUIDE.md`** - Backtest system documentation
