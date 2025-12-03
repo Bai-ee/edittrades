@@ -3313,23 +3313,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       
       // Try TREND_4H first - FORCE override (always create if conditions met)
       {
-        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
-        const ema21_15m = tf15m?.indicators?.ema?.ema21 || currentPrice;
-        const entryMid = (ema21_1h + ema21_15m) / 2;
-        const entryZone = {
-          min: entryMid * 0.995,
-          max: entryMid * 1.005
-        };
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZone = calculateAggressiveEntryZone(currentPrice, 'long');
+        const entryMid = aggressiveEntryZone ? (aggressiveEntryZone.min + aggressiveEntryZone.max) / 2 : currentPrice * 1.0003;
         
-        const swingLow1h = tf1h?.indicators?.swingLow || ema21_1h * 0.98;
+        const swingLow1h = tf1h?.indicators?.swingLow || currentPrice * 0.98;
         const stopLoss = swingLow1h;
         const R = Math.abs(entryMid - stopLoss);
         
         const tp1 = entryMid + (R * 1.5);
         const tp2 = entryMid + (R * 3.0);
-        
-        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
-        const aggressiveEntryZone = calculateAggressiveEntryZone(currentPrice, 'long');
         chosenStrategy = {
           valid: true,
           direction: 'long',
