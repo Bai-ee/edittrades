@@ -3194,6 +3194,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           confidence: Math.min(100, htfBias.confidence),
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend aligned, using lower TFs despite 4H flat`,
           entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          override: true,
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -3291,6 +3293,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           confidence: Math.min(100, htfBias.confidence - 15), // Lower for micro
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m/5m uptrend, micro scalp despite 4H flat`,
           entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          override: true,
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H, 15m, and 5m trends aligned despite 4H flat'],
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -3411,6 +3415,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           confidence: Math.min(100, htfBias.confidence - 10),
           reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend, scalp entry despite 4H flat`,
           entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          override: true,
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
