@@ -5680,13 +5680,22 @@
         tradeBtn.textContent = '✅ Trade Executed';
         tradeBtn.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
         
+        // Calculate human-readable amounts for display
+        const inputAmountUSD = parseFloat(result.inputAmount) / 1000000;
+        const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, 8);
+        const entryPrice = inputAmountUSD / outputAmountTokens;
+        
         statusText.innerHTML = `
           <div style="color: #22c55e; font-weight: bold; margin-bottom: 0.5rem;">✅ Trade Executed Successfully</div>
           <div style="margin-bottom: 0.25rem;"><strong>Direction:</strong> ${result.direction.toUpperCase()}</div>
           <div style="margin-bottom: 0.25rem;"><strong>Type:</strong> ${result.tradeType}</div>
-          <div style="margin-bottom: 0.25rem;"><strong>Input Amount:</strong> ${result.inputAmount}</div>
-          <div style="margin-bottom: 0.25rem;"><strong>Output Amount:</strong> ${result.outputAmount}</div>
+          <div style="margin-bottom: 0.25rem;"><strong>Input Amount:</strong> $${inputAmountUSD.toFixed(2)} USDC</div>
+          <div style="margin-bottom: 0.25rem;"><strong>Output Amount:</strong> ${outputAmountTokens.toFixed(8)} tokens</div>
+          <div style="margin-bottom: 0.25rem;"><strong>Entry Price:</strong> $${entryPrice.toFixed(2)}</div>
           ${result.priceImpact ? `<div style="margin-bottom: 0.25rem;"><strong>Price Impact:</strong> ${result.priceImpact}%</div>` : ''}
+          <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
+            <div style="font-size: 0.7rem; color: rgba(255,255,255,0.7); word-break: break-all;"><strong>Transaction:</strong> ${result.signature}</div>
+          </div>
         `;
         
         // Show explorer link
@@ -5700,18 +5709,25 @@
         if (trackBtn) {
           trackBtn.style.display = 'block';
           // Store trade result data for tracking
-          trackBtn.setAttribute('data-trade-data', JSON.stringify({
+          const tradeData = {
             symbol,
             signal,
             result,
             executedAt: new Date().toISOString()
-          }));
+          };
+          trackBtn.setAttribute('data-trade-data', JSON.stringify(tradeData));
+          
+          // AUTO-TRACK: Automatically track the trade immediately after execution
+          console.log('[Frontend] Auto-tracking executed trade...');
+          setTimeout(() => {
+            trackExecutedTrade(symbol);
+          }, 1500); // Wait 1.5 seconds for UI to update
         }
         
         // Start polling for transaction status
         pollTradeStatus(symbol, result.signature);
         
-        showToast(`Trade executed! Signature: ${result.signature.substring(0, 8)}...`);
+        showToast(`✅ Trade executed! Transaction: ${result.signature.substring(0, 16)}...`);
         
       } catch (error) {
         console.error('[Frontend] Trade execution error:', error);
@@ -5867,6 +5883,13 @@
         const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, 8); // Most tokens have 8 decimals
         const actualEntryPrice = inputAmountUSD / outputAmountTokens;
         
+        console.log('[Frontend] Trade execution details:');
+        console.log('[Frontend]   - Input (USDC):', inputAmountUSD);
+        console.log('[Frontend]   - Output (tokens):', outputAmountTokens);
+        console.log('[Frontend]   - Entry Price:', actualEntryPrice);
+        console.log('[Frontend]   - Transaction:', result.signature);
+        console.log('[Frontend]   - Explorer:', result.explorerUrl);
+        
         // Get signal snapshot from current scan results
         const signalSnapshot = scanResults[symbol];
         
@@ -5923,14 +5946,12 @@
         trackBtn.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
         trackBtn.disabled = true;
         
-        showToast(`Trade tracked! Click to view in tracker →`);
+        showToast(`✅ Trade tracked! Opening tracker...`);
         
-        // Optionally redirect to tracker
+        // Automatically open tracker (don't ask)
         setTimeout(() => {
-          if (confirm('Trade tracked successfully! Open Trade Tracker?')) {
-            window.open('/tracker.html?autoTrack=true', '_blank');
-          }
-        }, 1000);
+          window.open('/tracker.html?autoTrack=true', '_blank');
+        }, 500);
         
       } catch (error) {
         console.error('[Frontend] Error tracking trade:', error);

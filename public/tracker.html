@@ -1023,17 +1023,17 @@
       await loadTrades();
       console.log('📥 STEP 1 COMPLETE: loadTrades() finished. Trades array:', trades);
       
-      // Check if auto-tracking a trade from homepage
+      // ALWAYS check for pending trades (not just when autoTrack=true)
+      // This ensures trades are tracked even if user navigates to tracker manually
       const urlParams = new URLSearchParams(window.location.search);
       console.log('🔍 URL Params:', window.location.search);
       console.log('🔍 autoTrack param:', urlParams.get('autoTrack'));
       
-      // If autoTrack=true, automatically add the trade (don't open modal)
-      if (urlParams.get('autoTrack') === 'true') {
-        const pendingTradeData = localStorage.getItem('pendingTradeToTrack');
-        console.log('🔍 Pending trade data from localStorage:', pendingTradeData);
-        
-        if (pendingTradeData) {
+      const pendingTradeData = localStorage.getItem('pendingTradeToTrack');
+      console.log('🔍 Pending trade data from localStorage:', pendingTradeData);
+      
+      // If there's a pending trade, automatically add it (whether autoTrack=true or not)
+      if (pendingTradeData) {
           try {
             const tradeToAdd = JSON.parse(pendingTradeData);
             console.log('🎯 Auto-tracking trade from homepage:', tradeToAdd);
@@ -1104,14 +1104,17 @@
             console.log('🔄 Re-rendering trades to show new trade...');
             await renderTrades();
             console.log('✅ Trades re-rendered with new trade');
+            
+            // Show success notification
+            alert(`✅ Trade tracked successfully!\n\n${tradeToAdd.symbol} ${tradeToAdd.direction} @ $${tradeToAdd.entry.toLocaleString()}\n\nTransaction: ${tradeToAdd.executionData?.signature?.substring(0, 16) || 'N/A'}...`);
           } catch (error) {
             console.error('❌ Error auto-tracking trade:', error);
             console.error('Stack trace:', error.stack);
+            alert(`❌ Error tracking trade: ${error.message}`);
           }
         } else {
           console.warn('⚠️ No pending trade data found in localStorage');
         }
-      }
       
       // Fetch prices immediately for all trades before rendering
       console.log('💰 STEP 2: Fetching initial prices for all trades...');
