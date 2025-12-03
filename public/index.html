@@ -5681,8 +5681,11 @@
         tradeBtn.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
         
         // Calculate human-readable amounts for display
-        const inputAmountUSD = parseFloat(result.inputAmount) / 1000000;
-        const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, 8);
+        const inputAmountUSD = parseFloat(result.inputAmount) / 1000000; // USDC has 6 decimals
+        
+        // Get token decimals based on symbol (SOL=9, BTC/ETH=8)
+        const tokenDecimals = symbol.includes('SOL') ? 9 : 8;
+        const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, tokenDecimals);
         const entryPrice = inputAmountUSD / outputAmountTokens;
         
         statusText.innerHTML = `
