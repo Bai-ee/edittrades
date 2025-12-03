@@ -2624,6 +2624,8 @@
               t.status = 'CLOSED';
               t.exitTime = t.exitTime || new Date().toISOString();
               t.outcome = t.outcome || 'CLOSED';
+              // Save the trade when marking as closed
+              saveTrades();
             }
             return true;
           }
