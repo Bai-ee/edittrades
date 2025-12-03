@@ -176,9 +176,19 @@ Explain why signals are or aren't appearing. If no signals, explain what needs t
     if (!response.ok) {
       const errorText = await response.text();
       console.error('❌ OpenAI API error:', response.status, errorText);
-      return res.status(500).json({
-        error: 'OpenAI API request failed',
-        message: `API returned ${response.status}`
+      // Return fallback message instead of error
+      return res.status(200).json({
+        success: true,
+        pulse: `Market data for ${context.symbol} is currently unavailable. Please check again soon.`,
+        context: {
+          symbol: context.symbol,
+          mode: context.mode,
+          tone,
+          depth,
+          target
+        },
+        timestamp: new Date().toISOString(),
+        fallback: true
       });
     }
 
@@ -186,8 +196,19 @@ Explain why signals are or aren't appearing. If no signals, explain what needs t
     const pulseText = data.choices[0]?.message?.content;
 
     if (!pulseText) {
-      return res.status(500).json({ 
-        error: 'No response from AI' 
+      // Return fallback message instead of error
+      return res.status(200).json({
+        success: true,
+        pulse: `Market data for ${context.symbol} is currently unavailable. Please check again soon.`,
+        context: {
+          symbol: context.symbol,
+          mode: context.mode,
+          tone,
+          depth,
+          target
+        },
+        timestamp: new Date().toISOString(),
+        fallback: true
       });
     }
 
