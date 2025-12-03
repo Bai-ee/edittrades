@@ -90,6 +90,15 @@ Located in `docs/templates/`:
   - Do's and Don'ts checklist
   - **Use this when working with other AI assistants to generate strategy updates**
 
+- **`DEVELOPMENT_PROCEDURE.md`** - **STANDARDIZED DEVELOPMENT WORKFLOW**
+  - Pre-development checklist
+  - Step-by-step development workflow
+  - Common pitfalls and solutions
+  - Testing requirements
+  - Deployment checklist
+  - Documentation update guidelines
+  - **Use this to avoid development pitfalls and maintain code quality**
+
 ## Other Documentation
 
 - **`BACKTEST_GUIDE.md`** - Backtest system documentation
@@ -136,6 +145,14 @@ See `docs/archive/README.md` for details.
 3. Check **`STRATEGY_IMPLEMENTATION_GUIDE.md`** - Strategy details
 4. Reference **`INDICATOR_ARCHITECTURE.md`** - Indicator system
 5. Use specific guides as needed
+
+### Before Making Changes
+
+1. **Read `DEVELOPMENT_PROCEDURE.md`** - Standardized workflow and pitfalls to avoid
+2. Review **`SYSTEM_CONTEXT.md`** - Complete system reference
+3. Understand current behavior - Test locally first
+4. Plan changes - Document what and why
+5. Follow the workflow - Test, review, deploy
 
 ---
 

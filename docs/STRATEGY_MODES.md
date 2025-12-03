@@ -60,7 +60,8 @@ const THRESHOLDS = {
 - **Unchanged in AGGRESSIVE mode**
 
 #### TREND_4H Strategy
-- ✅ Requires 4H NOT FLAT (hard block in STANDARD)
+- ✅ Requires 4H NOT FLAT (hard block in STANDARD, unless override)
+- ✅ **Override Available:** When HTF bias >= 60%, 1H/15m trends align, momentum confirms
 - ✅ Requires 1H confirmation
 - ✅ Price within 1.0% of 4H EMA21
 - ✅ Stoch alignment required
@@ -170,17 +171,39 @@ const THRESHOLDS = {
 **In `evaluateAllStrategies()`:**
 
 ```javascript
-// SAFE_MODE 4H FLAT Gate
+// STANDARD Mode 4H FLAT Override Logic
 if (mode === 'STANDARD' && is4HFlat) {
-  // Return all strategies as NO_TRADE
-  return { strategies: { all NO_TRADE }, bestSignal: null };
+  // Check if override conditions are met:
+  const biasStrong = htfBias && htfBias.confidence >= 60;
+  const trend1hMatches = isSameDirection(trend1h, htfBias.direction);
+  const trend15mMatches = isSameDirection(trend15m, htfBias.direction);
+  const momentumOK = (htfBias.direction === 'long' && stoch1h.k < 60) ||
+                     (htfBias.direction === 'short' && stoch1h.k > 40);
+  
+  if (biasStrong && trend1hMatches && trend15mMatches && momentumOK) {
+    // Allow override - set overrideUsed flag
+    overrideUsed = true;
+    overrideNotes = [
+      'SAFE override: HTF bias + 1H/15m trend alignment',
+      `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`,
+      // ... more notes
+    ];
+    // Continue with strategy evaluation
+  } else {
+    // No override - return all strategies as NO_TRADE
+    return { strategies: { all NO_TRADE }, bestSignal: null };
+  }
 }
 
-// AGGRESSIVE_MODE Forcing Logic
+// AGGRESSIVE Mode Forcing Logic
 if (mode === 'AGGRESSIVE' && is4HFlat) {
-  // Check HTF bias (direction + confidence >= 70%)
+  // Check HTF bias (direction + confidence >= 60%)
   // Check 1H/15m trends align with bias
   // FORCE at least one strategy to valid = true
+  if (htfBias.confidence >= 60 && htfBias.direction !== 'neutral') {
+    // Force strategies with override flag
+    // ...
+  }
 }
 ```
 
@@ -211,8 +234,9 @@ if (mode === 'AGGRESSIVE' && is4HFlat) {
 ### Scenario 1: 4H FLAT, 1H UPTREND
 
 **STANDARD Mode:**
-- ❌ TREND_4H: Blocked (4H FLAT)
-- ❌ SWING: Blocked (4H FLAT)
+- ⚠️ TREND_4H: Blocked (4H FLAT) **UNLESS override conditions met**
+  - Override requires: HTF bias >= 60%, 1H/15m trends align, momentum confirms
+- ❌ SWING: Blocked (4H FLAT, no override)
 - ⚠️ SCALP_1H: May work if HTF bias strong
 - ✅ MICRO_SCALP: Works if LTF confluence tight
 

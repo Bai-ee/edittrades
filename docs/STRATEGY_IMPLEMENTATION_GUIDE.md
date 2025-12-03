@@ -523,22 +523,45 @@ confidence = Math.max(60, Math.min(75, 75 - (avgDist * 60)));
 **Purpose:** Evaluate ALL strategies and return rich object with all results
 
 **Flow:**
-1. **SAFE_MODE 4H FLAT Gate:**
+1. **HTF Bias Calculation (WITH NULL GUARDS):**
+   ```javascript
+   let htfBiasRaw = null;
+   try {
+     htfBiasRaw = computeHTFBias(multiTimeframeData);
+   } catch (biasError) {
+     console.error(`[evaluateAllStrategies] ${symbol} ERROR computing HTF bias:`, biasError.message);
+   }
+   const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+   ```
+
+2. **STANDARD Mode 4H FLAT Override Check:**
    - If `mode === 'STANDARD'` AND `4H === 'FLAT'`:
-     - Return all strategies as `NO_TRADE`
-     - `bestSignal = null`
+     - Check override conditions:
+       - HTF bias confidence >= 60%
+       - 1H trend matches HTF bias direction
+       - 15m trend matches HTF bias direction
+       - 1H Stoch K < 60 (for longs) or > 40 (for shorts)
+     - If override conditions met:
+       - Set `overrideUsed = true`
+       - Set `overrideNotes` with detailed explanation
+       - Continue with strategy evaluation
+     - If override conditions NOT met:
+       - Return all strategies as `NO_TRADE`
+       - `bestSignal = null`
 
-2. **Evaluate Each Strategy:**
-   - `SWING`: `evaluateStrategy(..., 'Swing', mode)`
-   - `TREND_4H`: `evaluateStrategy(..., '4h', mode)`
-   - `SCALP_1H`: `evaluateStrategy(..., 'Scalp', mode)`
-   - `MICRO_SCALP`: `evaluateMicroScalp(...)`
+3. **Evaluate Each Strategy:**
+   - Pass `overrideUsed` and `overrideNotes` to each strategy function
+   - `SWING`: `evaluateSwingSetup(..., overrideUsed, overrideNotes)`
+   - `TREND_4H`: `evaluateStrategy(..., '4h', mode, ..., overrideUsed, overrideNotes)`
+   - `TREND_RIDER`: `evaluateTrendRider(..., overrideUsed, overrideNotes)`
+   - `SCALP_1H`: `evaluateStrategy(..., 'Scalp', mode, ..., overrideUsed, overrideNotes)`
+   - `MICRO_SCALP`: `evaluateMicroScalp(..., overrideUsed, overrideNotes)`
 
-3. **AGGRESSIVE_MODE Forcing Logic:**
+4. **AGGRESSIVE_MODE Forcing Logic:**
    - If `mode === 'AGGRESSIVE'` AND `4H === 'FLAT'`:
-     - Check HTF bias (direction + confidence ≥ 70%)
+     - Check HTF bias (direction + confidence ≥ 60%)
      - Check 1H/15m trends align with bias
-     - **FORCE** at least one strategy to `valid = true`
+     - **FORCE** at least one strategy to `valid = true` with `override: true` flag
 
 4. **Select Best Signal:**
    - **SAFE_MODE:** TREND_4H → SWING → SCALP_1H → MICRO_SCALP

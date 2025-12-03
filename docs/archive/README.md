@@ -16,6 +16,10 @@ This folder contains historical strategy documentation that has been superseded 
 ### Examples
 - **MICRO_SCALP_EXAMPLES.md** - Example JSON responses (may be outdated)
 
+### Documentation Reviews (Outdated)
+- **STRATEGY_DOCUMENTATION_REVIEW.md** - Historical review document (consolidated into main docs)
+- **STRATEGY_DOCS_RECOMMENDATIONS.md** - Historical recommendations document (recommendations implemented)
+
 ## Current Documentation
 
 For up-to-date strategy documentation, see:

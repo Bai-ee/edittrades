@@ -184,10 +184,16 @@ const confidenceResult = calculateConfidenceWithHierarchy(
 
 ### STANDARD Mode
 
-- **4H FLAT = Hard Block** (all strategies NO_TRADE)
+- **4H FLAT = Hard Block** (all strategies NO_TRADE) **UNLESS override conditions met**
+  - **Override Conditions:**
+    - HTF bias confidence >= 60%
+    - 1H trend matches HTF bias direction
+    - 15m trend matches HTF bias direction
+    - 1H Stoch K < 60 (for longs) or > 40 (for shorts)
+  - When override triggers, signal includes `override: true` and detailed notes
 - **Min HTF Bias:** 60% confidence
 - **Min Strategy Confidence:** 60% (SWING, TREND_4H, TREND_RIDER, SCALP_1H), 50% (MICRO_SCALP)
-- **Stricter Requirements:** All gatekeepers must pass
+- **Stricter Requirements:** All gatekeepers must pass (unless override)
 
 ### AGGRESSIVE Mode
 
