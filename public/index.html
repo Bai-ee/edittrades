@@ -4132,6 +4132,7 @@
                 <div style="color: var(--color-yellow-75); font-size: 0.875rem; font-weight: bold; margin-bottom: 0.5rem;">Trade Status</div>
                 <div id="tradeStatusText-${symbol}" style="color: rgba(255, 255, 255, 0.9); font-size: 0.875rem; line-height: 1.6;"></div>
                 <a id="tradeExplorerLink-${symbol}" href="#" target="_blank" style="color: ${directionColor}; font-size: 0.75rem; text-decoration: underline; margin-top: 0.5rem; display: none;">View on Solscan →</a>
+                <button id="trackTradeBtn-${symbol}" onclick="trackExecutedTrade('${symbol}')" style="display: none; margin-top: 0.75rem; padding: 0.5rem 1rem; background: linear-gradient(135deg, ${directionColor} 0%, ${direction === 'LONG' ? '#16a34a' : '#dc2626'} 100%); border: none; border-radius: var(--radius-sm); color: white; font-size: 0.75rem; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">📊 Track Trade</button>
               </div>
             </div>
           </div>
@@ -5694,6 +5695,19 @@
           explorerLink.style.display = 'block';
         }
         
+        // Show track trade button
+        const trackBtn = document.getElementById(`trackTradeBtn-${symbol}`);
+        if (trackBtn) {
+          trackBtn.style.display = 'block';
+          // Store trade result data for tracking
+          trackBtn.setAttribute('data-trade-data', JSON.stringify({
+            symbol,
+            signal,
+            result,
+            executedAt: new Date().toISOString()
+          }));
+        }
+        
         // Start polling for transaction status
         pollTradeStatus(symbol, result.signature);
         
@@ -5813,6 +5827,114 @@
         
         // Execute trade
         await executeTrade(symbol, signal);
+      }
+    }
+    
+    /**
+     * Track an executed trade
+     * @param {string} symbol - Trading symbol
+     */
+    window.trackExecutedTrade = function(symbol) {
+      try {
+        console.log('[Frontend] Tracking executed trade for', symbol);
+        
+        const trackBtn = document.getElementById(`trackTradeBtn-${symbol}`);
+        if (!trackBtn) {
+          showToast('Trade data not found');
+          return;
+        }
+        
+        const tradeDataStr = trackBtn.getAttribute('data-trade-data');
+        if (!tradeDataStr) {
+          showToast('Trade data not available');
+          return;
+        }
+        
+        const tradeData = JSON.parse(tradeDataStr);
+        const { signal, result } = tradeData;
+        
+        console.log('[Frontend] Trade data:', tradeData);
+        
+        // Get current price from signal or calculate from result
+        const entryPrice = signal.entryZone ? 
+          (signal.entryZone.min + signal.entryZone.max) / 2 : 
+          parseFloat(result.inputAmount) / parseFloat(result.outputAmount);
+        
+        // Calculate actual entry from swap result
+        // For long: we spent inputAmount USDC and got outputAmount tokens
+        // Entry price = inputAmount / outputAmount (in human-readable units)
+        const inputAmountUSD = parseFloat(result.inputAmount) / 1000000; // USDC has 6 decimals
+        const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, 8); // Most tokens have 8 decimals
+        const actualEntryPrice = inputAmountUSD / outputAmountTokens;
+        
+        // Get signal snapshot from current scan results
+        const signalSnapshot = scanResults[symbol];
+        
+        // Build trade object for tracker
+        const trackedTrade = {
+          id: Date.now(),
+          symbol: symbol,
+          direction: result.direction.toUpperCase(),
+          entry: parseFloat(actualEntryPrice.toFixed(2)),
+          entryZone: signal.entryZone || { min: actualEntryPrice * 0.99, max: actualEntryPrice * 1.01 },
+          stopLoss: signal.stopLoss || null,
+          target1: signal.targets && signal.targets[0] ? signal.targets[0] : null,
+          target2: signal.targets && signal.targets[1] ? signal.targets[1] : null,
+          strategy: signal.strategyName || 'EXECUTED',
+          playbook: `${signal.strategyName || 'EXECUTED'} ${result.direction.toUpperCase()}`,
+          riskPercent: 1,
+          confidence: signal.confidence || 0,
+          notes: `Executed via Jupiter Swap\nTransaction: ${result.signature.substring(0, 16)}...\nInput: ${inputAmountUSD.toFixed(2)} USDC\nOutput: ${outputAmountTokens.toFixed(8)} tokens`,
+          journal: `Trade executed via Jupiter Swap\n\nTransaction Signature: ${result.signature}\nExplorer: ${result.explorerUrl}\nInput Amount: ${inputAmountUSD.toFixed(2)} USDC\nOutput Amount: ${outputAmountTokens.toFixed(8)} tokens\nPrice Impact: ${result.priceImpact || 'N/A'}%\nEntry Price: ${actualEntryPrice.toFixed(2)}`,
+          imageUrl: null,
+          trackedAt: Date.now(),
+          entryTime: new Date().toISOString(),
+          status: 'ACTIVE',
+          exitPrice: null,
+          exitTime: null,
+          outcome: null,
+          autoTracked: false,
+          executedTrade: true, // Flag to indicate this was an executed trade
+          executionData: {
+            signature: result.signature,
+            explorerUrl: result.explorerUrl,
+            inputAmount: result.inputAmount,
+            outputAmount: result.outputAmount,
+            priceImpact: result.priceImpact,
+            tradeType: result.tradeType,
+            executedAt: tradeData.executedAt
+          },
+          signalSnapshot: signalSnapshot || null,
+          review: {
+            whatWentRight: '',
+            whatWentWrong: '',
+            performanceSummary: ''
+          }
+        };
+        
+        console.log('[Frontend] Tracked trade object:', trackedTrade);
+        
+        // Store in localStorage for tracker to pick up
+        const tradeJSON = JSON.stringify(trackedTrade);
+        localStorage.setItem('pendingTradeToTrack', tradeJSON);
+        
+        // Update button to show success
+        trackBtn.textContent = '✅ Trade Tracked';
+        trackBtn.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
+        trackBtn.disabled = true;
+        
+        showToast(`Trade tracked! Click to view in tracker →`);
+        
+        // Optionally redirect to tracker
+        setTimeout(() => {
+          if (confirm('Trade tracked successfully! Open Trade Tracker?')) {
+            window.open('/tracker.html?autoTrack=true', '_blank');
+          }
+        }, 1000);
+        
+      } catch (error) {
+        console.error('[Frontend] Error tracking trade:', error);
+        showToast(`Error tracking trade: ${error.message}`);
       }
     }
     

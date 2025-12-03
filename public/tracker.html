@@ -2126,6 +2126,68 @@
             </div>
             ` : ''}
             
+            ${trade.status === 'ACTIVE' && trade.executedTrade ? `
+            <!-- Trade Actions: Sell & Add to Trade -->
+            <div style="margin-top: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); border: 2px solid ${directionColor};">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 1rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Trade Actions</div>
+              
+              <!-- Position Info -->
+              <div style="margin-bottom: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-sm);">
+                <div style="color: var(--color-yellow-75); font-size: 0.875rem; margin-bottom: 0.5rem;">
+                  <strong>Position Size:</strong> ${trade.executionData ? (parseFloat(trade.executionData.outputAmount) / Math.pow(10, 8)).toFixed(8) : 'N/A'} tokens
+                </div>
+                <div style="color: var(--color-yellow-75); font-size: 0.875rem; margin-bottom: 0.5rem;">
+                  <strong>Entry Price:</strong> $${trade.entry.toLocaleString()}
+                </div>
+                <div style="color: var(--color-yellow-75); font-size: 0.875rem;">
+                  <strong>Current Value:</strong> $${((parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8)) * currentPrice).toFixed(2)}
+                </div>
+              </div>
+              
+              <!-- Sell Section -->
+              <div style="margin-bottom: 1.5rem;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">Sell Position</div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                  <input type="number" id="sellAmount-${trade.id}" placeholder="Amount (USD)" min="1" step="0.01" 
+                    style="flex: 1; min-width: 150px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;">
+                  <button onclick="setSellAmount(${trade.id}, 'max')" 
+                    style="padding: 0.5rem 1rem; background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: var(--radius-sm); color: #ef4444; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
+                    MAX
+                  </button>
+                  <button onclick="setSellAmount(${trade.id}, '50')" 
+                    style="padding: 0.5rem 1rem; background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: var(--radius-sm); color: #ef4444; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
+                    50%
+                  </button>
+                </div>
+                <button onclick="executeSell(${trade.id})" 
+                  style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border: none; border-radius: var(--radius-md); color: white; font-size: 0.875rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; font-family: var(--font-mathias);">
+                  💰 SELL
+                </button>
+              </div>
+              
+              <!-- Add to Position Section -->
+              <div>
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">Add to Position</div>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                  <input type="number" id="addAmount-${trade.id}" placeholder="Amount (USD)" min="1" step="0.01" 
+                    style="flex: 1; min-width: 150px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;">
+                  <button onclick="setAddAmount(${trade.id}, 'max')" 
+                    style="padding: 0.5rem 1rem; background-color: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; border-radius: var(--radius-sm); color: #22c55e; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
+                    MAX
+                  </button>
+                  <button onclick="setAddAmount(${trade.id}, '50')" 
+                    style="padding: 0.5rem 1rem; background-color: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; border-radius: var(--radius-sm); color: #22c55e; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
+                    50%
+                  </button>
+                </div>
+                <button onclick="executeAddToTrade(${trade.id})" 
+                  style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border: none; border-radius: var(--radius-md); color: white; font-size: 0.875rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; font-family: var(--font-mathias);">
+                  ➕ ADD TO TRADE
+                </button>
+              </div>
+            </div>
+            ` : ''}
+            
             <div style="text-align: center; padding: 1rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
               <button 
                 onclick="toggleTradeDetails(${trade.id})"
@@ -2829,6 +2891,258 @@
         renderTrades();
       } else {
         console.error('❌ Trade not found:', tradeId);
+      }
+    };
+    
+    // Set sell amount helper
+    window.setSellAmount = function(tradeId, option) {
+      const trade = trades.find(t => t.id === tradeId);
+      if (!trade || !trade.executedTrade) return;
+      
+      const input = document.getElementById(`sellAmount-${tradeId}`);
+      if (!input) return;
+      
+      const currentPrice = priceCache[trade.symbol] || trade.entry;
+      const positionSize = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8);
+      const currentValue = positionSize * currentPrice;
+      
+      if (option === 'max') {
+        input.value = currentValue.toFixed(2);
+      } else if (option === '50') {
+        input.value = (currentValue * 0.5).toFixed(2);
+      }
+    };
+    
+    // Set add amount helper
+    window.setAddAmount = function(tradeId, option) {
+      const trade = trades.find(t => t.id === tradeId);
+      if (!trade || !trade.executedTrade) return;
+      
+      const input = document.getElementById(`addAmount-${tradeId}`);
+      if (!input) return;
+      
+      const currentPrice = priceCache[trade.symbol] || trade.entry;
+      const positionSize = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8);
+      const currentValue = positionSize * currentPrice;
+      
+      if (option === 'max') {
+        // Max would be based on available balance - for now use current position value
+        input.value = currentValue.toFixed(2);
+      } else if (option === '50') {
+        input.value = (currentValue * 0.5).toFixed(2);
+      }
+    };
+    
+    // Execute sell
+    window.executeSell = async function(tradeId) {
+      const trade = trades.find(t => t.id === tradeId);
+      if (!trade || !trade.executedTrade) {
+        alert('Trade not found or not an executed trade');
+        return;
+      }
+      
+      const input = document.getElementById(`sellAmount-${tradeId}`);
+      if (!input) return;
+      
+      const sellAmountUSD = parseFloat(input.value);
+      if (!sellAmountUSD || sellAmountUSD < 1) {
+        alert('Please enter a valid sell amount (minimum $1)');
+        return;
+      }
+      
+      const currentPrice = priceCache[trade.symbol] || trade.entry;
+      const positionSize = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8);
+      const currentValue = positionSize * currentPrice;
+      
+      if (sellAmountUSD > currentValue) {
+        alert(`Sell amount ($${sellAmountUSD.toFixed(2)}) exceeds position value ($${currentValue.toFixed(2)})`);
+        return;
+      }
+      
+      if (!confirm(`Sell $${sellAmountUSD.toFixed(2)} worth of ${trade.symbol.replace('USDT', '')}?`)) {
+        return;
+      }
+      
+      try {
+        console.log('[Tracker] Executing sell for trade:', tradeId);
+        console.log('[Tracker] Sell amount:', sellAmountUSD, 'USD');
+        
+        // Build signal for sell (opposite direction)
+        const sellSignal = {
+          valid: true,
+          direction: trade.direction === 'LONG' ? 'short' : 'long',
+          entryZone: {
+            min: currentPrice * 0.999,
+            max: currentPrice * 1.001
+          },
+          stopLoss: null,
+          targets: [],
+          symbol: trade.symbol,
+          strategyName: 'SELL',
+          confidence: 100,
+          reason: `Selling ${sellAmountUSD.toFixed(2)} USD from tracked position`
+        };
+        
+        // Call execute trade API
+        const response = await fetch('/api/execute-trade', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            symbol: trade.symbol,
+            signal: sellSignal,
+            tradeType: 'spot',
+            amount: sellAmountUSD,
+          }),
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || result.message || 'Sell execution failed');
+        }
+        
+        console.log('[Tracker] Sell executed successfully:', result);
+        
+        // Update trade position
+        const sellPercentage = sellAmountUSD / currentValue;
+        const remainingPosition = positionSize * (1 - sellPercentage);
+        
+        // Update execution data
+        if (trade.executionData) {
+          trade.executionData.outputAmount = (remainingPosition * Math.pow(10, 8)).toString();
+          trade.executionData.sells = trade.executionData.sells || [];
+          trade.executionData.sells.push({
+            amount: sellAmountUSD,
+            signature: result.signature,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // Update trade entry if partial sell (weighted average)
+        if (sellPercentage < 1) {
+          // Keep same entry for remaining position
+          trade.notes = (trade.notes || '') + `\n\nPartial sell: $${sellAmountUSD.toFixed(2)} at ${new Date().toLocaleString()}. Remaining: ${remainingPosition.toFixed(8)} tokens.`;
+        } else {
+          // Full sell - close trade
+          trade.status = 'CLOSED';
+          trade.exitPrice = currentPrice;
+          trade.exitTime = new Date().toISOString();
+          const risk = Math.abs(trade.entry - (trade.stopLoss || trade.entry * 0.95));
+          const pnl = trade.direction === 'LONG' ? (currentPrice - trade.entry) : (trade.entry - currentPrice);
+          trade.outcome = pnl >= 0 ? 'WIN' : 'LOSS';
+        }
+        
+        await saveTrades();
+        await renderTrades();
+        
+        alert(`✅ Sell executed!\nTransaction: ${result.signature.substring(0, 16)}...\nView on Solscan: ${result.explorerUrl}`);
+        
+      } catch (error) {
+        console.error('[Tracker] Error executing sell:', error);
+        alert(`Sell failed: ${error.message}`);
+      }
+    };
+    
+    // Execute add to trade
+    window.executeAddToTrade = async function(tradeId) {
+      const trade = trades.find(t => t.id === tradeId);
+      if (!trade || !trade.executedTrade) {
+        alert('Trade not found or not an executed trade');
+        return;
+      }
+      
+      const input = document.getElementById(`addAmount-${tradeId}`);
+      if (!input) return;
+      
+      const addAmountUSD = parseFloat(input.value);
+      if (!addAmountUSD || addAmountUSD < 1) {
+        alert('Please enter a valid amount (minimum $1)');
+        return;
+      }
+      
+      if (!confirm(`Add $${addAmountUSD.toFixed(2)} to ${trade.symbol.replace('USDT', '')} position?`)) {
+        return;
+      }
+      
+      try {
+        console.log('[Tracker] Executing add to trade:', tradeId);
+        console.log('[Tracker] Add amount:', addAmountUSD, 'USD');
+        
+        // Build signal for add (same direction)
+        const currentPrice = priceCache[trade.symbol] || trade.entry;
+        const addSignal = {
+          valid: true,
+          direction: trade.direction.toLowerCase(),
+          entryZone: {
+            min: currentPrice * 0.999,
+            max: currentPrice * 1.001
+          },
+          stopLoss: trade.stopLoss,
+          targets: [trade.target1, trade.target2].filter(Boolean),
+          symbol: trade.symbol,
+          strategyName: trade.strategy || 'ADD',
+          confidence: trade.confidence || 75,
+          reason: `Adding $${addAmountUSD.toFixed(2)} to existing position`
+        };
+        
+        // Call execute trade API
+        const response = await fetch('/api/execute-trade', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            symbol: trade.symbol,
+            signal: addSignal,
+            tradeType: 'spot',
+            amount: addAmountUSD,
+          }),
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || result.message || 'Add to trade execution failed');
+        }
+        
+        console.log('[Tracker] Add to trade executed successfully:', result);
+        
+        // Update trade position
+        const newTokens = parseFloat(result.outputAmount) / Math.pow(10, 8);
+        const oldTokens = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8);
+        const totalTokens = oldTokens + newTokens;
+        
+        // Calculate new weighted average entry
+        const oldValue = oldTokens * trade.entry;
+        const newValue = newTokens * currentPrice;
+        const newEntry = (oldValue + newValue) / totalTokens;
+        
+        // Update trade
+        trade.entry = parseFloat(newEntry.toFixed(2));
+        if (trade.executionData) {
+          trade.executionData.outputAmount = (totalTokens * Math.pow(10, 8)).toString();
+          trade.executionData.adds = trade.executionData.adds || [];
+          trade.executionData.adds.push({
+            amount: addAmountUSD,
+            tokens: newTokens,
+            entry: currentPrice,
+            signature: result.signature,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        trade.notes = (trade.notes || '') + `\n\nAdded $${addAmountUSD.toFixed(2)} at $${currentPrice.toFixed(2)} on ${new Date().toLocaleString()}. New entry: $${newEntry.toFixed(2)}. Total position: ${totalTokens.toFixed(8)} tokens.`;
+        
+        await saveTrades();
+        await renderTrades();
+        
+        alert(`✅ Added to position!\nTransaction: ${result.signature.substring(0, 16)}...\nNew entry: $${newEntry.toFixed(2)}\nView on Solscan: ${result.explorerUrl}`);
+        
+      } catch (error) {
+        console.error('[Tracker] Error executing add to trade:', error);
+        alert(`Add to trade failed: ${error.message}`);
       }
     };
     
