@@ -3,57 +3,704 @@
 Complete reference for all AI analysis components in the EditTrades system.
 
 **Last Updated:** 2025-01-27  
-**Version:** 1.0.0
+**Version:** 2.0.0
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [AI Components](#ai-components)
-3. [API Endpoint](#api-endpoint)
-4. [LLM Configuration](#llm-configuration)
-5. [System Prompts](#system-prompts)
-6. [Frontend Integration](#frontend-integration)
-7. [Enhancement Guide](#enhancement-guide)
-8. [Troubleshooting](#troubleshooting)
+2. [Complete Feature Breakdown](#complete-feature-breakdown)
+3. [AI Components](#ai-components)
+4. [Frontend Integration Guide](#frontend-integration-guide)
+5. [API Endpoint](#api-endpoint)
+6. [LLM Configuration](#llm-configuration)
+7. [System Prompts](#system-prompts)
+8. [Enhancement Guide](#enhancement-guide)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
-The EditTrades system uses **OpenAI's GPT-4o-mini** model to provide AI-powered trade analysis in three locations:
+The EditTrades system uses **OpenAI's GPT-4o-mini** model to provide AI-powered trade analysis across multiple interfaces. All AI analysis flows through a single API endpoint (`/api/agent-review`) with different prompts and data structures depending on the use case.
 
-1. **Marquee** - Market-wide sentiment analysis (scrolling banner)
-2. **Details Section** - Individual trade call analysis (per symbol)
-3. **Trade Tracker** - Active position analysis (per tracked trade)
-4. **Market Pulse Intelligence** - Adaptive context-aware market analysis (NEW)
+### AI Interfaces
 
-All AI analysis flows through a single API endpoint (`/api/agent-review`) with different prompts and data structures depending on the use case.
-
-### Market Pulse Intelligence (NEW)
-
-A unified, adaptive AI system that automatically comments on current market state, justifies lack of signals when relevant, and adapts tone based on context. This system uses variable-controlled prompts that can be tuned system-wide without code changes.
+1. **Marquee AI** - Market-wide sentiment analysis (scrolling banner)
+2. **Details Section AI** - Individual trade call analysis (per symbol)
+3. **Trade Tracker AI** - Active position analysis (per tracked trade)
+4. **Market Pulse Intelligence** - Adaptive context-aware market analysis
 
 ---
 
-## Market Pulse Intelligence (NEW)
+## Complete Feature Breakdown
+
+### 1. Tone Interpolation Module (Reusable Globally)
+
+**Purpose:** Centralized tone weighting system used across all AI interfaces to determine appropriate tone based on market conditions.
+
+**Location:** `public/index.html` (lines ~2577-2800), `public/tracker.html` (included for tracker)
+
+**Key Functions:**
+- `getInterpolatedTone({ riskScore, trendScore, signalScore, overrideTone, allowOverride })`
+- `calculateToneScores(data, symbol)`
+- `calculateDynamicToneWeight(data, symbol, overrideTone)`
+
+**How It Works:**
+1. Extracts scores from market data (risk, trend, signals)
+2. Calculates weighted scores for cautionary, optimistic, and neutral tones
+3. Determines final tone based on highest score (>0.5 threshold)
+4. Returns soft tone hints for gradual blending
+
+**Scoring System:**
+- **Risk Profile (0-0.3):** User risk-off setting adds to cautionary
+- **HTF Bias/Trend (0-0.4):** Short bias → cautionary, Long bias → optimistic
+- **Trend Alignment (0-0.3):** 60%+ bearish/bullish timeframes
+- **Signal Count (0-0.2):** 0 signals → cautionary, 2+ signals → optimistic
+
+**Usage Across Interfaces:**
+- **Marquee AI:** Aggregates scores across all symbols (BTC, ETH, SOL)
+- **Details AI:** Uses symbol-specific scores
+- **Trade Tracker AI:** Uses trade-specific scores
+- **Market Pulse:** Uses symbol-specific scores
+
+**Frontend Integration:**
+```javascript
+// Example usage in any AI function
+const scores = calculateToneScores(data, symbol);
+const toneResult = getInterpolatedTone({
+  riskScore: scores.riskScore,
+  trendScore: scores.trendScore,
+  signalScore: scores.signalScore,
+  overrideTone: null,  // Can override manually
+  allowOverride: true
+});
+
+// toneResult contains:
+// - finalTone: 'neutral' | 'optimistic' | 'cautionary' | 'assertive'
+// - weight: 0-1 (confidence in tone)
+// - softToneHints: { primary, secondary, blendRatio }
+// - scores: { cautionary, optimistic, neutral }
+```
+
+**What Should Be Reflected:**
+- All AI interfaces should use `getInterpolatedTone()` for consistent tone
+- Tone information should be passed to backend via `toneWeight` in context
+- System prompts should include tone guidance based on interpolation result
+- Soft tone hints can be used for gradual blending in prompts
+
+---
+
+### 2. Temporal Awareness Layer
+
+**Purpose:** Tracks time since last signal and uses temporal context in AI prompts to explain market consolidation or inactivity.
+
+**Location:** `public/index.html` (lines ~2543-2575)
+
+**Key Functions:**
+- `updateLastSignalTimestamp(symbol, strategy, timestamp)`
+- `getTimeSinceLastSignal(symbol)`
+
+**How It Works:**
+1. Tracks `lastSignalAt` timestamps per symbol/strategy in `lastSignalTimestamps` Map
+2. Calculates hours/minutes since last signal
+3. Includes temporal context in prompts (e.g., "No trades for 18 hours suggests consolidation")
+4. Automatically updates when valid signals are detected
+
+**Data Structure:**
+```javascript
+lastSignalTimestamps = Map {
+  'BTCUSDT': {
+    timestamp: 1706352000000,
+    strategy: 'TREND_4H',
+    iso: '2025-01-27T12:34:56.789Z'
+  }
+}
+```
+
+**Temporal Context in Prompts:**
+- "No trades have fired for 18 hours — this usually suggests consolidation. Waiting for structure confirmation."
+- "It's been 6 hours since the last signal. The market may be consolidating."
+- "Last signal was 1 hour ago."
+
+**Frontend Integration:**
+```javascript
+// Automatically included in buildPulseContext()
+const timeSinceLastSignal = getTimeSinceLastSignal(symbol);
+// Returns: { hours, minutes, totalHours, timestamp, iso, strategy }
+
+// Updates automatically when signal detected
+if (bestSignal && strategies[bestSignal].valid) {
+  updateLastSignalTimestamp(symbol, bestSignal, Date.now());
+}
+```
+
+**What Should Be Reflected:**
+- All AI interfaces should include `lastSignalAt` and `hoursSinceLastSignal` in context
+- Backend prompts should use temporal context to explain market inactivity
+- Temporal guidance should be added to user prompts automatically
+- Context should update when new valid signals are detected
+
+---
+
+### 3. Dynamic Prompt Weighting
+
+**Purpose:** Instead of static tone switches, scores signals + bias and blends tone weight accordingly for gradual interpolation.
+
+**Location:** Uses Tone Interpolation Module (see above)
+
+**How It Works:**
+1. Calculates component scores (risk, trend, signals)
+2. Applies weighted scoring system
+3. Interpolates wording gradually vs flipping tone presets
+4. Example: 4 bearish TFs + risk-off = toneWeight 0.85 toward cautionary
+
+**Frontend Integration:**
+- Automatically applied via `calculateDynamicToneWeight()`
+- Can be overridden with explicit `overrideTone` parameter
+- Tone weight information passed to backend via `toneWeight` in context
+
+**What Should Be Reflected:**
+- All AI interfaces should use dynamic weighting (not static tone switches)
+- Tone weight should be included in context for backend prompt interpolation
+- Backend should use `softToneHints` for gradual blending guidance
+- Override flags should be respected when provided
+
+---
+
+### 4. Bear Mode / Risk-Off Auto-Detection
+
+**Purpose:** Automatically detects bear market conditions or risk-off user profile and adjusts tone accordingly.
+
+**Location:** `public/index.html` (uses Tone Interpolation Module)
+
+**Detection Logic:**
+- User risk profile set to `risk-off` (localStorage: `userRiskProfile`)
+- HTF bias is short with confidence ≥ 70%
+- 60%+ of timeframes show bearish trends
+
+**How It Works:**
+- Uses `calculateDynamicToneWeight()` which calls `getInterpolatedTone()`
+- Sets tone to `cautionary` when dynamic weight ≥ 0.6
+- Can be overridden by explicit tone parameter or dev config
+
+**Frontend Integration:**
+```javascript
+// Automatically detected in getMarketPulse()
+const toneWeight = calculateDynamicToneWeight(data, symbol);
+if (toneWeight.tone === 'cautionary' && toneWeight.weight >= 0.6) {
+  // Bear mode detected
+}
+```
+
+**What Should Be Reflected:**
+- All AI interfaces should respect bear mode detection
+- Tone should automatically shift to cautionary when conditions met
+- User risk profile should be checked from localStorage
+- Bear mode should be clearly indicated in AI responses
+
+---
+
+### 5. Response Caching
+
+**Purpose:** Avoids repeated API hits by caching responses for 60 seconds unless market state changes significantly.
+
+**Location:** `public/index.html` (lines ~2470-2541)
+
+**Key Functions:**
+- `getPulseCacheKey(symbol, target, tone, depth, temperature)`
+- `getMarketStateHash(context)`
+- `isCacheValid(cacheKey, currentContextHash)`
+
+**How It Works:**
+1. Cache key includes: symbol, target, tone, depth, temperature
+2. Market state hash includes: HTF bias, active signals, trends, volume quality, price
+3. Cache invalidates if:
+   - Age > 60 seconds (TTL)
+   - Market state hash changes (significant market changes)
+4. Automatic cleanup (keeps last 50 entries)
+
+**Cache Structure:**
+```javascript
+pulseCache = Map {
+  'BTCUSDT:dashboard:neutral:normal:0.5': {
+    pulse: 'Market analysis text...',
+    timestamp: 1706352000000,
+    contextHash: 'BTCUSDT|STANDARD|long|75|1|UPTREND|UPTREND|MEDIUM|91371'
+  }
+}
+```
+
+**Frontend Integration:**
+```javascript
+// Automatically used in getMarketPulse()
+const cacheKey = getPulseCacheKey(symbol, target, tone, depth, temperature);
+const contextHash = getMarketStateHash(pulseContext);
+
+if (isCacheValid(cacheKey, contextHash)) {
+  return pulseCache.get(cacheKey).pulse; // Return cached response
+}
+```
+
+**What Should Be Reflected:**
+- All Market Pulse Intelligence calls should use caching
+- Cache should invalidate on significant market state changes
+- Cache key should include all variable parameters
+- Cache cleanup should prevent memory leaks
+
+---
+
+### 6. Global Fallbacks
+
+**Purpose:** Ensures AI always returns a string (never null) with helpful fallback messages when data is unavailable.
+
+**Location:** `public/index.html`, `api/agent-review.js`
+
+**Fallback Messages:**
+- Missing data: "Market data for [SYMBOL] is currently unavailable. Please check again soon."
+- API error: Same fallback message
+- Invalid context: Same fallback message
+- Empty AI response: Same fallback message
+
+**How It Works:**
+1. Frontend checks for data availability
+2. Returns fallback message if data missing
+3. Backend returns fallback instead of error (200 status)
+4. Always returns string, never null
+
+**Frontend Integration:**
+```javascript
+// In getMarketPulse()
+if (!data) {
+  return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
+}
+
+// In API handler
+if (!apiKey) {
+  return res.status(200).json({
+    success: true,
+    pulse: `Market data for ${context.symbol} is currently unavailable. Please check again soon.`,
+    fallback: true
+  });
+}
+```
+
+**What Should Be Reflected:**
+- All AI functions should return strings (never null)
+- Fallback messages should be user-friendly
+- API should return 200 status with fallback (not error)
+- Frontend should handle fallback messages gracefully
+
+---
+
+### 7. Context Routing
+
+**Purpose:** Ensures all AI analysis points receive the new rich context structure (htfBias, timeframes, marketData, dflowData).
+
+**Location:** All AI interfaces
+
+**Context Structure:**
+```javascript
+{
+  symbol: "BTCUSDT",
+  mode: "STANDARD" | "AGGRESSIVE",
+  price: 91371,
+  htfBias: {
+    direction: "long",
+    confidence: 75,
+    source: "1h"
+  },
+  timeframes: {
+    "4h": { trend: "up", ema21: 91000, stochRsi: {...} },
+    "1h": { trend: "up", ema21: 91200, stochRsi: {...} },
+    // ... all timeframes
+  },
+  marketData: {
+    volumeQuality: "MEDIUM",
+    spread: 0.5,
+    bidAskImbalance: 0,
+    // ... all market data
+  },
+  dflowData: {
+    markets: [...],
+    // ... prediction market data
+  },
+  lastSignalAt: "2025-01-27T12:34:56.789Z",
+  hoursSinceLastSignal: 2.5,
+  toneWeight: {
+    finalTone: "optimistic",
+    weight: 0.75,
+    softToneHints: {...}
+  }
+}
+```
+
+**Routing by Interface:**
+
+**Marquee AI (`getAIMarketReview`):**
+- Uses `buildRichSymbolFromScanResults()` to get full context
+- Aggregates context across all symbols
+- Includes: `htfBias`, `timeframes`, `marketData`, `dflowData`
+
+**Details Section AI (`getAIReview`):**
+- Uses `createDashboardView()` which includes all new context
+- Symbol-specific context
+- Includes: `htfBias`, `timeframes`, `marketData`, `dflowData`, `toneWeight`
+
+**Trade Tracker AI (`analyzeTrade`):**
+- Uses `/api/analyze-full` endpoint for full context
+- Trade-specific context
+- Includes: `htfBias`, `timeframes`, `marketData`, `dflowData`, `toneWeight`
+
+**Market Pulse Intelligence (`getMarketPulse`):**
+- Uses `buildPulseContext()` which includes all new context
+- Symbol-specific context
+- Includes: `htfBias`, `timeframes`, `marketData`, `dflowData`, temporal awareness, `toneWeight`
+
+**Frontend Integration:**
+```javascript
+// Debug logging confirms context routing
+console.log(`🧠 [getAIReview] ${symbol}: Context includes htfBias:`, !!marketSnapshot.htfBias);
+console.log(`🧠 [getAIReview] ${symbol}: Context includes timeframes:`, !!marketSnapshot.timeframes);
+console.log(`🧠 [getAIReview] ${symbol}: Context includes marketData:`, !!marketSnapshot.marketData);
+console.log(`🧠 [getAIReview] ${symbol}: Context includes dflowData:`, !!marketSnapshot.dflowData);
+```
+
+**What Should Be Reflected:**
+- All AI interfaces must include rich context structure
+- Context should be verified with debug logging
+- Backend should receive complete context for accurate analysis
+- Missing context fields should have fallback values
+
+---
+
+### 8. Dev-Only Prompt Tuning
+
+**Purpose:** Allows developers to tweak AI prompts globally without code changes (localhost/development only).
+
+**Location:** `public/index.html` (PULSE_DEV_CONFIG), `api/agent-review.js` (environment variables)
+
+**Frontend Config:**
+```javascript
+const PULSE_DEV_CONFIG = {
+  enabled: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
+  systemPromptTone: 'neutral',  // Override default tone globally
+  temperatureCap: 0.8,          // Maximum temperature allowed
+  messageFormat: {
+    dashboard: 'normal',
+    'trade-panel': 'normal',
+    marquee: 'short'
+  }
+};
+```
+
+**Backend Config (Environment Variables):**
+```bash
+PULSE_DEV_TONE=optimistic
+PULSE_DEV_TEMP_CAP=0.7
+PULSE_DEV_DEPTH_DASHBOARD=detailed
+PULSE_DEV_DEPTH_TRADE_PANEL=normal
+PULSE_DEV_DEPTH_MARQUEE=short
+```
+
+**What Should Be Reflected:**
+- Dev config should only work on localhost/development
+- Config should override default values when enabled
+- Backend should check `NODE_ENV` or `VERCEL_ENV` for dev mode
+- Config should not affect production deployments
+
+---
+
+## AI Components
+
+### 1. Marquee AI (Market Review)
+
+**Location:** `public/index.html` - Scrolling marquee banner at top of page
+
+**Purpose:** Provides a high-level market sentiment analysis across all assets (BTC, ETH, SOL) and both trading modes (SAFE/AGGRESSIVE).
+
+**Trigger:**
+- Automatically on page load (after 5 seconds)
+- Refreshes every 5 minutes
+- Manual refresh available
+
+**Features Used:**
+- ✅ Tone Interpolation (aggregates scores across all symbols)
+- ✅ Context Routing (receives rich context via `buildRichSymbolFromScanResults`)
+- ✅ Temporal Awareness (includes time since last signals)
+- ✅ Dynamic Prompt Weighting (market-wide tone calculation)
+- ✅ Fallbacks (returns message if API fails)
+
+**Data Input:**
+```javascript
+{
+  tradesData: {
+    SAFE_MODE: {
+      BTCUSDT: {
+        currentPrice: 91371,
+        htfBias: { direction: "long", confidence: 75 },
+        timeframes: {...},
+        marketData: {...},
+        dflowData: {...},
+        strategies: {...}
+      },
+      // ... ETHUSDT, SOLUSDT
+    },
+    AGGRESSIVE_MODE: {
+      // ... same structure
+    }
+  },
+  systemPrompt: "When analyzing trade JSON, respond with direct, concise market insight..."
+}
+```
+
+**Tone Calculation:**
+```javascript
+// Aggregates scores across all symbols
+let aggregateRiskScore = 0;
+let aggregateTrendScore = 0;
+let aggregateSignalScore = 0;
+
+for (const symbol of symbols) {
+  const scores = calculateToneScores(data, symbol);
+  aggregateRiskScore += scores.riskScore;
+  aggregateTrendScore += scores.trendScore;
+  aggregateSignalScore += scores.signalScore;
+}
+
+// Average scores
+const marketTone = getInterpolatedTone({
+  riskScore: aggregateRiskScore / symbolCount,
+  trendScore: aggregateTrendScore / symbolCount,
+  signalScore: aggregateSignalScore / symbolCount
+});
+
+// Include tone guidance in system prompt
+const toneGuidance = marketTone.softToneHints.secondary 
+  ? `Tone: ${marketTone.finalTone} (blend with ${marketTone.softToneHints.secondary} at ${(marketTone.softToneHints.blendRatio * 100).toFixed(0)}% strength).`
+  : `Tone: ${marketTone.finalTone} (${(marketTone.weight * 100).toFixed(0)}% strength).`;
+```
+
+**System Prompt:**
+```
+When analyzing trade JSON, respond with direct, concise market insight. 
+Avoid technical jargon unless necessary. Focus on what the market is behaving 
+like rather than what indicators say. Identify whether assets influence each 
+other and call out any shared momentum or correlation. If no trades appear, 
+state why the structure isn't clean. [TONE_GUIDANCE] Tone should be confident, 
+observational, and actionable—similar to a seasoned trader explaining what they 
+see without fluff. Always keep responses tight, honest, and rooted in the bigger 
+picture sentiment behind the data, not just the numbers. Keep your response to 
+1-2 sentences maximum.
+```
+
+**LLM Settings:**
+- **Model:** `gpt-4o-mini`
+- **Temperature:** `0.7` (more creative, conversational)
+- **Max Tokens:** `150` (very concise)
+
+**Output:**
+- Single sentence or two-sentence market sentiment
+- Displayed in scrolling marquee
+- Example: "BTC and ETH showing aligned bullish momentum with clean 4H structure, while SOL consolidates."
+
+**Frontend Functions:**
+- `getAIMarketReview()` - Fetches and displays market review
+- `updateMarketReviewDisplay()` - Updates marquee content
+- `startMarketReview()` - Initializes and schedules refreshes
+
+**Code Location:**
+- `public/index.html` lines ~2313-2450
+
+---
+
+### 2. Details Section AI (Individual Trade Analysis)
+
+**Location:** `public/index.html` - Details dropdown for each symbol
+
+**Purpose:** Provides detailed analysis of a specific trade call for a symbol and strategy type.
+
+**Trigger:**
+- Automatically on page load for major coins (BTC, ETH, SOL) - silent mode
+- Manual trigger via "ANALYZE" button in details dropdown
+- Updates when strategy selection changes
+
+**Features Used:**
+- ✅ Tone Interpolation (symbol-specific scores)
+- ✅ Context Routing (receives context via `createDashboardView`)
+- ✅ Temporal Awareness (includes time since last signal)
+- ✅ Dynamic Prompt Weighting (symbol-specific tone)
+- ✅ Fallbacks (returns message if API fails)
+
+**Data Input:**
+```javascript
+{
+  symbol: "BTCUSDT",
+  setupType: "4h" | "Swing" | "Scalp" | "MicroScalp",
+  marketSnapshot: {
+    symbol: "BTCUSDT",
+    currentPrice: 91371,
+    htfBias: { direction: "long", confidence: 75 },
+    timeframes: {...},
+    marketData: {...},
+    dflowData: {...},
+    toneWeight: {
+      finalTone: "optimistic",
+      weight: 0.75,
+      softToneHints: {...}
+    }
+  }
+}
+```
+
+**Tone Calculation:**
+```javascript
+// Calculate tone for this symbol
+const scores = calculateToneScores(data, symbol);
+const symbolTone = getInterpolatedTone({
+  riskScore: scores.riskScore,
+  trendScore: scores.trendScore,
+  signalScore: scores.signalScore
+});
+
+// Add tone information to market snapshot
+marketSnapshot.toneWeight = symbolTone;
+```
+
+**System Prompt:**
+Strategy-specific prompts are dynamically constructed. Base structure includes tone guidance from `toneWeight`.
+
+**LLM Settings:**
+- **Model:** `gpt-4o-mini`
+- **Temperature:** `0.3` (more focused, analytical)
+- **Max Tokens:** `800` (detailed analysis)
+
+**Output:**
+- 3-5 paragraph conversational analysis
+- Includes rating: A+, A, B, or SKIP
+- Strategy-specific evaluation
+- Actionable insights
+
+**Frontend Functions:**
+- `getAIReview(symbol, isAutoTrigger)` - Fetches and displays analysis
+- `autoTriggerAIAnalysis()` - Auto-triggers for major coins
+
+**Code Location:**
+- `public/index.html` lines ~4974-5100
+- `api/agent-review.js` lines ~130-460
+
+---
+
+### 3. Trade Tracker AI (Active Position Analysis)
+
+**Location:** `public/tracker.html` - Active trade position analysis
+
+**Purpose:** Provides real-time analysis of an active or pending trade position.
+
+**Trigger:**
+- Manual trigger via "ANALYZE" button on each active trade
+- Only available for ACTIVE or PENDING trades (not CLOSED)
+
+**Features Used:**
+- ✅ Tone Interpolation (trade-specific scores, includes functions in tracker.html)
+- ✅ Context Routing (receives context via `/api/analyze-full`)
+- ✅ Temporal Awareness (includes time since last signal)
+- ✅ Dynamic Prompt Weighting (trade-specific tone)
+- ✅ Fallbacks (returns message if API fails)
+
+**Data Input:**
+```javascript
+{
+  marketSnapshot: {
+    symbol: "BTCUSDT",
+    currentPrice: 91371,
+    htfBias: { direction: "long", confidence: 75 },
+    timeframes: {...},
+    marketData: {...},
+    dflowData: {...},
+    toneWeight: {
+      finalTone: "optimistic",
+      weight: 0.75
+    }
+  },
+  setupType: "SCALP" | "4h" | "Swing" | "MicroScalp",
+  symbol: "BTCUSDT"
+}
+```
+
+**Tone Calculation:**
+```javascript
+// Reconstruct data-like object from marketSnapshot
+const tradeData = {
+  htfBias: marketSnapshot.htfBias,
+  analysis: marketSnapshot.analysis,
+  richSymbol: {
+    strategies: {
+      [trade.strategy]: {
+        valid: marketSnapshot.signal.valid,
+        direction: marketSnapshot.signal.direction,
+        confidence: marketSnapshot.signal.confidence || 0
+      }
+    }
+  }
+};
+
+const scores = calculateToneScores(tradeData, trade.symbol);
+const tradeTone = getInterpolatedTone({
+  riskScore: scores.riskScore,
+  trendScore: scores.trendScore,
+  signalScore: scores.signalScore
+});
+
+marketSnapshot.toneWeight = tradeTone;
+```
+
+**System Prompt:**
+Uses the same strategy-specific prompts as Details Section AI, but with context that this is an **active position** being analyzed.
+
+**LLM Settings:**
+- **Model:** `gpt-4o-mini`
+- **Temperature:** `0.3`
+- **Max Tokens:** `800`
+
+**Output:**
+- Analysis of current position status
+- Market context changes since entry
+- Risk assessment
+- Position management recommendations
+
+**Frontend Functions:**
+- `analyzeTrade(tradeId)` - Analyzes active trade position
+- `calculateToneScores()` - Included in tracker.html
+- `getInterpolatedTone()` - Included in tracker.html
+
+**Code Location:**
+- `public/tracker.html` lines ~693-900 (tone functions), ~2379-2450 (analyzeTrade)
+- `api/agent-review.js` (same endpoint, different context)
+
+---
+
+### 4. Market Pulse Intelligence
 
 **Location:** Can be used in any context (dashboard, trade panel, marquee, notifications)
 
 **Purpose:** Provides adaptive, context-aware market analysis that automatically explains market conditions, signal availability, and what to monitor next.
-
-**Key Features:**
-- **Variable-Controlled Prompts:** Tone, depth, target, and temperature can be adjusted without code changes
-- **Auto-Context Building:** Automatically extracts context from existing data structures
-- **Adaptive Output:** Different formats for different contexts (dashboard, trade-panel, marquee)
-- **Zero Manual Prompting:** Fully automated based on current market state
 
 **Trigger:**
 - Can be called programmatically from any frontend location
 - Can replace or enhance existing marquee AI
 - Can be used in details sections
 - Can be triggered on-demand or automatically
+
+**Features Used:**
+- ✅ Tone Interpolation (symbol-specific scores)
+- ✅ Context Routing (receives context via `buildPulseContext`)
+- ✅ Temporal Awareness (includes `lastSignalAt` and `hoursSinceLastSignal`)
+- ✅ Dynamic Prompt Weighting (symbol-specific tone)
+- ✅ Response Caching (60s TTL with market state change detection)
+- ✅ Global Fallbacks (always returns string)
+- ✅ Dev-Only Prompt Tuning (localhost/development config)
 
 **Data Input:**
 ```javascript
@@ -62,11 +709,7 @@ A unified, adaptive AI system that automatically comments on current market stat
     symbol: "BTCUSDT",
     mode: "STANDARD" | "AGGRESSIVE",
     price: 91371,
-    htfBias: {
-      direction: "long",
-      confidence: 75,
-      source: "1h"
-    },
+    htfBias: { direction: "long", confidence: 75 },
     trendMap: {
       "3d": "FLAT",
       "1d": "FLAT",
@@ -77,8 +720,18 @@ A unified, adaptive AI system that automatically comments on current market stat
     volatility3d: "9.8%",
     volumeQuality: "MEDIUM",
     dflowStatus: "Available" | "Unavailable",
-    activeSignals: 0,
-    lastSignalTime: "2025-01-27T12:34:56.789Z"
+    activeSignals: 1,
+    lastSignalAt: "2025-01-27T12:34:56.789Z",
+    hoursSinceLastSignal: 2.5,
+    toneWeight: {
+      finalTone: "optimistic",
+      weight: 0.75,
+      softToneHints: {
+        primary: "optimistic",
+        secondary: "neutral",
+        blendRatio: 0.75
+      }
+    }
   },
   pulseVariables: {
     tone: "neutral" | "optimistic" | "cautionary" | "assertive",
@@ -89,30 +742,22 @@ A unified, adaptive AI system that automatically comments on current market stat
 }
 ```
 
+**Tone Calculation:**
+```javascript
+// Calculate dynamic tone weighting
+const toneWeight = calculateDynamicToneWeight(data, symbol);
+
+// Apply dynamic tone if base tone is neutral or if weight is strong
+if (tone === 'neutral' || toneWeight.weight >= 0.6) {
+  tone = toneWeight.tone;
+}
+
+// Add tone weight information to context
+pulseContext.toneWeight = toneWeight;
+```
+
 **System Prompt:**
-Dynamically constructed based on variables:
-```
-You are the Market Pulse AI, embedded in a crypto trading system. 
-Your job is to interpret system-generated context and deliver timely, 
-human-like summaries of market posture, strategy logic, and signal availability.
-
-Tone: [tone] (neutral = balanced, optimistic = positive outlook, 
-cautionary = warning, assertive = confident)
-Depth: [depth] (short = 1-2 lines, normal = 1-2 paragraphs, 
-detailed = multi-section)
-Target: [target] (dashboard = overview, trade-panel = specific symbol, 
-marquee = banner message)
-Temperature: [temperature] (controls creativity/variability)
-
-Rules:
-- Do not invent signals. If none are present, explain why using current market structure.
-- Mention key misalignments or flat trends blocking trades.
-- Use trader-oriented reasoning: note what looks promising, what's blocking, 
-  and what may trigger next.
-- Format appropriately for [target] context.
-- Keep [depth] length as specified.
-- Use [tone] tone throughout.
-```
+Dynamically constructed based on variables and includes temporal awareness and tone blending guidance.
 
 **LLM Settings:**
 - **Model:** `gpt-4o-mini`
@@ -146,383 +791,169 @@ conflicting. No clean setups for now—patience is smart here.
 **Frontend Functions:**
 - `getMarketPulse(symbol, target, tone, depth, temperature)` - Fetches adaptive analysis
 - `buildPulseContext(data, symbol)` - Builds context from existing data
+- `getPulseCacheKey(...)` - Generates cache key
+- `getMarketStateHash(context)` - Generates market state hash
+- `isCacheValid(cacheKey, contextHash)` - Checks cache validity
 
 **Code Location:**
-- `api/agent-review.js` - `handleMarketPulse()` function
-- `public/index.html` - Frontend integration functions
-
-**Caching:**
-- Responses are cached for 60 seconds
-- Cache is invalidated if market state changes significantly (HTF bias, active signals, trends)
-- Cache key includes: symbol, target, tone, depth, temperature
-- Automatic cache cleanup (keeps last 50 entries)
-
-**Fallbacks:**
-- If market data is missing: "Market data for [SYMBOL] is currently unavailable. Please check again soon."
-- If API key is missing: Returns fallback message instead of error
-- If context is invalid: Returns fallback message with context info
-
-**Dev-Only Prompt Tuning:**
-- Available when running on `localhost` or `127.0.0.1`
-- Configurable via `PULSE_DEV_CONFIG` object in frontend
-- Backend dev config via environment variables:
-  - `PULSE_DEV_TONE` - Override default tone
-  - `PULSE_DEV_TEMP_CAP` - Maximum temperature (default: 0.8)
-  - `PULSE_DEV_DEPTH_DASHBOARD` - Depth for dashboard
-  - `PULSE_DEV_DEPTH_TRADE_PANEL` - Depth for trade-panel
-  - `PULSE_DEV_DEPTH_MARQUEE` - Depth for marquee
-
-**Temporal Awareness Layer:**
-- Tracks `lastSignalAt` timestamps per symbol and strategy
-- Calculates time since last signal (hours/minutes)
-- Uses temporal context in prompts:
-  - "No trades have fired for 18 hours — this usually suggests consolidation. Waiting for structure confirmation."
-  - Automatically updates when valid signals are detected
-- Stored in `lastSignalTimestamps` Map for persistence
-
-**Tone Interpolation Module (Reusable Globally):**
-- Centralized `getInterpolatedTone()` function used across all AI interfaces
-- **Function Signature:**
-  ```javascript
-  getInterpolatedTone({
-    riskScore: 0-1,        // Risk profile (higher = risk-off)
-    trendScore: -1 to 1,  // Trend alignment (negative = bearish, positive = bullish)
-    signalScore: 0-1,     // Signal count (higher = more signals)
-    overrideTone: null,    // Optional override ('neutral' | 'optimistic' | 'cautionary' | 'assertive')
-    allowOverride: true    // Whether to allow override
-  })
-  ```
-- **Returns:**
-  ```javascript
-  {
-    finalTone: 'neutral' | 'optimistic' | 'cautionary' | 'assertive',
-    weight: 0-1,           // Confidence in tone
-    scores: {              // Component scores
-      cautionary: 0-1,
-      optimistic: 0-1,
-      neutral: 0-1
-    },
-    softToneHints: {       // For gradual blending
-      primary: 'neutral',
-      secondary: 'cautionary' | 'optimistic' | null,
-      blendRatio: 0-1      // How much to blend secondary tone
-    },
-    override: false        // Whether override was applied
-  }
-  ```
-- **Scoring System (weights sum to 1.0):**
-  - Risk profile: 0-0.3 (risk-off adds to cautionary)
-  - HTF bias direction/confidence: 0-0.4 (short = cautionary, long = optimistic)
-  - Trend alignment: 0-0.3 (60%+ bearish/bullish TFs)
-  - Active signals count: 0-0.2 (0 signals = cautionary, 2+ = optimistic)
-- **Usage Across Interfaces:**
-  - **Dashboard/Marquee AI** (`getAIMarketReview`): Aggregates scores across all symbols
-  - **Details Section AI** (`getAIReview`): Uses symbol-specific scores
-  - **Trade Tracker AI** (`analyzeTrade`): Uses trade-specific scores
-  - **Market Pulse Intelligence** (`getMarketPulse`): Uses symbol-specific scores
-- Interpolates wording gradually vs flipping tone presets
-- Example: 4 bearish TFs + risk-off = toneWeight 0.85 toward cautionary
-- Final tone determined by highest score (if > 0.5 threshold)
-
-**Bear Mode / Risk-Off Auto-Detection:**
-- Uses dynamic tone weighting system (legacy function maintained for compatibility)
-- Automatically detects bear market conditions or risk-off user profile
-- Sets tone to `cautionary` when dynamic weight ≥ 0.6
-- Can be overridden by explicit tone parameter or dev config
-
-**Context Routing:**
-All AI analysis points receive the new rich context structure:
-- **Marquee AI** (`getAIMarketReview`): Receives `htfBias`, `timeframes`, `marketData`, `dflowData` via `buildRichSymbolFromScanResults`
-- **Details Section AI** (`getAIReview`): Receives context via `createDashboardView` which includes all new data
-- **Trade Tracker AI** (`analyzeTrade`): Receives context via `/api/analyze-full` which includes all new data
-- **Market Pulse Intelligence** (`getMarketPulse`): Receives context via `buildPulseContext` which includes all new data
-
-**Enhancement Guide:**
-See [Enhancement Guide](#enhancement-guide) section for details on customizing prompts and variables.
-
-**Future: Streaming AI Commentary:**
-- Planned upgrade to GPT-4 Turbo with 128k context
-- Streaming responses for continuously evolving market narration
-- Example: "Past 3 hours have seen consolidation under resistance. If this persists with volume tapering, expect signal suppression to continue."
-- Implementation: Use OpenAI streaming API with Server-Sent Events (SSE)
+- `api/agent-review.js` - `handleMarketPulse()` function (lines ~10-240)
+- `public/index.html` - Frontend integration functions (lines ~2690-2795)
 
 ---
 
-## AI Components
+## Frontend Integration Guide
 
-### 1. Marquee AI (Market Review)
+### Required Context Structure
 
-**Location:** `public/index.html` - Scrolling marquee banner at top of page
+All AI interfaces must include this context structure:
 
-**Purpose:** Provides a high-level market sentiment analysis across all assets (BTC, ETH, SOL) and both trading modes (SAFE/AGGRESSIVE).
-
-**Trigger:**
-- Automatically on page load (after 5 seconds)
-- Refreshes every 5 minutes
-- Manual refresh available
-
-**Data Input:**
 ```javascript
 {
-  tradesData: {
-    SAFE_MODE: {
-      BTCUSDT: { /* all strategies */ },
-      ETHUSDT: { /* all strategies */ },
-      SOLUSDT: { /* all strategies */ }
-    },
-    AGGRESSIVE_MODE: {
-      BTCUSDT: { /* all strategies */ },
-      ETHUSDT: { /* all strategies */ },
-      SOLUSDT: { /* all strategies */ }
+  symbol: string,
+  mode: "STANDARD" | "AGGRESSIVE",
+  price: number,
+  htfBias: {
+    direction: "long" | "short" | "neutral",
+    confidence: number (0-100),
+    source: string
+  },
+  timeframes: {
+    [timeframe]: {
+      trend: string,
+      ema21: number,
+      ema200: number,
+      stochRsi: {...}
     }
   },
-  systemPrompt: "When analyzing trade JSON, respond with direct, concise market insight..."
-}
-```
-
-**System Prompt:**
-```
-When analyzing trade JSON, respond with direct, concise market insight. 
-Avoid technical jargon unless necessary. Focus on what the market is behaving 
-like rather than what indicators say. Identify whether assets influence each 
-other and call out any shared momentum or correlation. If no trades appear, 
-state why the structure isn't clean. Tone should be confident, observational, 
-and actionable—similar to a seasoned trader explaining what they see without 
-fluff. Always keep responses tight, honest, and rooted in the bigger picture 
-sentiment behind the data, not just the numbers. Keep your response to 1-2 
-sentences maximum.
-```
-
-**LLM Settings:**
-- **Model:** `gpt-4o-mini`
-- **Temperature:** `0.7` (more creative, conversational)
-- **Max Tokens:** `150` (very concise)
-
-**Output:**
-- Single sentence or two-sentence market sentiment
-- Displayed in scrolling marquee
-- Example: "BTC and ETH showing aligned bullish momentum with clean 4H structure, while SOL consolidates."
-
-**Frontend Function:**
-- `getAIMarketReview()` - Fetches and displays market review
-- `updateMarketReviewDisplay()` - Updates marquee content
-- `startMarketReview()` - Initializes and schedules refreshes
-
-**Code Location:**
-- `public/index.html` lines ~2310-2498
-
----
-
-### 2. Details Section AI (Individual Trade Analysis)
-
-**Location:** `public/index.html` - Details dropdown for each symbol
-
-**Purpose:** Provides detailed analysis of a specific trade call for a symbol and strategy type.
-
-**Trigger:**
-- Automatically on page load for major coins (BTC, ETH, SOL) - silent mode
-- Manual trigger via "ANALYZE" button in details dropdown
-- Updates when strategy selection changes
-
-**Data Input:**
-```javascript
-{
-  symbol: "BTCUSDT",
-  setupType: "4h" | "Swing" | "Scalp" | "MicroScalp",
-  marketSnapshot: {
-    symbol: "BTCUSDT",
-    currentPrice: 91371,
-    priceChange24h: 2.5,
-    signal: {
-      direction: "long",
-      confidence: 76,
-      valid: true,
-      reason: "...",
-      entryZone: { min: 90636, max: 91182 },
-      stopLoss: 88181.73,
-      targets: [93636.27, 96363.54],
-      invalidation: 88181.73
-    },
-    htfBias: {
-      direction: "long",
-      confidence: 100,
-      source: "1h"
-    },
-    analysis: {
-      trendAlignment: "...",
-      stochMomentum: "...",
-      pullbackState: "...",
-      liquidityZones: "...",
-      htfConfirmation: "..."
-    }
+  marketData: {
+    volumeQuality: string,
+    spread: number,
+    bidAskImbalance: number,
+    // ... all market data
+  },
+  dflowData: {
+    markets: [...],
+    // ... prediction market data
+  },
+  lastSignalAt: string (ISO timestamp),
+  hoursSinceLastSignal: number,
+  toneWeight: {
+    finalTone: string,
+    weight: number,
+    softToneHints: {...},
+    scores: {...}
   }
 }
 ```
 
-**System Prompt:**
-Strategy-specific prompts are dynamically constructed. Base structure:
+### Integration Checklist
 
-```
-You are the Trading Reasoning Layer for EditTrades.
+**For Each AI Interface:**
 
-Your job:
-- Analyze EditTrades' JSON snapshot for [SETUP_TYPE] setup
-- Apply strategy-specific rules for this trade type
-- Use higher-level reasoning (momentum, HTF conflict, invalidation integrity)
-- Add confluence checks
-- Determine if THIS SPECIFIC TRADE TYPE is recommended
-- Create a clean human-readable trade call
-- Provide analysis that adds value beyond the raw data
+1. ✅ **Include Tone Interpolation:**
+   ```javascript
+   const scores = calculateToneScores(data, symbol);
+   const toneResult = getInterpolatedTone({...});
+   context.toneWeight = toneResult;
+   ```
 
-[STRATEGY-SPECIFIC GUIDANCE]
+2. ✅ **Include Temporal Awareness:**
+   ```javascript
+   const timeSinceLastSignal = getTimeSinceLastSignal(symbol);
+   context.lastSignalAt = timeSinceLastSignal?.iso;
+   context.hoursSinceLastSignal = timeSinceLastSignal?.totalHours;
+   ```
 
-Rules:
-1. Never override numerical fields from EditTrades (entry, stop, tp1/2/3)
-2. You may critique a trade if conditions contradict best practices for THIS strategy
-3. Your analysis should be SPECIFIC to [SETUP_TYPE] - don't suggest a different strategy
-4. Write in CONVERSATIONAL PARAGRAPHS, not bulleted lists
-5. Structure your response as natural flowing text
+3. ✅ **Include Rich Context:**
+   ```javascript
+   context.htfBias = data.htfBias || data.richSymbol?.htfBias;
+   context.timeframes = data.timeframes || data.richSymbol?.timeframes;
+   context.marketData = data.marketData || data.richSymbol?.marketData;
+   context.dflowData = data.dflowData || data.richSymbol?.dflowData;
+   ```
 
-[CONVERSATIONAL STRUCTURE GUIDANCE]
-```
+4. ✅ **Add Debug Logging:**
+   ```javascript
+   console.log(`🧠 [Interface] ${symbol}: Context includes htfBias:`, !!context.htfBias);
+   console.log(`🧠 [Interface] ${symbol}: Context includes timeframes:`, !!context.timeframes);
+   console.log(`🧠 [Interface] ${symbol}: Context includes marketData:`, !!context.marketData);
+   console.log(`🧠 [Interface] ${symbol}: Context includes dflowData:`, !!context.dflowData);
+   console.log(`🧠 [Interface] ${symbol}: Tone: ${toneResult.finalTone} (weight: ${toneResult.weight.toFixed(2)})`);
+   ```
 
-**Strategy-Specific Guidance:**
+5. ✅ **Include Fallbacks:**
+   ```javascript
+   if (!data) {
+     return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
+   }
+   ```
 
-Each strategy type has custom guidance embedded in the system prompt:
+6. ✅ **Pass Tone to Backend:**
+   ```javascript
+   body: JSON.stringify({
+     ...context,
+     toneWeight: toneResult  // Include tone weight
+   })
+   ```
 
-#### 4H Trade Guidance:
-```
-4-HOUR TRADE SPECIFIC ANALYSIS:
-- This is the core "set and forget" strategy
-- CRITICAL: 4H trend must be clear (UPTREND/DOWNTREND, not FLAT)
-- 1H must align with 4H direction
-- Price must be in ENTRY_ZONE (near 4H 21 EMA, ±1%)
-- 4H pullback state must be RETRACING or ENTRY_ZONE
-- Stoch must show curl in trade direction on 4H
-- Stop loss at 4H swing high/low
-- Targets are 1:1 and 1:2 R (TP1/TP2)
-- This is medium position, medium hold time
-- Focus on: 4H trend clarity, EMA alignment, stoch momentum quality
-```
+### Example: Complete Integration
 
-#### Swing Trade Guidance:
-```
-SWING TRADE SPECIFIC ANALYSIS:
-- This is a 3D → 1D → 4H multi-timeframe swing setup
-- CRITICAL: 4H trend must NOT be FLAT (instant disqualification)
-- Evaluate 3D oversold/overbought pivot quality
-- Check 1D reclaim/rejection strength
-- Confirm 4H is providing structural support
-- Stop loss should be at 3D/1D swing levels (HTF invalidation)
-- Targets should be 3R, 4R, 5R minimum
-- This is a larger position, longer hold time
-- Focus on: HTF momentum alignment, macro trend integrity, structural confluence
-```
-
-#### Scalp Trade Guidance:
-```
-SCALP TRADE SPECIFIC ANALYSIS:
-- This is a 15m/5m lower timeframe scalp
-- CRITICAL: 4H trend must be clear (NOT FLAT) and aligned
-- 1H must confirm direction
-- Both 15m and 5m must be in ENTRY_ZONE near 21 EMA
-- Stoch must show strong momentum curl in direction
-- Stop loss should be at 5m/15m swing levels (tight LTF stops)
-- Targets are typically 1.5R to 3R (quick in/out)
-- This is smaller position, fast execution
-- Focus on: LTF momentum quality, tight confluence, clean entry zone
-```
-
-#### MicroScalp Trade Guidance:
-```
-MICRO-SCALP SPECIFIC ANALYSIS:
-‼️ CRITICAL: This strategy COMPLETELY DISREGARDS 4H TREND ‼️
-- DO NOT evaluate 4H trend - it is 100% IRRELEVANT to Micro-Scalp
-- DO NOT mention "4H must be X" or "4H trend is..." - IGNORE IT ENTIRELY
-- 4H can be UPTREND, DOWNTREND, or FLAT - DOESN'T MATTER AT ALL
-- This is a LOWER TIMEFRAME ONLY strategy (1H/15m/5m)
-
-WHAT ACTUALLY MATTERS FOR MICRO-SCALP:
-- 1H trend must be clear (UPTREND or DOWNTREND, not FLAT)
-- 1H pullback state must be ENTRY_ZONE or RETRACING
-- 15m price within ±0.25% of 15m EMA21
-- 5m price within ±0.25% of 5m EMA21
-- Stoch aligned on BOTH 15m and 5m (oversold+bullish for long, overbought+bearish for short)
-- Very tight stops at 15m/5m swing levels
-- Quick targets (1.0R, 1.5R only)
-- Smallest position size, fastest execution
-
-Focus ONLY on: 1H trend quality, 15m/5m EMA precision, stoch alignment on LTF
-DO NOT MENTION 4H TREND IN YOUR ANALYSIS - IT IS NOT A FACTOR
-```
-
-**LLM Settings:**
-- **Model:** `gpt-4o-mini`
-- **Temperature:** `0.3` (more focused, analytical)
-- **Max Tokens:** `800` (detailed analysis)
-
-**Output:**
-- 3-5 paragraph conversational analysis
-- Includes rating: A+, A, B, or SKIP
-- Strategy-specific evaluation
-- Actionable insights
-
-**Frontend Function:**
-- `getAIReview(symbol, isAutoTrigger)` - Fetches and displays analysis
-- `autoTriggerAIAnalysis()` - Auto-triggers for major coins
-
-**Code Location:**
-- `public/index.html` lines ~4446-4550
-- `api/agent-review.js` lines ~130-460
-
----
-
-### 3. Trade Tracker AI (Active Position Analysis)
-
-**Location:** `public/tracker.html` - Active trade position analysis
-
-**Purpose:** Provides real-time analysis of an active or pending trade position.
-
-**Trigger:**
-- Manual trigger via "ANALYZE" button on each active trade
-- Only available for ACTIVE or PENDING trades (not CLOSED)
-
-**Data Input:**
 ```javascript
-{
-  marketSnapshot: {
-    symbol: "BTCUSDT",
-    currentPrice: 91371,
-    priceChange24h: 2.5,
-    analysis: { /* current market analysis */ },
-    signal: { /* current signal data */ },
-    htfBias: { /* HTF bias data */ }
-  },
-  setupType: "SCALP" | "4h" | "Swing" | "MicroScalp",
-  symbol: "BTCUSDT"
+async function myAIFunction(symbol) {
+  const data = scanResults[symbol];
+  if (!data) {
+    return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
+  }
+  
+  // 1. Calculate tone
+  const scores = calculateToneScores(data, symbol);
+  const toneResult = getInterpolatedTone({
+    riskScore: scores.riskScore,
+    trendScore: scores.trendScore,
+    signalScore: scores.signalScore,
+    overrideTone: null,
+    allowOverride: true
+  });
+  
+  // 2. Build context
+  const context = {
+    symbol: symbol,
+    mode: data.mode || 'STANDARD',
+    price: data.currentPrice,
+    htfBias: data.htfBias || data.richSymbol?.htfBias,
+    timeframes: data.timeframes || data.richSymbol?.timeframes || {},
+    marketData: data.marketData || data.richSymbol?.marketData || null,
+    dflowData: data.dflowData || data.richSymbol?.dflowData || null,
+    toneWeight: toneResult
+  };
+  
+  // 3. Add temporal awareness
+  const timeSinceLastSignal = getTimeSinceLastSignal(symbol);
+  if (timeSinceLastSignal) {
+    context.lastSignalAt = timeSinceLastSignal.iso;
+    context.hoursSinceLastSignal = timeSinceLastSignal.totalHours;
+  }
+  
+  // 4. Debug logging
+  console.log(`🧠 [myAIFunction] ${symbol}: Tone: ${toneResult.finalTone} (weight: ${toneResult.weight.toFixed(2)})`);
+  console.log(`🧠 [myAIFunction] ${symbol}: Context includes all required fields`);
+  
+  // 5. Call API
+  const response = await fetch('/api/agent-review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      symbol,
+      context,
+      // ... other parameters
+    })
+  });
+  
+  // 6. Handle response
+  const result = await response.json();
+  return result.analysis || `Market analysis for ${symbol} is temporarily unavailable.`;
 }
 ```
-
-**System Prompt:**
-Uses the same strategy-specific prompts as Details Section AI, but with context that this is an **active position** being analyzed.
-
-**LLM Settings:**
-- **Model:** `gpt-4o-mini`
-- **Temperature:** `0.3`
-- **Max Tokens:** `800`
-
-**Output:**
-- Analysis of current position status
-- Market context changes since entry
-- Risk assessment
-- Position management recommendations
-
-**Frontend Function:**
-- `analyzeTrade(tradeId)` - Analyzes active trade position
-
-**Code Location:**
-- `public/tracker.html` lines ~2350-2450
-- `api/agent-review.js` (same endpoint, different context)
 
 ---
 
@@ -534,16 +965,16 @@ Uses the same strategy-specific prompts as Details Section AI, but with context 
 
 **Method:** `POST`
 
-**Request Body (Two Modes):**
+**Request Body (Three Modes):**
 
 #### Mode 1: Market Review (Marquee)
 ```javascript
 {
   tradesData: {
-    SAFE_MODE: { /* all symbols */ },
-    AGGRESSIVE_MODE: { /* all symbols */ }
+    SAFE_MODE: { /* all symbols with rich context */ },
+    AGGRESSIVE_MODE: { /* all symbols with rich context */ }
   },
-  systemPrompt: "When analyzing trade JSON..."
+  systemPrompt: "When analyzing trade JSON, respond with direct, concise market insight..."
 }
 ```
 
@@ -552,7 +983,26 @@ Uses the same strategy-specific prompts as Details Section AI, but with context 
 {
   symbol: "BTCUSDT",
   setupType: "4h" | "Swing" | "Scalp" | "MicroScalp",
-  marketSnapshot: { /* symbol-specific data */ }
+  marketSnapshot: {
+    /* symbol-specific data with rich context */
+    toneWeight: { /* tone interpolation result */ }
+  }
+}
+```
+
+#### Mode 3: Market Pulse Intelligence
+```javascript
+{
+  pulseRequest: true,
+  pulseContext: {
+    /* context with temporal awareness and tone weight */
+  },
+  pulseVariables: {
+    tone: "neutral" | "optimistic" | "cautionary" | "assertive",
+    depth: "short" | "normal" | "detailed",
+    target: "dashboard" | "trade-panel" | "marquee",
+    temperature: "0.2" | "0.5" | "0.8"
+  }
 }
 ```
 
@@ -573,6 +1023,21 @@ Uses the same strategy-specific prompts as Details Section AI, but with context 
   priority: "A" | "A+" | "B" | "SKIP",
   formattedText: "Detailed analysis paragraphs...",
   timestamp: "2025-01-27T12:34:56.789Z"
+}
+
+// Market Pulse Intelligence Mode
+{
+  success: true,
+  pulse: "Adaptive market analysis...",
+  context: {
+    symbol: "BTCUSDT",
+    mode: "STANDARD",
+    tone: "optimistic",
+    depth: "normal",
+    target: "dashboard"
+  },
+  timestamp: "2025-01-27T12:34:56.789Z",
+  fallback: false
 }
 ```
 
@@ -614,7 +1079,9 @@ OPENAI_API_KEY=sk-...
 - `gpt-4o-mini` is cost-effective for high-volume analysis
 - Market Review: ~150 tokens per request
 - Individual Analysis: ~800 tokens per request
+- Market Pulse: ~100-600 tokens per request (depending on depth)
 - Auto-triggered analysis runs for 3 symbols on page load
+- Caching reduces redundant API calls
 
 ---
 
@@ -624,19 +1091,21 @@ OPENAI_API_KEY=sk-...
 
 All prompts follow this structure:
 
-1. **Role Definition:** "You are the Trading Reasoning Layer for EditTrades"
+1. **Role Definition:** "You are the Trading Reasoning Layer for EditTrades" or "You are the Market Pulse AI"
 2. **Job Description:** What the AI should analyze
-3. **Strategy-Specific Guidance:** Custom rules for each strategy type
-4. **General Rules:** Constraints and formatting requirements
-5. **Output Format:** How to structure the response
+3. **Tone Guidance:** From tone interpolation result
+4. **Temporal Context:** Time since last signal (if applicable)
+5. **Strategy-Specific Guidance:** Custom rules for each strategy type
+6. **General Rules:** Constraints and formatting requirements
+7. **Output Format:** How to structure the response
 
 ### Prompt Customization
 
 **To modify prompts:**
 
-1. **Marquee Prompt:** Edit `public/index.html` line ~2420
+1. **Marquee Prompt:** Edit `public/index.html` line ~2432
    ```javascript
-   systemPrompt: 'When analyzing trade JSON, respond with...'
+   systemPrompt: 'When analyzing trade JSON, respond with direct, concise market insight...'
    ```
 
 2. **Details/Tracker Prompts:** Edit `api/agent-review.js`
@@ -644,92 +1113,19 @@ All prompts follow this structure:
    - Strategy guidance: lines ~167-225
    - Analysis points: lines ~286-321
 
+3. **Market Pulse Prompt:** Edit `api/agent-review.js`
+   - System prompt: lines ~77-90
+   - User prompt: lines ~146-155 (includes temporal and tone guidance)
+
 ### Prompt Best Practices
 
 1. **Be Specific:** Include exact strategy requirements
 2. **Set Constraints:** Clearly state what NOT to analyze (e.g., MicroScalp ignores 4H)
 3. **Define Output Format:** Specify paragraph structure, length, rating system
 4. **Include Examples:** Reference actual data structure in prompts
-5. **Set Tone:** Define conversational style (confident, observational, actionable)
-
----
-
-## Frontend Integration
-
-### Marquee Integration
-
-**HTML Element:**
-```html
-<div id="newsMarquee">
-  <div id="newsMarqueeContent">
-    <!-- AI analysis displayed here -->
-  </div>
-</div>
-```
-
-**JavaScript Functions:**
-```javascript
-// Initialize on page load
-startMarketReview();
-
-// Manual refresh
-getAIMarketReview();
-
-// Update display
-updateMarketReviewDisplay();
-```
-
-**Styling:**
-- Scrolling marquee animation
-- Yellow text (`var(--color-yellow-75)`)
-- Auto-refreshes every 5 minutes
-
-### Details Section Integration
-
-**HTML Element:**
-```html
-<div id="ai-review-content-${symbol}">
-  <!-- AI analysis displayed here -->
-</div>
-```
-
-**JavaScript Functions:**
-```javascript
-// Auto-trigger for major coins
-autoTriggerAIAnalysis();
-
-// Manual trigger
-getAIReview(symbol, false);
-
-// Silent auto-trigger
-getAIReview(symbol, true);
-```
-
-**Styling:**
-- Displayed in details dropdown
-- Loading animation during analysis
-- Formatted paragraphs with rating
-
-### Trade Tracker Integration
-
-**HTML Element:**
-```html
-<div id="aiAnalysis-${trade.id}">
-  <!-- AI analysis displayed here -->
-</div>
-<button onclick="analyzeTrade(${trade.id})">ANALYZE</button>
-```
-
-**JavaScript Functions:**
-```javascript
-// Analyze active trade
-analyzeTrade(tradeId);
-```
-
-**Styling:**
-- Displayed in trade card
-- Button triggers analysis
-- Only available for ACTIVE/PENDING trades
+5. **Set Tone:** Use tone interpolation results for dynamic tone guidance
+6. **Include Temporal Context:** Use time since last signal to explain inactivity
+7. **Use Soft Tone Hints:** Guide gradual blending when secondary tone present
 
 ---
 
@@ -742,28 +1138,51 @@ analyzeTrade(tradeId);
 - What output format is needed?
 - Where will it be displayed?
 
-#### Step 2: Create System Prompt
+#### Step 2: Integrate Tone Interpolation
+```javascript
+const scores = calculateToneScores(data, symbol);
+const toneResult = getInterpolatedTone({
+  riskScore: scores.riskScore,
+  trendScore: scores.trendScore,
+  signalScore: scores.signalScore
+});
+```
+
+#### Step 3: Include Rich Context
+```javascript
+const context = {
+  symbol, mode, price,
+  htfBias, timeframes, marketData, dflowData,
+  lastSignalAt, hoursSinceLastSignal,
+  toneWeight: toneResult
+};
+```
+
+#### Step 4: Create System Prompt
 - Write clear role definition
-- Include strategy-specific rules
+- Include tone guidance from `toneResult`
+- Include temporal context if applicable
 - Define output format
 - Set tone and style
 
-#### Step 3: Update API Endpoint
+#### Step 5: Update API Endpoint
 - Add new mode handler in `api/agent-review.js`
 - Or create new endpoint if needed
-- Include error handling
+- Include error handling and fallbacks
 
-#### Step 4: Frontend Integration
+#### Step 6: Frontend Integration
 - Add HTML element for display
 - Create JavaScript function to fetch analysis
+- Include tone interpolation and context routing
 - Add trigger mechanism (auto or manual)
 - Style the output
 
-#### Step 5: Test
+#### Step 7: Test
 - Test with real data
 - Verify prompt produces desired output
 - Check error handling
 - Test rate limiting
+- Verify caching works (if applicable)
 
 ### Modifying Existing Prompts
 
@@ -777,6 +1196,7 @@ analyzeTrade(tradeId);
    - Shorter = More concise
    - Longer = More detailed
 4. **Update Strategy Guidance** if needed
+5. **Include Tone Guidance** from interpolation result
 
 #### To Add New Strategy Type:
 
@@ -811,34 +1231,6 @@ analyzeTrade(tradeId);
    - Token limits may differ
    - Rate limits will differ
 
-#### To Use Anthropic Claude:
-
-1. **Install SDK or use fetch:**
-   ```javascript
-   const response = await fetch('https://api.anthropic.com/v1/messages', {
-     method: 'POST',
-     headers: {
-       'Content-Type': 'application/json',
-       'x-api-key': process.env.ANTHROPIC_API_KEY,
-       'anthropic-version': '2023-06-01'
-     },
-     body: JSON.stringify({
-       model: 'claude-3-haiku-20240307',
-       max_tokens: 1024,
-       messages: [
-         { role: 'user', content: userPrompt }
-       ]
-     })
-   });
-   ```
-
-2. **Update Environment Variable:**
-   ```bash
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
-
-3. **Adjust Prompts:** Claude may require different prompt structure
-
 ---
 
 ## Troubleshooting
@@ -857,6 +1249,7 @@ analyzeTrade(tradeId);
 - Check browser console for API errors
 - Verify API endpoint is accessible
 - Check rate limits haven't been exceeded
+- Verify context structure is complete
 
 #### 2. API Key Not Found
 
@@ -878,7 +1271,7 @@ analyzeTrade(tradeId);
 **Solutions:**
 - Add delays between requests (already implemented)
 - Reduce auto-trigger frequency
-- Consider caching responses
+- Use caching (already implemented for Market Pulse)
 - Upgrade OpenAI plan if needed
 
 #### 4. Incorrect Analysis
@@ -892,6 +1285,7 @@ analyzeTrade(tradeId);
 - Verify `setupType` is correctly passed
 - Review strategy-specific guidance in prompt
 - Test with known good/bad setups
+- Verify tone interpolation is working correctly
 
 #### 5. Response Too Long/Short
 
@@ -904,6 +1298,31 @@ analyzeTrade(tradeId);
 - Modify prompt to request specific length
 - Check token usage in OpenAI dashboard
 
+#### 6. Tone Not Reflecting Market Conditions
+
+**Symptoms:**
+- AI tone doesn't match market conditions
+- Bear mode not detected
+
+**Solutions:**
+- Verify `calculateToneScores()` is being called
+- Check `getInterpolatedTone()` is receiving correct scores
+- Verify risk profile is set in localStorage
+- Check HTF bias is included in context
+- Review tone weight calculation logic
+
+#### 7. Temporal Context Missing
+
+**Symptoms:**
+- AI doesn't mention time since last signal
+- Temporal awareness not working
+
+**Solutions:**
+- Verify `updateLastSignalTimestamp()` is called when signals detected
+- Check `getTimeSinceLastSignal()` returns correct values
+- Ensure `lastSignalAt` and `hoursSinceLastSignal` are in context
+- Verify backend prompt includes temporal guidance
+
 ### Debugging
 
 #### Enable Detailed Logging:
@@ -911,7 +1330,8 @@ analyzeTrade(tradeId);
 The API endpoint includes extensive logging. Check:
 - Browser console for frontend logs
 - Vercel function logs for backend logs
-- Look for `🚀 [AGENT-REVIEW]` prefixed logs
+- Look for `🧠 [Tone Interpolation]` prefixed logs
+- Look for `🧠 [Interface]` prefixed logs for context verification
 
 #### Test API Directly:
 
@@ -921,7 +1341,7 @@ curl -X POST https://your-domain.vercel.app/api/agent-review \
   -d '{
     "symbol": "BTCUSDT",
     "setupType": "4h",
-    "marketSnapshot": { /* test data */ }
+    "marketSnapshot": { /* test data with full context */ }
   }'
 ```
 
@@ -937,6 +1357,17 @@ Verify response matches expected format:
 }
 ```
 
+#### Verify Context Routing:
+
+Check browser console for context verification logs:
+```javascript
+🧠 [getAIReview] BTCUSDT: Context includes htfBias: true
+🧠 [getAIReview] BTCUSDT: Context includes timeframes: true
+🧠 [getAIReview] BTCUSDT: Context includes marketData: true
+🧠 [getAIReview] BTCUSDT: Context includes dflowData: true
+🧠 [getAIReview] BTCUSDT: Tone: optimistic (weight: 0.75)
+```
+
 ---
 
 ## Best Practices
@@ -948,22 +1379,33 @@ Verify response matches expected format:
 3. **Set Constraints:** Define what NOT to do (e.g., "DO NOT mention 4H for MicroScalp")
 4. **Define Format:** Specify output structure (paragraphs, length, rating)
 5. **Test Iteratively:** Refine prompts based on output quality
+6. **Include Tone Guidance:** Use tone interpolation results in prompts
+7. **Add Temporal Context:** Use time since last signal to explain inactivity
 
 ### Performance
 
-1. **Cache Responses:** Consider caching for identical requests
+1. **Cache Responses:** Use caching for Market Pulse Intelligence (60s TTL)
 2. **Batch Requests:** Group multiple analyses when possible
 3. **Rate Limiting:** Add delays between requests
 4. **Error Handling:** Gracefully handle API failures
 5. **Fallback Content:** Show placeholder when AI unavailable
+6. **Cache Invalidation:** Invalidate cache on significant market state changes
 
 ### Cost Management
 
 1. **Use Efficient Models:** `gpt-4o-mini` is cost-effective
 2. **Limit Token Usage:** Set appropriate `max_tokens`
-3. **Cache Responses:** Avoid redundant API calls
+3. **Cache Responses:** Avoid redundant API calls (Market Pulse uses caching)
 4. **Monitor Usage:** Track API usage in OpenAI dashboard
 5. **Optimize Prompts:** Shorter prompts = lower costs
+
+### Tone Management
+
+1. **Use Tone Interpolation:** Always use `getInterpolatedTone()` for consistency
+2. **Include Tone in Context:** Pass `toneWeight` to backend
+3. **Respect Overrides:** Allow manual tone override when needed
+4. **Use Soft Hints:** Guide gradual blending with `softToneHints`
+5. **Update Timestamps:** Call `updateLastSignalTimestamp()` when signals detected
 
 ---
 
@@ -973,9 +1415,9 @@ Verify response matches expected format:
 - `docs/STRATEGY_MODES.md` - Mode differences AI considers
 - `docs/SYSTEM_CONTEXT.md` - System architecture
 - `docs/DEVELOPMENT_PROCEDURE.md` - Development workflow
+- `docs/MARKETDATA_MODULE.md` - Market data structure AI uses
 
 ---
 
 **Last Updated:** 2025-01-27  
-**Version:** 1.0.0
-
+**Version:** 2.0.0
