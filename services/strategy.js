@@ -1691,7 +1691,9 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   }
   
   // NEW: Compute HTF Bias instead of hard 4H gate
-  const htfBias = computeHTFBias(analysis);
+  // Compute HTF bias with fallback to prevent null reference
+  const htfBiasRaw = computeHTFBias(analysis);
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
   
   // PRIORITY 2: Try 4H Trend Play
   // SAFE_MODE: Only if 4H is NOT FLAT
@@ -1876,7 +1878,9 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   // AGGRESSIVE mode: Allow override if confidence is high even if some direction conditions not met
   let override = false;
   let notes = [];
-  const htfBias = computeHTFBias(analysis);
+  // Compute HTF bias with fallback to prevent null reference
+  const htfBiasRaw = computeHTFBias(analysis);
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
   
   // Check if we should allow override in AGGRESSIVE mode
   if (mode === 'AGGRESSIVE' && confidence >= 65 && htfBias && htfBias.direction === direction) {
@@ -2623,7 +2627,10 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
   if (!ema21_4h || !ema21_1h || !ema200_1h) return null;
 
   // ---- HTF Bias ----
-  const htfBias = computeHTFBias(multiTimeframeData);
+  // Compute HTF bias with fallback to prevent null reference
+  const htfBiasRaw = computeHTFBias(multiTimeframeData);
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+  
   if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
     return invalidNoTrade('TrendRider: No HTF bias direction');
   }
@@ -2912,14 +2919,17 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   try {
   
   // Compute HTF bias early - needed for both STANDARD and AGGRESSIVE modes
-  let htfBias = { direction: 'neutral', confidence: 0, source: 'none' };
+  // Use fallback pattern to prevent null reference errors
+  let htfBiasRaw = null;
   try {
-    htfBias = computeHTFBias(multiTimeframeData) || htfBias;
-    console.log(`[evaluateAllStrategies] ${symbol} HTF bias computed:`, htfBias);
+    htfBiasRaw = computeHTFBias(multiTimeframeData);
   } catch (biasError) {
     console.error(`[evaluateAllStrategies] ${symbol} ERROR computing HTF bias:`, biasError.message);
-    // Continue with neutral bias
   }
+  
+  // Always use fallback to prevent null reference exceptions
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+  console.log(`[evaluateAllStrategies] ${symbol} HTF bias computed:`, htfBias);
   
   // Validate HTF bias exists before proceeding
   if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
@@ -3105,11 +3115,12 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   // AGGRESSIVE_MODE: Force valid trades when HTF bias + lower TFs align strongly
   // IMPORTANT: This MUST run for AGGRESSIVE mode when 4H is flat to override SAFE blocking
   if (mode === 'AGGRESSIVE' && is4HFlat) {
-    // htfBias already computed above - use it
-    if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
-      console.warn(`[AGGRESSIVE_FORCE] ${symbol}: No HTF bias available, cannot force trades`);
-    }
-    console.log(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias=${htfBias.direction} (${htfBias.confidence}%), 4H flat, checking forcing conditions...`);
+    // htfBias already computed above with fallback - safe to use
+    // Allow trades when HTF bias ≥ 60% and lower timeframes align (relaxed from 70%)
+    if (htfBias.direction === 'neutral' || htfBias.confidence < 60) {
+      console.warn(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias insufficient (${htfBias.direction}, ${htfBias.confidence}%), cannot force trades`);
+    } else {
+      console.log(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias=${htfBias.direction} (${htfBias.confidence}%), 4H flat, checking forcing conditions...`);
     console.log(`[AGGRESSIVE_FORCE] ${symbol}: marketData=${marketData ? 'present' : 'null'}, dflowData=${dflowData ? 'present' : 'null'}`);
     console.log(`[AGGRESSIVE_FORCE] ${symbol}: multiTimeframeData keys=`, Object.keys(multiTimeframeData || {}));
     console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: 4H flat, HTF bias=${htfBias.direction} (${htfBias.confidence}%)`);
@@ -3150,8 +3161,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     
     const currentPrice = tf4h?.indicators?.price?.current || tf1h?.indicators?.price?.current || 0;
     
-    // REQUIRED LONG SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
-    if (htfBias.direction === 'long' && htfBias.confidence >= 70 && 
+    // REQUIRED LONG SETUP IN AGGRESSIVE_MODE (lowered threshold to 60% as per requirements)
+    if (htfBias.direction === 'long' && htfBias.confidence >= 60 && 
         trend1hNorm === 'uptrend' && trend15mNorm === 'uptrend') {
       
       console.log(`[AGGRESSIVE_FORCE] ${symbol}: LONG conditions met! HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
@@ -3231,6 +3242,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           confidence: Math.min(100, htfBias.confidence - 10), // Slightly lower for scalp
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend, scalp entry despite 4H flat`,
           entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          override: true,
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -3317,8 +3330,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       console.log(`[AGGRESSIVE_FORCE] ${symbol}: LONG conditions NOT met. HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
     }
     
-    // REQUIRED SHORT SETUP IN AGGRESSIVE_MODE (lowered threshold to 70% as per requirements)
-    if (htfBias.direction === 'short' && htfBias.confidence >= 70 && 
+    // REQUIRED SHORT SETUP IN AGGRESSIVE_MODE (lowered threshold to 60% as per requirements)
+    if (htfBias.direction === 'short' && htfBias.confidence >= 60 && 
         trend1hNorm === 'downtrend' && trend15mNorm === 'downtrend') {
       
       // Similar logic for shorts
@@ -3348,6 +3361,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           confidence: Math.min(100, htfBias.confidence),
           reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend aligned, using lower TFs despite 4H flat`,
           entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          override: true,
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
