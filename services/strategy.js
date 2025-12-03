@@ -2962,11 +2962,11 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
       console.log(`[evaluateAllStrategies] ${symbol} STANDARD: No HTF bias available, blocking all strategies`);
       const flatReason = '4H trend is FLAT - no trade allowed per STANDARD mode rules (no HTF bias available)';
-      strategies.SWING = createNoTradeStrategy('SWING', flatReason);
-      strategies.TREND_4H = createNoTradeStrategy('TREND_4H', flatReason);
+    strategies.SWING = createNoTradeStrategy('SWING', flatReason);
+    strategies.TREND_4H = createNoTradeStrategy('TREND_4H', flatReason);
       strategies.TREND_RIDER = createNoTradeStrategy('TREND_RIDER', flatReason);
-      strategies.SCALP_1H = createNoTradeStrategy('SCALP_1H', flatReason);
-      strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', flatReason);
+    strategies.SCALP_1H = createNoTradeStrategy('SCALP_1H', flatReason);
+    strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', flatReason);
       return { strategies, bestSignal: null };
     }
     
@@ -2989,10 +2989,11 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     const stoch1h = tf1h?.indicators?.stochRSI || {};
     const stoch15m = tf15m?.indicators?.stochRSI || {};
     
-    // Simplified override conditions:
+    // SAFE mode override conditions (updated per requirements):
     // - HTF bias ≥ 60%
-    // - 1H trend matches HTF bias direction
-    // - 15m Stoch < 20 (oversold for longs) OR 15m trend matches HTF bias direction
+    // - 1H trend matches HTF bias direction (must be "up" for longs, "down" for shorts)
+    // - 15m trend matches HTF bias direction (must be "up" for longs, "down" for shorts)
+    // - 1H Stoch K < 60 for momentum confirmation (for longs), or > 40 for shorts
     const biasStrong = htfBias && typeof htfBias.confidence === 'number' && htfBias.confidence >= 60;
     const desiredDirection = htfBias?.direction; // 'long' or 'short'
     
@@ -3011,25 +3012,18 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     // Check 1H trend matches HTF bias direction
     const trend1hMatches = isSameDirection(trend1h, desiredDirection);
     
-    // Check 15m: either trend matches OR stoch is confirming (oversold for longs, overbought for shorts)
-    const stoch15mK = stoch15m?.k;
+    // Check 15m trend matches HTF bias direction (both must match, not OR)
     const trend15mMatches = isSameDirection(trend15m, desiredDirection);
-    const stoch15mConfirming = desiredDirection && typeof stoch15mK === 'number' ? (
-      (desiredDirection === 'long' && stoch15mK < 20) || // Oversold confirms longs
-      (desiredDirection === 'short' && stoch15mK > 80)   // Overbought confirms shorts
-    ) : false;
     
-    // Override allowed if: HTF bias ≥ 60%, 1H matches, AND (15m matches OR 15m stoch confirming)
-    const canOverride = biasStrong && trend1hMatches && (trend15mMatches || stoch15mConfirming);
-    
-    // Also check 1H momentum is not overbought/oversold
+    // Check 1H momentum confirmation: Stoch K < 60 for longs, > 40 for shorts
     const stoch1hK = stoch1h?.k;
     const momentumOK = desiredDirection && typeof stoch1hK === 'number' ? (
-      (desiredDirection === 'long' && stoch1hK < 80) || // Not overbought for longs
-      (desiredDirection === 'short' && stoch1hK > 20)    // Not oversold for shorts
-    ) : true; // Default to true if stoch not available
+      (desiredDirection === 'long' && stoch1hK < 60) || // Momentum confirmation for longs
+      (desiredDirection === 'short' && stoch1hK > 40)    // Momentum confirmation for shorts
+    ) : false; // Require momentum confirmation, don't default to true
     
-    const overrideEligible = canOverride && momentumOK;
+    // Override allowed if: HTF bias ≥ 60%, 1H matches, 15m matches, AND momentum confirms
+    const overrideEligible = biasStrong && trend1hMatches && trend15mMatches && momentumOK;
     
     // Debug logging
     console.log(`[evaluateAllStrategies] ${symbol} STANDARD override check:`, {
@@ -3042,10 +3036,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       trend15mRaw,
       trend15m,
       trend15mMatches,
-      stoch15mK,
-      stoch15mConfirming,
       stoch1hK,
-      momentumOK,
+      momentumOK: `stoch1hK=${stoch1hK}, required: ${desiredDirection === 'long' ? '< 60' : '> 40'}`,
       overrideEligible
     });
     
@@ -3120,7 +3112,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     if (htfBias.direction === 'neutral' || htfBias.confidence < 60) {
       console.warn(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias insufficient (${htfBias.direction}, ${htfBias.confidence}%), cannot force trades`);
     } else {
-      console.log(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias=${htfBias.direction} (${htfBias.confidence}%), 4H flat, checking forcing conditions...`);
+    console.log(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias=${htfBias.direction} (${htfBias.confidence}%), 4H flat, checking forcing conditions...`);
     console.log(`[AGGRESSIVE_FORCE] ${symbol}: marketData=${marketData ? 'present' : 'null'}, dflowData=${dflowData ? 'present' : 'null'}`);
     console.log(`[AGGRESSIVE_FORCE] ${symbol}: multiTimeframeData keys=`, Object.keys(multiTimeframeData || {}));
     console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: 4H flat, HTF bias=${htfBias.direction} (${htfBias.confidence}%)`);
