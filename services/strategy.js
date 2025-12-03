@@ -3362,22 +3362,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       
       // If TREND_4H not chosen, try SCALP_1H - FORCE override
       if (!chosenStrategy) {
-        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
-        const entryMid = ema21_1h;
-        const entryZone = {
-          min: entryMid * 0.998,
-          max: entryMid * 1.002
-        };
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneScalp = calculateAggressiveEntryZone(currentPrice, 'long');
+        const entryMid = aggressiveEntryZoneScalp ? (aggressiveEntryZoneScalp.min + aggressiveEntryZoneScalp.max) / 2 : currentPrice * 1.0003;
         
-        const swingLow15m = tf15m?.indicators?.swingLow || ema21_1h * 0.995;
+        const swingLow15m = tf15m?.indicators?.swingLow || currentPrice * 0.995;
         const stopLoss = swingLow15m;
         const R = Math.abs(entryMid - stopLoss);
         
         const tp1 = entryMid + (R * 1.5);
         const tp2 = entryMid + (R * 3.0);
-        
-        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
-        const aggressiveEntryZoneScalp = calculateAggressiveEntryZone(currentPrice, 'long');
         chosenStrategy = {
           valid: true,
           direction: 'long',
@@ -3486,23 +3480,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       
       // Try TREND_4H first - FORCE override for shorts (always create if conditions met)
       {
-        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
-        const ema21_15m = tf15m?.indicators?.ema?.ema21 || currentPrice;
-        const entryMid = (ema21_1h + ema21_15m) / 2;
-        const entryZone = {
-          min: entryMid * 0.995,
-          max: entryMid * 1.005
-        };
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneShort = calculateAggressiveEntryZone(currentPrice, 'short');
+        const entryMid = aggressiveEntryZoneShort ? (aggressiveEntryZoneShort.min + aggressiveEntryZoneShort.max) / 2 : currentPrice * 0.9997;
         
-        const swingHigh1h = tf1h?.indicators?.swingHigh || ema21_1h * 1.02;
+        const swingHigh1h = tf1h?.indicators?.swingHigh || currentPrice * 1.02;
         const stopLoss = swingHigh1h;
         const R = Math.abs(stopLoss - entryMid);
         
         const tp1 = entryMid - (R * 1.5);
         const tp2 = entryMid - (R * 3.0);
-        
-        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
-        const aggressiveEntryZoneShort = calculateAggressiveEntryZone(currentPrice, 'short');
         chosenStrategy = {
           valid: true,
           direction: 'short',
@@ -3591,12 +3578,9 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       
       // If still not chosen, try MICRO_SCALP - FORCE override for shorts
       if (!chosenStrategy && trend5mNorm === 'downtrend') {
-        const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
-        const entryMid = ema21_5m;
-        const entryZone = {
-          min: entryMid * 0.999,
-          max: entryMid * 1.001
-        };
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneMicroShort = calculateAggressiveEntryZone(currentPrice, 'short');
+        const entryMid = aggressiveEntryZoneMicroShort ? (aggressiveEntryZoneMicroShort.min + aggressiveEntryZoneMicroShort.max) / 2 : currentPrice * 0.9997;
         
         const stopLoss = entryMid * 1.002;
         const R = Math.abs(stopLoss - entryMid);
@@ -3609,9 +3593,15 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           direction: 'short',
           confidence: Math.min(100, htfBias.confidence - 15),
           reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m/5m downtrend, micro scalp despite 4H flat`,
-          entryZone: {
-            min: parseFloat(entryZone.min.toFixed(2)),
-            max: parseFloat(entryZone.max.toFixed(2))
+          entryType: 'breakout', // AGGRESSIVE forced trades use aggressive entry (close to price)
+          override: true,
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H, 15m, and 5m trends aligned despite 4H flat', 'Aggressive entry: close to current price'],
+          entryZone: aggressiveEntryZoneMicroShort ? {
+            min: parseFloat(aggressiveEntryZoneMicroShort.min.toFixed(2)),
+            max: parseFloat(aggressiveEntryZoneMicroShort.max.toFixed(2))
+          } : {
+            min: parseFloat((currentPrice * 0.9995).toFixed(2)),
+            max: parseFloat((currentPrice * 0.9999).toFixed(2))
           },
           stopLoss: parseFloat(stopLoss.toFixed(2)),
           invalidationLevel: parseFloat(stopLoss.toFixed(2)),
