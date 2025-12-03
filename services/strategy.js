@@ -644,55 +644,85 @@ function calculateEntryZone(ema21, direction) {
 
 /**
  * Calculate breakout entry zone above/below swing levels
+ * Updated to place entries closer to price action
  * @param {number} swingLevel - Swing high (longs) or swing low (shorts)
  * @param {string} direction - 'long' or 'short'
- * @param {number} buffer - Buffer percentage (default 0.1%)
+ * @param {number} currentPrice - Current market price (to ensure entry is close)
+ * @param {number} buffer - Buffer percentage (default 0.0002 = 0.02% for closer entries)
  * @returns {Object} { min, max } entry zone
  */
-function calculateBreakoutEntryZone(swingLevel, direction, buffer = 0.001) {
+function calculateBreakoutEntryZone(swingLevel, direction, currentPrice = null, buffer = 0.0002) {
   if (!swingLevel || isNaN(swingLevel)) return null;
   
-  // Entry zone: swingHigh + 0.1% for longs / swingLow - 0.1% for shorts
-  // Use ±0.05% range around the 0.1% anchor
+  // Entry zone: swingHigh + 0.02% for longs / swingLow - 0.02% for shorts (much closer to price)
+  // Use ±0.01% range around the 0.02% anchor
+  let entryZone;
   if (direction === 'long') {
-    return {
-      min: swingLevel * (1 + buffer * 0.5),  // swingHigh + 0.05%
-      max: swingLevel * (1 + buffer * 1.5)   // swingHigh + 0.15% (centered around +0.1%)
+    entryZone = {
+      min: swingLevel * (1 + buffer * 0.5),  // swingHigh + 0.01%
+      max: swingLevel * (1 + buffer * 1.5)   // swingHigh + 0.03% (centered around +0.02%)
     };
   } else {
-    return {
-      min: swingLevel * (1 - buffer * 1.5),  // swingLow - 0.15% (centered around -0.1%)
-      max: swingLevel * (1 - buffer * 0.5)    // swingLow - 0.05%
+    entryZone = {
+      min: swingLevel * (1 - buffer * 1.5),  // swingLow - 0.03% (centered around -0.02%)
+      max: swingLevel * (1 - buffer * 0.5)    // swingLow - 0.01%
     };
   }
+  
+  // If current price is provided, ensure entry zone is close to price (within 0.5%)
+  if (currentPrice && !isNaN(currentPrice)) {
+    const entryMid = (entryZone.min + entryZone.max) / 2;
+    const distanceFromPrice = Math.abs(entryMid - currentPrice) / currentPrice;
+    
+    // If entry is too far from price (>0.5%), adjust it closer
+    if (distanceFromPrice > 0.005) {
+      if (direction === 'long') {
+        // For longs, entry should be at or slightly above current price if price is near swing
+        if (currentPrice >= swingLevel * 0.999) { // Price is within 0.1% of swing high
+          entryZone = {
+            min: currentPrice * 1.0001,  // 0.01% above current price
+            max: currentPrice * 1.0003   // 0.03% above current price
+          };
+        }
+      } else {
+        // For shorts, entry should be at or slightly below current price if price is near swing
+        if (currentPrice <= swingLevel * 1.001) { // Price is within 0.1% of swing low
+          entryZone = {
+            min: currentPrice * 0.9997,  // 0.03% below current price
+            max: currentPrice * 0.9999    // 0.01% below current price
+          };
+        }
+      }
+    }
+  }
+  
+  return entryZone;
 }
 
 /**
- * Check if price has broken above/below swing level with momentum confirmation
+ * Check if price is near swing level and momentum supports breakout entry
+ * Updated to be more aggressive - triggers when price is near swing levels, not just after breaking
  * @param {number} currentPrice - Current price
  * @param {number} swingLevel - Swing high (longs) or swing low (shorts)
  * @param {string} direction - 'long' or 'short'
  * @param {Object} stochRSI - StochRSI indicator object
- * @param {number} buffer - Breakout buffer (default 0.001 = 0.1%)
- * @returns {boolean} True if breakout confirmed
+ * @param {number} nearThreshold - How close price must be to swing level (default 0.5% = 0.005)
+ * @returns {boolean} True if breakout entry should be used
  */
-function isBreakoutConfirmed(currentPrice, swingLevel, direction, stochRSI, buffer = 0.001) {
-  if (!swingLevel || !stochRSI) return false;
+function isBreakoutConfirmed(currentPrice, swingLevel, direction, stochRSI, nearThreshold = 0.005) {
+  if (!swingLevel || !stochRSI || isNaN(swingLevel) || isNaN(currentPrice)) return false;
   
-  const breakoutThreshold = direction === 'long' 
-    ? swingLevel * (1 + buffer)  // Above swing high
-    : swingLevel * (1 - buffer);  // Below swing low
+  // Check if price is near swing level (within 0.5% for longs, or at/above for shorts)
+  const priceNearSwing = direction === 'long'
+    ? currentPrice >= swingLevel * (1 - nearThreshold)  // Price within 0.5% below swing high OR above
+    : currentPrice <= swingLevel * (1 + nearThreshold);  // Price within 0.5% above swing low OR below
   
-  const priceBreakout = direction === 'long'
-    ? currentPrice > breakoutThreshold
-    : currentPrice < breakoutThreshold;
-  
-  // Momentum confirmation: K<40 for longs (not overbought), K>60 for shorts (not oversold)
+  // Momentum confirmation: More lenient - just need momentum aligned, not strict K thresholds
   const momentumOk = direction === 'long'
-    ? (stochRSI.condition === 'BULLISH' || stochRSI.condition === 'OVERSOLD' || stochRSI.k < 40)  // K<40 confirms breakout
-    : (stochRSI.condition === 'BEARISH' || stochRSI.condition === 'OVERBOUGHT' || stochRSI.k > 60); // K>60 confirms breakout
+    ? (stochRSI.condition === 'BULLISH' || stochRSI.condition === 'OVERSOLD' || (stochRSI.k && stochRSI.k < 50))  // K<50 for longs (more lenient)
+    : (stochRSI.condition === 'BEARISH' || stochRSI.condition === 'OVERBOUGHT' || (stochRSI.k && stochRSI.k > 50)); // K>50 for shorts (more lenient)
   
-  return priceBreakout && momentumOk;
+  return priceNearSwing && momentumOk;
 }
 
 /**
@@ -1419,16 +1449,17 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     invalidationLevel = stopLoss;
   }
   
-  // Entry zone: Check for pullback entry first, then breakout entry
+  // Entry zone: PRIORITIZE breakout entry when conditions are met
   let entryMin, entryMax, entryType = 'pullback';
   
-  // Check for breakout entry (price above swingHigh for longs, below swingLow for shorts)
+  // Check for breakout entry (price near swingHigh for longs, near swingLow for shorts)
   const swingLevel = direction === 'long' ? swingHigh1d : swingLow1d;
   const stoch1dForBreakout = stoch1d;
   
-  if (swingLevel && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch1dForBreakout)) {
-    // Use breakout entry zone
-    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+  // Prioritize breakout entry - check if price is near swing level with momentum
+  if (swingLevel && stoch1dForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch1dForBreakout)) {
+    // Use breakout entry zone (closer to price action)
+    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
     if (breakoutZone) {
       entryMin = breakoutZone.min;
       entryMax = breakoutZone.max;
@@ -1439,7 +1470,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
       entryMax = reclaimLevel * 1.005;
     }
   } else {
-    // Use pullback entry zone
+    // Use pullback entry zone only if breakout conditions not met
     entryMin = reclaimLevel * 0.995;
     entryMax = reclaimLevel * 1.005;
   }
@@ -1815,16 +1846,16 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
                     setupType === 'Scalp' ? [1.5, 2.5] : 
                     [1.0, 2.0];
   
-  // Calculate entry zone - check for pullback entry first, then breakout entry
+  // Calculate entry zone - PRIORITIZE breakout entry when conditions are met
   let entryZone, entryType = 'pullback';
   const swingLevel = direction === 'long' 
     ? (tf4h.structure?.swingHigh || tf1h?.structure?.swingHigh)
     : (tf4h.structure?.swingLow || tf1h?.structure?.swingLow);
   const stoch4hForBreakout = tf4h.indicators?.stochRSI;
   
-  // Check for breakout entry
+  // Prioritize breakout entry - check if price is near swing level with momentum
   if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
-    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
     if (breakoutZone) {
       entryZone = breakoutZone;
       entryType = 'breakout';
@@ -1832,6 +1863,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
       entryZone = calculateEntryZone(ema21, direction);
     }
   } else {
+    // Use pullback entry only if breakout conditions not met
     entryZone = calculateEntryZone(ema21, direction);
   }
   
@@ -2090,16 +2122,16 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           // Build 1H Scalp signal
           const ema21_1h = tf1h.indicators?.ema?.ema21 || currentPrice;
           
-          // Check for breakout entry first, then pullback entry
+          // PRIORITIZE breakout entry when conditions are met
           let entryZone, entryType = 'pullback';
           const swingLevel = direction === 'long' 
             ? (tf1h.structure?.swingHigh || tf15m?.structure?.swingHigh)
             : (tf1h.structure?.swingLow || tf15m?.structure?.swingLow);
           const stoch15mForBreakout = tf15m.indicators?.stochRSI;
           
-          // Check for breakout entry
+          // Prioritize breakout entry - check if price is near swing level with momentum
           if (swingLevel && stoch15mForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch15mForBreakout)) {
-            const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+            const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
             if (breakoutZone) {
               entryZone = breakoutZone;
               entryType = 'breakout';
@@ -2107,6 +2139,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
               entryZone = calculateEntryZone(ema21_1h, direction);
             }
           } else {
+            // Use pullback entry only if breakout conditions not met
             entryZone = calculateEntryZone(ema21_1h, direction);
           }
           
@@ -2763,16 +2796,16 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
 
   if (!direction) return null;
 
-  // ---- Entry Zone - Check for pullback entry first, then breakout entry ----
+  // ---- Entry Zone - PRIORITIZE breakout entry when conditions are met ----
   let entryMin, entryMax, entryType = 'pullback';
   const swingLevel = direction === 'long' 
     ? (swing4h.swingHigh || swing1h.swingHigh)
     : (swing4h.swingLow || swing1h.swingLow);
   const stoch4hForBreakout = tf4h.indicators?.stochRSI;
   
-  // Check for breakout entry
+  // Prioritize breakout entry - check if price is near swing level with momentum
   if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
-    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
     if (breakoutZone) {
       entryMin = breakoutZone.min;
       entryMax = breakoutZone.max;
@@ -2786,7 +2819,7 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
       entryMax = direction === 'long' ? baseZone.max * widenFactor : baseZone.max / widenFactor;
     }
   } else {
-    // Use pullback entry zone
+    // Use pullback entry zone only if breakout conditions not met
     const entryAnchor = ema21_4h;
     const baseZone = calculateEntryZone(entryAnchor, direction);
     const widenFactor = (mode === 'AGGRESSIVE') ? 1.0015 : 1.0;
