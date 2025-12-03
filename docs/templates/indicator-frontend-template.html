@@ -1,0 +1,213 @@
+<!--
+  TEMPLATE: Displaying Indicators in Frontend
+  File: public/index.html
+  Function: createDetailsRow() (around line 2963)
+  
+  This template shows how to add indicator display to the timeframe cards.
+  Replace "EMA50" with your indicator name and adapt the display format.
+-->
+
+<!-- ==========================================================================
+     LOCATION 1: Timeframe Card Display (createDetailsRow function)
+     ========================================================================== -->
+
+<script>
+  // Inside createDetailsRow() function, in the timeframe card template
+  // Around line 2993, after the existing indicator displays
+  
+  function createDetailsRow(symbol, data) {
+    // ... existing code ...
+    
+    const timeframes = ['1m', '3m', '5m', '15m', '1h', '4h', '1d', '3d', '1w', '1M'];
+    const tfCards = timeframes.map(tf => {
+      const analysis = data.analysis?.[tf];
+      if (!analysis || analysis.error || !analysis.indicators) {
+        return `<div class="tf-card">...</div>`;
+      }
+      
+      const ind = analysis.indicators;
+      
+      // ======================================================================
+      // ADD YOUR INDICATOR DISPLAY HERE
+      // ======================================================================
+      
+      // Get your indicator value (with null check)
+      const ema50 = ind.ema?.ema50 || null;
+      
+      // Format the display
+      const ema50Display = ema50 ? 
+        `$${ema50.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 
+        'N/A';
+      
+      // Add to the timeframe card HTML
+      return `
+        <div class="tf-card ${trendClass}">
+          <!-- Existing indicators (EMA21, EMA200, etc.) -->
+          
+          ${ind.ema?.ema21 ? `
+            <div class="flex justify-between mb-1">
+              <span style="color: var(--color-yellow-75); opacity: 0.6;">21 EMA</span>
+              <span class="font-bold" style="color: var(--color-yellow-75);">$${ind.ema.ema21.toLocaleString()}</span>
+            </div>
+          ` : ''}
+          
+          ${ind.ema?.ema200 ? `
+            <div class="flex justify-between mb-1">
+              <span style="color: var(--color-yellow-75); opacity: 0.6;">200 EMA</span>
+              <span class="font-bold" style="color: var(--color-yellow-75);">$${ind.ema.ema200.toLocaleString()}</span>
+            </div>
+          ` : ''}
+          
+          <!-- ADD YOUR INDICATOR DISPLAY HERE -->
+          ${ema50 ? `
+            <div class="flex justify-between mb-1">
+              <span style="color: var(--color-yellow-75); opacity: 0.6;">50 EMA</span>
+              <span class="font-bold" style="color: var(--color-yellow-75);">${ema50Display}</span>
+            </div>
+          ` : ''}
+          
+          <!-- Rest of the card (StochRSI, trend, etc.) -->
+        </div>
+      `;
+    }).join('');
+    
+    // ... rest of function ...
+  }
+</script>
+
+<!-- ==========================================================================
+     LOCATION 2: Alternative Display Formats
+     ========================================================================== -->
+
+<!-- Format 1: Badge Style (for conditions/states) -->
+${indicatorCondition ? `
+  <div class="flex justify-between mb-1">
+    <span style="color: var(--color-yellow-75); opacity: 0.6;">Indicator State</span>
+    <span class="text-xs px-1 py-0.5 rounded ${getConditionColor(indicatorCondition)}" 
+          style="background-color: var(--bg-tertiary);">
+      ${indicatorCondition}
+    </span>
+  </div>
+` : ''}
+
+<!-- Format 2: Percentage Display -->
+${indicatorPercent !== null ? `
+  <div class="flex justify-between mb-1">
+    <span style="color: var(--color-yellow-75); opacity: 0.6;">Distance</span>
+    <span class="font-bold" style="color: var(--color-yellow-75);">
+      ${indicatorPercent.toFixed(2)}%
+    </span>
+  </div>
+` : ''}
+
+<!-- Format 3: Dual Value Display (like StochRSI k/d) -->
+${indicatorK !== null && indicatorD !== null ? `
+  <div class="flex justify-between mb-1">
+    <span style="color: var(--color-yellow-75); opacity: 0.6;">Indicator</span>
+    <span class="text-xs" style="color: var(--color-yellow-75);">
+      K: ${indicatorK.toFixed(1)} | D: ${indicatorD.toFixed(1)}
+    </span>
+  </div>
+` : ''}
+
+<!-- Format 4: Color-Coded Value -->
+${indicatorValue !== null ? `
+  <div class="flex justify-between mb-1">
+    <span style="color: var(--color-yellow-75); opacity: 0.6;">Indicator</span>
+    <span class="font-bold" style="color: ${getIndicatorColor(indicatorValue)};">
+      ${indicatorValue.toLocaleString()}
+    </span>
+  </div>
+` : ''}
+
+<!-- ==========================================================================
+     LOCATION 3: JSON Export Function (buildRichSymbolFromScanResults)
+     ========================================================================== -->
+
+<script>
+  // Inside buildRichSymbolFromScanResults() function
+  // Around line 4023, in the timeframes loop
+  
+  function buildRichSymbolFromScanResults(symbol, mode) {
+    // ... existing code ...
+    
+    // Build timeframes summary
+    const timeframes = {};
+    if (data.analysis) {
+      for (const [tf, tfData] of Object.entries(data.analysis)) {
+        if (tfData && tfData.indicators) {
+          const stoch = tfData.indicators.stochRSI || {};
+          let stochState = 'neutral';
+          if (stoch.k > 80 && stoch.d > 80) stochState = 'overbought';
+          else if (stoch.k < 20 && stoch.d < 20) stochState = 'oversold';
+          
+          // ==================================================================
+          // ADD YOUR INDICATOR TO JSON EXPORT
+          // ==================================================================
+          
+          timeframes[tf] = {
+            trend: (tfData.indicators.analysis?.trend || 'UNKNOWN').toLowerCase(),
+            ema21: tfData.indicators.ema?.ema21 || null,
+            ema200: tfData.indicators.ema?.ema200 || null,
+            ema50: tfData.indicators.ema?.ema50 || null,  // ADD THIS
+            stochRsi: {
+              k: stoch.k || null,
+              d: stoch.d || null,
+              state: stochState
+            },
+            confluenceScore: null,
+            structureSummary: '',
+            notes: ''
+          };
+        }
+      }
+    }
+    
+    // ... rest of function ...
+  }
+</script>
+
+<!-- ==========================================================================
+     LOCATION 4: Other JSON Export Functions
+     ========================================================================== -->
+
+<!-- If there are other functions that export JSON (like copyCoinView, etc.),
+     add your indicator there too. Search for "timeframes" or "indicators" 
+     in the file to find all export locations. -->
+
+<!-- ==========================================================================
+     HELPER FUNCTIONS (if needed)
+     ========================================================================== -->
+
+<script>
+  // Example: Color coding based on indicator value
+  function getIndicatorColor(value) {
+    if (value > thresholdHigh) return 'var(--color-green)';
+    if (value < thresholdLow) return 'var(--color-red)';
+    return 'var(--color-yellow-75)';
+  }
+  
+  // Example: Condition badge color
+  function getConditionColor(condition) {
+    const colors = {
+      'BULLISH': 'var(--color-green)',
+      'BEARISH': 'var(--color-red)',
+      'NEUTRAL': 'var(--color-yellow-75)'
+    };
+    return colors[condition] || 'var(--color-yellow-75)';
+  }
+</script>
+
+<!-- ==========================================================================
+     NOTES:
+     ==========================================================================
+     
+     1. Always use null checks: ind.ema?.ema50 || null
+     2. Format numbers consistently: toLocaleString() for prices
+     3. Use existing CSS variables for colors
+     4. Match the style of existing indicator displays
+     5. Test on mobile - ensure responsive display
+     6. Add to ALL export functions, not just one
+     
+     ========================================================================== -->
+

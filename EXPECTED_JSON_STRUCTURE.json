@@ -1,0 +1,1483 @@
+{
+  "SAFE_MODE": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "mode": "SAFE",
+      "currentPrice": 43250.50,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 83,
+        "source": "1D+3D+4H"
+      },
+      "timeframes": {
+        "1M": {
+          "trend": "downtrend",
+          "ema21": 44500.00,
+          "ema200": 45000.00,
+          "stochRsi": {
+            "k": 65.5,
+            "d": 68.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1w": {
+          "trend": "downtrend",
+          "ema21": 43800.00,
+          "ema200": 44800.00,
+          "stochRsi": {
+            "k": 70.1,
+            "d": 72.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "downtrend",
+          "ema21": 43500.00,
+          "ema200": 44500.00,
+          "stochRsi": {
+            "k": 72.8,
+            "d": 75.0,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "downtrend",
+          "ema21": 43300.00,
+          "ema200": 44300.00,
+          "stochRsi": {
+            "k": 75.5,
+            "d": 78.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "4h": {
+          "trend": "downtrend",
+          "ema21": 43200.00,
+          "ema200": 44200.00,
+          "stochRsi": {
+            "k": 78.5,
+            "d": 80.1,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "downtrend",
+          "ema21": 43150.00,
+          "ema200": 44100.00,
+          "stochRsi": {
+            "k": 82.5,
+            "d": 85.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "downtrend",
+          "ema21": 43100.00,
+          "ema200": 44000.00,
+          "stochRsi": {
+            "k": 85.2,
+            "d": 87.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "downtrend",
+          "ema21": 43050.00,
+          "ema200": 43900.00,
+          "stochRsi": {
+            "k": 88.5,
+            "d": 90.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3m": {
+          "trend": "downtrend",
+          "ema21": 43000.00,
+          "ema200": 43800.00,
+          "stochRsi": {
+            "k": 90.2,
+            "d": 92.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1m": {
+          "trend": "downtrend",
+          "ema21": 42950.00,
+          "ema200": 43700.00,
+          "stochRsi": {
+            "k": 92.5,
+            "d": 95.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D/4H swing conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 72,
+          "reason": "4H downtrend with 1H confirmation, price retracing toward 21 EMA",
+          "entryZone": {
+            "min": 43150.00,
+            "max": 43250.00
+          },
+          "stopLoss": 43800.00,
+          "invalidationLevel": 43800.00,
+          "targets": [
+            42100.00,
+            41100.00
+          ],
+          "riskReward": {
+            "tp1RR": 1.0,
+            "tp2RR": 2.0
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "Macro layer aligned (1D/3D short), primary trend strong (4H/1H short), execution layer supportive"
+        },
+        "TREND_RIDER": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "TrendRider: HTF downtrend conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 68,
+          "reason": "1H downtrend scalp with 15m pullback and Stoch alignment (HTF bias: short, 83%)",
+          "entryZone": {
+            "min": 43100.00,
+            "max": 43200.00
+          },
+          "stopLoss": 43500.00,
+          "invalidationLevel": 43500.00,
+          "targets": [
+            42500.00,
+            41800.00
+          ],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "Primary trend layer aligned (4H/1H short), execution layer supportive (15m/5m bearish)"
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_4H",
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "mode": "SAFE",
+      "currentPrice": 2650.75,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 78,
+        "source": "1D+3D+4H"
+      },
+      "timeframes": {
+        "1M": {
+          "trend": "downtrend",
+          "ema21": 2700.00,
+          "ema200": 2750.00,
+          "stochRsi": {
+            "k": 60.5,
+            "d": 63.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1w": {
+          "trend": "downtrend",
+          "ema21": 2680.00,
+          "ema200": 2730.00,
+          "stochRsi": {
+            "k": 65.1,
+            "d": 67.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "downtrend",
+          "ema21": 2660.00,
+          "ema200": 2710.00,
+          "stochRsi": {
+            "k": 68.8,
+            "d": 70.0,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "downtrend",
+          "ema21": 2640.00,
+          "ema200": 2690.00,
+          "stochRsi": {
+            "k": 72.5,
+            "d": 75.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "4h": {
+          "trend": "downtrend",
+          "ema21": 2630.00,
+          "ema200": 2680.00,
+          "stochRsi": {
+            "k": 75.5,
+            "d": 78.1,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "downtrend",
+          "ema21": 2620.00,
+          "ema200": 2670.00,
+          "stochRsi": {
+            "k": 80.5,
+            "d": 83.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "downtrend",
+          "ema21": 2610.00,
+          "ema200": 2660.00,
+          "stochRsi": {
+            "k": 83.2,
+            "d": 85.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "downtrend",
+          "ema21": 2600.00,
+          "ema200": 2650.00,
+          "stochRsi": {
+            "k": 86.5,
+            "d": 88.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3m": {
+          "trend": "downtrend",
+          "ema21": 2590.00,
+          "ema200": 2640.00,
+          "stochRsi": {
+            "k": 88.2,
+            "d": 90.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1m": {
+          "trend": "downtrend",
+          "ema21": 2580.00,
+          "ema200": 2630.00,
+          "stochRsi": {
+            "k": 90.5,
+            "d": 93.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D/4H swing conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Setup requirements not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_RIDER": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "TrendRider: HTF downtrend conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 65,
+          "reason": "1H downtrend scalp with 15m pullback and Stoch alignment (HTF bias: short, 78%)",
+          "entryZone": {
+            "min": 2620.00,
+            "max": 2630.00
+          },
+          "stopLoss": 2660.00,
+          "invalidationLevel": 2660.00,
+          "targets": [
+            2580.00,
+            2530.00
+          ],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "Primary trend layer aligned (4H/1H short), execution layer supportive"
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "SCALP_1H",
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    },
+    "SOLUSDT": {
+      "symbol": "SOLUSDT",
+      "mode": "SAFE",
+      "currentPrice": 98.50,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 75,
+        "source": "1D+3D+4H"
+      },
+      "timeframes": {
+        "1M": {
+          "trend": "downtrend",
+          "ema21": 102.00,
+          "ema200": 105.00,
+          "stochRsi": {
+            "k": 58.5,
+            "d": 61.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1w": {
+          "trend": "downtrend",
+          "ema21": 100.00,
+          "ema200": 103.00,
+          "stochRsi": {
+            "k": 63.1,
+            "d": 65.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "downtrend",
+          "ema21": 99.00,
+          "ema200": 102.00,
+          "stochRsi": {
+            "k": 66.8,
+            "d": 68.0,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "downtrend",
+          "ema21": 98.50,
+          "ema200": 101.00,
+          "stochRsi": {
+            "k": 70.5,
+            "d": 73.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "4h": {
+          "trend": "downtrend",
+          "ema21": 98.00,
+          "ema200": 100.50,
+          "stochRsi": {
+            "k": 73.5,
+            "d": 76.1,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "downtrend",
+          "ema21": 97.50,
+          "ema200": 100.00,
+          "stochRsi": {
+            "k": 78.5,
+            "d": 81.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "downtrend",
+          "ema21": 97.00,
+          "ema200": 99.50,
+          "stochRsi": {
+            "k": 81.2,
+            "d": 83.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "downtrend",
+          "ema21": 96.50,
+          "ema200": 99.00,
+          "stochRsi": {
+            "k": 84.5,
+            "d": 86.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3m": {
+          "trend": "downtrend",
+          "ema21": 96.00,
+          "ema200": 98.50,
+          "stochRsi": {
+            "k": 86.2,
+            "d": 88.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1m": {
+          "trend": "downtrend",
+          "ema21": 95.50,
+          "ema200": 98.00,
+          "stochRsi": {
+            "k": 88.5,
+            "d": 91.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D/4H swing conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Setup requirements not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_RIDER": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "TrendRider: HTF downtrend conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 62,
+          "reason": "1H downtrend scalp with 15m pullback and Stoch alignment (HTF bias: short, 75%)",
+          "entryZone": {
+            "min": 97.00,
+            "max": 98.00
+          },
+          "stopLoss": 99.50,
+          "invalidationLevel": 99.50,
+          "targets": [
+            95.00,
+            92.00
+          ],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "Primary trend layer aligned (4H/1H short), execution layer supportive"
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "SCALP_1H",
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    }
+  },
+  "AGGRESSIVE_MODE": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "mode": "AGGRESSIVE",
+      "currentPrice": 43250.50,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 83,
+        "source": "1D+3D+4H"
+      },
+      "timeframes": {
+        "1M": {
+          "trend": "downtrend",
+          "ema21": 44500.00,
+          "ema200": 45000.00,
+          "stochRsi": {
+            "k": 65.5,
+            "d": 68.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1w": {
+          "trend": "downtrend",
+          "ema21": 43800.00,
+          "ema200": 44800.00,
+          "stochRsi": {
+            "k": 70.1,
+            "d": 72.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "downtrend",
+          "ema21": 43500.00,
+          "ema200": 44500.00,
+          "stochRsi": {
+            "k": 72.8,
+            "d": 75.0,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "downtrend",
+          "ema21": 43300.00,
+          "ema200": 44300.00,
+          "stochRsi": {
+            "k": 75.5,
+            "d": 78.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "4h": {
+          "trend": "downtrend",
+          "ema21": 43200.00,
+          "ema200": 44200.00,
+          "stochRsi": {
+            "k": 78.5,
+            "d": 80.1,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "downtrend",
+          "ema21": 43150.00,
+          "ema200": 44100.00,
+          "stochRsi": {
+            "k": 82.5,
+            "d": 85.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "downtrend",
+          "ema21": 43100.00,
+          "ema200": 44000.00,
+          "stochRsi": {
+            "k": 85.2,
+            "d": 87.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "downtrend",
+          "ema21": 43050.00,
+          "ema200": 43900.00,
+          "stochRsi": {
+            "k": 88.5,
+            "d": 90.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3m": {
+          "trend": "downtrend",
+          "ema21": 43000.00,
+          "ema200": 43800.00,
+          "stochRsi": {
+            "k": 90.2,
+            "d": 92.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1m": {
+          "trend": "downtrend",
+          "ema21": 42950.00,
+          "ema200": 43700.00,
+          "stochRsi": {
+            "k": 92.5,
+            "d": 95.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D/4H swing conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 72,
+          "reason": "4H downtrend with 1H confirmation, price retracing toward 21 EMA",
+          "entryZone": {
+            "min": 43150.00,
+            "max": 43250.00
+          },
+          "stopLoss": 43800.00,
+          "invalidationLevel": 43800.00,
+          "targets": [
+            42100.00,
+            41100.00
+          ],
+          "riskReward": {
+            "tp1RR": 1.0,
+            "tp2RR": 2.0
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "Macro layer aligned (1D/3D short), primary trend strong (4H/1H short), execution layer supportive"
+        },
+        "TREND_RIDER": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 78,
+          "reason": "Trend Rider SHORT: HTF bias + 4H/1H downtrend, price below 21/200 EMAs with shallow pullback and bearish 15m/5m momentum.",
+          "entryZone": {
+            "min": 43100.00,
+            "max": 43200.00
+          },
+          "stopLoss": 43600.00,
+          "invalidationLevel": 43600.00,
+          "targets": [
+            42300.00,
+            41400.00
+          ],
+          "riskReward": {
+            "tp1RR": 2.0,
+            "tp2RR": 3.5
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "HTF bias short (83%), 4H trend: downtrend, 1H trend: downtrend"
+        },
+        "SCALP_1H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Counter-trend LONG scalp blocked by strong HTF short bias",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_RIDER",
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    },
+    "ETHUSDT": {
+      "symbol": "ETHUSDT",
+      "mode": "AGGRESSIVE",
+      "currentPrice": 2650.75,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 78,
+        "source": "1D+3D+4H"
+      },
+      "timeframes": {
+        "1M": {
+          "trend": "downtrend",
+          "ema21": 2700.00,
+          "ema200": 2750.00,
+          "stochRsi": {
+            "k": 60.5,
+            "d": 63.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1w": {
+          "trend": "downtrend",
+          "ema21": 2680.00,
+          "ema200": 2730.00,
+          "stochRsi": {
+            "k": 65.1,
+            "d": 67.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "downtrend",
+          "ema21": 2660.00,
+          "ema200": 2710.00,
+          "stochRsi": {
+            "k": 68.8,
+            "d": 70.0,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "downtrend",
+          "ema21": 2640.00,
+          "ema200": 2690.00,
+          "stochRsi": {
+            "k": 72.5,
+            "d": 75.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "4h": {
+          "trend": "downtrend",
+          "ema21": 2630.00,
+          "ema200": 2680.00,
+          "stochRsi": {
+            "k": 75.5,
+            "d": 78.1,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "downtrend",
+          "ema21": 2620.00,
+          "ema200": 2670.00,
+          "stochRsi": {
+            "k": 80.5,
+            "d": 83.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "downtrend",
+          "ema21": 2610.00,
+          "ema200": 2660.00,
+          "stochRsi": {
+            "k": 83.2,
+            "d": 85.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "downtrend",
+          "ema21": 2600.00,
+          "ema200": 2650.00,
+          "stochRsi": {
+            "k": 86.5,
+            "d": 88.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3m": {
+          "trend": "downtrend",
+          "ema21": 2590.00,
+          "ema200": 2640.00,
+          "stochRsi": {
+            "k": 88.2,
+            "d": 90.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1m": {
+          "trend": "downtrend",
+          "ema21": 2580.00,
+          "ema200": 2630.00,
+          "stochRsi": {
+            "k": 90.5,
+            "d": 93.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D/4H swing conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Setup requirements not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_RIDER": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "TrendRider: HTF downtrend conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 65,
+          "reason": "1H downtrend scalp with 15m pullback and Stoch alignment (HTF bias: short, 78%)",
+          "entryZone": {
+            "min": 2620.00,
+            "max": 2630.00
+          },
+          "stopLoss": 2660.00,
+          "invalidationLevel": 2660.00,
+          "targets": [
+            2580.00,
+            2530.00
+          ],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "Primary trend layer aligned (4H/1H short), execution layer supportive"
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "SCALP_1H",
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    },
+    "SOLUSDT": {
+      "symbol": "SOLUSDT",
+      "mode": "AGGRESSIVE",
+      "currentPrice": 98.50,
+      "htfBias": {
+        "direction": "short",
+        "confidence": 75,
+        "source": "1D+3D+4H"
+      },
+      "timeframes": {
+        "1M": {
+          "trend": "downtrend",
+          "ema21": 102.00,
+          "ema200": 105.00,
+          "stochRsi": {
+            "k": 58.5,
+            "d": 61.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1w": {
+          "trend": "downtrend",
+          "ema21": 100.00,
+          "ema200": 103.00,
+          "stochRsi": {
+            "k": 63.1,
+            "d": 65.5,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "downtrend",
+          "ema21": 99.00,
+          "ema200": 102.00,
+          "stochRsi": {
+            "k": 66.8,
+            "d": 68.0,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "downtrend",
+          "ema21": 98.50,
+          "ema200": 101.00,
+          "stochRsi": {
+            "k": 70.5,
+            "d": 73.2,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "4h": {
+          "trend": "downtrend",
+          "ema21": 98.00,
+          "ema200": 100.50,
+          "stochRsi": {
+            "k": 73.5,
+            "d": 76.1,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "downtrend",
+          "ema21": 97.50,
+          "ema200": 100.00,
+          "stochRsi": {
+            "k": 78.5,
+            "d": 81.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "downtrend",
+          "ema21": 97.00,
+          "ema200": 99.50,
+          "stochRsi": {
+            "k": 81.2,
+            "d": 83.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "downtrend",
+          "ema21": 96.50,
+          "ema200": 99.00,
+          "stochRsi": {
+            "k": 84.5,
+            "d": 86.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3m": {
+          "trend": "downtrend",
+          "ema21": 96.00,
+          "ema200": 98.50,
+          "stochRsi": {
+            "k": 86.2,
+            "d": 88.5,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1m": {
+          "trend": "downtrend",
+          "ema21": 95.50,
+          "ema200": 98.00,
+          "stochRsi": {
+            "k": 88.5,
+            "d": 91.0,
+            "state": "overbought"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "3D/1D/4H swing conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Setup requirements not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_RIDER": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "TrendRider: HTF downtrend conditions not met",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": true,
+          "direction": "short",
+          "confidence": 62,
+          "reason": "1H downtrend scalp with 15m pullback and Stoch alignment (HTF bias: short, 75%)",
+          "entryZone": {
+            "min": 97.00,
+            "max": 98.00
+          },
+          "stopLoss": 99.50,
+          "invalidationLevel": 99.50,
+          "targets": [
+            95.00,
+            92.00
+          ],
+          "riskReward": {
+            "tp1RR": 1.5,
+            "tp2RR": 3.0
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [],
+          "capsApplied": [],
+          "explanation": "Primary trend layer aligned (4H/1H short), execution layer supportive"
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "SCALP_1H",
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    }
+  }
+}
+

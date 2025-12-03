@@ -661,6 +661,27 @@ export async function fetchAllKrakenPairs() {
   }
 }
 
+/**
+ * Get dFlow prediction market data for a symbol
+ * @param {string} symbol - Trading pair (e.g., 'BTCUSDT')
+ * @returns {Promise<Object>} Prediction market data
+ */
+export async function getDflowPredictionMarkets(symbol) {
+  try {
+    // Dynamic import to avoid circular dependencies
+    const dflow = await import('./dflow.js');
+    return await dflow.getPredictionMarkets(symbol);
+  } catch (error) {
+    console.error(`[MarketData] Error fetching dFlow data for ${symbol}:`, error.message);
+    return {
+      symbol,
+      error: error.message,
+      events: [],
+      markets: []
+    };
+  }
+}
+
 export default {
   getCandles,
   getMultiTimeframeData,
@@ -668,6 +689,7 @@ export default {
   isSymbolSupported,
   getSupportedSymbols,
   getSupportedSymbolsWithInfo,
-  getAllKrakenPairs
+  getAllKrakenPairs,
+  getDflowPredictionMarkets
 };
 

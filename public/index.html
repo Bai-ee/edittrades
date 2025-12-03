@@ -1115,7 +1115,7 @@
       'SOLUSDT': 0
     };
     
-    const strategyOptions = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
+    const strategyOptions = ['4h', 'Swing', 'TrendRider', 'Scalp', 'MicroScalp'];
     
     // Helper function to normalize confidence to 0-100 scale
     // Handles both 0-1 (decimal) and 0-100 (percentage) formats
@@ -1127,7 +1127,7 @@
       // If 0-1 scale, convert to 0-100
       return Math.min(100, Math.max(0, Math.round(confidence * 100)));
     }
-
+    
     // Trade Templates Configuration
     const tradeTemplates = {
       '4h': {
@@ -1151,6 +1151,17 @@
         rrTargets: [3.0, 5.0],  // Minimum 3R as per text file
         maxHoldCandles: { '4h': 20 },
         displayName: 'SWING'
+      },
+      'TrendRider': {
+        label: '4H/1H Trend Rider',
+        anchorTimeframes: ['4h', '1h'],
+        confirmTimeframes: ['15m', '5m'],
+        entryTimeframes: ['15m', '5m'],
+        minConfidence: 0.65,
+        maxLeverage: 25,
+        rrTargets: [2.0, 3.5],
+        maxHoldCandles: { '1h': 24 },
+        displayName: 'TREND RIDER'
       },
       'Scalp': {
         label: '4H+1H → 15m/5m Scalp',
@@ -1440,6 +1451,7 @@
       const strategyMap = {
         '4h': 'TREND_4H',
         'Swing': 'SWING',
+        'TrendRider': 'TREND_RIDER',
         'Scalp': 'SCALP_1H',
         'MicroScalp': 'MICRO_SCALP'
       };
@@ -2514,14 +2526,27 @@
         // Fetch current mode (for display) - USE /api/analyze-full for rich structure
         const currentModePromises = symbols.map(symbol => 
           fetch(`/api/analyze-full?symbol=${symbol}&mode=${mode}`)
-            .then(res => {
-              if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
+            .then(async res => {
+              if (!res.ok) {
+                const errorText = await res.text();
+                console.error(`[scanMajorCoins] ${symbol} (${mode}) failed:`, res.status, errorText);
+                throw new Error(`Failed to fetch ${symbol} (${res.status}): ${errorText.substring(0, 100)}`);
+              }
               return res.json();
             })
             .then(richSymbol => {
               // Convert rich symbol to legacy format for backward compatibility
-              const legacyData = convertRichSymbolToLegacy(richSymbol);
-              return { symbol, data: legacyData, mode, richSymbol };
+              try {
+                const legacyData = convertRichSymbolToLegacy(richSymbol);
+                return { symbol, data: legacyData, mode, richSymbol, success: true };
+              } catch (convertError) {
+                console.error(`[scanMajorCoins] Error converting ${symbol} to legacy format:`, convertError);
+                throw new Error(`Failed to convert ${symbol} data: ${convertError.message}`);
+              }
+            })
+            .catch(error => {
+              console.error(`[scanMajorCoins] Error processing ${symbol} (${mode}):`, error);
+              return { symbol, data: null, mode, richSymbol: null, success: false, error: error.message };
             })
         );
         
@@ -2529,22 +2554,69 @@
         const oppositeMode = aggressiveMode ? 'STANDARD' : 'AGGRESSIVE';
         const oppositeModePromises = symbols.map(symbol => 
           fetch(`/api/analyze-full?symbol=${symbol}&mode=${oppositeMode}`)
-            .then(res => {
-              if (!res.ok) throw new Error(`Failed to fetch ${symbol}`);
+            .then(async res => {
+              if (!res.ok) {
+                const errorText = await res.text();
+                console.error(`[scanMajorCoins] ${symbol} (${oppositeMode}) failed:`, res.status, errorText);
+                throw new Error(`Failed to fetch ${symbol} (${res.status}): ${errorText.substring(0, 100)}`);
+              }
               return res.json();
             })
             .then(richSymbol => {
               // Convert rich symbol to legacy format for backward compatibility
-              const legacyData = convertRichSymbolToLegacy(richSymbol);
-              return { symbol, data: legacyData, mode: oppositeMode, richSymbol };
+              try {
+                const legacyData = convertRichSymbolToLegacy(richSymbol);
+                return { symbol, data: legacyData, mode: oppositeMode, richSymbol, success: true };
+              } catch (convertError) {
+                console.error(`[scanMajorCoins] Error converting ${symbol} to legacy format:`, convertError);
+                throw new Error(`Failed to convert ${symbol} data: ${convertError.message}`);
+              }
+            })
+            .catch(error => {
+              console.error(`[scanMajorCoins] Error processing ${symbol} (${oppositeMode}):`, error);
+              return { symbol, data: null, mode: oppositeMode, richSymbol: null, success: false, error: error.message };
             })
         );
         
-        // Fetch both modes in parallel
-        const allResults = await Promise.all([...currentModePromises, ...oppositeModePromises]);
+        // Fetch both modes in parallel - use allSettled so one failure doesn't break everything
+        const allResults = await Promise.allSettled([...currentModePromises, ...oppositeModePromises]);
+        
+        // Process results - handle both fulfilled and rejected promises
+        const processedResults = allResults.map((result, index) => {
+          if (result.status === 'fulfilled') {
+            return result.value; // This is our { symbol, data, mode, richSymbol, success } object
+          } else {
+            // Promise was rejected (shouldn't happen since we catch in the promise chain, but handle it)
+            console.error(`[scanMajorCoins] Promise rejected:`, result.reason);
+            const symbolIndex = index % symbols.length;
+            const modeIndex = Math.floor(index / symbols.length);
+            const symbol = symbols[symbolIndex];
+            const resultMode = modeIndex === 0 ? mode : oppositeMode;
+            return { symbol, data: null, mode: resultMode, richSymbol: null, success: false, error: result.reason?.message || 'Unknown error' };
+          }
+        });
         
         // Store results by mode (store both legacy data and rich symbol)
-        allResults.forEach(({ symbol, data, mode: resultMode, richSymbol }) => {
+        const failedSymbols = [];
+        processedResults.forEach(({ symbol, data, mode: resultMode, richSymbol, success, error }) => {
+          if (!success || !data) {
+            console.warn(`[scanMajorCoins] Skipping ${symbol} (${resultMode}) - ${error || 'no data'}`);
+            failedSymbols.push({ symbol, mode: resultMode, error: error || 'No data returned' });
+            // Create a minimal error entry so UI can show the error
+            const errorData = {
+              error: true,
+              errorMessage: error || `Failed to fetch ${symbol}`,
+              symbol,
+              mode: resultMode
+            };
+            if (resultMode === 'AGGRESSIVE') {
+              scanResultsAggressive[symbol] = errorData;
+            } else {
+              scanResultsSafe[symbol] = errorData;
+            }
+            return;
+          }
+          
           const resultData = data;
           // Store rich symbol for direct backend access
           if (richSymbol) {
@@ -2558,6 +2630,13 @@
             scanResultsSafe[symbol] = resultData;
           }
         });
+        
+        // Log summary
+        if (failedSymbols.length > 0) {
+          console.warn(`[scanMajorCoins] ${failedSymbols.length} symbols failed:`, failedSymbols);
+        } else {
+          console.log(`[scanMajorCoins] All ${symbols.length * 2} requests succeeded`);
+        }
         
         // Set scanResults to current mode for display
         scanResults = aggressiveMode ? scanResultsAggressive : scanResultsSafe;
@@ -2642,23 +2721,46 @@
       const tableBody = document.getElementById('opportunitiesTable');
       tableBody.innerHTML = '';
       
-      // Create row for each coin in scanResults (includes all scanned coins)
-      for (const symbol in scanResults) {
+      // Always show all symbols, even if they have errors or no trades
+      const symbolsToShow = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      
+      for (const symbol of symbolsToShow) {
         const data = scanResults[symbol];
-        if (data && data.currentPrice) {  // Ensure data is valid
+        // Show symbol even if data is missing or has errors - create minimal data structure
+        const displayData = data || {
+          error: true,
+          errorMessage: 'No data available',
+          symbol,
+          currentPrice: null,
+          strategies: {},
+          bestSignal: null
+        };
+        
+        // Ensure currentPrice exists (use null if missing, but still display)
+        if (!displayData.currentPrice && !displayData.error) {
+          displayData.currentPrice = null;
+        }
+        
+        try {
+          // Auto-select best strategy for this symbol
+          autoSelectStrategy(symbol);
+          
+          const row = createCoinRow(symbol, displayData);
+          const detailsRow = createDetailsRow(symbol, displayData);
+          tableBody.appendChild(row);
+          tableBody.appendChild(detailsRow);
+          
+          // Update strategy buttons after row is added to DOM
+          setTimeout(() => updateStrategyButtons(symbol), 10);
+        } catch (error) {
+          console.error(`Error creating row for ${symbol}:`, error);
+          // Still try to create a basic row even on error
           try {
-            // Auto-select best strategy for this symbol
-            autoSelectStrategy(symbol);
-            
-            const row = createCoinRow(symbol, data);
-            const detailsRow = createDetailsRow(symbol, data);
-            tableBody.appendChild(row);
-            tableBody.appendChild(detailsRow);
-            
-            // Update strategy buttons after row is added to DOM
-            setTimeout(() => updateStrategyButtons(symbol), 10);
-          } catch (error) {
-            console.error(`Error creating row for ${symbol}:`, error);
+            const errorRow = document.createElement('tr');
+            errorRow.innerHTML = `<td colspan="10">Error displaying ${symbol}: ${error.message}</td>`;
+            tableBody.appendChild(errorRow);
+          } catch (e) {
+            console.error(`Failed to create error row for ${symbol}:`, e);
           }
         }
       }
@@ -3179,12 +3281,18 @@
         const rewardPercent1 = rr1 * parseFloat(riskPercent);
         const rewardPercent2 = rr2 * parseFloat(riskPercent);
         
+        // Get entry type (pullback or breakout)
+        const entryType = tradeSignal.entryType || 'pullback';
+        const entryTypeBadge = entryType === 'breakout' 
+          ? '<span style="background-color: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; border-radius: var(--radius-sm); padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #3b82f6; margin-left: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">BREAKOUT ENTRY</span>'
+          : '<span style="background-color: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; border-radius: var(--radius-sm); padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #22c55e; margin-left: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">PULLBACK ENTRY</span>';
+        
         tradeCallHtml = `
           <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
               <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
-                ${symbol.replace('USDT', '')} — ${direction} (${setupType})
+                ${symbol.replace('USDT', '')} — ${direction} (${setupType})${entryTypeBadge}
               </h2>
               <!-- Key Metrics Grid -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
@@ -3557,8 +3665,11 @@
       detailsRow.innerHTML = `
         <td colspan="5">
           <div class="details-content-wrapper">
-            <!-- AI Reasoning Agent Section - TOP OF DETAILS -->
-            <div id="ai-review-section-${symbol}" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);">
+            <!-- Trade Call Output - FIRST -->
+            ${tradeCallHtml}
+            
+            <!-- AI Reasoning Agent Section - SECOND -->
+            <div id="ai-review-section-${symbol}" style="margin-top: 1.5rem; margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);">
               <div id="ai-review-content-${symbol}">
                 <!-- Loading state (will be replaced by AI response) -->
                 <div style="display: flex; align-items: center; gap: 0.75rem; padding: 2rem; justify-content: center;">
@@ -3574,9 +3685,134 @@
               }
             </style>
             
-            ${tradeCallHtml}
+            <!-- Market Data Section - THIRD: Spread, Bid/Ask, Volume Quality, Order Book, Recent Trades -->
+            ${(function() {
+              const marketDataInfo = data.richSymbol?.marketData || data.marketData;
+              
+              // Always show Market Data section, even if no data - show all line items
+              const spread = marketDataInfo?.spread ? '$' + marketDataInfo.spread.toFixed(2) : 'N/A';
+              const spreadPercent = marketDataInfo?.spreadPercent ? marketDataInfo.spreadPercent.toFixed(4) + '%' : '0.000%';
+              const bid = marketDataInfo?.bid ? '$' + marketDataInfo.bid.toLocaleString() : 'N/A';
+              const ask = marketDataInfo?.ask ? '$' + marketDataInfo.ask.toLocaleString() : 'N/A';
+              const bidAskImbalance = marketDataInfo?.bidAskImbalance !== undefined ? marketDataInfo.bidAskImbalance.toFixed(1) + '%' : 'N/A';
+              const bidAskImbalanceColor = marketDataInfo?.bidAskImbalance > 0 ? '#22c55e' : marketDataInfo?.bidAskImbalance < 0 ? '#ef4444' : '#9ca3af';
+              const bidAskImbalanceArrow = marketDataInfo?.bidAskImbalance > 0 ? '↑' : marketDataInfo?.bidAskImbalance < 0 ? '↓' : '';
+              const volumeQuality = marketDataInfo?.volumeQuality || 'N/A';
+              const volumeQualityColor = volumeQuality === 'HIGH' ? '#22c55e' : volumeQuality === 'MEDIUM' ? '#f59e0b' : volumeQuality === 'LOW' ? '#ef4444' : '#9ca3af';
+              const tradeCount24h = marketDataInfo?.tradeCount24h ? marketDataInfo.tradeCount24h.toLocaleString() : 'N/A';
+              
+              // Order Book Depth - always show, even if no data
+              const ob = marketDataInfo?.orderBook || {};
+              const bidLiquidity = ob.bidLiquidity !== undefined ? ob.bidLiquidity : 'N/A';
+              const askLiquidity = ob.askLiquidity !== undefined ? ob.askLiquidity : 'N/A';
+              const obImbalance = ob.imbalance !== undefined ? ob.imbalance + '%' : 'N/A';
+              const obImbalanceColor = ob.imbalance > 0 ? '#22c55e' : ob.imbalance < 0 ? '#ef4444' : '#9ca3af';
+              
+              // Recent Trades Flow - always show, even if no data
+              const rt = marketDataInfo?.recentTrades || {};
+              const overallFlow = rt.overallFlow || 'N/A';
+              const flowColor = overallFlow === 'BUY' ? '#22c55e' : overallFlow === 'SELL' ? '#ef4444' : '#9ca3af';
+              const buyPressure = rt.buyPressure !== undefined ? rt.buyPressure + '%' : 'N/A';
+              const sellPressure = rt.sellPressure !== undefined ? rt.sellPressure + '%' : 'N/A';
+              const volumeImbalance = rt.volumeImbalance !== undefined ? rt.volumeImbalance + '%' : 'N/A';
+              const imbalanceColor = rt.volumeImbalance > 0 ? '#22c55e' : rt.volumeImbalance < 0 ? '#ef4444' : '#9ca3af';
+              
+              // Add Prediction Markets to the same Market Data section - ALWAYS SHOW
+              const dflowData = data.richSymbol?.dflowData || data.dflowData;
+              let predictionMarketsHtml = '';
+              
+              // Debug logging
+              console.log(`[Frontend] ${symbol} dflowData:`, dflowData);
+              
+              if (dflowData && !dflowData.error && dflowData.markets && Array.isArray(dflowData.markets) && dflowData.markets.length > 0) {
+                const markets = dflowData.markets || [];
+                let marketsHtml = '';
+                markets.slice(0, 5).forEach(function(market) {
+                  const yesProb = market.yesProbability !== null && market.yesProbability !== undefined ? market.yesProbability.toFixed(1) : 'N/A';
+                  const noProb = market.noProbability !== null && market.noProbability !== undefined ? market.noProbability.toFixed(1) : 'N/A';
+                  const yesPrice = market.yesPrice !== null && market.yesPrice !== undefined ? market.yesPrice.toFixed(4) : 'N/A';
+                  const noPrice = market.noPrice !== null && market.noPrice !== undefined ? market.noPrice.toFixed(4) : 'N/A';
+                  const volume = market.volume ? market.volume.toLocaleString() : '0';
+                  const liquidity = market.liquidity ? market.liquidity.toLocaleString() : '0';
+                  const hoursToExpiry = market.hoursToExpiry !== null && market.hoursToExpiry !== undefined ? market.hoursToExpiry : 'N/A';
+                  let expiryText = 'N/A';
+                  if (hoursToExpiry !== 'N/A' && typeof hoursToExpiry === 'number') {
+                    expiryText = hoursToExpiry < 0 ? 'Expired' : hoursToExpiry < 24 ? hoursToExpiry + 'h' : Math.floor(hoursToExpiry / 24) + 'd';
+                  }
+                  const statusColor = market.status === 'active' ? '#22c55e' : market.status === 'resolved' ? '#3b82f6' : '#9ca3af';
+                  const eventTitle = market.eventTitle || 'Unknown Event';
+                  const marketStatus = market.status || 'N/A';
+                  
+                  let mintsHtml = '';
+                  if (market.outcomeMints && (market.outcomeMints.yes || market.outcomeMints.no)) {
+                    mintsHtml = '<div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.1);"><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Outcome Mints</div><div style="font-size: 0.7rem; color: rgba(255, 255, 255, 0.6); word-break: break-all;">' + 
+                      (market.outcomeMints.yes ? 'YES: ' + market.outcomeMints.yes.substring(0, 20) + '...' : '') +
+                      (market.outcomeMints.no ? '<br>NO: ' + market.outcomeMints.no.substring(0, 20) + '...' : '') +
+                      '</div></div>';
+                  }
+                  
+                  marketsHtml += '<div style="padding: 1rem; background-color: rgba(255, 255, 255, 0.05); border-radius: var(--radius-sm); margin-bottom: 1rem; border-left: 3px solid var(--color-yellow-75);">' +
+                    '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.875rem; margin-bottom: 0.75rem; font-family: var(--font-mathias);">' + eventTitle + '</div>' +
+                    '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; font-size: 0.875rem;">' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">YES Price</div><div style="color: #22c55e; font-weight: bold;">' + yesPrice + '</div><div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-top: 0.25rem;">' + yesProb + '% prob</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">NO Price</div><div style="color: #ef4444; font-weight: bold;">' + noPrice + '</div><div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-top: 0.25rem;">' + noProb + '% prob</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Volume</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + volume + '</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Liquidity</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + liquidity + '</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Time to Expiry</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + expiryText + '</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Status</div><div style="color: ' + statusColor + '; font-weight: bold; text-transform: uppercase;">' + marketStatus + '</div></div>' +
+                    '</div>' +
+                    mintsHtml +
+                    '</div>';
+                });
+                
+                predictionMarketsHtml = '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                  '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Prediction Markets</div>' +
+                  '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.875rem; margin-bottom: 1rem;">' +
+                    markets.length + ' active prediction market' + (markets.length !== 1 ? 's' : '') + ' found for ' + symbol.replace('USDT', '') +
+                  '</div>' +
+                  marketsHtml +
+                  '</div>';
+              } else {
+                // Always show Prediction Markets section, even if no data
+                const errorMsg = dflowData?.error ? ' (' + dflowData.error + ')' : '';
+                predictionMarketsHtml = '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                  '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Prediction Markets</div>' +
+                  '<div style="color: rgba(255, 255, 255, 0.5); font-size: 0.875rem;">No prediction market data available for ' + symbol.replace('USDT', '') + errorMsg + '</div>' +
+                  '</div>';
+              }
+              
+              return '<div style="margin-top: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); border: 1px solid rgba(255, 255, 255, 0.1);">' +
+                '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 1rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">MARKET DATA</div>' +
+                '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; font-size: 0.875rem; margin-bottom: 1rem;">' +
+                  '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Spread</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + spread + ' (' + spreadPercent + ')</div></div>' +
+                  '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Bid / Ask</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + bid + ' / ' + ask + '</div></div>' +
+                  '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Bid/Ask Imbalance</div><div style="color: ' + bidAskImbalanceColor + '; font-weight: bold;">' + bidAskImbalance + ' ' + bidAskImbalanceArrow + '</div></div>' +
+                  '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Volume Quality</div><div style="color: ' + volumeQualityColor + '; font-weight: bold;">' + volumeQuality + '</div></div>' +
+                  '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Trade Count (24h)</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + tradeCount24h + '</div></div>' +
+                '</div>' +
+                '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                  '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Order Book Depth</div>' +
+                  '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; font-size: 0.875rem;">' +
+                    '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Bid Liquidity</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + bidLiquidity + '</div></div>' +
+                    '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Ask Liquidity</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + askLiquidity + '</div></div>' +
+                    '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Imbalance</div><div style="color: ' + obImbalanceColor + '; font-weight: bold;">' + obImbalance + '</div></div>' +
+                  '</div>' +
+                '</div>' +
+                '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                  '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Recent Trades Flow</div>' +
+                  '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; font-size: 0.875rem;">' +
+                    '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Overall Flow</div><div style="color: ' + flowColor + '; font-weight: bold; text-transform: uppercase;">' + overallFlow + '</div></div>' +
+                    '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Buy Pressure</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + buyPressure + '</div></div>' +
+                    '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Sell Pressure</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + sellPressure + '</div></div>' +
+                    '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Volume Imbalance</div><div style="color: ' + imbalanceColor + '; font-weight: bold;">' + volumeImbalance + '</div></div>' +
+                  '</div>' +
+                '</div>' +
+                predictionMarketsHtml +
+                '</div>';
+            })()}
             
-            <div class="tf-grid">
+            <!-- Timeframe Grid - FOURTH -->
+            <div class="tf-grid" style="margin-top: 1.5rem;">
               ${tfCards}
           </div>
         </div>
@@ -3654,8 +3890,8 @@
       
       // Pick the strategy to trade (use bestSignal or user-selected strategy)
       const selectedStrategyIndex = strategyStates[symbol] || 0;
-      const strategyOptions = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
-      const strategyMap = { '4h': 'TREND_4H', 'Swing': 'SWING', 'Scalp': 'SCALP_1H', 'MicroScalp': 'MICRO_SCALP' };
+      const strategyOptions = ['4h', 'Swing', 'TrendRider', 'Scalp', 'MicroScalp'];
+      const strategyMap = { '4h': 'TREND_4H', 'Swing': 'SWING', 'TrendRider': 'TREND_RIDER', 'Scalp': 'SCALP_1H', 'MicroScalp': 'MICRO_SCALP' };
       const selectedStrategyKey = strategyOptions[selectedStrategyIndex];
       const strategyName = strategyMap[selectedStrategyKey] || signalSnapshot.bestSignal || 'TREND_4H';
       
@@ -3784,7 +4020,7 @@
         selection.removeAllRanges();
         selection.addRange(range);
         textArea.setSelectionRange(0, text.length);
-      } else {
+        } else {
         textArea.focus();
         textArea.select();
       }
@@ -3807,15 +4043,15 @@
       const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
       const signalSnapshot = buildRichSymbolFromScanResults(symbol, currentMode);
       
-      if (!signalSnapshot) {
-        alert(`No data available for ${symbol}. Please wait for scan to complete.`);
-        return;
+        if (!signalSnapshot) {
+          alert(`No data available for ${symbol}. Please wait for scan to complete.`);
+          return;
       }
       
       // Pick the strategy (use bestSignal or user-selected)
       const selectedStrategyIndex = strategyStates[symbol] || 0;
-      const strategyOptions = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
-      const strategyMap = { '4h': 'TREND_4H', 'Swing': 'SWING', 'Scalp': 'SCALP_1H', 'MicroScalp': 'MICRO_SCALP' };
+      const strategyOptions = ['4h', 'Swing', 'TrendRider', 'Scalp', 'MicroScalp'];
+      const strategyMap = { '4h': 'TREND_4H', 'Swing': 'SWING', 'TrendRider': 'TREND_RIDER', 'Scalp': 'SCALP_1H', 'MicroScalp': 'MICRO_SCALP' };
       const selectedStrategyKey = strategyOptions[selectedStrategyIndex];
       const strategyName = strategyMap[selectedStrategyKey] || signalSnapshot.bestSignal || 'TREND_4H';
       
@@ -3921,6 +4157,8 @@
         analysis: analysis,
         strategies: richSymbol.strategies,
         bestSignal: richSymbol.bestSignal,
+        marketData: richSymbol.marketData, // Preserve market data
+        dflowData: richSymbol.dflowData, // Preserve dFlow data
         richSymbol: richSymbol // Keep reference to full rich symbol
       };
     }
@@ -3940,19 +4178,21 @@
       const strategies = {
         SWING: null,
         TREND_4H: null,
+        TREND_RIDER: null,
         SCALP_1H: null,
         MICRO_SCALP: null
       };
       
       // Evaluate all strategies using existing frontend logic
-      const strategyKeys = ['Swing', '4h', 'Scalp', 'MicroScalp'];
-      const strategyNames = ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'];
+      const strategyKeys = ['Swing', '4h', 'TrendRider', 'Scalp', 'MicroScalp'];
+      const strategyNames = ['SWING', 'TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP'];
       
       strategyKeys.forEach((key, idx) => {
         // Get backend strategy directly (NO template evaluation) - this is fallback only
         const strategyMap = {
           '4h': 'TREND_4H',
           'Swing': 'SWING',
+          'TrendRider': 'TREND_RIDER',
           'Scalp': 'SCALP_1H',
           'MicroScalp': 'MICRO_SCALP'
         };
@@ -4049,6 +4289,10 @@
       
       scanResults = originalScanResults;
       
+      // Get market data and dFlow data from richSymbol if available
+      const marketDataInfo = data.richSymbol?.marketData || data.marketData || null;
+      const dflowData = data.richSymbol?.dflowData || data.dflowData || null;
+      
       return {
         symbol,
         mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
@@ -4061,7 +4305,10 @@
         timeframes,
         strategies,
         bestSignal,
+        marketData: marketDataInfo, // Include market data (spread, bid/ask, etc.)
+        dflowData: dflowData, // Include prediction market data
         schemaVersion: '1.0.0',
+        jsonVersion: '0.05',
         generatedAt: new Date().toISOString()
       };
     }
@@ -4081,11 +4328,11 @@
       // Use existing scanResults data - NO ASYNC FETCH (preserves user gesture for mobile)
       for (const symbol of symbols) {
         for (const mode of modes) {
-          const richSymbol = buildRichSymbolFromScanResults(symbol, mode);
-          if (richSymbol) {
-            const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
-            allViews[modeKey][symbol] = richSymbol;
-          } else {
+            const richSymbol = buildRichSymbolFromScanResults(symbol, mode);
+            if (richSymbol) {
+              const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
+              allViews[modeKey][symbol] = richSymbol;
+            } else {
               // Last resort: create structure with NO_TRADE for all strategies
               const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
               allViews[modeKey][symbol] = {
@@ -4351,6 +4598,7 @@
             tp3RR: tradeSignal.risk_reward?.tp3RR || null
           },
           riskAmount: tradeSignal.risk_amount || null,
+          entryType: tradeSignal.entryType || 'pullback', // 'pullback' or 'breakout'
           
           // Formatted trade call fields - ALWAYS INCLUDED
           invalidation: tradeSignal.invalidation || {

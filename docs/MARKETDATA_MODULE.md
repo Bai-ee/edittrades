@@ -93,7 +93,7 @@ const candles = await getCandles('BTCUSDT', '4h', 500);
 
 ### `getTickerPrice(symbol)`
 
-Get current spot price and 24h statistics.
+Get current spot price and 24h statistics, including bid/ask data.
 
 ```javascript
 const ticker = await getTickerPrice('BTCUSDT');
@@ -104,9 +104,18 @@ const ticker = await getTickerPrice('BTCUSDT');
 //   priceChangePercent: 1.45,
 //   high24h: 88000.00,
 //   low24h: 86500.00,
-//   volume24h: 125000000
+//   volume24h: 125000000,
+//   bid: 87448.00,
+//   ask: 87452.00,
+//   spread: 4.00,
+//   spreadPercent: 0.0046,
+//   bidAskImbalance: 2.5,
+//   tradeCount24h: 125000,
+//   weightedAvgPrice24h: 87450.00
 // }
 ```
+
+**Note:** Spread, bid/ask imbalance, and volume quality are calculated in `api/analyze-full.js` using ticker data.
 
 ---
 
@@ -124,7 +133,8 @@ const ticker = await getTickerPrice('BTCUSDT');
 - ✅ Good rate limits
 
 **Supported Intervals:**
-- 1m, 5m, 15m, 1h, 4h, 1d
+- Direct: 1m, 3m, 5m, 15m, 1h, 4h, 1d
+- Aggregated: 3d (from 1d), 1w (from 1d), 1M (from 1d)
 
 **Symbol Mapping:**
 ```javascript
@@ -435,19 +445,52 @@ The strategy engine expects this exact structure:
 
 ---
 
+## Additional Market Data Features
+
+### Spread, Bid/Ask, Order Book, Recent Trades
+
+**Location:** Calculated in `api/analyze-full.js` using Kraken API data
+
+**Available Metrics:**
+- **Spread:** Bid-ask spread (price and percentage)
+- **Bid/Ask Imbalance:** Percentage imbalance between bid and ask quantities
+- **Volume Quality:** HIGH/MEDIUM/LOW based on trade count
+- **Order Book Depth:** Total bid/ask liquidity and imbalance
+- **Recent Trades Flow:** Buy/sell pressure, volume imbalance, overall flow direction
+- **dFlow Prediction Markets:** Prediction market data for BTC, ETH, SOL
+
+**Data Sources:**
+- **Ticker:** `https://api.kraken.com/0/public/Ticker` (bid, ask, trade count)
+- **Order Book:** `https://api.kraken.com/0/public/Depth` (liquidity depth)
+- **Recent Trades:** `https://api.kraken.com/0/public/Trades` (trade flow)
+- **dFlow API:** `services/dflow.js` (prediction markets)
+
+**Usage:**
+These metrics are automatically included in `/api/analyze-full` responses and displayed in the frontend "Market Data" section.
+
+---
+
 ## Summary
 
 **marketData.js provides:**
 - ✅ High-resolution OHLCV data
-- ✅ Multi-timeframe support (1m to 4h)
+- ✅ Multi-timeframe support (1m, 3m, 5m, 15m, 1h, 4h, 1d, 3d, 1w, 1M)
 - ✅ Automatic failover
 - ✅ Standardized format
 - ✅ Clean API
+- ✅ dFlow prediction market integration
 - ✅ No changes to strategy.js required
 
-**Key function:**
+**Key functions:**
 ```javascript
+// OHLCV data
 const data = await marketData.getMultiTimeframeData(symbol, intervals, limit);
+
+// Ticker data (includes bid/ask)
+const ticker = await marketData.getTickerPrice(symbol);
+
+// Prediction markets
+const dflow = await marketData.getDflowPredictionMarkets(symbol);
 ```
 
 **That's it!** The rest just works. ✨
@@ -456,6 +499,7 @@ const data = await marketData.getMultiTimeframeData(symbol, intervals, limit);
 
 **File:** `services/marketData.js`  
 **Created:** November 26, 2025  
+**Last Updated:** 2025-01-XX  
 **Status:** Production Ready ✅
 
 

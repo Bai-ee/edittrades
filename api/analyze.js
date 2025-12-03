@@ -187,7 +187,17 @@ export default async function handler(req, res) {
 
     // Run strategy evaluation (will check Swing first, then 4H/Scalp)
     console.log(`[Analyze] Running strategy evaluation (${setupType}, mode: ${mode})...`);
-    const canonicalResult = strategyService.evaluateStrategy(symbol, analysis, setupType, mode);
+    let canonicalResult;
+    try {
+      canonicalResult = strategyService.evaluateStrategy(symbol, analysis, setupType, mode);
+    } catch (strategyError) {
+      console.error(`[Analyze] Strategy evaluation error for ${symbol}:`, strategyError.message, strategyError.stack);
+      return res.status(500).json({ 
+        error: 'Strategy evaluation failed',
+        message: strategyError.message,
+        symbol
+      });
+    }
 
     // Evaluate Micro-Scalp Override (only relevant when 4H is FLAT and normal trade blocked)
     console.log(`[Analyze] Evaluating micro-scalp override...`);

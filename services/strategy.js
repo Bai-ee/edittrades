@@ -24,6 +24,30 @@ function normalizeTrend(trend) {
 }
 
 /**
+ * Infer trend direction from price position relative to EMAs
+ * Used when trend is "flat" but we need directional bias
+ * @param {number} price - Current price
+ * @param {number} ema21 - 21 EMA value
+ * @param {number} ema200 - 200 EMA value (optional)
+ * @returns {string} 'uptrend', 'downtrend', or 'flat'
+ */
+function inferTrendFromPrice(price, ema21, ema200 = null) {
+  if (!price || !ema21) return 'flat';
+  
+  // If both EMAs available, use both for stronger signal
+  if (ema200 !== null && ema200 !== undefined) {
+    if (price > ema21 && price > ema200) return 'uptrend';
+    if (price < ema21 && price < ema200) return 'downtrend';
+  } else {
+    // Only EMA21 available
+    if (price > ema21) return 'uptrend';
+    if (price < ema21) return 'downtrend';
+  }
+  
+  return 'flat';
+}
+
+/**
  * INVARIANT VALIDATION: Validate strategy signal meets all requirements
  * If valid=true, ALL required fields must be present and logically consistent
  */
@@ -143,7 +167,17 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     invalidationLevel: rawSignal.invalidation_level || rawSignal.invalidationLevel || null,
     targets: Array.isArray(rawSignal.targets) ? rawSignal.targets : 
             (rawSignal.targets?.tp1 ? [rawSignal.targets.tp1, rawSignal.targets.tp2] : [null, null]),
-    riskReward: rawSignal.risk_reward || rawSignal.riskReward || { tp1RR: null, tp2RR: null }
+    riskReward: rawSignal.risk_reward || rawSignal.riskReward || { tp1RR: null, tp2RR: null },
+    // Preserve new fields from enhanced confidence system
+    entryType: rawSignal.entryType || 'pullback', // 'pullback' or 'breakout'
+    penaltiesApplied: rawSignal.penaltiesApplied || [],
+    capsApplied: rawSignal.capsApplied || [],
+    explanation: rawSignal.explanation || null,
+    confluence: rawSignal.confluence || null,
+    invalidation: rawSignal.invalidation || null,
+    conditionsRequired: rawSignal.conditionsRequired || [],
+    override: rawSignal.override || false, // Mark if relaxed conditions were used
+    notes: rawSignal.notes || [] // Array of notes about relaxed conditions or missing data
   };
   
   // CRITICAL: If signal claims to be valid but fails validation, force it to invalid
@@ -346,8 +380,29 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
   const currentPrice = parseFloat(tf4h.price);
   const trend1h = tf1h.indicators?.analysis?.trend;
   
+  // Block counter-trend scalps when HTF bias is strong (>= 70%)
+  const strongBiasThreshold = 70;
+  const isCounterTrendLong = htfBias && htfBias.confidence >= strongBiasThreshold && htfBias.direction === 'short';
+  const isCounterTrendShort = htfBias && htfBias.confidence >= strongBiasThreshold && htfBias.direction === 'long';
+  
   // AGGRESSIVE 1H SCALP: Allow 1H FLAT, wider pullback (±2.5%), looser stoch
   if (trend1h === 'UPTREND' || (thresholds.allowFlat1HForScalp && trend1h === 'FLAT')) {
+    // Block counter-trend LONG scalps vs strong HTF SHORT bias
+    if (isCounterTrendLong) {
+      return {
+        valid: false,
+        direction: 'NO_TRADE',
+        confidence: 0,
+        reason: `Counter-trend LONG scalp blocked by strong HTF SHORT bias (${htfBias.confidence}%)`,
+        entryZone: { min: null, max: null },
+        stopLoss: null,
+        invalidationLevel: null,
+        targets: [],
+        riskReward: { tp1RR: null, tp2RR: null },
+        validationErrors: []
+      };
+    }
+    
     const dist1h = Math.abs(tf1h.indicators?.analysis?.distanceFrom21EMA || 999);
     const dist15m = Math.abs(tf15m.indicators?.analysis?.distanceFrom21EMA || 999);
     const pullback15m = tf15m.indicators?.analysis?.pullbackState;
@@ -424,6 +479,22 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
   
   // Try SHORT
   if (trend1h === 'DOWNTREND' || (thresholds.allowFlat1HForScalp && trend1h === 'FLAT')) {
+    // Block counter-trend SHORT scalps vs strong HTF LONG bias
+    if (isCounterTrendShort) {
+      return {
+        valid: false,
+        direction: 'NO_TRADE',
+        confidence: 0,
+        reason: `Counter-trend SHORT scalp blocked by strong HTF LONG bias (${htfBias.confidence}%)`,
+        entryZone: { min: null, max: null },
+        stopLoss: null,
+        invalidationLevel: null,
+        targets: [],
+        riskReward: { tp1RR: null, tp2RR: null },
+        validationErrors: []
+      };
+    }
+    
     const dist1h = Math.abs(tf1h.indicators?.analysis?.distanceFrom21EMA || 999);
     const dist15m = Math.abs(tf15m.indicators?.analysis?.distanceFrom21EMA || 999);
     const pullback15m = tf15m.indicators?.analysis?.pullbackState;
@@ -570,6 +641,79 @@ function calculateEntryZone(ema21, direction) {
 }
 
 /**
+ * Calculate breakout entry zone above/below swing levels
+ * @param {number} swingLevel - Swing high (longs) or swing low (shorts)
+ * @param {string} direction - 'long' or 'short'
+ * @param {number} buffer - Buffer percentage (default 0.1%)
+ * @returns {Object} { min, max } entry zone
+ */
+function calculateBreakoutEntryZone(swingLevel, direction, buffer = 0.001) {
+  if (!swingLevel || isNaN(swingLevel)) return null;
+  
+  // Entry zone: swingHigh + 0.1% for longs / swingLow - 0.1% for shorts
+  // Use ±0.05% range around the 0.1% anchor
+  if (direction === 'long') {
+    return {
+      min: swingLevel * (1 + buffer * 0.5),  // swingHigh + 0.05%
+      max: swingLevel * (1 + buffer * 1.5)   // swingHigh + 0.15% (centered around +0.1%)
+    };
+  } else {
+    return {
+      min: swingLevel * (1 - buffer * 1.5),  // swingLow - 0.15% (centered around -0.1%)
+      max: swingLevel * (1 - buffer * 0.5)    // swingLow - 0.05%
+    };
+  }
+}
+
+/**
+ * Check if price has broken above/below swing level with momentum confirmation
+ * @param {number} currentPrice - Current price
+ * @param {number} swingLevel - Swing high (longs) or swing low (shorts)
+ * @param {string} direction - 'long' or 'short'
+ * @param {Object} stochRSI - StochRSI indicator object
+ * @param {number} buffer - Breakout buffer (default 0.001 = 0.1%)
+ * @returns {boolean} True if breakout confirmed
+ */
+function isBreakoutConfirmed(currentPrice, swingLevel, direction, stochRSI, buffer = 0.001) {
+  if (!swingLevel || !stochRSI) return false;
+  
+  const breakoutThreshold = direction === 'long' 
+    ? swingLevel * (1 + buffer)  // Above swing high
+    : swingLevel * (1 - buffer);  // Below swing low
+  
+  const priceBreakout = direction === 'long'
+    ? currentPrice > breakoutThreshold
+    : currentPrice < breakoutThreshold;
+  
+  // Momentum confirmation: K<40 for longs (not overbought), K>60 for shorts (not oversold)
+  const momentumOk = direction === 'long'
+    ? (stochRSI.condition === 'BULLISH' || stochRSI.condition === 'OVERSOLD' || stochRSI.k < 40)  // K<40 confirms breakout
+    : (stochRSI.condition === 'BEARISH' || stochRSI.condition === 'OVERBOUGHT' || stochRSI.k > 60); // K>60 confirms breakout
+  
+  return priceBreakout && momentumOk;
+}
+
+/**
+ * Helper function to return a standardized NO_TRADE signal
+ * @param {string} reason - Reason for no trade
+ * @returns {Object} Standardized NO_TRADE signal structure
+ */
+function invalidNoTrade(reason) {
+  return {
+    valid: false,
+    direction: 'NO_TRADE',
+    confidence: 0,
+    reason,
+    entryZone: { min: null, max: null },
+    stopLoss: null,
+    invalidationLevel: null,
+    targets: [],
+    riskReward: { tp1RR: null, tp2RR: null },
+    validationErrors: []
+  };
+}
+
+/**
  * Calculate stop loss and take profit levels
  * UPDATED: Now uses setupType-conditional stop loss logic per text file
  * - Swing: Uses HTF (3D/1D) invalidation levels
@@ -638,70 +782,50 @@ function calculateSLTP(entryPrice, direction, allStructures, setupType = '4h', r
   }
 }
 
+// Legacy calculateConfidence() function removed - now using calculateConfidenceWithHierarchy() exclusively
+
 /**
- * Calculate confidence score (0-1)
- * Based on PRD Section 7 confidence scoring
- * @param {Object} analysis - Multi-timeframe analysis
+ * Check dFlow alignment with trade direction
+ * @param {Object} dflowData - dFlow prediction market data
  * @param {string} direction - 'long' or 'short'
- * @returns {number} Confidence score 0-1
+ * @returns {Object} { aligned: boolean, bonus: number, explanation: string }
  */
-function calculateConfidence(analysis, direction) {
-  let score = 0;
+function checkDflowAlignment(dflowData, direction) {
+  if (!dflowData || dflowData.error || !dflowData.events || dflowData.events.length === 0) {
+    return { aligned: null, bonus: 0, explanation: 'No dFlow data available' };
+  }
   
-  const tf4h = analysis['4h'];
-  const tf1h = analysis['1h'];
-  const tf15m = analysis['15m'];
-  const tf5m = analysis['5m'];
+  // Check all markets across all events for alignment
+  let alignedCount = 0;
+  let totalMarkets = 0;
   
-  if (!tf4h || !tf1h) return 0;
-  
-  // 1. 4h trend alignment (0-0.4) - normalize trends
-  const trend4hRaw = tf4h.indicators.analysis.trend;
-  const trend4h = normalizeTrend(trend4hRaw);
-  if (direction === 'long' && trend4h === 'uptrend') score += 0.4;
-  else if (direction === 'short' && trend4h === 'downtrend') score += 0.4;
-  else if (trend4h === 'flat') score += 0.1; // Partial credit
-  
-  // 2. 1h confirmation (0-0.2) - normalize trends
-  const trend1hRaw = tf1h.indicators.analysis.trend;
-  const trend1h = normalizeTrend(trend1hRaw);
-  if (direction === 'long' && trend1h === 'uptrend') score += 0.2;
-  else if (direction === 'short' && trend1h === 'downtrend') score += 0.2;
-  else if (trend1h === 'flat') score += 0.1;
-  
-  // 3. Stoch alignment (0-0.2)
-  if (tf15m && tf5m) {
-    const stoch15m = analyzeStochState(tf15m.indicators.stochRSI);
-    const stoch5m = analyzeStochState(tf5m.indicators.stochRSI);
-    
-    if (direction === 'long') {
-      if (stoch15m.curl === 'up' && stoch5m.curl === 'up') score += 0.2;
-      else if (stoch15m.curl === 'up' || stoch5m.curl === 'up') score += 0.1;
-    } else if (direction === 'short') {
-      if (stoch15m.curl === 'down' && stoch5m.curl === 'down') score += 0.2;
-      else if (stoch15m.curl === 'down' || stoch5m.curl === 'down') score += 0.1;
+  for (const event of dflowData.events) {
+    if (event.markets && Array.isArray(event.markets)) {
+      for (const market of event.markets) {
+        if (market.yesProbability !== null && market.noProbability !== null) {
+          totalMarkets++;
+          const isAligned = direction === 'long'
+            ? market.yesProbability > 60  // Long: YES > 60%
+            : market.noProbability > 60;   // Short: NO > 60%
+          
+          if (isAligned) alignedCount++;
+        }
+      }
     }
   }
   
-  // 4. Structure confluence (0-0.1)
-  if (tf4h.structure.swingHigh && tf4h.structure.swingLow) {
-    const price = tf4h.indicators.price.current;
-    const { swingHigh, swingLow } = tf4h.structure;
-    const range = swingHigh - swingLow;
-    const position = (price - swingLow) / range;
-    
-    // Good structure position for the trade direction
-    if (direction === 'long' && position < 0.5) score += 0.1; // Price in lower half
-    else if (direction === 'short' && position > 0.5) score += 0.1; // Price in upper half
-    else score += 0.05; // Partial credit
+  if (totalMarkets === 0) {
+    return { aligned: null, bonus: 0, explanation: 'No valid dFlow markets' };
   }
   
-  // 5. MA confluence (0-0.1)
-  const pullbackState = tf4h.indicators.analysis.pullbackState;
-  if (pullbackState === 'ENTRY_ZONE') score += 0.1; // Perfect entry zone
-  else if (pullbackState === 'RETRACING') score += 0.05; // Approaching
+  const alignmentRatio = alignedCount / totalMarkets;
+  const aligned = alignmentRatio >= 0.5;  // 50%+ markets aligned
   
-  return Math.min(score, 1.0); // Cap at 1.0
+  return {
+    aligned,
+    bonus: aligned ? 5 : -5,  // +5% if aligned, -5% if contradicts
+    explanation: `${alignedCount}/${totalMarkets} markets align with ${direction} direction`
+  };
 }
 
 /**
@@ -710,12 +834,25 @@ function calculateConfidence(analysis, direction) {
  * @param {Object} multiTimeframeData - All timeframe analysis data
  * @param {string} direction - 'long' or 'short'
  * @param {string} mode - 'STANDARD' or 'AGGRESSIVE'
+ * @param {string} strategyName - Strategy name for base confidence (SWING, TREND_4H, TREND_RIDER, SCALP_1H, MICRO_SCALP)
+ * @param {Object} marketData - Market data for volume quality and trade flow filters
+ * @param {Object} dflowData - dFlow prediction market data for alignment check
  * @returns {Object} { confidence: 0-100, penaltiesApplied: [], capsApplied: [], explanation: string }
  */
-function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 'STANDARD') {
+function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 'STANDARD', strategyName = null, marketData = null, dflowData = null) {
   const penaltiesApplied = [];
   const capsApplied = [];
-  let baseConfidence = 0;
+  
+  // Strategy-specific base confidence
+  const BASE_CONFIDENCE = {
+    'SWING': 80,
+    'TREND_4H': 75,
+    'TREND_RIDER': 75,
+    'SCALP_1H': 70,
+    'MICRO_SCALP': 65
+  };
+  
+  let baseConfidence = strategyName && BASE_CONFIDENCE[strategyName] ? BASE_CONFIDENCE[strategyName] : 0;
   
   // Configuration - make caps configurable
   const CAPS = {
@@ -773,20 +910,23 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     macroAlignment = macroAlignment / availableMacroTfs * macroTfs.length;
   }
   
+  // Apply hierarchical weighting as multipliers to base confidence
   const macroWeight = 0.4;
-  baseConfidence = macroAlignment * macroWeight * 100;
+  let macroMultiplier = 1.0;
   
   // Apply macro penalties
   if (macroContradiction) {
-    const multiplier = macroContradictionLevel === 'severe' ? 0.4 : 
+    macroMultiplier = macroContradictionLevel === 'severe' ? 0.4 : 
                       macroContradictionLevel === 'moderate' ? 0.6 : 0.75;
-    baseConfidence *= multiplier;
     penaltiesApplied.push({
       layer: 'macro',
       level: macroContradictionLevel,
-      multiplier: multiplier,
+      multiplier: macroMultiplier,
       reason: `${macroContradictionLevel} macro contradiction detected`
     });
+  } else if (macroAlignment > 0) {
+    // Bonus for macro alignment
+    macroMultiplier = 1.0 + (macroAlignment * 0.1); // Up to 10% bonus
   }
   
   // 2. PRIMARY TREND LAYER (35% weight)
@@ -794,6 +934,7 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
   const tf1h = multiTimeframeData['1h'];
   let primaryAlignment = 0;
   let primaryContradiction = false;
+  let primaryMultiplier = 1.0;
   
   if (tf4h && tf1h && tf4h.indicators && tf1h.indicators) {
     const trend4h = normalizeTrend(tf4h.indicators.analysis?.trend);
@@ -804,6 +945,7 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
       if ((trend1h === 'uptrend' && direction === 'long') ||
           (trend1h === 'downtrend' && direction === 'short')) {
         primaryAlignment = 0.85;
+        primaryMultiplier = 0.85;
         penaltiesApplied.push({
           layer: 'primary',
           reason: '4H flat but 1H aligned',
@@ -813,9 +955,11 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     } else if ((trend4h === 'uptrend' && direction === 'long') ||
                (trend4h === 'downtrend' && direction === 'short')) {
       primaryAlignment = 1.0;
+      primaryMultiplier = 1.0;
     } else if (trend4h !== 'flat') {
       primaryContradiction = true;
       primaryAlignment = 0.5;
+      primaryMultiplier = 0.5;
       penaltiesApplied.push({
         layer: 'primary',
         reason: '4H contradicts direction',
@@ -825,19 +969,19 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     
     if (trend1h === 'uptrend' && direction === 'long') {
       primaryAlignment = Math.min(1.0, primaryAlignment + 0.15);
+      if (primaryMultiplier < 1.0) primaryMultiplier = Math.min(1.0, primaryMultiplier + 0.15);
     } else if (trend1h === 'downtrend' && direction === 'short') {
       primaryAlignment = Math.min(1.0, primaryAlignment + 0.15);
+      if (primaryMultiplier < 1.0) primaryMultiplier = Math.min(1.0, primaryMultiplier + 0.15);
     }
   }
-  
-  const primaryWeight = 0.35;
-  baseConfidence += (primaryAlignment * primaryWeight * 100);
   
   // 3. EXECUTION LAYER (25% weight)
   const execTfs = ['15m', '5m', '3m', '1m'];
   let execAlignment = 0;
   let exhaustionCount = 0;
   let availableExecTfs = 0;
+  let execMultiplier = 1.0;
   
   for (const tf of execTfs) {
     const data = multiTimeframeData[tf];
@@ -859,43 +1003,136 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     }
   }
   
-  const execWeight = 0.25;
   const avgExecAlignment = availableExecTfs > 0 ? execAlignment / availableExecTfs : 1.0;
-  baseConfidence += (avgExecAlignment * execWeight * 100);
   
   if (exhaustionCount >= 2) {
+    execMultiplier = 0.7;
     penaltiesApplied.push({
       layer: 'execution',
       reason: `${exhaustionCount} lower timeframes show exhaustion`,
       multiplier: 0.7
     });
-    baseConfidence *= 0.7;
   }
+  
+  // Apply hierarchical multipliers to base confidence
+  baseConfidence = baseConfidence * (
+    (macroMultiplier * 0.4) + 
+    (primaryMultiplier * 0.35) + 
+    (avgExecAlignment * 0.25)
+  );
+  
+  // Apply volume quality filter
+  // Apply volume quality filter with fallback for missing data
+  let volumeNote = null;
+  if (marketData && marketData.volumeQuality) {
+    if (marketData.volumeQuality === 'LOW') {
+      baseConfidence -= 5;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: 'Low volume quality',
+        multiplier: 0.95
+      });
+    }
+  } else {
+    // Missing volume data - treat as neutral (no penalty)
+    volumeNote = 'Volume quality missing - no penalty applied';
+  }
+  
+  // Apply trade flow filter
+  if (marketData && marketData.recentTrades) {
+    const { buyPressure, sellPressure, overallFlow } = marketData.recentTrades;
+    
+    if (direction === 'long' && buyPressure < sellPressure) {
+      baseConfidence -= 3;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: 'Sell pressure exceeds buy pressure',
+        multiplier: 0.97
+      });
+    } else if (direction === 'short' && sellPressure < buyPressure) {
+      baseConfidence -= 3;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: 'Buy pressure exceeds sell pressure',
+        multiplier: 0.97
+      });
+    }
+    
+    // Bonus for strong flow alignment
+    if (direction === 'long' && overallFlow === 'BUY' && buyPressure > 60) {
+      baseConfidence += 3;
+    } else if (direction === 'short' && overallFlow === 'SELL' && sellPressure > 60) {
+      baseConfidence += 3;
+    }
+  }
+  
+  // Apply dFlow alignment filter with fallback for missing data
+  let dflowScore = 0;
+  let dflowNote = null;
+  if (dflowData && dflowData.events && Array.isArray(dflowData.events) && dflowData.events.length > 0) {
+    const dflowCheck = checkDflowAlignment(dflowData, direction);
+    if (dflowCheck.bonus !== 0) {
+      baseConfidence += dflowCheck.bonus;
+      dflowScore = dflowCheck.bonus;
+      if (dflowCheck.bonus > 0) {
+        penaltiesApplied.push({
+          layer: 'dflow',
+          reason: `dFlow alignment: ${dflowCheck.explanation}`,
+          multiplier: 1.0 + (dflowCheck.bonus / 100)
+        });
+      } else {
+        penaltiesApplied.push({
+          layer: 'dflow',
+          reason: `dFlow contradiction: ${dflowCheck.explanation}`,
+          multiplier: 1.0 + (dflowCheck.bonus / 100)
+        });
+      }
+    }
+  } else {
+    // Missing dFlow data - treat as neutral (no bonus/penalty)
+    dflowScore = 0;
+    dflowNote = 'dFlow data missing - treated as neutral';
+  }
+  
+  // Check if all conditions align for 95% cap in AGGRESSIVE mode
+  const allConditionsAligned = mode === 'AGGRESSIVE' &&
+    !macroContradiction &&
+    !primaryContradiction &&
+    exhaustionCount < 2 &&
+    (!marketData || marketData.volumeQuality !== 'LOW') &&
+    (dflowData ? checkDflowAlignment(dflowData, direction).aligned === true : true);
   
   // Apply hard caps
   let finalConfidence = Math.min(100, Math.max(0, baseConfidence));
   
-  if (macroContradiction && primaryContradiction) {
-    if (finalConfidence > caps.MACRO_PRIMARY_CONTRADICTION) {
-      capsApplied.push('MACRO_PRIMARY_CONTRADICTION');
-      finalConfidence = Math.min(finalConfidence, caps.MACRO_PRIMARY_CONTRADICTION);
+  // Special case: 95% cap in AGGRESSIVE when all conditions align
+  if (allConditionsAligned && finalConfidence > 95) {
+    capsApplied.push('MAX_AGGRESSIVE_ALIGNED');
+    finalConfidence = Math.min(finalConfidence, 95);
+  } else {
+    // Apply standard caps
+    if (macroContradiction && primaryContradiction) {
+      if (finalConfidence > caps.MACRO_PRIMARY_CONTRADICTION) {
+        capsApplied.push('MACRO_PRIMARY_CONTRADICTION');
+        finalConfidence = Math.min(finalConfidence, caps.MACRO_PRIMARY_CONTRADICTION);
+      }
+    } else if (macroContradiction) {
+      if (finalConfidence > caps.MACRO_CONTRADICTION) {
+        capsApplied.push('MACRO_CONTRADICTION');
+        finalConfidence = Math.min(finalConfidence, caps.MACRO_CONTRADICTION);
+      }
+    } else if (primaryContradiction) {
+      if (finalConfidence > caps.PRIMARY_CONTRADICTION) {
+        capsApplied.push('PRIMARY_CONTRADICTION');
+        finalConfidence = Math.min(finalConfidence, caps.PRIMARY_CONTRADICTION);
+      }
     }
-  } else if (macroContradiction) {
-    if (finalConfidence > caps.MACRO_CONTRADICTION) {
-      capsApplied.push('MACRO_CONTRADICTION');
-      finalConfidence = Math.min(finalConfidence, caps.MACRO_CONTRADICTION);
-    }
-  } else if (primaryContradiction) {
-    if (finalConfidence > caps.PRIMARY_CONTRADICTION) {
-      capsApplied.push('PRIMARY_CONTRADICTION');
-      finalConfidence = Math.min(finalConfidence, caps.PRIMARY_CONTRADICTION);
-    }
-  }
-  
-  if (exhaustionCount >= 2 && (macroContradiction || primaryContradiction)) {
-    if (finalConfidence > caps.EXHAUSTION_CONTRADICTION) {
-      capsApplied.push('EXHAUSTION_CONTRADICTION');
-      finalConfidence = Math.min(finalConfidence, caps.EXHAUSTION_CONTRADICTION);
+    
+    if (exhaustionCount >= 2 && (macroContradiction || primaryContradiction)) {
+      if (finalConfidence > caps.EXHAUSTION_CONTRADICTION) {
+        capsApplied.push('EXHAUSTION_CONTRADICTION');
+        finalConfidence = Math.min(finalConfidence, caps.EXHAUSTION_CONTRADICTION);
+      }
     }
   }
   
@@ -909,7 +1146,9 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     confidence: Math.round(finalConfidence),
     penaltiesApplied,
     capsApplied,
-    explanation
+    explanation,
+    dflowNote: dflowNote || null, // Return note for missing dFlow data
+    volumeNote: volumeNote || null // Return note for missing volume data
   };
 }
 
@@ -1004,7 +1243,7 @@ function buildReasonSummary(analysis, direction, confidence) {
  * @param {number} currentPrice - Current market price
  * @returns {Object|null} Swing signal or null
  */
-function evaluateSwingSetup(multiTimeframeData, currentPrice) {
+function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD', marketData = null, dflowData = null) {
   const tf3d = multiTimeframeData['3d'];
   const tf1d = multiTimeframeData['1d'];
   const tf4h = multiTimeframeData['4h'];
@@ -1014,42 +1253,56 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
     return null;
   }
   
-  // Extract indicators
-  const trend3d = tf3d.indicators?.trend;
-  const trend1d = tf1d.indicators?.trend;
-  const trend4h = tf4h.indicators?.trend;
-  const pullback3d = tf3d.indicators?.pullback;
-  const pullback1d = tf1d.indicators?.pullback;
-  const pullback4h = tf4h.indicators?.pullback;
-  const stoch3d = tf3d.indicators?.stoch;
-  const stoch1d = tf1d.indicators?.stoch;
-  const stoch4h = tf4h.indicators?.stoch;
-  const ema21_4h = tf4h.indicators?.ema21;
-  const ema21_1d = tf1d.indicators?.ema21;
-  const swingLow3d = tf3d.indicators?.swingLow;
-  const swingLow1d = tf1d.indicators?.swingLow;
-  const swingHigh3d = tf3d.indicators?.swingHigh;
-  const swingHigh1d = tf1d.indicators?.swingHigh;
+  // Extract indicators - FIX: Use correct data paths (indicators.analysis.trend, not indicators.trend)
+  const trend3d = tf3d.indicators?.analysis?.trend;
+  const trend1d = tf1d.indicators?.analysis?.trend;
+  const trend4h = tf4h.indicators?.analysis?.trend;
+  const pullback3d = {
+    state: tf3d.indicators?.analysis?.pullbackState,
+    distanceFrom21EMA: tf3d.indicators?.analysis?.distanceFrom21EMA
+  };
+  const pullback1d = {
+    state: tf1d.indicators?.analysis?.pullbackState,
+    distanceFrom21EMA: tf1d.indicators?.analysis?.distanceFrom21EMA
+  };
+  const pullback4h = {
+    state: tf4h.indicators?.analysis?.pullbackState,
+    distanceFrom21EMA: tf4h.indicators?.analysis?.distanceFrom21EMA
+  };
+  const stoch3d = tf3d.indicators?.stochRSI || {};
+  const stoch1d = tf1d.indicators?.stochRSI || {};
+  const stoch4h = tf4h.indicators?.stochRSI || {};
+  const ema21_4h = tf4h.indicators?.ema?.ema21;
+  const ema21_1d = tf1d.indicators?.ema?.ema21;
+  const swingLow3d = tf3d.structure?.swingLow;
+  const swingLow1d = tf1d.structure?.swingLow;
+  const swingHigh3d = tf3d.structure?.swingHigh;
+  const swingHigh1d = tf1d.structure?.swingHigh;
   
   // Guard: Need all data points
-  if (!trend3d || !trend1d || !trend4h || !pullback3d || !pullback1d || !pullback4h ||
+  if (!trend3d || !trend1d || !trend4h || !pullback3d.state || !pullback1d.state || !pullback4h.state ||
       !stoch3d || !stoch1d || !stoch4h || !ema21_4h || !ema21_1d || !currentPrice) {
     return null;
   }
   
   // 1) GATEKEEPERS — WHEN SWING IS EVEN ALLOWED
+  // Normalize trends for comparison
+  const trend3dNorm = normalizeTrend(trend3d);
+  const trend1dNorm = normalizeTrend(trend1d);
+  const trend4hNorm = normalizeTrend(trend4h);
+  
   // 4H trend must NOT be FLAT for swing trades
-  if (trend4h === 'FLAT') {
+  if (trend4hNorm === 'flat') {
     return null;
   }
   
   // 3D trend must NOT be FLAT
-  if (trend3d === 'FLAT') {
+  if (trend3dNorm === 'flat') {
     return null;
   }
   
   // 1D trend must be either UPTREND or DOWNTREND
-  if (trend1d === 'FLAT') {
+  if (trend1dNorm === 'flat') {
     return null;
   }
   
@@ -1071,11 +1324,11 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
   // Check for LONG swing setup
   const longConditions = {
     // HTF Direction: 3D bullish or flat leaning bullish
-    htf3d: trend3d === 'UPTREND' || 
-           (trend3d === 'FLAT' && (stoch3d.condition === 'BULLISH' || stoch3d.condition === 'OVERSOLD')),
+    htf3d: trend3dNorm === 'uptrend' || 
+           (trend3dNorm === 'flat' && (stoch3d.condition === 'BULLISH' || stoch3d.condition === 'OVERSOLD')),
     
     // 1D trending down BUT with bullish pivot signs
-    htf1d: trend1d === 'DOWNTREND' && 
+    htf1d: trend1dNorm === 'downtrend' && 
            (stoch1d.condition === 'BULLISH' || stoch1d.k < 25),
     
     // HTF Pullback: 3D overextended below 21EMA
@@ -1089,10 +1342,9 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
     pricePosition: currentPrice >= (swingLow1d || ema21_1d * 0.90) && 
                    currentPrice <= ema21_1d * 1.02,
     
-    // 4H Confirmation
-    conf4h: (trend4h === 'UPTREND' || (trend4h === 'FLAT' && stoch4h.condition === 'BULLISH')) &&
-            (pullback4h.state === 'RETRACING' || pullback4h.state === 'ENTRY_ZONE') &&
-            Math.abs(currentPrice - ema21_4h) / currentPrice <= 0.01 // within ±1%
+    // 4H Confirmation (EMA distance check removed - will use confidence penalty instead)
+    conf4h: (trend4hNorm === 'uptrend' || (trend4hNorm === 'flat' && stoch4h.condition === 'BULLISH')) &&
+            (pullback4h.state === 'RETRACING' || pullback4h.state === 'ENTRY_ZONE')
   };
   
   const allLongConditions = Object.values(longConditions).every(v => v);
@@ -1109,11 +1361,11 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
   if (!direction) {
     const shortConditions = {
       // HTF Direction: 3D bearish or flat leaning bearish
-      htf3d: trend3d === 'DOWNTREND' || 
-             (trend3d === 'FLAT' && (stoch3d.condition === 'BEARISH' || stoch3d.condition === 'OVERBOUGHT')),
+      htf3d: trend3dNorm === 'downtrend' || 
+             (trend3dNorm === 'flat' && (stoch3d.condition === 'BEARISH' || stoch3d.condition === 'OVERBOUGHT')),
       
       // 1D trending up BUT with bearish rejection signs
-      htf1d: trend1d === 'UPTREND' && 
+      htf1d: trend1dNorm === 'uptrend' && 
              (stoch1d.condition === 'BEARISH' || stoch1d.k > 75),
       
       // HTF Pullback: 3D overextended above 21EMA
@@ -1127,10 +1379,9 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
       pricePosition: currentPrice <= (swingHigh1d || ema21_1d * 1.10) && 
                      currentPrice >= ema21_1d * 0.98,
       
-      // 4H Confirmation
-      conf4h: (trend4h === 'DOWNTREND' || (trend4h === 'FLAT' && stoch4h.condition === 'BEARISH')) &&
-              (pullback4h.state === 'RETRACING' || pullback4h.state === 'ENTRY_ZONE') &&
-              Math.abs(currentPrice - ema21_4h) / currentPrice <= 0.01 // within ±1%
+      // 4H Confirmation (EMA distance check removed - will use confidence penalty instead)
+      conf4h: (trend4hNorm === 'downtrend' || (trend4hNorm === 'flat' && stoch4h.condition === 'BEARISH')) &&
+              (pullback4h.state === 'RETRACING' || pullback4h.state === 'ENTRY_ZONE')
     };
     
     const allShortConditions = Object.values(shortConditions).every(v => v);
@@ -1166,9 +1417,31 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
     invalidationLevel = stopLoss;
   }
   
-  // Entry zone: ±0.5% around reclaim level
-  const entryMin = reclaimLevel * 0.995;
-  const entryMax = reclaimLevel * 1.005;
+  // Entry zone: Check for pullback entry first, then breakout entry
+  let entryMin, entryMax, entryType = 'pullback';
+  
+  // Check for breakout entry (price above swingHigh for longs, below swingLow for shorts)
+  const swingLevel = direction === 'long' ? swingHigh1d : swingLow1d;
+  const stoch1dForBreakout = stoch1d;
+  
+  if (swingLevel && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch1dForBreakout)) {
+    // Use breakout entry zone
+    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+    if (breakoutZone) {
+      entryMin = breakoutZone.min;
+      entryMax = breakoutZone.max;
+      entryType = 'breakout';
+    } else {
+      // Fallback to pullback entry
+      entryMin = reclaimLevel * 0.995;
+      entryMax = reclaimLevel * 1.005;
+    }
+  } else {
+    // Use pullback entry zone
+    entryMin = reclaimLevel * 0.995;
+    entryMax = reclaimLevel * 1.005;
+  }
+  
   const midEntry = (entryMin + entryMax) / 2;
   
   // Risk (R)
@@ -1186,12 +1459,22 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
     tp3 = midEntry - (R * 5);
   }
   
-  // Use hierarchical confidence system for Swing
-  const confidenceResult = calculateConfidenceWithHierarchy(multiTimeframeData, direction, 'STANDARD');
+  // Use hierarchical confidence system for Swing with strategy name and filters
+  const confidenceResult = calculateConfidenceWithHierarchy(
+    multiTimeframeData, 
+    direction, 
+    mode,
+    'SWING',      // Strategy name for base confidence
+    marketData,   // Volume quality filter
+    dflowData     // dFlow alignment
+  );
   let confidence = confidenceResult.confidence;
   const penaltiesApplied = confidenceResult.penaltiesApplied;
   const capsApplied = confidenceResult.capsApplied;
   const confidenceExplanation = confidenceResult.explanation;
+  
+  // Apply volume quality soft block for MICRO_SCALP (not applicable to SWING, but keep pattern)
+  // Volume quality penalty already applied in calculateConfidenceWithHierarchy
   
   // Swing-specific bonuses (applied after hierarchical calculation)
   // Boost for strong stoch alignment
@@ -1212,6 +1495,23 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
   
   confidence = Math.min(confidence, 90);
   
+  // Global minimum confidence threshold (SWING uses STANDARD mode)
+  const minConfidenceSafe = 60;
+  if (confidence < minConfidenceSafe) {
+    return {
+      valid: false,
+      direction: 'NO_TRADE',
+      confidence: Math.round(confidence),
+      reason: `Setup rejected: confidence ${confidence.toFixed(1)}% below minimum ${minConfidenceSafe}%`,
+      entryZone: { min: null, max: null },
+      stopLoss: null,
+      invalidationLevel: null,
+      targets: [],
+      riskReward: { tp1RR: null, tp2RR: null },
+      validationErrors: []
+    };
+  }
+  
   // Compute HTF Bias for Swing
   const htfBias = computeHTFBias(multiTimeframeData);
   
@@ -1228,6 +1528,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
     penaltiesApplied: penaltiesApplied,
     capsApplied: capsApplied,
     explanation: confidenceExplanation,
+    entryType: entryType, // 'pullback' or 'breakout'
     entry_zone: {
       min: parseFloat(entryMin.toFixed(2)),
       max: parseFloat(entryMax.toFixed(2))
@@ -1280,7 +1581,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice) {
  * @param {string} setupType - 'Swing', 'Scalp', or '4h' (default '4h')
  * @returns {Object} Trade signal object
  */
-export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', mode = 'STANDARD') {
+export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', mode = 'STANDARD', marketData = null, dflowData = null) {
   const analysis = multiTimeframeData;
   const tf3d = analysis['3d'];
   const tf1d = analysis['1d'];
@@ -1318,7 +1619,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   
   // PRIORITY 1: Check for 3D Swing Setup (if setupType is 'Swing' OR auto-detect)
   if (setupType === 'Swing' || setupType === 'auto') {
-    const swingSignal = evaluateSwingSetup(analysis, currentPrice);
+    const swingSignal = evaluateSwingSetup(analysis, currentPrice, mode, marketData, dflowData);
     if (swingSignal && swingSignal.valid) {
       // Return swing signal directly (already includes htfBias)
       const rawSignal = {
@@ -1501,17 +1802,121 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
                     setupType === 'Scalp' ? [1.5, 2.5] : 
                     [1.0, 2.0];
   
-  // Calculate entry zone, SL, TP with setupType-conditional logic
-  const entryZone = calculateEntryZone(ema21, direction);
+  // Calculate entry zone - check for pullback entry first, then breakout entry
+  let entryZone, entryType = 'pullback';
+  const swingLevel = direction === 'long' 
+    ? (tf4h.structure?.swingHigh || tf1h?.structure?.swingHigh)
+    : (tf4h.structure?.swingLow || tf1h?.structure?.swingLow);
+  const stoch4hForBreakout = tf4h.indicators?.stochRSI;
+  
+  // Check for breakout entry
+  if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
+    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+    if (breakoutZone) {
+      entryZone = breakoutZone;
+      entryType = 'breakout';
+    } else {
+      entryZone = calculateEntryZone(ema21, direction);
+    }
+  } else {
+    entryZone = calculateEntryZone(ema21, direction);
+  }
+  
   const entryMid = (entryZone.min + entryZone.max) / 2;
   const sltp = calculateSLTP(entryMid, direction, allStructures, setupType, rrTargets);
   
-  // Calculate confidence with hierarchical weighting system
-  const confidenceResult = calculateConfidenceWithHierarchy(analysis, direction, mode);
-  const confidence = confidenceResult.confidence;
-  const penaltiesApplied = confidenceResult.penaltiesApplied;
+  // Calculate confidence with hierarchical weighting system (pass strategy name and filters)
+  const strategyName = setupType === 'Scalp' ? 'SCALP_1H' : 'TREND_4H';
+  const confidenceResult = calculateConfidenceWithHierarchy(
+    analysis, 
+    direction, 
+    mode,
+    strategyName,  // Strategy name for base confidence
+    marketData,   // Volume quality filter
+    dflowData      // dFlow alignment
+  );
+  let confidence = confidenceResult.confidence;
+  let penaltiesApplied = [...confidenceResult.penaltiesApplied];
   const capsApplied = confidenceResult.capsApplied;
   const confidenceExplanation = confidenceResult.explanation;
+  const dflowNote = confidenceResult.dflowNote || null;
+  const volumeNote = confidenceResult.volumeNote || null;
+  
+  // Apply EMA distance penalty (replaces hard filter)
+  const emaDistance = Math.abs(currentPrice - ema21) / currentPrice;
+  if (emaDistance > 0.02) {
+    // >2% still blocked
+    return normalizeToCanonical({
+      valid: false,
+      direction: 'NO_TRADE',
+      confidence,
+      reason: `Setup rejected: price too far from EMA21 (${(emaDistance * 100).toFixed(2)}% > 2%)`,
+      entryZone: { min: null, max: null },
+      stopLoss: null,
+      invalidationLevel: null,
+      targets: [],
+      riskReward: { tp1RR: null, tp2RR: null },
+      validationErrors: []
+    }, analysis, mode);
+  } else if (emaDistance > 0.01) {
+    // 1-2% = penalty
+    confidence -= 3;
+    penaltiesApplied.push({
+      layer: 'entry',
+      reason: `EMA distance penalty: ${(emaDistance * 100).toFixed(2)}% from 21 EMA (1-2% range)`,
+      multiplier: 0.97
+    });
+  }
+  
+  // Global minimum confidence threshold
+  const minConfidenceSafe = 60;
+  const minConfidenceAggressive = 50;
+  const minConfidence = mode === 'STANDARD' ? minConfidenceSafe : minConfidenceAggressive;
+  
+  // AGGRESSIVE mode: Allow override if confidence is high even if some direction conditions not met
+  let override = false;
+  let notes = [];
+  const htfBias = computeHTFBias(analysis);
+  
+  // Check if we should allow override in AGGRESSIVE mode
+  if (mode === 'AGGRESSIVE' && confidence >= 65 && htfBias && htfBias.direction === direction) {
+    // Allow trade with override tag
+    override = true;
+    notes.push('Direction conditions softened - high confidence override applied');
+    penaltiesApplied.push({
+      layer: 'override',
+      reason: 'Direction softened due to high confidence (≥65%) and HTF bias alignment',
+      multiplier: 1.0
+    });
+  }
+  
+  // Fuzzy tolerance: Allow ±1% if HTF bias aligns (for SCALP_1H and other strategies)
+  const fuzzyTolerance = 1.0; // Allow 1% below minimum if HTF bias matches
+  const withinFuzzyRange = confidence >= (minConfidence - fuzzyTolerance) && confidence < minConfidence;
+  if (withinFuzzyRange && htfBias && htfBias.direction === direction && htfBias.confidence >= 60) {
+    override = true;
+    notes.push(`Fuzzy override: confidence ${confidence.toFixed(1)}% within ${fuzzyTolerance}% of minimum ${minConfidence}% with HTF bias alignment`);
+    penaltiesApplied.push({
+      layer: 'override',
+      reason: `Fuzzy tolerance applied: confidence ${confidence.toFixed(1)}% (within ${fuzzyTolerance}% of ${minConfidence}%) with HTF bias ${htfBias.direction} (${htfBias.confidence}%)`,
+      multiplier: 1.0
+    });
+  }
+  
+  if (confidence < minConfidence && !override) {
+    return normalizeToCanonical({
+      valid: false,
+      direction: 'NO_TRADE',
+      confidence,
+      reason: `Setup rejected: confidence ${confidence.toFixed(1)}% below minimum ${minConfidence}%`,
+      entryZone: { min: null, max: null },
+      stopLoss: null,
+      invalidationLevel: null,
+      targets: [],
+      riskReward: { tp1RR: null, tp2RR: null },
+      validationErrors: []
+    }, analysis, mode);
+  }
   
   // Build reason summary (include confidence explanation)
   const reasonSummary = buildReasonSummary(analysis, direction, confidence);
@@ -1519,10 +1924,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   
   // Build trend object
   const trendObj = {
-    '4h': trend4h.toLowerCase(),
-    '1h': tf1h ? tf1h.indicators.analysis.trend.toLowerCase() : 'unknown',
-    '15m': tf15m ? tf15m.indicators.analysis.trend.toLowerCase() : 'unknown',
-    '5m': tf5m ? tf5m.indicators.analysis.trend.toLowerCase() : 'unknown'
+    '4h': trend4h ? (typeof trend4h === 'string' ? trend4h.toLowerCase() : 'unknown') : 'unknown',
+    '1h': tf1h?.indicators?.analysis?.trend ? (typeof tf1h.indicators.analysis.trend === 'string' ? tf1h.indicators.analysis.trend.toLowerCase() : 'unknown') : 'unknown',
+    '15m': tf15m?.indicators?.analysis?.trend ? (typeof tf15m.indicators.analysis.trend === 'string' ? tf15m.indicators.analysis.trend.toLowerCase() : 'unknown') : 'unknown',
+    '5m': tf5m?.indicators?.analysis?.trend ? (typeof tf5m.indicators.analysis.trend === 'string' ? tf5m.indicators.analysis.trend.toLowerCase() : 'unknown') : 'unknown'
   };
   
   // Build stoch object
@@ -1562,6 +1967,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     setupType: setupType,
     selectedStrategy: 'TREND_4H',
     strategiesChecked: ['SWING', 'TREND_4H'],
+    entryType: entryType, // 'pullback' or 'breakout'
     entry_zone: {
       min: parseFloat(entryZone.min.toFixed(2)),
       max: parseFloat(entryZone.max.toFixed(2))
@@ -1582,6 +1988,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     penaltiesApplied: penaltiesApplied,
     capsApplied: capsApplied,
     explanation: confidenceExplanation,
+    override: override || false, // Mark if relaxed conditions were used
+    notes: notes.length > 0 ? notes : undefined, // Array of notes about relaxed conditions
     valid: true, // Only set to true after all fields validated
     invalidation: {
       level: parseFloat(sltp.invalidationLevel.toFixed(2)),
@@ -1613,7 +2021,28 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   return normalizeToCanonical(rawSignal, analysis, mode);
   } // End of 4H trend play
   
-  // PRIORITY 3: Try 1H Scalp (works even when 4H is FLAT)
+  // PRIORITY 3: TREND_RIDER (after TREND_4H, before SCALP_1H)
+  if (setupType === 'TrendRider' || setupType === 'auto') {
+    const trendRiderSignal = evaluateTrendRider(analysis, currentPrice, mode, marketData, dflowData);
+    if (trendRiderSignal && trendRiderSignal.valid) {
+      // If valid, return normalized signal
+      const rawSignal = {
+        ...trendRiderSignal,
+        symbol,
+        setupType: 'TrendRider',
+        entry_zone: trendRiderSignal.entryZone,
+        stop_loss: trendRiderSignal.stopLoss,
+        invalidation_level: trendRiderSignal.invalidationLevel,
+        targets: trendRiderSignal.targets,
+        risk_reward: trendRiderSignal.riskReward,
+        risk_amount: trendRiderSignal.riskAmount
+      };
+      return normalizeToCanonical(rawSignal, analysis, mode);
+    }
+    // If invalid or null, continue to next strategy (will be handled by normalizeStrategyResult)
+  }
+  
+  // PRIORITY 4: Try 1H Scalp (works even when 4H is FLAT)
   if ((setupType === 'Scalp' || setupType === 'auto') && tf1h && tf15m) {
     const trend1h = tf1h.indicators?.analysis?.trend;
     const dist1h = tf1h.indicators?.analysis?.distanceFrom21EMA;
@@ -1648,7 +2077,27 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
         if (stochOk) {
           // Build 1H Scalp signal
           const ema21_1h = tf1h.indicators?.ema?.ema21 || currentPrice;
-          const entryZone = calculateEntryZone(ema21_1h, direction);
+          
+          // Check for breakout entry first, then pullback entry
+          let entryZone, entryType = 'pullback';
+          const swingLevel = direction === 'long' 
+            ? (tf1h.structure?.swingHigh || tf15m?.structure?.swingHigh)
+            : (tf1h.structure?.swingLow || tf15m?.structure?.swingLow);
+          const stoch15mForBreakout = tf15m.indicators?.stochRSI;
+          
+          // Check for breakout entry
+          if (swingLevel && stoch15mForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch15mForBreakout)) {
+            const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+            if (breakoutZone) {
+              entryZone = breakoutZone;
+              entryType = 'breakout';
+            } else {
+              entryZone = calculateEntryZone(ema21_1h, direction);
+            }
+          } else {
+            entryZone = calculateEntryZone(ema21_1h, direction);
+          }
+          
           const entryMid = (entryZone.min + entryZone.max) / 2;
           
           const allStructures = {
@@ -1662,8 +2111,15 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const rrTargets = [1.5, 3.0]; // Scalp targets
           const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets);
           
-          // Use hierarchical confidence system for Scalp
-          const confidenceResult = calculateConfidenceWithHierarchy(analysis, direction, mode);
+          // Use hierarchical confidence system for Scalp (pass strategy name and filters)
+          const confidenceResult = calculateConfidenceWithHierarchy(
+            analysis, 
+            direction, 
+            mode,
+            'SCALP_1H',  // Strategy name for base confidence
+            marketData,  // Volume quality filter
+            dflowData     // dFlow alignment
+          );
           let confidence = confidenceResult.confidence;
           const penaltiesApplied = confidenceResult.penaltiesApplied;
           const capsApplied = confidenceResult.capsApplied;
@@ -1673,12 +2129,72 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.1) : 0;
           confidence = Math.min(85, Math.round(confidence + biasBonus));
           
+          // Block counter-trend scalps when HTF bias is strong (>= 70%)
+          const strongBiasThreshold = 70;
+          if (htfBias && htfBias.confidence >= strongBiasThreshold) {
+            if (direction === 'long' && htfBias.direction === 'short') {
+              return normalizeToCanonical({
+                valid: false,
+                direction: 'NO_TRADE',
+                confidence: 0,
+                reason: 'Counter-trend LONG scalp blocked by strong HTF short bias',
+                entryZone: { min: null, max: null },
+                stopLoss: null,
+                invalidationLevel: null,
+                targets: [],
+                riskReward: { tp1RR: null, tp2RR: null },
+                validationErrors: []
+              }, analysis, mode);
+            }
+            if (direction === 'short' && htfBias.direction === 'long') {
+              return normalizeToCanonical({
+                valid: false,
+                direction: 'NO_TRADE',
+                confidence: 0,
+                reason: 'Counter-trend SHORT scalp blocked by strong HTF long bias',
+                entryZone: { min: null, max: null },
+                stopLoss: null,
+                invalidationLevel: null,
+                targets: [],
+                riskReward: { tp1RR: null, tp2RR: null },
+                validationErrors: []
+              }, analysis, mode);
+            }
+          }
+          
+          // Global minimum confidence threshold
+          const minConfidenceSafe = 60;
+          const minConfidenceAggressive = 50;
+          const minConfidence = mode === 'STANDARD' ? minConfidenceSafe : minConfidenceAggressive;
+          
+          // Fuzzy tolerance: Allow ±1% if HTF bias aligns
+          const htfBias = computeHTFBias(analysis);
+          const fuzzyTolerance = 1.0;
+          const withinFuzzyRange = confidence >= (minConfidence - fuzzyTolerance) && confidence < minConfidence;
+          const allowFuzzyOverride = withinFuzzyRange && htfBias && htfBias.direction === direction && htfBias.confidence >= 60;
+          
+          if (confidence < minConfidence && !allowFuzzyOverride) {
+            return normalizeToCanonical({
+              valid: false,
+              direction: 'NO_TRADE',
+              confidence,
+              reason: `Setup rejected: confidence ${confidence.toFixed(1)}% below minimum ${minConfidence}%`,
+              entryZone: { min: null, max: null },
+              stopLoss: null,
+              invalidationLevel: null,
+              targets: [],
+              riskReward: { tp1RR: null, tp2RR: null },
+              validationErrors: []
+            }, analysis, mode);
+          }
+          
           const rawSignal = {
             symbol,
             direction,
             setupType: 'Scalp',
             selectedStrategy: 'SCALP_1H',
             strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H'],
+            entryType: entryType, // 'pullback' or 'breakout'
             entry_zone: {
               min: parseFloat(entryZone.min.toFixed(2)),
               max: parseFloat(entryZone.max.toFixed(2))
@@ -1762,8 +2278,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   
   // PRIORITY 5: No clean setup on any strategy (conservative or aggressive)
   const strategiesChecked = mode === 'AGGRESSIVE' 
-    ? ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H', 'AGGRO_MICRO_SCALP']
-    : ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP'];
+    ? ['SWING', 'TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H', 'AGGRO_MICRO_SCALP']
+    : ['SWING', 'TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP'];
     
   const rawSignal = {
     symbol,
@@ -1805,10 +2321,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
       `• Micro-Scalp: Needs 1H trending + 15m/5m within ±0.25% of EMA21`
     ],
     trend: {
-      '4h': trend4h.toLowerCase(),
-      '1h': tf1h?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
-      '15m': tf15m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown',
-      '5m': tf5m?.indicators?.analysis?.trend?.toLowerCase() || 'unknown'
+      '4h': trend4h ? (typeof trend4h === 'string' ? trend4h.toLowerCase() : 'unknown') : 'unknown',
+      '1h': tf1h?.indicators?.analysis?.trend ? (typeof tf1h.indicators.analysis.trend === 'string' ? tf1h.indicators.analysis.trend.toLowerCase() : 'unknown') : 'unknown',
+      '15m': tf15m?.indicators?.analysis?.trend ? (typeof tf15m.indicators.analysis.trend === 'string' ? tf15m.indicators.analysis.trend.toLowerCase() : 'unknown') : 'unknown',
+      '5m': tf5m?.indicators?.analysis?.trend ? (typeof tf5m.indicators.analysis.trend === 'string' ? tf5m.indicators.analysis.trend.toLowerCase() : 'unknown') : 'unknown'
     },
     stoch: {
       '4h': analyzeStochState(tf4h.indicators.stochRSI),
@@ -1833,7 +2349,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
  * @param {Object} multiTimeframeData - All timeframe data
  * @returns {Object} Micro-scalp signal or null
  */
-function evaluateMicroScalp(multiTimeframeData) {
+function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = null) {
   const tf1h = multiTimeframeData['1h'];
   const tf15m = multiTimeframeData['15m'];
   const tf5m = multiTimeframeData['5m'];
@@ -1981,11 +2497,31 @@ function evaluateMicroScalp(multiTimeframeData) {
   const entryMin = entry * 0.995;
   const entryMax = entry * 1.005;
   
-  // Confidence: 60-75 based on how tight confluence is
+  // Use hierarchical confidence system for MicroScalp (pass strategy name and filters)
+  const confidenceResult = calculateConfidenceWithHierarchy(
+    multiTimeframeData, 
+    direction, 
+    'STANDARD', // MicroScalp always uses STANDARD mode
+    'MICRO_SCALP',  // Strategy name for base confidence
+    marketData,     // Volume quality filter
+    dflowData        // dFlow alignment
+  );
+  
+  // Base confidence from hierarchy, then apply MicroScalp-specific adjustments
+  let confidence = confidenceResult.confidence || 0;
   const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 0);
   const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 0);
   const avgDist = (dist15m + dist5m) / 2;
-  const confidence = Math.max(60, Math.min(75, 75 - (avgDist * 60))); // Already 0-100 scale
+  // Adjust based on tight confluence (bonus for tight pullbacks)
+  const confluenceBonus = avgDist < 0.5 ? 5 : avgDist < 1.0 ? 3 : 0;
+  confidence = Math.max(60, Math.min(75, confidence + confluenceBonus));
+  
+  // Volume quality soft block for MICRO_SCALP
+  if (marketData && marketData.volumeQuality === 'LOW' && confidence < 60) {
+    result.eligible = false;
+    result.signal = null;
+    return result; // Soft block: return no signal if volume quality too low
+  }
   
   // Build signal - ENSURE ALL FIELDS ARE PRESENT BEFORE SETTING valid=true
   result.signal = {
@@ -1993,6 +2529,10 @@ function evaluateMicroScalp(multiTimeframeData) {
     direction: direction,
     setupType: 'MicroScalp',
     confidence: Math.round(confidence), // 0-100 scale, round to integer
+    penaltiesApplied: confidenceResult.penaltiesApplied || [],
+    capsApplied: confidenceResult.capsApplied || [],
+    explanation: confidenceResult.explanation || '',
+    entryType: 'pullback', // MICRO_SCALP uses pullback-only entries
     entry: {
       min: parseFloat(entryMin.toFixed(2)),
       max: parseFloat(entryMax.toFixed(2))
@@ -2019,19 +2559,377 @@ function evaluateMicroScalp(multiTimeframeData) {
 }
 
 /**
+ * Evaluate Trend Rider Setup
+ * Catch and ride strong trends using 4H as bias, 1H as execution,
+ * and 15m/5m for timing. Earlier entries than SWING / deep pullbacks.
+ * 
+ * @param {Object} multiTimeframeData - All timeframe data (analysis object)
+ * @param {number} currentPrice       - Current market price
+ * @param {string} mode               - STANDARD or AGGRESSIVE
+ * @returns {Object|null} Strategy signal or null
+ */
+export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STANDARD', marketData = null, dflowData = null) {
+  if (!multiTimeframeData) return null;
+
+  const tf4h  = multiTimeframeData['4h'];
+  const tf1h  = multiTimeframeData['1h'];
+  const tf15m = multiTimeframeData['15m'];
+  const tf5m  = multiTimeframeData['5m'];
+
+  // Guard: need core timeframes
+  if (!tf4h || !tf1h || !tf15m || !tf5m) return null;
+
+  // ---- Extract indicators safely ----
+  const trend4h   = normalizeTrend(tf4h.indicators?.analysis?.trend);
+  const trend1h   = normalizeTrend(tf1h.indicators?.analysis?.trend);
+  const trend15m  = normalizeTrend(tf15m.indicators?.analysis?.trend);
+  const trend5m   = normalizeTrend(tf5m.indicators?.analysis?.trend);
+
+  const pullback4h = {
+    state: tf4h.indicators?.analysis?.pullbackState,
+    dist:  tf4h.indicators?.analysis?.distanceFrom21EMA
+  };
+
+  const pullback1h = {
+    state: tf1h.indicators?.analysis?.pullbackState,
+    dist:  tf1h.indicators?.analysis?.distanceFrom21EMA
+  };
+
+  const pullback15m = {
+    state: tf15m.indicators?.analysis?.pullbackState,
+    dist:  tf15m.indicators?.analysis?.distanceFrom21EMA
+  };
+
+  const pullback5m = {
+    state: tf5m.indicators?.analysis?.pullbackState,
+    dist:  tf5m.indicators?.analysis?.distanceFrom21EMA
+  };
+
+  const ema21_4h  = tf4h.indicators?.ema?.ema21;
+  const ema21_1h  = tf1h.indicators?.ema?.ema21;
+  const ema200_1h = tf1h.indicators?.ema?.ema200;
+
+  const stoch4h = tf4h.indicators?.stochRSI || {};
+  const stoch1h = tf1h.indicators?.stochRSI || {};
+  const stoch15m = tf15m.indicators?.stochRSI || {};
+  const stoch5m  = tf5m.indicators?.stochRSI  || {};
+
+  const swing4h = tf4h.structure || {};
+  const swing1h = tf1h.structure || {};
+  const swing15m = tf15m.structure || {};
+  const swing5m  = tf5m.structure || {};
+
+  // Core data guards
+  if (!ema21_4h || !ema21_1h || !ema200_1h) return null;
+
+  // ---- HTF Bias ----
+  const htfBias = computeHTFBias(multiTimeframeData);
+  if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
+    return invalidNoTrade('TrendRider: No HTF bias direction');
+  }
+
+  // Require decent bias confidence; allow looser in AGGRESSIVE
+  const minBiasConfidence = (mode === 'AGGRESSIVE') ? 55 : 60; // Lowered from 65 to 60 for STANDARD mode
+  if (htfBias.confidence < minBiasConfidence) {
+    return invalidNoTrade(`TrendRider: HTF bias confidence ${htfBias.confidence}% below minimum ${minBiasConfidence}%`);
+  }
+
+  // ---- Gatekeepers: Define effective 4H trend based on bias + stoch ----
+  let effectiveTrend4h = trend4h;
+
+  // In AGGRESSIVE mode, allow FLAT 4H if HTF bias is strong and stoch supports it
+  if (mode === 'AGGRESSIVE' && trend4h === 'flat') {
+    if (htfBias.confidence >= 70) {
+      if (htfBias.direction === 'long' && (stoch4h.condition === 'BULLISH' || stoch4h.k < 40)) {
+        effectiveTrend4h = 'uptrend';
+      }
+      if (htfBias.direction === 'short' && (stoch4h.condition === 'BEARISH' || stoch4h.k > 60)) {
+        effectiveTrend4h = 'downtrend';
+      }
+    }
+  }
+
+  // If still FLAT in STANDARD mode, block this strategy
+  if (mode === 'STANDARD' && effectiveTrend4h === 'flat') {
+    return invalidNoTrade('TrendRider: 4H trend is FLAT (STANDARD mode requires clear trend)');
+  }
+
+  // ---- Decide direction from bias + 4H/1H ----
+  let direction = null;
+  let reason = '';
+
+  // Helper predicates
+  const isBull = (trend) => trend === 'uptrend';
+  const isBear = (trend) => trend === 'downtrend';
+
+  // LONG candidate
+  const longCandidate =
+    htfBias.direction === 'long' &&
+    (isBull(effectiveTrend4h) || (mode === 'AGGRESSIVE' && trend4h !== 'downtrend')) &&
+    (isBull(trend1h) || (trend1h === 'flat' && ema21_1h < ema200_1h === false)) && // Allow 1H flat if structurally up
+    ema21_1h && ema200_1h &&
+    currentPrice > ema21_1h &&
+    currentPrice > ema21_4h &&
+    currentPrice > ema200_1h;
+
+  // SHORT candidate (with loosened 1H condition)
+  const shortCandidate =
+    htfBias.direction === 'short' &&
+    (isBear(effectiveTrend4h) || (mode === 'AGGRESSIVE' && trend4h !== 'uptrend')) &&
+    (isBear(trend1h) || (trend1h === 'flat' && ema21_1h < ema200_1h)) && // Allow 1H flat if structurally down (EMA21 < EMA200)
+    ema21_1h && ema200_1h &&
+    currentPrice < ema21_1h &&
+    currentPrice < ema21_4h &&
+    currentPrice < ema200_1h;
+
+  if (!longCandidate && !shortCandidate) {
+    return invalidNoTrade('TrendRider: Direction conditions not met');
+  }
+
+  // ---- Pullback / continuation logic (LOOSENED) ----
+  // We allow:
+  // - Shallow pullbacks (RETRACING / ENTRY_ZONE) on 1H
+  // - Not extremely overextended vs 4H EMA (so you're not buying a top)
+  const maxOverextensionPctSafe = 2.5;   // SAFE: price within 2.5% of 4H EMA21
+  const maxOverextensionPctAggressive = 3.5; // AGGRESSIVE: price within 3.5% of 4H EMA21
+  const maxOverextensionPct = (mode === 'AGGRESSIVE') ? maxOverextensionPctAggressive : maxOverextensionPctSafe;
+
+  const abs4hDist = Math.abs(pullback4h.dist || 0);
+  const abs1hDist = Math.abs(pullback1h.dist || 0);
+
+  const valid1hPullback =
+    pullback1h.state === 'RETRACING' ||
+    pullback1h.state === 'ENTRY_ZONE' ||
+    (mode === 'AGGRESSIVE' && abs1hDist <= 5);
+
+  const valid4hDist = abs4hDist <= maxOverextensionPct;
+
+  if (!valid1hPullback || !valid4hDist) {
+    return invalidNoTrade(`TrendRider: Pullback conditions not met (4H dist: ${abs4hDist.toFixed(2)}%, 1H dist: ${abs1hDist.toFixed(2)}%)`);
+  }
+
+  // ---- LTF confirmation (15m / 5m) ----
+  const stoch15_k = stoch15m.k ?? 50;
+  const stoch15_cond = stoch15m.condition ?? 'NEUTRAL';
+  const stoch5_k  = stoch5m.k ?? 50;
+  const stoch5_cond  = stoch5m.condition ?? 'NEUTRAL';
+  const stoch1h_k = stoch1h.k ?? 50;
+  const stoch1h_cond = stoch1h.condition ?? 'NEUTRAL';
+
+  let ltfOk = false;
+
+  if (longCandidate) {
+    const fifteenOk = (stoch15_cond === 'BULLISH' || stoch15_cond === 'OVERSOLD' || stoch15_k < 40);
+    const fiveOk    = (stoch5_cond  === 'BULLISH' || stoch5_cond  === 'OVERSOLD' || stoch5_k  < 40);
+    ltfOk = fifteenOk && fiveOk;
+  }
+
+  if (shortCandidate) {
+    // For shorts: 1H must be overbought, 15m/5m can be neutral or overbought
+    const oneHourOk = stoch1h_cond === 'OVERBOUGHT' || stoch1h_k > 60;
+    const fifteenOk = (stoch15_cond === 'BEARISH' || stoch15_cond === 'OVERBOUGHT' || stoch15_cond === 'NEUTRAL' || stoch15_k > 60);
+    const fiveOk    = (stoch5_cond  === 'BEARISH' || stoch5_cond  === 'OVERBOUGHT' || stoch5_cond  === 'NEUTRAL' || stoch5_k  > 60);
+    ltfOk = oneHourOk && (fifteenOk || fiveOk); // At least one of 15m/5m must be ok
+  }
+
+  if (!ltfOk) {
+    return invalidNoTrade(`TrendRider: LTF Stoch conditions not aligned (1H: ${stoch1h_cond}, 15m: ${stoch15_cond}, 5m: ${stoch5_cond})`);
+  }
+
+  // ---- Set direction + reason ----
+  if (longCandidate) {
+    direction = 'long';
+    reason = 'Trend Rider LONG: HTF bias + 4H/1H uptrend, price above 21/200 EMAs with shallow pullback and bullish 15m/5m momentum.';
+  } else if (shortCandidate) {
+    direction = 'short';
+    reason = 'Trend Rider SHORT: HTF bias + 4H/1H downtrend, price below 21/200 EMAs with shallow pullback and bearish 15m/5m momentum.';
+  }
+
+  if (!direction) return null;
+
+  // ---- Entry Zone - Check for pullback entry first, then breakout entry ----
+  let entryMin, entryMax, entryType = 'pullback';
+  const swingLevel = direction === 'long' 
+    ? (swing4h.swingHigh || swing1h.swingHigh)
+    : (swing4h.swingLow || swing1h.swingLow);
+  const stoch4hForBreakout = tf4h.indicators?.stochRSI;
+  
+  // Check for breakout entry
+  if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
+    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction);
+    if (breakoutZone) {
+      entryMin = breakoutZone.min;
+      entryMax = breakoutZone.max;
+      entryType = 'breakout';
+    } else {
+      // Fallback to pullback entry
+      const entryAnchor = ema21_4h;
+      const baseZone = calculateEntryZone(entryAnchor, direction);
+      const widenFactor = (mode === 'AGGRESSIVE') ? 1.0015 : 1.0;
+      entryMin = direction === 'long' ? baseZone.min * widenFactor : baseZone.min / widenFactor;
+      entryMax = direction === 'long' ? baseZone.max * widenFactor : baseZone.max / widenFactor;
+    }
+  } else {
+    // Use pullback entry zone
+    const entryAnchor = ema21_4h;
+    const baseZone = calculateEntryZone(entryAnchor, direction);
+    const widenFactor = (mode === 'AGGRESSIVE') ? 1.0015 : 1.0;
+    entryMin = direction === 'long' ? baseZone.min * widenFactor : baseZone.min / widenFactor;
+    entryMax = direction === 'long' ? baseZone.max * widenFactor : baseZone.max / widenFactor;
+  }
+
+  const entryMid = (entryMin + entryMax) / 2;
+
+  // ---- SL/TP using 1H + 4H structure, medium R:R ----
+  const allStructures = {
+    '1h': {
+      swingHigh: swing1h.swingHigh ?? swing4h.swingHigh ?? swing15m.swingHigh ?? swing5m.swingHigh ?? null,
+      swingLow:  swing1h.swingLow  ?? swing4h.swingLow  ?? swing15m.swingLow  ?? swing5m.swingLow  ?? null
+    },
+    '4h': swing4h,
+    '15m': swing15m,
+    '5m': swing5m
+  };
+
+  const rrTargets = [2.0, 3.5]; // Trend riding, not tiny scalps
+
+  const sltp = calculateSLTP(
+    entryMid,
+    direction,
+    allStructures,
+    'TrendRider',
+    rrTargets
+  );
+
+  // ---- Confidence scoring via hierarchy + small bonuses ----
+  const confidenceResult = calculateConfidenceWithHierarchy(
+    multiTimeframeData, 
+    direction, 
+    mode,
+    'TREND_RIDER',  // Strategy name for base confidence
+    marketData,     // Volume quality filter
+    dflowData        // dFlow alignment
+  );
+  let confidence = confidenceResult.confidence || 0;
+
+  // Mild bonus if everything is strongly aligned
+  let alignmentBonus = 0;
+  const macroAligned = (htfBias.direction === direction && htfBias.confidence >= 70);
+  const primaryAligned = (
+    ((direction === 'long' && isBull(effectiveTrend4h) && (isBull(trend1h) || (trend1h === 'flat' && ema21_1h > ema200_1h))) ||
+     (direction === 'short' && isBear(effectiveTrend4h) && (isBear(trend1h) || (trend1h === 'flat' && ema21_1h < ema200_1h))))
+  );
+
+  if (macroAligned && primaryAligned) alignmentBonus += 5;
+  if (Math.abs(abs1hDist) <= 1.5) alignmentBonus += 3; // nice, tight pullback
+
+  confidence = Math.min(90, confidence + alignmentBonus);
+
+  // Global minimum confidence threshold
+  const minConfidenceSafe = 60;
+  const minConfidenceAggressive = 50;
+  const minConfidence = mode === 'STANDARD' ? minConfidenceSafe : minConfidenceAggressive;
+
+  if (confidence < minConfidence) {
+    return invalidNoTrade(`TrendRider: Confidence ${confidence.toFixed(1)}% below minimum ${minConfidence}%`);
+  }
+
+  // ---- Build canonical signal ----
+  const signal = {
+    valid: true,
+    direction,
+    setupType: 'TrendRider',
+    selectedStrategy: 'TREND_RIDER',
+    strategiesChecked: ['TREND_RIDER'],
+    confidence: Math.round(confidence),
+    reason,
+    reason_summary: confidenceResult.explanation
+      ? `${reason} [${confidenceResult.explanation}]`
+      : reason,
+    penaltiesApplied: confidenceResult.penaltiesApplied || [],
+    capsApplied: confidenceResult.capsApplied || [],
+    explanation: confidenceResult.explanation || '',
+    entryType: entryType, // 'pullback' or 'breakout'
+
+    entryZone: {
+      min: parseFloat(entryMin.toFixed(2)),
+      max: parseFloat(entryMax.toFixed(2))
+    },
+    stopLoss: parseFloat(sltp.stopLoss.toFixed(2)),
+    invalidationLevel: parseFloat(sltp.invalidationLevel.toFixed(2)),
+    targets: (sltp.targets || []).map(t => parseFloat(t.toFixed(2))),
+    riskReward: {
+      tp1RR: sltp.rrTargets?.[0] ?? rrTargets[0],
+      tp2RR: sltp.rrTargets?.[1] ?? rrTargets[1]
+    },
+    riskAmount: parseFloat((sltp.riskAmount ?? 0).toFixed(2)),
+
+    invalidation: {
+      level: parseFloat(sltp.invalidationLevel.toFixed(2)),
+      description: 'Trend Rider invalidated if 1H/4H structure breaks against trend.'
+    },
+
+    confluence: {
+      trendAlignment: `HTF bias ${htfBias.direction} (${htfBias.confidence}%), 4H trend: ${effectiveTrend4h}, 1H trend: ${trend1h}`,
+      stochMomentum: `15m stoch: ${stoch15_cond} (k=${stoch15_k.toFixed?.(1) ?? stoch15_k}), 5m stoch: ${stoch5_cond} (k=${stoch5_k.toFixed?.(1) ?? stoch5_k})`,
+      pullbackState: `4H pullback: ${pullback4h.state} (${pullback4h.dist ?? 0}% from 21 EMA), 1H pullback: ${pullback1h.state} (${pullback1h.dist ?? 0}% from 21 EMA)`,
+      liquidityZones: `Using 1H + 4H swings for SL/TP structure.`,
+      htfConfirmation: `${htfBias.confidence}% confidence (${htfBias.source})`
+    },
+
+    conditionsRequired: [
+      '✓ HTF bias aligned with 4H + 1H trend',
+      '✓ Price above/below 4H & 1H 21/200 EMAs in trend direction',
+      '✓ 1H pullback in RETRACING / ENTRY_ZONE (not hyper-extended)',
+      '✓ 15m & 5m Stoch RSI aligned with trend (bullish for longs, bearish for shorts)',
+      '✓ SL anchored to recent 1H/4H structure with 2R–3.5R targets'
+    ],
+
+    currentPrice: parseFloat(currentPrice.toFixed(2)),
+    timestamp: new Date().toISOString(),
+    htfBias
+  };
+
+  return signal;
+}
+
+/**
  * Evaluate ALL strategies for a symbol and mode
  * Returns a rich object with all strategies (even NO_TRADE ones)
  * @param {string} symbol - Trading symbol
  * @param {Object} multiTimeframeData - Multi-timeframe analysis data
  * @param {string} mode - STANDARD or AGGRESSIVE
+ * @param {Object} marketData - Market data for volume quality and trade flow filters
+ * @param {Object} dflowData - dFlow prediction market data for alignment check
  * @returns {Object} Rich strategy object with all strategies
  */
-export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDARD') {
-  console.log(`[evaluateAllStrategies] ${symbol} mode=${mode}`);
+export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDARD', marketData = null, dflowData = null) {
+  console.log(`[evaluateAllStrategies] === START === ${symbol} mode=${mode}`);
+  console.log(`[evaluateAllStrategies] multiTimeframeData keys:`, multiTimeframeData ? Object.keys(multiTimeframeData) : 'null');
+  console.log(`[evaluateAllStrategies] marketData:`, marketData ? 'present' : 'null');
+  console.log(`[evaluateAllStrategies] dflowData:`, dflowData ? 'present' : 'null');
+  
+  try {
+  
+  // Compute HTF bias early - needed for both STANDARD and AGGRESSIVE modes
+  let htfBias = { direction: 'neutral', confidence: 0, source: 'none' };
+  try {
+    htfBias = computeHTFBias(multiTimeframeData) || htfBias;
+    console.log(`[evaluateAllStrategies] ${symbol} HTF bias computed:`, htfBias);
+  } catch (biasError) {
+    console.error(`[evaluateAllStrategies] ${symbol} ERROR computing HTF bias:`, biasError.message);
+    // Continue with neutral bias
+  }
+  
+  // Validate HTF bias exists before proceeding
+  if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
+    console.warn(`[evaluateAllStrategies] ${symbol} Missing or neutral HTF bias - strategies may be limited`);
+  }
   
   const strategies = {
     SWING: null,
     TREND_4H: null,
+    TREND_RIDER: null,
     SCALP_1H: null,
     MICRO_SCALP: null
   };
@@ -2044,42 +2942,155 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   
   console.log(`[evaluateAllStrategies] ${symbol} 4H trend=${trend4hRaw} (normalized=${trend4h}), is4HFlat=${is4HFlat}`);
   
+  // Track if override was used (for adding to strategy signals)
+  let overrideUsed = false;
+  let overrideNotes = []; // Store notes about why override was used
+  
   if (mode === 'STANDARD' && is4HFlat) {
-    // SAFE_MODE: Block all trades when 4H is flat
-    const flatReason = '4H trend is FLAT - no trade allowed per SAFE_MODE rules';
-    console.log(`[evaluateAllStrategies] ${symbol} SAFE_MODE: Blocking all strategies (4H flat)`);
-    console.log(`[TEST_CASE_A] ${symbol} SAFE_MODE: 4H flat - all strategies blocked, bestSignal=null`);
+    // STANDARD mode: Check if we can override 4H FLAT block with strong alignment
+    // htfBias already computed above - use it
+    if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
+      console.log(`[evaluateAllStrategies] ${symbol} STANDARD: No HTF bias available, blocking all strategies`);
+      const flatReason = '4H trend is FLAT - no trade allowed per STANDARD mode rules (no HTF bias available)';
+      strategies.SWING = createNoTradeStrategy('SWING', flatReason);
+      strategies.TREND_4H = createNoTradeStrategy('TREND_4H', flatReason);
+      strategies.TREND_RIDER = createNoTradeStrategy('TREND_RIDER', flatReason);
+      strategies.SCALP_1H = createNoTradeStrategy('SCALP_1H', flatReason);
+      strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', flatReason);
+      return { strategies, bestSignal: null };
+    }
+    
+    const tf1h = multiTimeframeData['1h'];
+    const tf15m = multiTimeframeData['15m'];
+    
+    const trend1hRaw = tf1h?.indicators?.analysis?.trend;
+    const trend15mRaw = tf15m?.indicators?.analysis?.trend;
+    const trend1h = normalizeTrend(trend1hRaw);
+    const trend15m = normalizeTrend(trend15mRaw);
+    
+    // Get price and EMA data for trend inference
+    const price1h = tf1h?.indicators?.price?.current;
+    const ema21_1h = tf1h?.indicators?.ema?.ema21;
+    const ema200_1h = tf1h?.indicators?.ema?.ema200;
+    const price15m = tf15m?.indicators?.price?.current;
+    const ema21_15m = tf15m?.indicators?.ema?.ema21;
+    const ema200_15m = tf15m?.indicators?.ema?.ema200;
+    
+    const stoch1h = tf1h?.indicators?.stochRSI || {};
+    const stoch15m = tf15m?.indicators?.stochRSI || {};
+    
+    // Simplified override conditions:
+    // - HTF bias ≥ 60%
+    // - 1H trend matches HTF bias direction
+    // - 15m Stoch < 20 (oversold for longs) OR 15m trend matches HTF bias direction
+    const biasStrong = htfBias && typeof htfBias.confidence === 'number' && htfBias.confidence >= 60;
+    const desiredDirection = htfBias?.direction; // 'long' or 'short'
+    
+    // Helper: Check if trend matches direction
+    const isSameDirection = (trend, direction) => {
+      if (!trend || !direction) return false;
+      const trendLower = (trend || '').toLowerCase();
+      if (direction === 'long') {
+        return trendLower.includes('up') || trendLower === 'long';
+      } else if (direction === 'short') {
+        return trendLower.includes('down') || trendLower === 'short';
+      }
+      return false;
+    };
+    
+    // Check 1H trend matches HTF bias direction
+    const trend1hMatches = isSameDirection(trend1h, desiredDirection);
+    
+    // Check 15m: either trend matches OR stoch is confirming (oversold for longs, overbought for shorts)
+    const stoch15mK = stoch15m?.k;
+    const trend15mMatches = isSameDirection(trend15m, desiredDirection);
+    const stoch15mConfirming = desiredDirection && typeof stoch15mK === 'number' ? (
+      (desiredDirection === 'long' && stoch15mK < 20) || // Oversold confirms longs
+      (desiredDirection === 'short' && stoch15mK > 80)   // Overbought confirms shorts
+    ) : false;
+    
+    // Override allowed if: HTF bias ≥ 60%, 1H matches, AND (15m matches OR 15m stoch confirming)
+    const canOverride = biasStrong && trend1hMatches && (trend15mMatches || stoch15mConfirming);
+    
+    // Also check 1H momentum is not overbought/oversold
+    const stoch1hK = stoch1h?.k;
+    const momentumOK = desiredDirection && typeof stoch1hK === 'number' ? (
+      (desiredDirection === 'long' && stoch1hK < 80) || // Not overbought for longs
+      (desiredDirection === 'short' && stoch1hK > 20)    // Not oversold for shorts
+    ) : true; // Default to true if stoch not available
+    
+    const overrideEligible = canOverride && momentumOK;
+    
+    // Debug logging
+    console.log(`[evaluateAllStrategies] ${symbol} STANDARD override check:`, {
+      biasStrong,
+      htfBiasDirection: desiredDirection,
+      htfBiasConfidence: htfBias?.confidence,
+      trend1hRaw,
+      trend1h,
+      trend1hMatches,
+      trend15mRaw,
+      trend15m,
+      trend15mMatches,
+      stoch15mK,
+      stoch15mConfirming,
+      stoch1hK,
+      momentumOK,
+      overrideEligible
+    });
+    
+    if (!overrideEligible) {
+      // SAFE_MODE: Block all trades when 4H is flat and override conditions not met
+      const flatReason = '4H trend is FLAT - no trade allowed per STANDARD mode rules (override conditions not met)';
+      console.log(`[evaluateAllStrategies] ${symbol} STANDARD: Blocking all strategies (4H flat, override conditions not met)`);
     strategies.SWING = createNoTradeStrategy('SWING', flatReason);
     strategies.TREND_4H = createNoTradeStrategy('TREND_4H', flatReason);
+      strategies.TREND_RIDER = createNoTradeStrategy('TREND_RIDER', flatReason);
     strategies.SCALP_1H = createNoTradeStrategy('SCALP_1H', flatReason);
     strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', flatReason);
     
-    // Log test case A results
-    console.log(`[TEST_CASE_A] ${symbol} SAFE_MODE results:`, {
-      TREND_4H: { valid: strategies.TREND_4H.valid, reason: strategies.TREND_4H.reason },
-      SCALP_1H: { valid: strategies.SCALP_1H.valid, reason: strategies.SCALP_1H.reason },
-      MICRO_SCALP: { valid: strategies.MICRO_SCALP.valid, reason: strategies.MICRO_SCALP.reason },
-      SWING: { valid: strategies.SWING.valid, reason: strategies.SWING.reason },
-      bestSignal: null
-    });
-    
     return {
       strategies,
-      bestSignal: null // No valid strategy when 4H is flat in SAFE_MODE
+        bestSignal: null
     };
+    } else {
+      // Override allowed: Continue with strategy evaluation but mark as relaxed
+      overrideUsed = true;
+      overrideNotes = [
+        `Override used due to strong HTF bias (${htfBias.confidence}%) + short-term alignment`,
+        `1H trend: ${trend1h} matches HTF bias direction`,
+        trend15mMatches ? `15m trend: ${trend15m} matches HTF bias direction` : `15m stoch: ${stoch15mK} confirms direction (oversold/overbought)`
+      ];
+      console.log(`[evaluateAllStrategies] ${symbol} STANDARD: 4H flat but override conditions met (HTF bias: ${htfBias.direction} ${htfBias.confidence}%, 1H matches, 15m matches or stoch confirming)`);
+      console.log(`[evaluateAllStrategies] ${symbol} STANDARD: Override notes:`, overrideNotes);
+    }
   }
   
   // Evaluate each strategy - ALWAYS evaluate all, even if they return NO_TRADE
-  const swingResult = evaluateStrategy(symbol, multiTimeframeData, 'Swing', mode);
-  const trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode);
-  const scalp1hResult = evaluateStrategy(symbol, multiTimeframeData, 'Scalp', mode);
-  const microScalpResult = evaluateMicroScalp(multiTimeframeData);
+  // Pass marketData and dflowData to all strategy evaluations
+  const swingResult = evaluateSwingSetup(multiTimeframeData, multiTimeframeData['4h']?.indicators?.price?.current || 0, mode, marketData, dflowData);
+  const trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode, marketData, dflowData);
+  const scalp1hResult = evaluateStrategy(symbol, multiTimeframeData, 'Scalp', mode, marketData, dflowData);
+  const microScalpResult = evaluateMicroScalp(multiTimeframeData, marketData, dflowData);
+  
+  // TREND_RIDER: Evaluate directly to ensure it's always included
+  const currentPrice = tf4h?.indicators?.price?.current || multiTimeframeData['1h']?.indicators?.price?.current || 0;
+  // htfBias already computed above - use it
+  const trendRiderRaw = evaluateTrendRider(multiTimeframeData, currentPrice, mode, marketData, dflowData);
   
   // Normalize each to strategy format - always include, even if NO_TRADE
   // Pass mode so normalizeStrategyResult can handle AGGRESSIVE differently
-  strategies.SWING = normalizeStrategyResult(swingResult, 'SWING', mode);
-  strategies.TREND_4H = normalizeStrategyResult(trend4hResult, 'TREND_4H', mode);
-  strategies.SCALP_1H = normalizeStrategyResult(scalp1hResult, 'SCALP_1H', mode);
+  // If override was used in STANDARD mode, mark strategies with override flag and notes
+  strategies.SWING = normalizeStrategyResult(swingResult, 'SWING', mode, overrideUsed, overrideNotes);
+  strategies.TREND_4H = normalizeStrategyResult(trend4hResult, 'TREND_4H', mode, overrideUsed, overrideNotes);
+  
+  // TREND_RIDER: Wrap in signal format for normalizeStrategyResult (same pattern as other strategies)
+  const trendRiderWrapped = trendRiderRaw ? {
+    signal: trendRiderRaw
+  } : null;
+  strategies.TREND_RIDER = normalizeStrategyResult(trendRiderWrapped, 'TREND_RIDER', mode, overrideUsed, overrideNotes);
+  
+  strategies.SCALP_1H = normalizeStrategyResult(scalp1hResult, 'SCALP_1H', mode, overrideUsed, overrideNotes);
   
   // MicroScalp needs special handling
   if (microScalpResult && microScalpResult.eligible && microScalpResult.signal && microScalpResult.signal.valid) {
@@ -2094,13 +3105,22 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   // AGGRESSIVE_MODE: Force valid trades when HTF bias + lower TFs align strongly
   // IMPORTANT: This MUST run for AGGRESSIVE mode when 4H is flat to override SAFE blocking
   if (mode === 'AGGRESSIVE' && is4HFlat) {
-    // Recompute HTF bias to ensure we have fresh data
-    const htfBias = computeHTFBias(multiTimeframeData);
+    // htfBias already computed above - use it
+    if (!htfBias || !htfBias.direction || htfBias.direction === 'neutral') {
+      console.warn(`[AGGRESSIVE_FORCE] ${symbol}: No HTF bias available, cannot force trades`);
+    }
     console.log(`[AGGRESSIVE_FORCE] ${symbol}: HTF bias=${htfBias.direction} (${htfBias.confidence}%), 4H flat, checking forcing conditions...`);
+    console.log(`[AGGRESSIVE_FORCE] ${symbol}: marketData=${marketData ? 'present' : 'null'}, dflowData=${dflowData ? 'present' : 'null'}`);
+    console.log(`[AGGRESSIVE_FORCE] ${symbol}: multiTimeframeData keys=`, Object.keys(multiTimeframeData || {}));
     console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: 4H flat, HTF bias=${htfBias.direction} (${htfBias.confidence}%)`);
     const tf1h = multiTimeframeData['1h'];
     const tf15m = multiTimeframeData['15m'];
     const tf5m = multiTimeframeData['5m'];
+    
+    // Ensure we have data
+    if (!tf1h || !tf15m) {
+      console.error(`[AGGRESSIVE_FORCE] ${symbol}: Missing required timeframe data (1h=${!!tf1h}, 15m=${!!tf15m})`);
+    }
     
     // Normalize trends to lowercase for comparison (handle both UPTREND/uptrend)
     const trend1hRaw = tf1h?.indicators?.analysis?.trend || 'UNKNOWN';
@@ -2162,6 +3182,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           direction: 'long',
           confidence: Math.min(100, htfBias.confidence),
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend aligned, using lower TFs despite 4H flat`,
+          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -2172,6 +3193,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           riskReward: {
             tp1RR: 1.5,
             tp2RR: 3.0
+          },
+          penaltiesApplied: [],
+          capsApplied: [],
+          explanation: 'AGGRESSIVE mode: Forced trade when 4H is FLAT but HTF bias + lower TFs align',
+          confluence: {
+            trendAlignment: `HTF bias: ${htfBias.direction} (${htfBias.confidence}%), 1H: ${trend1hNorm}, 15m: ${trend15mNorm}`,
+            stochMomentum: 'AGGRESSIVE forced entry',
+            pullbackState: 'N/A',
+            liquidityZones: 'N/A',
+            htfConfirmation: `${htfBias.confidence}% confidence`
           },
           validationErrors: []
         };
@@ -2199,6 +3230,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           direction: 'long',
           confidence: Math.min(100, htfBias.confidence - 10), // Slightly lower for scalp
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend, scalp entry despite 4H flat`,
+          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -2209,6 +3241,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           riskReward: {
             tp1RR: 1.5,
             tp2RR: 3.0
+          },
+          penaltiesApplied: [],
+          capsApplied: [],
+          explanation: 'AGGRESSIVE mode: Forced scalp trade when 4H is FLAT but HTF bias + lower TFs align',
+          confluence: {
+            trendAlignment: `HTF bias: ${htfBias.direction} (${htfBias.confidence}%), 1H: ${trend1hNorm}, 15m: ${trend15mNorm}`,
+            stochMomentum: 'AGGRESSIVE forced entry',
+            pullbackState: 'N/A',
+            liquidityZones: 'N/A',
+            htfConfirmation: `${htfBias.confidence}% confidence`
           },
           validationErrors: []
         };
@@ -2235,6 +3277,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           direction: 'long',
           confidence: Math.min(100, htfBias.confidence - 15), // Lower for micro
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m/5m uptrend, micro scalp despite 4H flat`,
+          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -2245,6 +3288,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           riskReward: {
             tp1RR: 1.0,
             tp2RR: 1.5
+          },
+          penaltiesApplied: [],
+          capsApplied: [],
+          explanation: 'AGGRESSIVE mode: Forced micro scalp when 4H is FLAT but HTF bias + lower TFs align',
+          confluence: {
+            trendAlignment: `HTF bias: ${htfBias.direction} (${htfBias.confidence}%), 1H: ${trend1hNorm}, 15m: ${trend15mNorm}, 5m: ${trend5mNorm}`,
+            stochMomentum: 'AGGRESSIVE forced entry',
+            pullbackState: 'N/A',
+            liquidityZones: 'N/A',
+            htfConfirmation: `${htfBias.confidence}% confidence`
           },
           validationErrors: []
         };
@@ -2294,6 +3347,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           direction: 'short',
           confidence: Math.min(100, htfBias.confidence),
           reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend aligned, using lower TFs despite 4H flat`,
+          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -2304,6 +3358,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           riskReward: {
             tp1RR: 1.5,
             tp2RR: 3.0
+          },
+          penaltiesApplied: [],
+          capsApplied: [],
+          explanation: 'AGGRESSIVE mode: Forced trade when 4H is FLAT but HTF bias + lower TFs align',
+          confluence: {
+            trendAlignment: `HTF bias: ${htfBias.direction} (${htfBias.confidence}%), 1H: ${trend1hNorm}, 15m: ${trend15mNorm}`,
+            stochMomentum: 'AGGRESSIVE forced entry',
+            pullbackState: 'N/A',
+            liquidityZones: 'N/A',
+            htfConfirmation: `${htfBias.confidence}% confidence`
           },
           validationErrors: []
         };
@@ -2331,6 +3395,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           direction: 'short',
           confidence: Math.min(100, htfBias.confidence - 10),
           reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend, scalp entry despite 4H flat`,
+          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
           entryZone: {
             min: parseFloat(entryZone.min.toFixed(2)),
             max: parseFloat(entryZone.max.toFixed(2))
@@ -2341,6 +3406,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
           riskReward: {
             tp1RR: 1.5,
             tp2RR: 3.0
+          },
+          penaltiesApplied: [],
+          capsApplied: [],
+          explanation: 'AGGRESSIVE mode: Forced scalp trade when 4H is FLAT but HTF bias + lower TFs align',
+          confluence: {
+            trendAlignment: `HTF bias: ${htfBias.direction} (${htfBias.confidence}%), 1H: ${trend1hNorm}, 15m: ${trend15mNorm}`,
+            stochMomentum: 'AGGRESSIVE forced entry',
+            pullbackState: 'N/A',
+            liquidityZones: 'N/A',
+            htfConfirmation: `${htfBias.confidence}% confidence`
           },
           validationErrors: []
         };
@@ -2405,8 +3480,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   
   if (validStrategies.length > 0) {
     if (mode === 'STANDARD') {
-      // SAFE_MODE priority: TREND_4H → SWING → SCALP_1H → MICRO_SCALP
-      const priority = ['TREND_4H', 'SWING', 'SCALP_1H', 'MICRO_SCALP'];
+      // SAFE_MODE priority: TREND_4H → TREND_RIDER → SWING → SCALP_1H → MICRO_SCALP
+      const priority = ['TREND_4H', 'TREND_RIDER', 'SWING', 'SCALP_1H', 'MICRO_SCALP'];
       for (const priorityName of priority) {
         const found = validStrategies.find(s => s.name === priorityName);
         if (found) {
@@ -2419,8 +3494,8 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         bestSignal = validStrategies.sort((a, b) => b.confidence - a.confidence)[0].name;
       }
     } else {
-      // AGGRESSIVE_MODE priority: TREND_4H → SCALP_1H → MICRO_SCALP → SWING
-      const priority = ['TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'SWING'];
+      // AGGRESSIVE_MODE priority: TREND_RIDER → TREND_4H → SCALP_1H → MICRO_SCALP → SWING
+      const priority = ['TREND_RIDER', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'SWING'];
       for (const priorityName of priority) {
         const found = validStrategies.find(s => s.name === priorityName);
         if (found) {
@@ -2435,13 +3510,33 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     }
   }
   
+  // DEBUG: Log strategies keys to verify TREND_RIDER is included
+  console.log('DEBUG strategies keys', {
+    symbol,
+    mode,
+    keys: Object.keys(strategies),
+    hasTREND_RIDER: 'TREND_RIDER' in strategies,
+    TREND_RIDER_valid: strategies.TREND_RIDER?.valid,
+    TREND_RIDER_reason: strategies.TREND_RIDER?.reason
+  });
+  
   console.log(`[evaluateAllStrategies] ${symbol} mode=${mode} bestSignal=${bestSignal}, validStrategies=${validStrategies.length}`);
   console.log(`[TEST_CASE_${mode === 'STANDARD' ? 'A' : 'B'}] ${symbol} ${mode}: bestSignal=${bestSignal}, strategies valid: ${Object.entries(strategies).filter(([_, s]) => s && s.valid).map(([name]) => name).join(', ')}`);
+  console.log(`[evaluateAllStrategies] === SUCCESS === ${symbol}`);
   
   return {
     strategies,
     bestSignal
   };
+  
+  } catch (error) {
+    console.error(`[evaluateAllStrategies] === ERROR === ${symbol}`);
+    console.error(`[evaluateAllStrategies] Error name:`, error.name);
+    console.error(`[evaluateAllStrategies] Error message:`, error.message);
+    console.error(`[evaluateAllStrategies] Error stack:`, error.stack);
+    console.error(`[evaluateAllStrategies] Full error:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    throw error; // Re-throw to be caught by API handler
+  }
 }
 
 /**
@@ -2451,12 +3546,17 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
  * @param {string} strategyName - Name of the strategy
  * @param {string} mode - STANDARD or AGGRESSIVE
  */
-function normalizeStrategyResult(result, strategyName, mode = 'STANDARD') {
-  if (!result || !result.signal) {
+function normalizeStrategyResult(result, strategyName, mode = 'STANDARD', overrideUsed = false, overrideNotes = []) {
+  if (!result) {
     return createNoTradeStrategy(strategyName, 'Strategy evaluation failed - no signal returned');
   }
   
-  const signal = result.signal;
+  // Handle both wrapped ({ signal: {...} }) and unwrapped (signal directly) formats
+  const signal = result.signal || result;
+  
+  if (!signal || (typeof signal !== 'object')) {
+    return createNoTradeStrategy(strategyName, 'Strategy evaluation failed - invalid signal format');
+  }
   
   // If valid=false, ensure all fields are null/empty
   // IMPORTANT: In AGGRESSIVE_MODE, never use SAFE_MODE blocking reasons
@@ -2495,7 +3595,7 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD') {
   }
   
   // If valid=true, ensure all required fields are present
-  return {
+  const normalized = {
     valid: true,
     direction: signal.direction || 'NO_TRADE',
     confidence: typeof signal.confidence === 'number' 
@@ -2513,8 +3613,12 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD') {
     // NEW FIELDS (optional, backward compatible)
     penaltiesApplied: signal.penaltiesApplied || [],
     capsApplied: signal.capsApplied || [],
-    explanation: signal.explanation || null
+    explanation: signal.explanation || null,
+    override: signal.override || overrideUsed || false, // Mark if override was used
+    notes: signal.notes || (overrideUsed && overrideNotes.length > 0 ? overrideNotes : overrideUsed ? ['SAFE override activated'] : []) // Add override notes if used
   };
+  
+  return normalized;
 }
 
 /**
@@ -2661,10 +3765,14 @@ export default {
   evaluateAllStrategies,
   buildTimeframeSummary,
   analyzeStochState,
-  calculateConfidence,
   evaluateMicroScalp,
   evaluateSwingSetup,
-  computeHTFBias
+  evaluateTrendRider,
+  computeHTFBias,
+  calculateConfidenceWithHierarchy,
+  calculateBreakoutEntryZone,
+  isBreakoutConfirmed,
+  checkDflowAlignment
 };
 
 

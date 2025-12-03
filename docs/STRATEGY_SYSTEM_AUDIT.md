@@ -3,6 +3,8 @@
 **Generated:** 2025-01-XX  
 **Purpose:** Comprehensive audit of all trading strategies, their evaluation logic, frontend display, and JSON output to identify inconsistencies.
 
+> **See Also:** `SYSTEM_WORKFLOW.md` for complete system workflow and how tweaking elements affects strategies.
+
 ---
 
 ## Table of Contents
@@ -77,11 +79,17 @@ tp3 = entryMid - (risk * 5.0);  // 5R
 
 **Confidence Calculation:**
 ```javascript
-// Base confidence: 70
-// +10 if strong stoch alignment
-// +5 if tight 4H entry
-// +5 if strong 3D overextension
-// Range: 70-90%
+// Strategy-specific base confidence: 80 (SWING)
+// Uses calculateConfidenceWithHierarchy() with:
+//   - Strategy name: 'SWING'
+//   - Market data filters (volume quality, trade flow)
+//   - dFlow alignment check
+// +5 if strong stoch alignment (3D oversold + 1D bullish)
+// +3 if tight 4H entry (within ±0.5%)
+// +2 if strong 3D overextension (≥10%)
+// Range: 60-90% (capped at 90% before hard caps)
+// Volume quality LOW: -5% penalty
+// dFlow alignment: +5% if aligned, -5% if contradicts
 ```
 
 **Strategy Name in JSON:** `SWING`
@@ -186,7 +194,101 @@ confidence = Math.round(score * 100);  // Convert to 0-100 scale
 
 ---
 
-### 3. SCALP_1H Strategy
+### 3. TREND_RIDER Strategy
+**Location:** `services/strategy.js` - `evaluateTrendRider()` (line ~2199)
+
+**Timeframes:** 4H → 1H → 15m/5m
+
+**Gatekeepers:**
+- HTF bias confidence ≥ 55% (AGGRESSIVE) or ≥ 65% (STANDARD)
+- 4H trend NOT DOWNTREND (for longs) or NOT UPTREND (for shorts)
+- 1H trend must align with direction
+- Price above/below 4H & 1H 21/200 EMAs
+- 1H pullback in RETRACING or ENTRY_ZONE
+- 4H pullback not overextended (≤ 3% STANDARD, ≤ 4.5% AGGRESSIVE)
+- 15m/5m Stoch RSI aligned with trend
+
+**Entry Requirements (LONG):**
+- HTF bias direction = 'long' with sufficient confidence
+- 4H trend = UPTREND (or effectiveTrend4h = UPTREND in AGGRESSIVE)
+- 1H trend = UPTREND
+- Price > ema21_1h && price > ema21_4h && price > ema200_1h
+- 1H pullback = RETRACING or ENTRY_ZONE
+- 4H distance from EMA21 ≤ maxOverextensionPct
+- 15m/5m Stoch aligned (BULLISH/OVERSOLD or k < 40)
+
+**Entry Requirements (SHORT):**
+- Mirror of LONG (inverted)
+
+**Entry Zone Calculation:**
+```javascript
+// From evaluateTrendRider() - supports both pullback and breakout entries
+// 1. Check for breakout entry first:
+//    - If price above swingHigh (longs) or below swingLow (shorts)
+//    - And momentum confirms (StochRSI aligned)
+//    - Use calculateBreakoutEntryZone(swingLevel, direction)
+//      → swingHigh + 0.05% to +0.15% (longs)
+//      → swingLow - 0.15% to -0.05% (shorts)
+// 2. Otherwise use pullback entry:
+//    entryAnchor = ema21_4h;
+//    baseZone = calculateEntryZone(entryAnchor, direction);
+//    widenFactor = (mode === 'AGGRESSIVE') ? 1.0015 : 1.0;
+//    entryMin = direction === 'long' ? baseZone.min * widenFactor : baseZone.min / widenFactor;
+//    entryMax = direction === 'long' ? baseZone.max * widenFactor : baseZone.max / widenFactor;
+// Entry type stored in signal.entryType: 'pullback' | 'breakout'
+```
+
+**Stop Loss Calculation:**
+```javascript
+// From calculateSLTP() with setupType = 'TrendRider'
+allStructures = {
+  '1h': { swingHigh, swingLow },
+  '4h': { swingHigh, swingLow },
+  '15m': { swingHigh, swingLow },
+  '5m': { swingHigh, swingLow }
+};
+
+// Uses 1H/4H structure for SL
+stopLoss = calculateSLTP(entryMid, direction, allStructures, 'TrendRider', [2.0, 3.5]);
+```
+
+**Targets Calculation:**
+```javascript
+// From evaluateTrendRider() - line ~2350
+rrTargets = [2.0, 3.5];  // Medium R:R for trend riding
+entryMid = (entryMin + entryMax) / 2;
+
+// LONG
+risk = entryMid - stopLoss;
+tp1 = entryMid + (risk * 2.0);  // 2.0R
+tp2 = entryMid + (risk * 3.5);  // 3.5R
+
+// SHORT
+risk = stopLoss - entryMid;
+tp1 = entryMid - (risk * 2.0);  // 2.0R
+tp2 = entryMid - (risk * 3.5);  // 3.5R
+```
+
+**Confidence Calculation:**
+```javascript
+// Strategy-specific base confidence: 75 (TREND_RIDER)
+// Uses calculateConfidenceWithHierarchy() with:
+//   - Strategy name: 'TREND_RIDER'
+//   - Market data filters (volume quality, trade flow)
+//   - dFlow alignment check
+// Alignment bonuses (applied after hierarchical calculation):
+if (macroAligned && primaryAligned) confidence += 5;
+if (Math.abs(abs1hDist) <= 1.5) confidence += 3;
+confidence = Math.min(90, confidence);  // Cap at 90% before hard caps
+// Volume quality LOW: -5% penalty
+// dFlow alignment: +5% if aligned, -5% if contradicts
+```
+
+**Strategy Name in JSON:** `TREND_RIDER`
+
+---
+
+### 4. SCALP_1H Strategy
 **Location:** `services/strategy.js` - `evaluateStrategy()` (line 1331-1447)
 
 **Timeframes:** 1H → 15m → 5m
@@ -252,7 +354,7 @@ confidence = Math.min(85, Math.round(baseConfidence + biasBonus));  // 0-100 sca
 
 ---
 
-### 4. MICRO_SCALP Strategy
+### 5. MICRO_SCALP Strategy
 **Location:** `services/strategy.js` - `evaluateMicroScalp()` (line 1537)
 
 **Timeframes:** 1H → 15m → 5m
@@ -379,8 +481,8 @@ tp2 = entryMid - (risk * 1.5);  // 1.5R
      - Override any previous NO_TRADE states
 
 5. **Select Best Signal:**
-   - **SAFE_MODE priority:** TREND_4H → SWING → SCALP_1H → MICRO_SCALP
-   - **AGGRESSIVE_MODE priority:** TREND_4H → SCALP_1H → MICRO_SCALP → SWING
+   - **STANDARD_MODE priority:** TREND_4H → TREND_RIDER → SWING → SCALP_1H → MICRO_SCALP
+   - **AGGRESSIVE_MODE priority:** TREND_RIDER → TREND_4H → SCALP_1H → MICRO_SCALP → SWING
    - Fallback to highest confidence if priority doesn't match
 
 **Returns:**
@@ -624,11 +726,12 @@ tp2 = entryMid - (risk * 1.5);  // 1.5R
 │                    (services/strategy.js)                    │
 │                                                              │
 │  evaluateStrategy()                                          │
-│  ├─> Priority 1: SWING (evaluateSwingSetup)                 │
-│  ├─> Priority 2: TREND_4H (4H trend play)                    │
-│  ├─> Priority 3: SCALP_1H (1H scalp)                        │
-│  ├─> Priority 4: AGGRESSIVE strategies (if mode=AGGRESSIVE)  │
-│  └─> Priority 5: NO_TRADE                                    │
+│  ├─> Priority 1: TREND_4H (4H trend play)                    │
+│  ├─> Priority 2: TREND_RIDER (4H/1H continuation)           │
+│  ├─> Priority 3: SWING (evaluateSwingSetup)                  │
+│  ├─> Priority 4: SCALP_1H (1H scalp)                        │
+│  ├─> Priority 5: MICRO_SCALP (micro scalp)                   │
+│  └─> Priority 6: NO_TRADE                                    │
 │                                                              │
 │  evaluateAllStrategies()                                     │
 │  ├─> SAFE_MODE 4H FLAT gate (blocks all if FLAT)            │
@@ -678,8 +781,8 @@ tp2 = entryMid - (risk * 1.5);  // 1.5R
 - Priority: SWING → TREND_4H → SCALP_1H → AGGRESSIVE → NO_TRADE
 
 **Backend (`evaluateAllStrategies`):**
-- SAFE_MODE priority: TREND_4H → SWING → SCALP_1H → MICRO_SCALP
-- AGGRESSIVE_MODE priority: TREND_4H → SCALP_1H → MICRO_SCALP → SWING
+- STANDARD_MODE priority: TREND_4H → TREND_RIDER → SWING → SCALP_1H → MICRO_SCALP
+- AGGRESSIVE_MODE priority: TREND_RIDER → TREND_4H → SCALP_1H → MICRO_SCALP → SWING
 
 **Frontend (`evaluateTemplateSignal`):**
 - Priority: SWING → (4H gate) → SCALP/4H template evaluation
@@ -839,7 +942,7 @@ tp2 = entryMid - (risk * 1.5);  // 1.5R
 ### 8. **BestSignal Selection**
 
 **Backend (`evaluateAllStrategies`):**
-- SAFE_MODE: TREND_4H → SWING → SCALP_1H → MICRO_SCALP
+- STANDARD_MODE: TREND_4H → TREND_RIDER → SWING → SCALP_1H → MICRO_SCALP
 - AGGRESSIVE_MODE: TREND_4H → SCALP_1H → MICRO_SCALP → SWING
 - Fallback: Highest confidence
 
@@ -1044,44 +1147,44 @@ tp2 = entryMid - (risk * rrTargets[1]);
 
 ---
 
-### Confidence Formula (TREND_4H & SCALP_1H)
-**Function:** `calculateConfidence(analysis, direction)` - line 631
+### Enhanced Confidence System (ALL STRATEGIES)
+**Function:** `calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode, strategyName, marketData, dflowData)` - line 772
 
-```javascript
-score = 0;  // 0-1 scale
+**Strategy-Specific Base Confidence:**
+- **SWING:** 80
+- **TREND_4H:** 75
+- **TREND_RIDER:** 75
+- **SCALP_1H:** 70
+- **MICRO_SCALP:** 65
 
-// 1. 4H trend alignment (0-0.4)
-if (direction === 'long' && trend4h === 'UPTREND') score += 0.4;
-else if (direction === 'short' && trend4h === 'DOWNTREND') score += 0.4;
-else if (trend4h === 'FLAT') score += 0.1;
+**Hierarchical Weighting (Applied as Multipliers to Base):**
+1. **Macro Trend Layer (40% weight):** 1M, 1w, 3d, 1d
+   - Contradictions: ×0.75 (mild), ×0.6 (moderate), ×0.4 (severe)
+2. **Primary Trend Layer (35% weight):** 4H, 1H
+   - 4H flat but 1H aligned: ×0.85
+   - 4H opposite: ×0.5
+3. **Execution Layer (25% weight):** 15m, 5m, 3m, 1m
+   - Exhaustion (2+ LTFs): ×0.7
 
-// 2. 1H confirmation (0-0.2)
-if (direction === 'long' && trend1h === 'UPTREND') score += 0.2;
-else if (direction === 'short' && trend1h === 'DOWNTREND') score += 0.2;
-else if (trend1h === 'FLAT') score += 0.1;
+**Real-Time Filters:**
+- **Volume Quality:** -5% penalty if `volumeQuality === 'LOW'`
+- **Trade Flow:** -3% if buy/sell pressure contradicts direction, +3% if strongly aligned
+- **dFlow Alignment:** +5% if aligned (>60% markets), -5% if contradicts
 
-// 3. Stoch alignment (0-0.2)
-if (stoch15m.curl === 'up' && stoch5m.curl === 'up') score += 0.2;
-else if (stoch15m.curl === 'up' || stoch5m.curl === 'up') score += 0.1;
+**Hard Caps:**
+- **STANDARD Mode:**
+  - Macro contradiction: 75% max
+  - Primary contradiction: 65% max
+  - Macro + Primary: 55% max
+  - Exhaustion + contradiction: 45% max
+- **AGGRESSIVE Mode:**
+  - Macro contradiction: 80% max
+  - Primary contradiction: 70% max
+  - Macro + Primary: 60% max
+  - Exhaustion + contradiction: 50% max
+  - **Special:** 95% max when ALL conditions align (trends + volume + dFlow + momentum)
 
-// 4. Structure confluence (0-0.1)
-if (price in good position) score += 0.1;
-else score += 0.05;
-
-// 5. MA confluence (0-0.1)
-if (pullbackState === 'ENTRY_ZONE') score += 0.1;
-else if (pullbackState === 'RETRACING') score += 0.05;
-
-score = Math.min(score, 1.0);  // Cap at 1.0
-confidence = Math.round(score * 100);  // Convert to 0-100 scale
-```
-
-**SCALP_1H Confidence (Different Formula):**
-```javascript
-baseConfidence = 60;
-biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.2) : 0;
-confidence = Math.min(85, Math.round(baseConfidence + biasBonus));  // 0-100 scale
-```
+**Note:** Legacy `calculateConfidence()` function has been removed. All strategies now use `calculateConfidenceWithHierarchy()`.
 
 ---
 

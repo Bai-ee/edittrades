@@ -8,6 +8,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import axios from 'axios';
 import * as binanceService from './services/binance.js';
 import * as coingeckoService from './services/coingecko.js';
 import * as indicatorService from './services/indicators.js';
@@ -415,12 +416,139 @@ app.get('/api/analyze-full', async (req, res) => {
       }
     }
 
-    // Get current price
+    // Get current price and market data
     const ticker = await marketData.getTickerPrice(symbol);
     const currentPrice = parseFloat(ticker.price.toFixed(2));
+    
+    // Fetch additional market data (spread, bid/ask, order book, recent trades)
+    let marketDataInfo = null;
+    try {
+      const krakenSymbol = marketData.SYMBOL_MAP?.[symbol]?.kraken || 'XBTUSD';
+      const tickerResponse = await axios.get('https://api.kraken.com/0/public/Ticker', {
+        params: { pair: krakenSymbol },
+        timeout: 5000
+      });
+      
+      if (tickerResponse.data && !tickerResponse.data.error) {
+        const pairKey = Object.keys(tickerResponse.data.result)[0];
+        const tickerInfo = tickerResponse.data.result[pairKey];
+        
+        const bid = parseFloat(tickerInfo.b[0]) || currentPrice;
+        const ask = parseFloat(tickerInfo.a[0]) || currentPrice;
+        const bidQty = parseFloat(tickerInfo.b[2] || tickerInfo.b[3] || 0) || 0;
+        const askQty = parseFloat(tickerInfo.a[2] || tickerInfo.a[3] || 0) || 0;
+        const tradeCount24h = parseInt(tickerInfo.t[1] || tickerInfo.t[0] || 0) || 0;
+        
+        const spread = Math.abs(ask - bid);
+        const spreadPercent = currentPrice > 0 ? (spread / currentPrice) * 100 : 0;
+        const totalQty = bidQty + askQty;
+        const bidAskImbalance = totalQty > 0 ? ((bidQty - askQty) / totalQty) * 100 : 0;
+        const volumeQuality = tradeCount24h > 50000 ? 'HIGH' : tradeCount24h > 20000 ? 'MEDIUM' : 'LOW';
+        
+        let orderBookData = null;
+        try {
+          const orderBookResponse = await axios.get('https://api.kraken.com/0/public/Depth', {
+            params: { pair: krakenSymbol, count: 10 },
+            timeout: 5000
+          });
+          
+          if (orderBookResponse.data && !orderBookResponse.data.error) {
+            const orderBook = orderBookResponse.data.result[pairKey];
+            const bids = orderBook.bids || [];
+            const asks = orderBook.asks || [];
+            
+            const bidLiquidity = bids.reduce((sum, [price, qty]) => sum + parseFloat(qty), 0);
+            const askLiquidity = asks.reduce((sum, [price, qty]) => sum + parseFloat(qty), 0);
+            const totalLiquidity = bidLiquidity + askLiquidity;
+            const liquidityImbalance = totalLiquidity > 0 ? ((bidLiquidity - askLiquidity) / totalLiquidity) * 100 : 0;
+            
+            orderBookData = {
+              bidLiquidity: parseFloat(bidLiquidity.toFixed(3)),
+              askLiquidity: parseFloat(askLiquidity.toFixed(2)),
+              imbalance: parseFloat(liquidityImbalance.toFixed(1))
+            };
+          }
+        } catch (obError) {
+          console.warn(`[Analyze-Full] Order book unavailable for ${symbol}:`, obError.message);
+        }
+        
+        let recentTradesData = null;
+        try {
+          const tradesResponse = await axios.get('https://api.kraken.com/0/public/Trades', {
+            params: { pair: krakenSymbol, count: 100 },
+            timeout: 5000
+          });
+          
+          if (tradesResponse.data && !tradesResponse.data.error) {
+            const trades = tradesResponse.data.result[pairKey] || [];
+            let buyVolume = 0;
+            let sellVolume = 0;
+            
+            trades.forEach(([price, volume, time, side]) => {
+              const vol = parseFloat(volume);
+              if (side === 'b' || side === 'buy') {
+                buyVolume += vol;
+              } else {
+                sellVolume += vol;
+              }
+            });
+            
+            const totalVolume = buyVolume + sellVolume;
+            const buyPressure = totalVolume > 0 ? (buyVolume / totalVolume) * 100 : 50;
+            const sellPressure = totalVolume > 0 ? (sellVolume / totalVolume) * 100 : 50;
+            const volumeImbalance = buyPressure - sellPressure;
+            const overallFlow = volumeImbalance > 5 ? 'BUY' : volumeImbalance < -5 ? 'SELL' : 'NEUTRAL';
+            
+            recentTradesData = {
+              overallFlow: overallFlow,
+              buyPressure: parseFloat(buyPressure.toFixed(1)),
+              sellPressure: parseFloat(sellPressure.toFixed(1)),
+              volumeImbalance: parseFloat(volumeImbalance.toFixed(1))
+            };
+          }
+        } catch (tradesError) {
+          console.warn(`[Analyze-Full] Recent trades unavailable for ${symbol}:`, tradesError.message);
+        }
+        
+        marketDataInfo = {
+          spread: parseFloat(spread.toFixed(2)),
+          spreadPercent: parseFloat(spreadPercent.toFixed(4)),
+          bid: parseFloat(bid.toFixed(2)),
+          ask: parseFloat(ask.toFixed(2)),
+          bidAskImbalance: parseFloat(bidAskImbalance.toFixed(1)),
+          volumeQuality: volumeQuality,
+          tradeCount24h: tradeCount24h,
+          orderBook: orderBookData,
+          recentTrades: recentTradesData
+        };
+      }
+    } catch (error) {
+      console.warn(`[Analyze-Full] Market data unavailable for ${symbol}:`, error.message);
+      marketDataInfo = null;
+    }
 
-    // Evaluate all strategies
-    const allStrategiesResult = strategyService.evaluateAllStrategies(symbol, analysis, mode);
+    // Fetch dFlow prediction market data (non-blocking - don't fail if unavailable)
+    let dflowData = null;
+    try {
+      dflowData = await marketData.getDflowPredictionMarkets(symbol);
+    } catch (error) {
+      console.warn(`[Analyze-Full] dFlow data unavailable for ${symbol}:`, error.message);
+      dflowData = {
+        symbol,
+        error: 'dFlow API unavailable',
+        events: [],
+        markets: []
+      };
+    }
+
+    // Evaluate all strategies (pass marketData and dflowData for filters)
+    const allStrategiesResult = strategyService.evaluateAllStrategies(
+      symbol, 
+      analysis, 
+      mode,
+      marketDataInfo,  // Pass market data for volume quality and trade flow filters
+      dflowData         // Pass dFlow data for alignment check
+    );
     
     // Build timeframe summary
     const timeframes = strategyService.buildTimeframeSummary(analysis);
@@ -448,14 +576,12 @@ app.get('/api/analyze-full', async (req, res) => {
         source: htfBias.source || 'none'
       },
       timeframes,
-      strategies: {
-        SWING: allStrategiesResult.strategies.SWING,
-        TREND_4H: allStrategiesResult.strategies.TREND_4H,
-        SCALP_1H: allStrategiesResult.strategies.SCALP_1H,
-        MICRO_SCALP: allStrategiesResult.strategies.MICRO_SCALP
-      },
+      strategies: { ...allStrategiesResult.strategies }, // ✅ Includes TREND_RIDER automatically
       bestSignal: allStrategiesResult.bestSignal,
+      marketData: marketDataInfo, // Spread, bid/ask, volume quality, order book, recent trades
+      dflowData: dflowData, // Prediction market data
       schemaVersion: '1.0.0',
+      jsonVersion: '0.05', // Increment on JSON structure changes
       generatedAt: new Date().toISOString()
     };
 
