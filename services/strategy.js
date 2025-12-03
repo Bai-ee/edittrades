@@ -643,6 +643,33 @@ function calculateEntryZone(ema21, direction) {
 }
 
 /**
+ * Calculate aggressive entry zone - ALWAYS close to or ahead of price action
+ * Used for AGGRESSIVE mode trades to ensure entries are executable
+ * @param {number} currentPrice - Current market price
+ * @param {string} direction - 'long' or 'short'
+ * @param {number} buffer - Buffer percentage (default 0.0003 = 0.03% ahead of price)
+ * @returns {Object} { min, max } entry zone
+ */
+function calculateAggressiveEntryZone(currentPrice, direction, buffer = 0.0003) {
+  if (!currentPrice || isNaN(currentPrice)) return null;
+  
+  // For AGGRESSIVE mode: Entry is always at or slightly ahead of current price
+  if (direction === 'long') {
+    // Longs: Entry slightly above current price (0.01% to 0.05% above)
+    return {
+      min: currentPrice * (1 + buffer * 0.33),  // 0.01% above price
+      max: currentPrice * (1 + buffer * 1.67)   // 0.05% above price
+    };
+  } else {
+    // Shorts: Entry slightly below current price (0.01% to 0.05% below)
+    return {
+      min: currentPrice * (1 - buffer * 1.67),  // 0.05% below price
+      max: currentPrice * (1 - buffer * 0.33)    // 0.01% below price
+    };
+  }
+}
+
+/**
  * Calculate breakout entry zone above/below swing levels
  * Updated to place entries closer to price action
  * @param {number} swingLevel - Swing high (longs) or swing low (shorts)
@@ -1449,30 +1476,50 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     invalidationLevel = stopLoss;
   }
   
-  // Entry zone: PRIORITIZE breakout entry when conditions are met
+  // Entry zone: AGGRESSIVE mode ALWAYS uses aggressive entries
   let entryMin, entryMax, entryType = 'pullback';
   
-  // Check for breakout entry (price near swingHigh for longs, near swingLow for shorts)
-  const swingLevel = direction === 'long' ? swingHigh1d : swingLow1d;
-  const stoch1dForBreakout = stoch1d;
-  
-  // Prioritize breakout entry - check if price is near swing level with momentum
-  if (swingLevel && stoch1dForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch1dForBreakout)) {
-    // Use breakout entry zone (closer to price action)
-    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
-    if (breakoutZone) {
-      entryMin = breakoutZone.min;
-      entryMax = breakoutZone.max;
-      entryType = 'breakout';
+  // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+  if (mode === 'AGGRESSIVE') {
+    const aggressiveZone = calculateAggressiveEntryZone(currentPrice, direction);
+    if (aggressiveZone) {
+      entryMin = aggressiveZone.min;
+      entryMax = aggressiveZone.max;
+      entryType = 'breakout'; // Mark as breakout since it's ahead of price
     } else {
-      // Fallback to pullback entry
+      // Fallback: use current price ±0.05%
+      if (direction === 'long') {
+        entryMin = currentPrice * 1.0001;
+        entryMax = currentPrice * 1.0005;
+      } else {
+        entryMin = currentPrice * 0.9995;
+        entryMax = currentPrice * 0.9999;
+      }
+      entryType = 'breakout';
+    }
+  } else {
+    // STANDARD mode: Prioritize breakout entry when conditions are met
+    const swingLevel = direction === 'long' ? swingHigh1d : swingLow1d;
+    const stoch1dForBreakout = stoch1d;
+    
+    // Prioritize breakout entry - check if price is near swing level with momentum
+    if (swingLevel && stoch1dForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch1dForBreakout)) {
+      // Use breakout entry zone (closer to price action)
+      const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
+      if (breakoutZone) {
+        entryMin = breakoutZone.min;
+        entryMax = breakoutZone.max;
+        entryType = 'breakout';
+      } else {
+        // Fallback to pullback entry
+        entryMin = reclaimLevel * 0.995;
+        entryMax = reclaimLevel * 1.005;
+      }
+    } else {
+      // Use pullback entry zone only if breakout conditions not met
       entryMin = reclaimLevel * 0.995;
       entryMax = reclaimLevel * 1.005;
     }
-  } else {
-    // Use pullback entry zone only if breakout conditions not met
-    entryMin = reclaimLevel * 0.995;
-    entryMax = reclaimLevel * 1.005;
   }
   
   const midEntry = (entryMin + entryMax) / 2;
@@ -1846,25 +1893,42 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
                     setupType === 'Scalp' ? [1.5, 2.5] : 
                     [1.0, 2.0];
   
-  // Calculate entry zone - PRIORITIZE breakout entry when conditions are met
+  // Calculate entry zone - AGGRESSIVE mode ALWAYS uses aggressive entries
   let entryZone, entryType = 'pullback';
-  const swingLevel = direction === 'long' 
-    ? (tf4h.structure?.swingHigh || tf1h?.structure?.swingHigh)
-    : (tf4h.structure?.swingLow || tf1h?.structure?.swingLow);
-  const stoch4hForBreakout = tf4h.indicators?.stochRSI;
   
-  // Prioritize breakout entry - check if price is near swing level with momentum
-  if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
-    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
-    if (breakoutZone) {
-      entryZone = breakoutZone;
-      entryType = 'breakout';
+  // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+  if (mode === 'AGGRESSIVE') {
+    const aggressiveZone = calculateAggressiveEntryZone(currentPrice, direction);
+    if (aggressiveZone) {
+      entryZone = aggressiveZone;
+      entryType = 'breakout'; // Mark as breakout since it's ahead of price
     } else {
-      entryZone = calculateEntryZone(ema21, direction);
+      // Fallback: use current price ±0.05%
+      entryZone = direction === 'long' 
+        ? { min: currentPrice * 1.0001, max: currentPrice * 1.0005 }
+        : { min: currentPrice * 0.9995, max: currentPrice * 0.9999 };
+      entryType = 'breakout';
     }
   } else {
-    // Use pullback entry only if breakout conditions not met
-    entryZone = calculateEntryZone(ema21, direction);
+    // STANDARD mode: Prioritize breakout entry when conditions are met
+    const swingLevel = direction === 'long' 
+      ? (tf4h.structure?.swingHigh || tf1h?.structure?.swingHigh)
+      : (tf4h.structure?.swingLow || tf1h?.structure?.swingLow);
+    const stoch4hForBreakout = tf4h.indicators?.stochRSI;
+    
+    // Prioritize breakout entry - check if price is near swing level with momentum
+    if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
+      const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
+      if (breakoutZone) {
+        entryZone = breakoutZone;
+        entryType = 'breakout';
+      } else {
+        entryZone = calculateEntryZone(ema21, direction);
+      }
+    } else {
+      // Use pullback entry only if breakout conditions not met
+      entryZone = calculateEntryZone(ema21, direction);
+    }
   }
   
   const entryMid = (entryZone.min + entryZone.max) / 2;
@@ -2122,25 +2186,42 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           // Build 1H Scalp signal
           const ema21_1h = tf1h.indicators?.ema?.ema21 || currentPrice;
           
-          // PRIORITIZE breakout entry when conditions are met
+          // Entry zone calculation - AGGRESSIVE mode ALWAYS uses aggressive entries
           let entryZone, entryType = 'pullback';
-          const swingLevel = direction === 'long' 
-            ? (tf1h.structure?.swingHigh || tf15m?.structure?.swingHigh)
-            : (tf1h.structure?.swingLow || tf15m?.structure?.swingLow);
-          const stoch15mForBreakout = tf15m.indicators?.stochRSI;
           
-          // Prioritize breakout entry - check if price is near swing level with momentum
-          if (swingLevel && stoch15mForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch15mForBreakout)) {
-            const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
-            if (breakoutZone) {
-              entryZone = breakoutZone;
-              entryType = 'breakout';
+          // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+          if (mode === 'AGGRESSIVE') {
+            const aggressiveZone = calculateAggressiveEntryZone(currentPrice, direction);
+            if (aggressiveZone) {
+              entryZone = aggressiveZone;
+              entryType = 'breakout'; // Mark as breakout since it's ahead of price
             } else {
-              entryZone = calculateEntryZone(ema21_1h, direction);
+              // Fallback: use current price ±0.05%
+              entryZone = direction === 'long' 
+                ? { min: currentPrice * 1.0001, max: currentPrice * 1.0005 }
+                : { min: currentPrice * 0.9995, max: currentPrice * 0.9999 };
+              entryType = 'breakout';
             }
           } else {
-            // Use pullback entry only if breakout conditions not met
-            entryZone = calculateEntryZone(ema21_1h, direction);
+            // STANDARD mode: Prioritize breakout entry when conditions are met
+            const swingLevel = direction === 'long' 
+              ? (tf1h.structure?.swingHigh || tf15m?.structure?.swingHigh)
+              : (tf1h.structure?.swingLow || tf15m?.structure?.swingLow);
+            const stoch15mForBreakout = tf15m.indicators?.stochRSI;
+            
+            // Prioritize breakout entry - check if price is near swing level with momentum
+            if (swingLevel && stoch15mForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch15mForBreakout)) {
+              const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
+              if (breakoutZone) {
+                entryZone = breakoutZone;
+                entryType = 'breakout';
+              } else {
+                entryZone = calculateEntryZone(ema21_1h, direction);
+              }
+            } else {
+              // Use pullback entry only if breakout conditions not met
+              entryZone = calculateEntryZone(ema21_1h, direction);
+            }
           }
           
           const entryMid = (entryZone.min + entryZone.max) / 2;
@@ -2796,35 +2877,55 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
 
   if (!direction) return null;
 
-  // ---- Entry Zone - PRIORITIZE breakout entry when conditions are met ----
+  // ---- Entry Zone - AGGRESSIVE mode ALWAYS uses aggressive entries ----
   let entryMin, entryMax, entryType = 'pullback';
-  const swingLevel = direction === 'long' 
-    ? (swing4h.swingHigh || swing1h.swingHigh)
-    : (swing4h.swingLow || swing1h.swingLow);
-  const stoch4hForBreakout = tf4h.indicators?.stochRSI;
   
-  // Prioritize breakout entry - check if price is near swing level with momentum
-  if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
-    const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
-    if (breakoutZone) {
-      entryMin = breakoutZone.min;
-      entryMax = breakoutZone.max;
-      entryType = 'breakout';
+  // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+  if (mode === 'AGGRESSIVE') {
+    const aggressiveZone = calculateAggressiveEntryZone(currentPrice, direction);
+    if (aggressiveZone) {
+      entryMin = aggressiveZone.min;
+      entryMax = aggressiveZone.max;
+      entryType = 'breakout'; // Mark as breakout since it's ahead of price
     } else {
-      // Fallback to pullback entry
-      const entryAnchor = ema21_4h;
-      const baseZone = calculateEntryZone(entryAnchor, direction);
-      const widenFactor = (mode === 'AGGRESSIVE') ? 1.0015 : 1.0;
-      entryMin = direction === 'long' ? baseZone.min * widenFactor : baseZone.min / widenFactor;
-      entryMax = direction === 'long' ? baseZone.max * widenFactor : baseZone.max / widenFactor;
+      // Fallback: use current price ±0.05%
+      if (direction === 'long') {
+        entryMin = currentPrice * 1.0001;
+        entryMax = currentPrice * 1.0005;
+      } else {
+        entryMin = currentPrice * 0.9995;
+        entryMax = currentPrice * 0.9999;
+      }
+      entryType = 'breakout';
     }
   } else {
-    // Use pullback entry zone only if breakout conditions not met
-    const entryAnchor = ema21_4h;
-    const baseZone = calculateEntryZone(entryAnchor, direction);
-    const widenFactor = (mode === 'AGGRESSIVE') ? 1.0015 : 1.0;
-    entryMin = direction === 'long' ? baseZone.min * widenFactor : baseZone.min / widenFactor;
-    entryMax = direction === 'long' ? baseZone.max * widenFactor : baseZone.max / widenFactor;
+    // STANDARD mode: Prioritize breakout entry when conditions are met
+    const swingLevel = direction === 'long' 
+      ? (swing4h.swingHigh || swing1h.swingHigh)
+      : (swing4h.swingLow || swing1h.swingLow);
+    const stoch4hForBreakout = tf4h.indicators?.stochRSI;
+    
+    // Prioritize breakout entry - check if price is near swing level with momentum
+    if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
+      const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
+      if (breakoutZone) {
+        entryMin = breakoutZone.min;
+        entryMax = breakoutZone.max;
+        entryType = 'breakout';
+      } else {
+        // Fallback to pullback entry
+        const entryAnchor = ema21_4h;
+        const baseZone = calculateEntryZone(entryAnchor, direction);
+        entryMin = baseZone.min;
+        entryMax = baseZone.max;
+      }
+    } else {
+      // Use pullback entry zone only if breakout conditions not met
+      const entryAnchor = ema21_4h;
+      const baseZone = calculateEntryZone(entryAnchor, direction);
+      entryMin = baseZone.min;
+      entryMax = baseZone.max;
+    }
   }
 
   const entryMid = (entryMin + entryMax) / 2;
@@ -3227,17 +3328,22 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const tp1 = entryMid + (R * 1.5);
         const tp2 = entryMid + (R * 3.0);
         
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZone = calculateAggressiveEntryZone(currentPrice, 'long');
         chosenStrategy = {
           valid: true,
           direction: 'long',
           confidence: Math.min(100, htfBias.confidence),
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend aligned, using lower TFs despite 4H flat`,
-          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          entryType: 'breakout', // AGGRESSIVE forced trades use aggressive entry (close to price)
           override: true,
-          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
-          entryZone: {
-            min: parseFloat(entryZone.min.toFixed(2)),
-            max: parseFloat(entryZone.max.toFixed(2))
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat', 'Aggressive entry: close to current price'],
+          entryZone: aggressiveEntryZone ? {
+            min: parseFloat(aggressiveEntryZone.min.toFixed(2)),
+            max: parseFloat(aggressiveEntryZone.max.toFixed(2))
+          } : {
+            min: parseFloat((currentPrice * 1.0001).toFixed(2)),
+            max: parseFloat((currentPrice * 1.0005).toFixed(2))
           },
           stopLoss: parseFloat(stopLoss.toFixed(2)),
           invalidationLevel: parseFloat(stopLoss.toFixed(2)),
@@ -3277,17 +3383,22 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const tp1 = entryMid + (R * 1.5);
         const tp2 = entryMid + (R * 3.0);
         
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneScalp = calculateAggressiveEntryZone(currentPrice, 'long');
         chosenStrategy = {
           valid: true,
           direction: 'long',
           confidence: Math.min(100, htfBias.confidence - 10), // Slightly lower for scalp
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m uptrend, scalp entry despite 4H flat`,
-          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          entryType: 'breakout', // AGGRESSIVE forced trades use aggressive entry (close to price)
           override: true,
-          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
-          entryZone: {
-            min: parseFloat(entryZone.min.toFixed(2)),
-            max: parseFloat(entryZone.max.toFixed(2))
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat', 'Aggressive entry: close to current price'],
+          entryZone: aggressiveEntryZoneScalp ? {
+            min: parseFloat(aggressiveEntryZoneScalp.min.toFixed(2)),
+            max: parseFloat(aggressiveEntryZoneScalp.max.toFixed(2))
+          } : {
+            min: parseFloat((currentPrice * 1.0001).toFixed(2)),
+            max: parseFloat((currentPrice * 1.0005).toFixed(2))
           },
           stopLoss: parseFloat(stopLoss.toFixed(2)),
           invalidationLevel: parseFloat(stopLoss.toFixed(2)),
@@ -3326,17 +3437,22 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const tp1 = entryMid + (R * 1.0);
         const tp2 = entryMid + (R * 1.5);
         
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneMicro = calculateAggressiveEntryZone(currentPrice, 'long');
         chosenStrategy = {
           valid: true,
           direction: 'long',
           confidence: Math.min(100, htfBias.confidence - 15), // Lower for micro
           reason: `AGGRESSIVE: HTF bias long (${htfBias.confidence}%) + 1H/15m/5m uptrend, micro scalp despite 4H flat`,
-          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          entryType: 'breakout', // AGGRESSIVE forced trades use aggressive entry (close to price)
           override: true,
-          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H, 15m, and 5m trends aligned despite 4H flat'],
-          entryZone: {
-            min: parseFloat(entryZone.min.toFixed(2)),
-            max: parseFloat(entryZone.max.toFixed(2))
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H, 15m, and 5m trends aligned despite 4H flat', 'Aggressive entry: close to current price'],
+          entryZone: aggressiveEntryZoneMicro ? {
+            min: parseFloat(aggressiveEntryZoneMicro.min.toFixed(2)),
+            max: parseFloat(aggressiveEntryZoneMicro.max.toFixed(2))
+          } : {
+            min: parseFloat((currentPrice * 1.0001).toFixed(2)),
+            max: parseFloat((currentPrice * 1.0005).toFixed(2))
           },
           stopLoss: parseFloat(stopLoss.toFixed(2)),
           invalidationLevel: parseFloat(stopLoss.toFixed(2)),
@@ -3398,17 +3514,22 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const tp1 = entryMid - (R * 1.5);
         const tp2 = entryMid - (R * 3.0);
         
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneShort = calculateAggressiveEntryZone(currentPrice, 'short');
         chosenStrategy = {
           valid: true,
           direction: 'short',
           confidence: Math.min(100, htfBias.confidence),
           reason: `AGGRESSIVE: HTF bias short (${htfBias.confidence}%) + 1H/15m downtrend aligned, using lower TFs despite 4H flat`,
-          entryType: 'pullback', // AGGRESSIVE forced trades use pullback entry
+          entryType: 'breakout', // AGGRESSIVE forced trades use aggressive entry (close to price)
           override: true,
-          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat'],
-          entryZone: {
-            min: parseFloat(entryZone.min.toFixed(2)),
-            max: parseFloat(entryZone.max.toFixed(2))
+          notes: ['Override: AGGRESSIVE mode with HTF bias and short-term momentum', `HTF bias: ${htfBias.direction} (${htfBias.confidence}%)`, '1H and 15m trends aligned despite 4H flat', 'Aggressive entry: close to current price'],
+          entryZone: aggressiveEntryZoneShort ? {
+            min: parseFloat(aggressiveEntryZoneShort.min.toFixed(2)),
+            max: parseFloat(aggressiveEntryZoneShort.max.toFixed(2))
+          } : {
+            min: parseFloat((currentPrice * 0.9995).toFixed(2)),
+            max: parseFloat((currentPrice * 0.9999).toFixed(2))
           },
           stopLoss: parseFloat(stopLoss.toFixed(2)),
           invalidationLevel: parseFloat(stopLoss.toFixed(2)),
@@ -3832,6 +3953,7 @@ export default {
   computeHTFBias,
   calculateConfidenceWithHierarchy,
   calculateBreakoutEntryZone,
+  calculateAggressiveEntryZone,
   isBreakoutConfirmed,
   checkDflowAlignment
 };
