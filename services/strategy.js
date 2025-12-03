@@ -3555,22 +3555,16 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       
       // If TREND_4H not chosen, try SCALP_1H - FORCE override for shorts
       if (!chosenStrategy) {
-        const ema21_1h = tf1h?.indicators?.ema?.ema21 || currentPrice;
-        const entryMid = ema21_1h;
-        const entryZone = {
-          min: entryMid * 0.998,
-          max: entryMid * 1.002
-        };
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneShortScalp2 = calculateAggressiveEntryZone(currentPrice, 'short');
+        const entryMid = aggressiveEntryZoneShortScalp2 ? (aggressiveEntryZoneShortScalp2.min + aggressiveEntryZoneShortScalp2.max) / 2 : currentPrice * 0.9997;
         
-        const swingHigh15m = tf15m?.indicators?.swingHigh || ema21_1h * 1.005;
+        const swingHigh15m = tf15m?.indicators?.swingHigh || currentPrice * 1.005;
         const stopLoss = swingHigh15m;
         const R = Math.abs(stopLoss - entryMid);
         
         const tp1 = entryMid - (R * 1.5);
         const tp2 = entryMid - (R * 3.0);
-        
-        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
-        const aggressiveEntryZoneShortScalp2 = calculateAggressiveEntryZone(currentPrice, 'short');
         chosenStrategy = {
           valid: true,
           direction: 'short',
