@@ -113,16 +113,23 @@ export async function executeTrade(signal, tradeType = 'spot', amountUSD = null)
       
       console.log('[TradeExecution] LONG: Buying', baseToken, 'with', amountIn, 'USDC');
     } else {
-      // Short: Sell base token for USDC
-      // Note: For shorts, we need to have the token first
-      // This is a limitation - we'll need to handle this differently
-      // For MVP, we'll skip shorts or require pre-existing position
+      // Short/Sell: Sell base token for USDC
+      // For sells, we have the token and want to convert it back to USDC
       inputMint = baseTokenAddress;
       outputMint = usdcAddress;
       
-      // For shorts, we'd need to know how much of the token we hold
-      // This requires position tracking - not yet implemented
-      throw new Error('Short positions require holding the token. Not yet supported in MVP.');
+      // For sells, we need to calculate how many tokens to sell based on USD amount
+      // We'll get a quote first to determine the token amount, then use that
+      // For now, we'll estimate based on current price from entryZone
+      const estimatedPrice = (signal.entryZone.min + signal.entryZone.max) / 2;
+      const tokenAmount = amountIn / estimatedPrice;
+      
+      // Convert token amount to smallest units
+      amountInSmallestUnit = tokenMapping.toTokenAmount(tokenAmount, symbol);
+      
+      console.log('[TradeExecution] SHORT/SELL: Selling', tokenAmount, baseToken, 'for', amountIn, 'USDC');
+      console.log('[TradeExecution] Estimated price:', estimatedPrice);
+      console.log('[TradeExecution] Token amount (smallest units):', amountInSmallestUnit);
     }
 
     console.log('[TradeExecution] ========================================');

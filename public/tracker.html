@@ -2137,13 +2137,19 @@
               <!-- Position Info -->
               <div style="margin-bottom: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-sm);">
                 <div style="color: var(--color-yellow-75); font-size: 0.875rem; margin-bottom: 0.5rem;">
-                  <strong>Position Size:</strong> ${trade.executionData ? (parseFloat(trade.executionData.outputAmount) / Math.pow(10, 8)).toFixed(8) : 'N/A'} tokens
+                  <strong>Position Size:</strong> ${trade.executionData ? (() => {
+                    const tokenDecimals = trade.symbol.includes('SOL') ? 9 : 8;
+                    return (parseFloat(trade.executionData.outputAmount) / Math.pow(10, tokenDecimals)).toFixed(8);
+                  })() : 'N/A'} tokens
                 </div>
                 <div style="color: var(--color-yellow-75); font-size: 0.875rem; margin-bottom: 0.5rem;">
                   <strong>Entry Price:</strong> $${trade.entry.toLocaleString()}
                 </div>
                 <div style="color: var(--color-yellow-75); font-size: 0.875rem;">
-                  <strong>Current Value:</strong> $${((parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8)) * currentPrice).toFixed(2)}
+                  <strong>Current Value:</strong> $${(() => {
+                    const tokenDecimals = trade.symbol.includes('SOL') ? 9 : 8;
+                    return ((parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, tokenDecimals)) * currentPrice).toFixed(2);
+                  })()}
                 </div>
               </div>
               
@@ -3024,10 +3030,11 @@
         // Update trade position
         const sellPercentage = sellAmountUSD / currentValue;
         const remainingPosition = positionSize * (1 - sellPercentage);
+        const tokenDecimals = trade.symbol.includes('SOL') ? 9 : 8;
         
         // Update execution data
         if (trade.executionData) {
-          trade.executionData.outputAmount = (remainingPosition * Math.pow(10, 8)).toString();
+          trade.executionData.outputAmount = (remainingPosition * Math.pow(10, tokenDecimals)).toString();
           trade.executionData.sells = trade.executionData.sells || [];
           trade.executionData.sells.push({
             amount: sellAmountUSD,
@@ -3128,8 +3135,9 @@
         console.log('[Tracker] Add to trade executed successfully:', result);
         
         // Update trade position
-        const newTokens = parseFloat(result.outputAmount) / Math.pow(10, 8);
-        const oldTokens = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8);
+        const tokenDecimals = trade.symbol.includes('SOL') ? 9 : 8;
+        const newTokens = parseFloat(result.outputAmount) / Math.pow(10, tokenDecimals);
+        const oldTokens = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, tokenDecimals);
         const totalTokens = oldTokens + newTokens;
         
         // Calculate new weighted average entry
@@ -3140,7 +3148,7 @@
         // Update trade
         trade.entry = parseFloat(newEntry.toFixed(2));
         if (trade.executionData) {
-          trade.executionData.outputAmount = (totalTokens * Math.pow(10, 8)).toString();
+          trade.executionData.outputAmount = (totalTokens * Math.pow(10, tokenDecimals)).toString();
           trade.executionData.adds = trade.executionData.adds || [];
           trade.executionData.adds.push({
             amount: addAmountUSD,

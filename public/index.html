@@ -5880,7 +5880,10 @@
         // For long: we spent inputAmount USDC and got outputAmount tokens
         // Entry price = inputAmount / outputAmount (in human-readable units)
         const inputAmountUSD = parseFloat(result.inputAmount) / 1000000; // USDC has 6 decimals
-        const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, 8); // Most tokens have 8 decimals
+        
+        // Get token decimals based on symbol (SOL=9, BTC/ETH=8)
+        const tokenDecimals = symbol.includes('SOL') ? 9 : 8;
+        const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, tokenDecimals);
         const actualEntryPrice = inputAmountUSD / outputAmountTokens;
         
         console.log('[Frontend] Trade execution details:');
