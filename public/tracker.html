@@ -569,6 +569,15 @@
           <div id="statsDisplay" style="font-family: var(--font-system); font-size: 0.875rem; color: var(--text-secondary);">
             <p>Loading statistics...</p>
           </div>
+          <!-- Closed Trades Section -->
+          <div id="closedTradesSection" style="margin-top: 2rem; padding-top: 2rem; border-top: 2px solid rgba(255, 255, 255, 0.1);">
+            <h3 style="font-family: var(--font-mathias); font-size: 1.125rem; font-weight: bold; color: var(--color-yellow-75); text-transform: uppercase; margin-bottom: 1rem;">
+              Closed Trades
+            </h3>
+            <div id="closedTradesTable" style="overflow-x: auto;">
+              <p style="color: rgba(255, 255, 255, 0.5);">No closed trades yet.</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -2600,7 +2609,27 @@
       
       const pendingTrades = trades.filter(t => t.status === 'PENDING');
       const activeTrades = trades.filter(t => t.status === 'ACTIVE');
-      const closedTrades = trades.filter(t => t.status === 'CLOSED');
+      const closedTrades = trades.filter(t => {
+        // Include trades with status CLOSED or trades with zero value (fully sold)
+        if (t.status === 'CLOSED') return true;
+        if (t.status === 'ACTIVE' && t.executionData) {
+          // Check if position value is zero (fully sold)
+          const tokenDecimals = t.symbol.includes('SOL') ? 9 : 8;
+          const positionSize = parseFloat(t.executionData?.outputAmount || 0) / Math.pow(10, tokenDecimals);
+          const currentPrice = priceCache[t.symbol] || t.entry;
+          const currentValue = positionSize * currentPrice;
+          if (currentValue <= 0.01) { // Consider zero if less than 1 cent
+            // Mark as closed if not already
+            if (t.status !== 'CLOSED') {
+              t.status = 'CLOSED';
+              t.exitTime = t.exitTime || new Date().toISOString();
+              t.outcome = t.outcome || 'CLOSED';
+            }
+            return true;
+          }
+        }
+        return false;
+      });
       const invalidatedTrades = trades.filter(t => t.status === 'INVALIDATED');
       
       console.log('  📊 Pending:', pendingTrades.length, '| Active:', activeTrades.length, '| Closed:', closedTrades.length, '| Invalidated:', invalidatedTrades.length);
@@ -2617,7 +2646,11 @@
       closedTrades.sort(sortByRecent);
       invalidatedTrades.sort(sortByRecent);
       
-      const allTrades = [...pendingTrades, ...activeTrades, ...closedTrades, ...invalidatedTrades];
+      // Only show non-closed trades in main table
+      const allTrades = [...pendingTrades, ...activeTrades, ...invalidatedTrades];
+      
+      // Render closed trades in Trade Analytics section
+      renderClosedTrades(closedTrades);
       console.log('  📊 allTrades.length:', allTrades.length);
       
       const tradesTable = document.getElementById('tradesTable');
@@ -2658,6 +2691,293 @@
         });
         console.log('✅ All trades rendered');
       }
+    }
+    
+    // Render closed trades in Trade Analytics section
+    function renderClosedTrades(closedTrades) {
+      const closedTradesTable = document.getElementById('closedTradesTable');
+      if (!closedTradesTable) return;
+      
+      if (closedTrades.length === 0) {
+        closedTradesTable.innerHTML = '<p style="color: rgba(255, 255, 255, 0.5);">No closed trades yet.</p>';
+        return;
+      }
+      
+      // Create table structure
+      let html = `
+        <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+          <thead>
+            <tr style="border-bottom: 2px solid rgba(255, 255, 255, 0.2);">
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Symbol</th>
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Direction</th>
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Entry</th>
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Exit</th>
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">P&L</th>
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Outcome</th>
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      
+      closedTrades.forEach(trade => {
+        const risk = Math.abs(trade.entry - trade.stopLoss);
+        const exitPrice = trade.exitPrice || trade.entry;
+        const pnl = trade.direction === 'LONG' ? 
+          (exitPrice - trade.entry) :
+          (trade.entry - exitPrice);
+        const rMultiple = risk > 0 ? pnl / risk : 0;
+        const pnlPercent = trade.entry > 0 ? (pnl / trade.entry) * 100 : 0;
+        
+        const directionColor = trade.direction === 'LONG' ? '#22c55e' : '#ef4444';
+        const outcomeColor = trade.outcome === 'WIN' ? '#22c55e' : (trade.outcome === 'LOSS' ? '#ef4444' : 'var(--color-yellow-75)');
+        const coinNames = {
+          'BTCUSDT': 'BTC',
+          'ETHUSDT': 'ETH',
+          'SOLUSDT': 'SOL'
+        };
+        const coinName = coinNames[trade.symbol] || trade.symbol.replace('USDT', '');
+        
+        html += `
+          <tr id="closed-trade-row-${trade.id}" style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer;" onclick="toggleClosedTradeDetails(${trade.id})">
+            <td style="padding: 0.75rem; color: var(--color-yellow-75); font-weight: bold;">${coinName}</td>
+            <td style="padding: 0.75rem; color: ${directionColor}; font-weight: bold;">${trade.direction}</td>
+            <td style="padding: 0.75rem; color: var(--color-yellow-75);">$${trade.entry.toLocaleString()}</td>
+            <td style="padding: 0.75rem; color: var(--color-yellow-75);">$${exitPrice.toLocaleString()}</td>
+            <td style="padding: 0.75rem; color: ${rMultiple >= 0 ? '#22c55e' : '#ef4444'}; font-weight: bold;">
+              ${rMultiple >= 0 ? '+' : ''}${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)
+            </td>
+            <td style="padding: 0.75rem; color: ${outcomeColor}; font-weight: bold;">${trade.outcome || 'CLOSED'}</td>
+            <td style="padding: 0.75rem;">
+              <button onclick="event.stopPropagation(); toggleClosedTradeDetails(${trade.id})" 
+                style="background-color: var(--color-yellow-75); color: black; border: none; border-radius: var(--radius-sm); padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
+                ${expandedTradeIds.has(trade.id) ? 'HIDE' : 'SHOW'}
+              </button>
+            </td>
+          </tr>
+          <tr id="closed-trade-details-${trade.id}" class="closed-trade-details-row" style="display: ${expandedTradeIds.has(trade.id) ? 'table-row' : 'none'};">
+            <td colspan="7" style="padding: 1.5rem; background-color: rgba(0, 0, 0, 0.4);">
+              ${createClosedTradeDetails(trade)}
+            </td>
+          </tr>
+        `;
+      });
+      
+      html += `
+          </tbody>
+        </table>
+      `;
+      
+      closedTradesTable.innerHTML = html;
+    }
+    
+    // Toggle closed trade details
+    window.toggleClosedTradeDetails = function(tradeId) {
+      const detailsRow = document.getElementById(`closed-trade-details-${tradeId}`);
+      if (!detailsRow) return;
+      
+      const isExpanded = expandedTradeIds.has(tradeId);
+      if (isExpanded) {
+        expandedTradeIds.delete(tradeId);
+        detailsRow.style.display = 'none';
+      } else {
+        expandedTradeIds.add(tradeId);
+        detailsRow.style.display = 'table-row';
+      }
+      
+      // Update button text
+      const button = document.querySelector(`#closed-trade-row-${tradeId} button`);
+      if (button) {
+        button.textContent = isExpanded ? 'SHOW' : 'HIDE';
+      }
+    }
+    
+    // Create closed trade details (snapshot of trade when closed)
+    function createClosedTradeDetails(trade) {
+      const risk = Math.abs(trade.entry - trade.stopLoss);
+      const exitPrice = trade.exitPrice || trade.entry;
+      const pnl = trade.direction === 'LONG' ? 
+        (exitPrice - trade.entry) :
+        (trade.entry - exitPrice);
+      const rMultiple = risk > 0 ? pnl / risk : 0;
+      const pnlPercent = trade.entry > 0 ? (pnl / trade.entry) * 100 : 0;
+      
+      const directionColor = trade.direction === 'LONG' ? '#22c55e' : '#ef4444';
+      const setupType = trade.strategy?.toUpperCase() || 'N/A';
+      
+      // Calculate R-multiples for targets
+      const rr1 = trade.target1 ? Math.abs((trade.target1 - trade.entry) / risk) : 0;
+      const rr2 = trade.target2 ? Math.abs((trade.target2 - trade.entry) / risk) : 0;
+      
+      // Get snapshot data (preserve all trade info at close time)
+      const snapshot = {
+        entry: trade.entry,
+        exit: exitPrice,
+        stopLoss: trade.stopLoss,
+        target1: trade.target1,
+        target2: trade.target2,
+        direction: trade.direction,
+        strategy: trade.strategy,
+        signalSnapshot: trade.signalSnapshot,
+        executionData: trade.executionData,
+        exitTime: trade.exitTime,
+        entryTime: trade.entryTime || trade.trackedAt,
+        outcome: trade.outcome,
+        rMultiple: rMultiple,
+        pnlPercent: pnlPercent
+      };
+      
+      let html = `
+        <div style="font-family: var(--font-system);">
+          <!-- Trade Call Output (matching homepage) -->
+          <div style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); backdrop-filter: blur(10px);">
+            
+            <!-- Header -->
+            <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
+              <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
+                ${trade.symbol.replace('USDT', '')} - ${trade.direction} (${setupType}) - CLOSED
+              </h2>
+              
+              <!-- Key Metrics Grid -->
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Entry Price</div>
+                  <div style="color: ${directionColor}; font-size: 1.5rem; font-weight: bold;">$${snapshot.entry.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Exit Price</div>
+                  <div style="color: ${directionColor}; font-size: 1.5rem; font-weight: bold;">$${exitPrice.toLocaleString()}</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">P&L</div>
+                  <div style="color: ${rMultiple >= 0 ? '#22c55e' : '#ef4444'}; font-size: 1.25rem; font-weight: bold;">${rMultiple >= 0 ? '+' : ''}${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)</div>
+                </div>
+                <div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.75rem; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">Outcome</div>
+                  <div style="color: ${trade.outcome === 'WIN' ? '#22c55e' : (trade.outcome === 'LOSS' ? '#ef4444' : 'var(--color-yellow-75)')}; font-size: 1.25rem; font-weight: bold;">${trade.outcome || 'CLOSED'}</div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Editorial Grid Layout -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+              <!-- Left Column: Entry & Risk -->
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Entry</div>
+                  <div style="color: var(--color-yellow-75); font-size: 1.125rem; font-weight: bold; line-height: 1.2;">
+                    $${snapshot.entry.toLocaleString()}
+                  </div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Stop Loss</div>
+                  <div style="color: ${trade.direction === 'LONG' ? '#ef4444' : '#22c55e'}; font-size: 1.125rem; font-weight: bold;">${snapshot.stopLoss ? `$${snapshot.stopLoss.toLocaleString()}` : 'Not set'}</div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Risk / Reward</div>
+                  <div style="color: #22c55e; font-size: 1rem; font-weight: bold; line-height: 1.4;">
+                    ${rr1 > 0 ? `${rr1.toFixed(1)}R` : 'N/A'} ${rr2 > 0 ? `to ${rr2.toFixed(1)}R` : ''}
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Right Column: Targets & Exit -->
+              <div style="display: flex; flex-direction: column; gap: 1rem;">
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Targets</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.875rem; font-weight: bold; line-height: 1.6;">
+                    ${snapshot.target1 ? `<div>TP1 (${rr1.toFixed(1)}R): $${snapshot.target1.toLocaleString()}</div>` : '<div>TP1: Not set</div>'}
+                    ${snapshot.target2 ? `<div style="margin-top: 0.25rem;">TP2 (${rr2.toFixed(1)}R): $${snapshot.target2.toLocaleString()}</div>` : ''}
+                  </div>
+                </div>
+                
+                <div>
+                  <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Exit</div>
+                  <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.5;">
+                    <div style="margin-bottom: 0.5rem;">
+                      <strong>Exit Price:</strong> $${exitPrice.toLocaleString()}
+                    </div>
+                    <div style="margin-bottom: 0.5rem;">
+                      <strong>Exit Time:</strong> ${snapshot.exitTime ? new Date(snapshot.exitTime).toLocaleString() : 'N/A'}
+                    </div>
+                    <div>
+                      <strong>Entry Time:</strong> ${snapshot.entryTime ? new Date(snapshot.entryTime).toLocaleString() : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+      `;
+      
+      // Add execution data if available
+      if (snapshot.executionData) {
+        const tokenDecimals = trade.symbol.includes('SOL') ? 9 : 8;
+        const buyAmount = parseFloat(snapshot.executionData.inputAmount) / 1000000; // USDC
+        const buyTokens = parseFloat(snapshot.executionData.outputAmount) / Math.pow(10, tokenDecimals);
+        
+        html += `
+          <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Execution Data</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.875rem; color: var(--text-secondary);">
+              <div>
+                <strong>Buy Amount:</strong> $${buyAmount.toFixed(2)} USDC
+              </div>
+              <div>
+                <strong>Tokens Received:</strong> ${buyTokens.toFixed(8)}
+              </div>
+              <div>
+                <strong>Transaction:</strong> <a href="${snapshot.executionData.explorerUrl}" target="_blank" style="color: #22c55e; text-decoration: underline;">View on Solscan</a>
+              </div>
+            </div>
+        `;
+        
+        // Show sells if any
+        if (snapshot.executionData.sells && snapshot.executionData.sells.length > 0) {
+          html += `
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <div style="color: #ef4444; font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Sells (${snapshot.executionData.sells.length})</div>
+          `;
+          snapshot.executionData.sells.forEach((sell, idx) => {
+            html += `
+              <div style="margin-bottom: 0.5rem; padding: 0.5rem; background-color: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm);">
+                <div style="font-size: 0.875rem;">
+                  <strong>Sell #${idx + 1}:</strong> $${sell.amount.toFixed(2)} at ${new Date(sell.timestamp).toLocaleString()}
+                </div>
+                <div style="margin-top: 0.25rem;">
+                  <a href="https://solscan.io/tx/${sell.signature}" target="_blank" style="color: #ef4444; text-decoration: underline; font-size: 0.75rem;">View Transaction</a>
+                </div>
+              </div>
+            `;
+          });
+          html += `</div>`;
+        }
+        
+        html += `</div>`;
+      }
+      
+      // Add signal snapshot if available
+      if (snapshot.signalSnapshot) {
+        html += `
+          <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Signal Snapshot (At Entry)</div>
+            <div style="padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-sm); font-size: 0.875rem; color: var(--text-secondary);">
+              <div style="margin-bottom: 0.5rem;"><strong>HTF Bias:</strong> ${snapshot.signalSnapshot.htfBias?.direction || 'neutral'} (${snapshot.signalSnapshot.htfBias?.confidence || 0}%)</div>
+              <div style="margin-bottom: 0.5rem;"><strong>Confidence:</strong> ${(snapshot.signalSnapshot.signal?.confidence || 0) * 100}%</div>
+              <div style="margin-bottom: 0.5rem;"><strong>Strategy:</strong> ${snapshot.signalSnapshot.signal?.setupType || snapshot.signalSnapshot.signal?.selectedStrategy || 'N/A'}</div>
+              <div><strong>Reason:</strong> ${snapshot.signalSnapshot.signal?.reason || 'N/A'}</div>
+            </div>
+          </div>
+        `;
+      }
+      
+      html += `
+          </div>
+        </div>
+      `;
+      
+      return html;
     }
     
     // Close trade manually
