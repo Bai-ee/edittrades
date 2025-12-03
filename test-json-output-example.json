@@ -1,0 +1,419 @@
+{
+  "SAFE_MODE": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "mode": "SAFE",
+      "currentPrice": 91371,
+      "htfBias": {
+        "direction": "long",
+        "confidence": 100,
+        "source": "1h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "flat",
+          "ema21": 91000,
+          "ema200": 90000,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "uptrend",
+          "ema21": 91200,
+          "ema200": 90500,
+          "stochRsi": {
+            "k": 54.1,
+            "d": 60,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "uptrend",
+          "ema21": 91300,
+          "ema200": 90800,
+          "stochRsi": {
+            "k": 45,
+            "d": 50,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "uptrend",
+          "ema21": 91350,
+          "ema200": null,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "uptrend",
+          "ema21": 90000,
+          "ema200": null,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "uptrend",
+          "ema21": null,
+          "ema200": null,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Strategy evaluation failed - no signal returned",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "long",
+          "confidence": 76,
+          "reason": "4h flat, 1h uptrend, price unknown ✅ HIGH CONFIDENCE [Macro alignment (3d/1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned. Final confidence: 76.2%]",
+          "entryZone": {
+            "min": 90636,
+            "max": 91182
+          },
+          "stopLoss": 88181.73,
+          "invalidationLevel": 88181.73,
+          "targets": [
+            93636.27,
+            96363.54
+          ],
+          "riskReward": {
+            "tp1RR": 1,
+            "tp2RR": 2
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [
+            {
+              "layer": "primary",
+              "reason": "4H flat but 1H aligned",
+              "multiplier": 0.85
+            }
+          ],
+          "capsApplied": [],
+          "explanation": "Macro alignment (3d/1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned. Final confidence: 76.2%",
+          "override": true,
+          "notes": []
+        },
+        "TREND_RIDER": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "TrendRider: 4H trend is FLAT (STANDARD mode requires clear trend)",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "No clean SWING / 4H Trend / 1H Scalp / Micro-Scalp setup. 4H: flat, 1H: UPTREND. HTF bias: long (100% confidence)",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_4H",
+      "marketData": {
+        "volumeQuality": "MEDIUM",
+        "spread": 0.5,
+        "bidAskImbalance": 0
+      },
+      "dflowData": null,
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    }
+  },
+  "AGGRESSIVE_MODE": {
+    "BTCUSDT": {
+      "symbol": "BTCUSDT",
+      "mode": "AGGRESSIVE",
+      "currentPrice": 91371,
+      "htfBias": {
+        "direction": "long",
+        "confidence": 100,
+        "source": "1h"
+      },
+      "timeframes": {
+        "4h": {
+          "trend": "flat",
+          "ema21": 91000,
+          "ema200": 90000,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1h": {
+          "trend": "uptrend",
+          "ema21": 91200,
+          "ema200": 90500,
+          "stochRsi": {
+            "k": 54.1,
+            "d": 60,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "15m": {
+          "trend": "uptrend",
+          "ema21": 91300,
+          "ema200": 90800,
+          "stochRsi": {
+            "k": 45,
+            "d": 50,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "5m": {
+          "trend": "uptrend",
+          "ema21": 91350,
+          "ema200": null,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "1d": {
+          "trend": "uptrend",
+          "ema21": 90000,
+          "ema200": null,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        },
+        "3d": {
+          "trend": "uptrend",
+          "ema21": null,
+          "ema200": null,
+          "stochRsi": {
+            "k": null,
+            "d": null,
+            "state": "neutral"
+          },
+          "confluenceScore": null,
+          "structureSummary": "",
+          "notes": ""
+        }
+      },
+      "strategies": {
+        "SWING": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "Strategy evaluation failed - no signal returned",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "TREND_4H": {
+          "valid": true,
+          "direction": "long",
+          "confidence": 76,
+          "reason": "4h flat, 1h uptrend, price unknown ✅ HIGH CONFIDENCE [Macro alignment (3d/1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned. Final confidence: 76.2%]",
+          "entryZone": {
+            "min": 90636,
+            "max": 91182
+          },
+          "stopLoss": 88181.73,
+          "invalidationLevel": 88181.73,
+          "targets": [
+            93636.27,
+            96363.54
+          ],
+          "riskReward": {
+            "tp1RR": 1,
+            "tp2RR": 2
+          },
+          "validationErrors": [],
+          "penaltiesApplied": [
+            {
+              "layer": "primary",
+              "reason": "4H flat but 1H aligned",
+              "multiplier": 0.85
+            }
+          ],
+          "capsApplied": [],
+          "explanation": "Macro alignment (3d/1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned. Final confidence: 76.2%",
+          "override": true,
+          "notes": []
+        },
+        "TREND_RIDER": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "TrendRider: 4H trend is FLAT (STANDARD mode requires clear trend)",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "SCALP_1H": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "No clean SWING / 4H Trend / 1H Scalp / Micro-Scalp setup. 4H: flat, 1H: UPTREND. HTF bias: long (100% confidence)",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        },
+        "MICRO_SCALP": {
+          "valid": false,
+          "direction": "NO_TRADE",
+          "confidence": 0,
+          "reason": "MicroScalp conditions not met - requires 1H trend + tight EMA confluence",
+          "entryZone": {
+            "min": null,
+            "max": null
+          },
+          "stopLoss": null,
+          "invalidationLevel": null,
+          "targets": [],
+          "riskReward": {
+            "tp1RR": null,
+            "tp2RR": null
+          },
+          "validationErrors": []
+        }
+      },
+      "bestSignal": "TREND_4H",
+      "marketData": {
+        "volumeQuality": "MEDIUM",
+        "spread": 0.5,
+        "bidAskImbalance": 0
+      },
+      "dflowData": null,
+      "schemaVersion": "1.0.0",
+      "jsonVersion": "0.05",
+      "generatedAt": "2025-01-27T12:34:56.789Z"
+    }
+  }
+}
+

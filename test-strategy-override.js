@@ -133,6 +133,17 @@ try {
   } else {
     console.log('❌ No best signal');
   }
+  
+  // Output full JSON for the first valid strategy
+  if (validStrategies.length > 0) {
+    const [strategyName, strategyData] = validStrategies[0];
+    console.log('\n📄 Example JSON Output for', strategyName, ':');
+    console.log(JSON.stringify(strategyData, null, 2));
+  }
+  
+  // Also output the full allResults structure
+  console.log('\n📄 Full evaluateAllStrategies JSON Output:');
+  console.log(JSON.stringify(allResults, null, 2));
 } catch (error) {
   console.error('❌ Error testing evaluateAllStrategies:', error.message);
   console.error('Stack:', error.stack);
