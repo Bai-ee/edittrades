@@ -3424,21 +3424,15 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       
       // If still not chosen, try MICRO_SCALP - FORCE override
       if (!chosenStrategy && trend5mNorm === 'uptrend') {
-        const ema21_5m = tf5m?.indicators?.ema?.ema21 || currentPrice;
-        const entryMid = ema21_5m;
-        const entryZone = {
-          min: entryMid * 0.999,
-          max: entryMid * 1.001
-        };
+        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
+        const aggressiveEntryZoneMicro = calculateAggressiveEntryZone(currentPrice, 'long');
+        const entryMid = aggressiveEntryZoneMicro ? (aggressiveEntryZoneMicro.min + aggressiveEntryZoneMicro.max) / 2 : currentPrice * 1.0003;
         
         const stopLoss = entryMid * 0.998;
         const R = Math.abs(entryMid - stopLoss);
         
         const tp1 = entryMid + (R * 1.0);
         const tp2 = entryMid + (R * 1.5);
-        
-        // AGGRESSIVE mode: ALWAYS use aggressive entry (close to or ahead of price)
-        const aggressiveEntryZoneMicro = calculateAggressiveEntryZone(currentPrice, 'long');
         chosenStrategy = {
           valid: true,
           direction: 'long',
