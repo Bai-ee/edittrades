@@ -1664,6 +1664,17 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
  */
 export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', mode = 'STANDARD', marketData = null, dflowData = null, overrideUsed = false) {
   const analysis = multiTimeframeData;
+  
+  // CRITICAL: Compute HTF bias FIRST, before any other logic that might reference it
+  // This prevents TDZ (Temporal Dead Zone) errors
+  let htfBiasRaw = null;
+  try {
+    htfBiasRaw = computeHTFBias(analysis);
+  } catch (biasError) {
+    console.error(`[evaluateStrategy] ${symbol} ERROR computing HTF bias:`, biasError.message);
+  }
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+  
   const tf3d = analysis['3d'];
   const tf1d = analysis['1d'];
   const tf4h = analysis['4h'];
@@ -1771,17 +1782,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     }
   }
   
-  // NEW: Compute HTF Bias instead of hard 4H gate
-  // Compute HTF bias with fallback to prevent null reference - MUST be computed before use
-  let htfBiasRaw = null;
-  try {
-    htfBiasRaw = computeHTFBias(analysis);
-  } catch (biasError) {
-    console.error(`[evaluateStrategy] ${symbol} ERROR computing HTF bias:`, biasError.message);
-  }
-  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
-  
   // PRIORITY 2: Try 4H Trend Play
+  // NOTE: htfBias already computed at the beginning of this function
   // SAFE_MODE: Only if 4H is NOT FLAT, UNLESS override is used
   // AGGRESSIVE_MODE: Can use HTF bias + lower TFs even when 4H is FLAT (always allow in AGGRESSIVE)
   const canTry4HTrend = (mode === 'STANDARD' && (trend4h !== 'flat' || overrideUsed)) || 
@@ -3218,15 +3220,49 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   // Pass marketData and dflowData to all strategy evaluations
   // IMPORTANT: When override is used, strategies should allow 4H flat
   // We'll pass overrideUsed as part of the context, but strategies need to check it
-  const swingResult = evaluateSwingSetup(multiTimeframeData, multiTimeframeData['4h']?.indicators?.price?.current || 0, mode, marketData, dflowData, overrideUsed);
-  const trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode, marketData, dflowData, overrideUsed);
-  const scalp1hResult = evaluateStrategy(symbol, multiTimeframeData, 'Scalp', mode, marketData, dflowData, overrideUsed);
-  const microScalpResult = evaluateMicroScalp(multiTimeframeData, marketData, dflowData, overrideUsed);
+  // Wrap each evaluation in try-catch to handle TDZ errors and other exceptions
+  let swingResult = null;
+  try {
+    swingResult = evaluateSwingSetup(multiTimeframeData, multiTimeframeData['4h']?.indicators?.price?.current || 0, mode, marketData, dflowData, overrideUsed);
+  } catch (err) {
+    console.error(`[evaluateAllStrategies] ${symbol} SWING evaluation error:`, err.message, err.stack);
+    swingResult = { error: `Strategy evaluation failed: ${err.message}` }; // Pass error to normalizeStrategyResult
+  }
+  
+  let trend4hResult = null;
+  try {
+    trend4hResult = evaluateStrategy(symbol, multiTimeframeData, '4h', mode, marketData, dflowData, overrideUsed);
+  } catch (err) {
+    console.error(`[evaluateAllStrategies] ${symbol} TREND_4H evaluation error:`, err.message, err.stack);
+    trend4hResult = { error: `Strategy evaluation failed: ${err.message}` }; // Pass error to normalizeStrategyResult
+  }
+  
+  let scalp1hResult = null;
+  try {
+    scalp1hResult = evaluateStrategy(symbol, multiTimeframeData, 'Scalp', mode, marketData, dflowData, overrideUsed);
+  } catch (err) {
+    console.error(`[evaluateAllStrategies] ${symbol} SCALP_1H evaluation error:`, err.message, err.stack);
+    scalp1hResult = { error: `Strategy evaluation failed: ${err.message}` }; // Pass error to normalizeStrategyResult
+  }
+  
+  let microScalpResult = null;
+  try {
+    microScalpResult = evaluateMicroScalp(multiTimeframeData, marketData, dflowData, overrideUsed);
+  } catch (err) {
+    console.error(`[evaluateAllStrategies] ${symbol} MICRO_SCALP evaluation error:`, err.message, err.stack);
+    microScalpResult = { error: `Strategy evaluation failed: ${err.message}` }; // Pass error to normalizeStrategyResult
+  }
   
   // TREND_RIDER: Evaluate directly to ensure it's always included
   const currentPrice = tf4h?.indicators?.price?.current || multiTimeframeData['1h']?.indicators?.price?.current || 0;
   // htfBias already computed above - use it
-  const trendRiderRaw = evaluateTrendRider(multiTimeframeData, currentPrice, mode, marketData, dflowData, overrideUsed);
+  let trendRiderRaw = null;
+  try {
+    trendRiderRaw = evaluateTrendRider(multiTimeframeData, currentPrice, mode, marketData, dflowData, overrideUsed);
+  } catch (err) {
+    console.error(`[evaluateAllStrategies] ${symbol} TREND_RIDER evaluation error:`, err.message, err.stack);
+    trendRiderRaw = null; // Will be wrapped below
+  }
   
   // Normalize each to strategy format - always include, even if NO_TRADE
   // Pass mode so normalizeStrategyResult can handle AGGRESSIVE differently
@@ -3235,9 +3271,10 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   strategies.TREND_4H = normalizeStrategyResult(trend4hResult, 'TREND_4H', mode, overrideUsed, overrideNotes);
   
   // TREND_RIDER: Wrap in signal format for normalizeStrategyResult (same pattern as other strategies)
+  // If trendRiderRaw is null due to error, create error object
   const trendRiderWrapped = trendRiderRaw ? {
     signal: trendRiderRaw
-  } : null;
+  } : (trendRiderRaw === null ? null : { error: 'TREND_RIDER evaluation failed' });
   strategies.TREND_RIDER = normalizeStrategyResult(trendRiderWrapped, 'TREND_RIDER', mode, overrideUsed, overrideNotes);
   
   strategies.SCALP_1H = normalizeStrategyResult(scalp1hResult, 'SCALP_1H', mode, overrideUsed, overrideNotes);
@@ -3713,7 +3750,15 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD', overri
   const signal = result.signal || result;
   
   if (!signal || (typeof signal !== 'object')) {
-    return createNoTradeStrategy(strategyName, 'Strategy evaluation failed - invalid signal format');
+    // Check if result has an error message
+    const errorMsg = result.error || result.message || 'Strategy evaluation failed - invalid signal format';
+    // Clean up TDZ error messages to be more user-friendly
+    const cleanErrorMsg = errorMsg.includes('Cannot access') && errorMsg.includes('before initialization')
+      ? `Strategy evaluation failed: Internal error (${strategyName})`
+      : errorMsg.includes('Strategy evaluation failed')
+        ? errorMsg
+        : `Strategy evaluation failed: ${errorMsg}`;
+    return createNoTradeStrategy(strategyName, cleanErrorMsg);
   }
   
   // If valid=false, ensure all fields are null/empty
