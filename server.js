@@ -1005,6 +1005,51 @@ app.post('/api/agent-review', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/execute-trade
+ * Execute a trade based on strategy signal
+ * Body: { symbol, signal, tradeType, amount }
+ */
+app.post('/api/execute-trade', async (req, res) => {
+  try {
+    const { default: executeTradeHandler } = await import('./api/execute-trade.js');
+    return executeTradeHandler(req, res);
+  } catch (error) {
+    console.error('Error loading execute-trade handler:', error);
+    return res.status(500).json({ error: 'Failed to load trade execution handler' });
+  }
+});
+
+/**
+ * GET /api/trade-status/:signature
+ * Check transaction status on Solana
+ */
+app.get('/api/trade-status/:signature', async (req, res) => {
+  try {
+    const { signature } = req.params;
+    
+    if (!signature) {
+      return res.status(400).json({ error: 'Transaction signature is required' });
+    }
+
+    const { getTransactionStatus } = await import('./services/jupiterSwap.js');
+    const status = await getTransactionStatus(signature);
+
+    return res.json({
+      success: true,
+      signature,
+      status,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error checking trade status:', error);
+    return res.status(500).json({
+      error: 'Failed to check transaction status',
+      message: error.message,
+    });
+  }
+});
+
 // Serve index.html for root path
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -1029,6 +1074,8 @@ app.listen(PORT, () => {
   console.log(`   GET /api/multi/:symbol`);
   console.log(`   GET /api/analyze/:symbol ⭐ (4H Strategy)`);
   console.log(`   GET /api/scan 🔍 (Market Scanner)`);
+  console.log(`   POST /api/execute-trade 💰 (Jupiter Swap)`);
+  console.log(`   GET /api/trade-status/:signature 📊 (Transaction Status)`);
 
   console.log('\n💾 Data Source: Auto-detect (Binance or CoinGecko)');
   console.log('\n✨ Ready to analyze crypto markets!\n');

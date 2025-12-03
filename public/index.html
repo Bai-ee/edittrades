@@ -3198,7 +3198,7 @@
             .then(richSymbol => {
               // Convert rich symbol to legacy format for backward compatibility
               try {
-                const legacyData = convertRichSymbolToLegacy(richSymbol);
+              const legacyData = convertRichSymbolToLegacy(richSymbol);
                 return { symbol, data: legacyData, mode, richSymbol, success: true };
               } catch (convertError) {
                 console.error(`[scanMajorCoins] Error converting ${symbol} to legacy format:`, convertError);
@@ -3226,7 +3226,7 @@
             .then(richSymbol => {
               // Convert rich symbol to legacy format for backward compatibility
               try {
-                const legacyData = convertRichSymbolToLegacy(richSymbol);
+              const legacyData = convertRichSymbolToLegacy(richSymbol);
                 return { symbol, data: legacyData, mode: oppositeMode, richSymbol, success: true };
               } catch (convertError) {
                 console.error(`[scanMajorCoins] Error converting ${symbol} to legacy format:`, convertError);
@@ -3402,19 +3402,19 @@
           displayData.currentPrice = null;
         }
         
-        try {
-          // Auto-select best strategy for this symbol
-          autoSelectStrategy(symbol);
-          
+          try {
+            // Auto-select best strategy for this symbol
+            autoSelectStrategy(symbol);
+            
           const row = createCoinRow(symbol, displayData);
           const detailsRow = createDetailsRow(symbol, displayData);
-          tableBody.appendChild(row);
-          tableBody.appendChild(detailsRow);
-          
-          // Update strategy buttons after row is added to DOM
-          setTimeout(() => updateStrategyButtons(symbol), 10);
-        } catch (error) {
-          console.error(`Error creating row for ${symbol}:`, error);
+            tableBody.appendChild(row);
+            tableBody.appendChild(detailsRow);
+            
+            // Update strategy buttons after row is added to DOM
+            setTimeout(() => updateStrategyButtons(symbol), 10);
+          } catch (error) {
+            console.error(`Error creating row for ${symbol}:`, error);
           // Still try to create a basic row even on error
           try {
             const errorRow = document.createElement('tr');
@@ -4082,6 +4082,58 @@
                   'Exit if 4H closes against trend or if 1H momentum stalls. Cut early if liquidity sweeps both sides.'}
               </div>
             </div>
+            
+            <!-- Trade Execution Section -->
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 2px solid ${directionColor};">
+              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 1rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Execute Trade</div>
+              
+              <!-- Trade Type Selector -->
+              <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                <label style="color: var(--color-yellow-75); font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                  <input type="radio" name="tradeType-${symbol}" value="spot" checked style="accent-color: ${directionColor};" data-symbol="${symbol}">
+                  <span>Spot Swap</span>
+                </label>
+                <label style="color: var(--color-yellow-75); font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; opacity: 0.5;">
+                  <input type="radio" name="tradeType-${symbol}" value="perp" disabled style="accent-color: ${directionColor};" data-symbol="${symbol}">
+                  <span>Perpetual (Coming Soon)</span>
+                </label>
+              </div>
+              
+              <!-- Trade Amount Input -->
+              <div style="margin-bottom: 1rem;">
+                <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Trade Amount (USD)</label>
+                <input type="number" id="tradeAmount-${symbol}" value="1" min="1" max="1000" step="1" placeholder="1-1000"
+                  style="width: 100%; max-width: 200px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;"
+                  data-symbol="${symbol}">
+                <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">Min: $1 USD | Default: $1 USD</div>
+              </div>
+              
+              <!-- Auto-Execution Toggle -->
+              <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="autoExec-${symbol}" data-symbol="${symbol}"
+                  style="accent-color: ${directionColor}; width: 18px; height: 18px; cursor: pointer;">
+                <label for="autoExec-${symbol}" style="color: var(--color-yellow-75); font-size: 0.875rem; cursor: pointer;">
+                  Auto-execute when entry price is hit
+                </label>
+              </div>
+              
+              <!-- TRADE Button -->
+              <button id="tradeBtn-${symbol}" 
+                data-symbol="${symbol}"
+                onclick="handleTradeButtonClick('${symbol}')"
+                style="width: 100%; padding: 1rem; background: linear-gradient(135deg, ${directionColor} 0%, ${direction === 'LONG' ? '#16a34a' : '#dc2626'} 100%); border: none; border-radius: var(--radius-md); color: white; font-size: 1rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.1em; cursor: pointer; transition: all 0.3s ease; font-family: var(--font-mathias);"
+                onmouseover="this.style.transform='scale(1.02)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.3)';"
+                onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='none';">
+                💰 Execute ${direction} Trade
+              </button>
+              
+              <!-- Trade Status Display -->
+              <div id="tradeStatus-${symbol}" style="margin-top: 1rem; display: none; padding: 0.75rem; background-color: rgba(0, 0, 0, 0.5); border-radius: var(--radius-sm); border-left: 3px solid ${directionColor};">
+                <div style="color: var(--color-yellow-75); font-size: 0.875rem; font-weight: bold; margin-bottom: 0.5rem;">Trade Status</div>
+                <div id="tradeStatusText-${symbol}" style="color: rgba(255, 255, 255, 0.9); font-size: 0.875rem; line-height: 1.6;"></div>
+                <a id="tradeExplorerLink-${symbol}" href="#" target="_blank" style="color: ${directionColor}; font-size: 0.75rem; text-decoration: underline; margin-top: 0.5rem; display: none;">View on Solscan →</a>
+              </div>
+            </div>
           </div>
         `;
       } else if (tradeSignal && !tradeSignal.valid) {
@@ -4479,6 +4531,31 @@
         </div>
         </td>
       `;
+      
+      // Log and verify trade amount input attributes after HTML insertion
+      setTimeout(() => {
+        const tradeAmountInput = document.getElementById(`tradeAmount-${symbol}`);
+        if (tradeAmountInput) {
+          console.log(`[TradeAmount] ✅ Input field found for ${symbol}`);
+          console.log(`[TradeAmount]   - min attribute:`, tradeAmountInput.getAttribute('min'));
+          console.log(`[TradeAmount]   - max attribute:`, tradeAmountInput.getAttribute('max'));
+          console.log(`[TradeAmount]   - step attribute:`, tradeAmountInput.getAttribute('step'));
+          console.log(`[TradeAmount]   - value attribute:`, tradeAmountInput.getAttribute('value'));
+          console.log(`[TradeAmount]   - placeholder:`, tradeAmountInput.getAttribute('placeholder'));
+          console.log(`[TradeAmount]   - Current value:`, tradeAmountInput.value);
+          console.log(`[TradeAmount]   - Min property:`, tradeAmountInput.min);
+          console.log(`[TradeAmount]   - Max property:`, tradeAmountInput.max);
+          
+          // Verify min is 1
+          if (tradeAmountInput.min !== '1' || tradeAmountInput.getAttribute('min') !== '1') {
+            console.error(`[TradeAmount] ❌ ERROR: min is not 1! Actual:`, tradeAmountInput.min);
+          } else {
+            console.log(`[TradeAmount] ✅ VERIFIED: min is correctly set to 1`);
+          }
+        } else {
+          console.warn(`[TradeAmount] ⚠️  Input field not found for ${symbol}`);
+        }
+      }, 100);
       
       return detailsRow;
     }
@@ -5475,6 +5552,280 @@
       document.getElementById('errorMessage').textContent = message;
       document.getElementById('errorState').classList.remove('hidden');
     }
+
+    // Show toast notification
+    function showToast(message, type = 'info') {
+      // Try to use copy toast container if available
+      const container = document.getElementById('copyToastContainer');
+      if (container) {
+        const toast = document.createElement('span');
+        toast.style.fontWeight = 'bold';
+        toast.style.color = type === 'error' ? '#ef4444' : 'var(--color-yellow-75)';
+        toast.style.fontFamily = 'var(--font-mathias)';
+        toast.style.fontSize = '0.75rem';
+        toast.style.opacity = '1';
+        toast.style.transition = 'opacity 0.3s';
+        toast.textContent = message;
+        
+        container.innerHTML = '';
+        container.appendChild(toast);
+        
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          setTimeout(() => {
+            container.innerHTML = '';
+          }, 300);
+        }, 3000);
+        return;
+      }
+      
+      // Fallback to console if container not found
+      console.log(`[Toast] ${message}`);
+    }
+
+    // ============================================
+    // Trade Execution Functions
+    // ============================================
+    
+    // Track active auto-execution signals
+    const autoExecutionSignals = new Map(); // { symbol: { signal, tradeType, amount } }
+    
+    /**
+     * Handle trade button click
+     * @param {string} symbol - Trading symbol
+     */
+    function handleTradeButtonClick(symbol) {
+      const data = scanResults[symbol];
+      if (!data) {
+        showToast(`No data found for ${symbol}`);
+        return;
+      }
+      
+      // Get signal from data
+      const signal = data.signal || data.tradeSignal || data.bestSignal;
+      if (!signal || !signal.valid) {
+        showToast(`No valid signal for ${symbol}`);
+        return;
+      }
+      
+      // Add symbol to signal if not present
+      if (!signal.symbol) {
+        signal.symbol = symbol;
+      }
+      
+      executeTrade(symbol, signal);
+    }
+    
+    /**
+     * Execute a trade via Jupiter Swap API
+     * @param {string} symbol - Trading symbol
+     * @param {Object} signal - Strategy signal object
+     */
+    async function executeTrade(symbol, signal) {
+      try {
+        console.log('[Frontend] Executing trade for', symbol);
+        console.log('[Frontend] Signal:', signal);
+        
+        // Get trade type and amount
+        const tradeTypeRadio = document.querySelector(`input[name="tradeType-${symbol}"]:checked`);
+        const tradeType = tradeTypeRadio ? tradeTypeRadio.value : 'spot';
+        const amountInput = document.getElementById(`tradeAmount-${symbol}`);
+        const amount = amountInput ? parseFloat(amountInput.value) : 1;
+        
+        // Validate amount
+        if (!amount || amount < 1 || amount > 1000) {
+          showToast('Trade amount must be between $1 and $1000');
+          return;
+        }
+        
+        // Get button and status elements
+        const tradeBtn = document.getElementById(`tradeBtn-${symbol}`);
+        const statusDiv = document.getElementById(`tradeStatus-${symbol}`);
+        const statusText = document.getElementById(`tradeStatusText-${symbol}`);
+        const explorerLink = document.getElementById(`tradeExplorerLink-${symbol}`);
+        
+        // Disable button and show loading
+        tradeBtn.disabled = true;
+        tradeBtn.textContent = '⏳ Executing...';
+        statusDiv.style.display = 'block';
+        statusText.innerHTML = '🔄 Preparing trade transaction...';
+        
+        // Call API
+        const response = await fetch('/api/execute-trade', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            symbol,
+            signal,
+            tradeType,
+            amount,
+          }),
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(result.error || result.message || 'Trade execution failed');
+        }
+        
+        if (!result.success) {
+          throw new Error(result.error || 'Trade execution failed');
+        }
+        
+        // Success!
+        console.log('[Frontend] Trade executed successfully:', result);
+        tradeBtn.textContent = '✅ Trade Executed';
+        tradeBtn.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
+        
+        statusText.innerHTML = `
+          <div style="color: #22c55e; font-weight: bold; margin-bottom: 0.5rem;">✅ Trade Executed Successfully</div>
+          <div style="margin-bottom: 0.25rem;"><strong>Direction:</strong> ${result.direction.toUpperCase()}</div>
+          <div style="margin-bottom: 0.25rem;"><strong>Type:</strong> ${result.tradeType}</div>
+          <div style="margin-bottom: 0.25rem;"><strong>Input Amount:</strong> ${result.inputAmount}</div>
+          <div style="margin-bottom: 0.25rem;"><strong>Output Amount:</strong> ${result.outputAmount}</div>
+          ${result.priceImpact ? `<div style="margin-bottom: 0.25rem;"><strong>Price Impact:</strong> ${result.priceImpact}%</div>` : ''}
+        `;
+        
+        // Show explorer link
+        if (result.explorerUrl) {
+          explorerLink.href = result.explorerUrl;
+          explorerLink.style.display = 'block';
+        }
+        
+        // Start polling for transaction status
+        pollTradeStatus(symbol, result.signature);
+        
+        showToast(`Trade executed! Signature: ${result.signature.substring(0, 8)}...`);
+        
+      } catch (error) {
+        console.error('[Frontend] Trade execution error:', error);
+        
+        const tradeBtn = document.getElementById(`tradeBtn-${symbol}`);
+        const statusDiv = document.getElementById(`tradeStatus-${symbol}`);
+        const statusText = document.getElementById(`tradeStatusText-${symbol}`);
+        
+        tradeBtn.disabled = false;
+        tradeBtn.textContent = '💰 Execute Trade';
+        statusDiv.style.display = 'block';
+        statusText.innerHTML = `
+          <div style="color: #ef4444; font-weight: bold;">❌ Trade Failed</div>
+          <div style="margin-top: 0.5rem; color: rgba(255, 255, 255, 0.8);">${error.message}</div>
+        `;
+        
+        showToast(`Trade failed: ${error.message}`);
+      }
+    }
+    
+    /**
+     * Poll transaction status
+     * @param {string} symbol - Trading symbol
+     * @param {string} signature - Transaction signature
+     */
+    async function pollTradeStatus(symbol, signature) {
+      const maxAttempts = 30; // Poll for up to 5 minutes (10s intervals)
+      let attempts = 0;
+      
+      const interval = setInterval(async () => {
+        attempts++;
+        
+        try {
+          const response = await fetch(`/api/trade-status/${signature}`);
+          const result = await response.json();
+          
+          const statusText = document.getElementById(`tradeStatusText-${symbol}`);
+          
+          if (result.status && result.status.confirmed) {
+            clearInterval(interval);
+            statusText.innerHTML += `<div style="color: #22c55e; margin-top: 0.5rem; font-weight: bold;">✅ Transaction Confirmed</div>`;
+            return;
+          }
+          
+          if (result.status && result.status.err) {
+            clearInterval(interval);
+            statusText.innerHTML += `<div style="color: #ef4444; margin-top: 0.5rem; font-weight: bold;">❌ Transaction Failed: ${JSON.stringify(result.status.err)}</div>`;
+            return;
+          }
+          
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            statusText.innerHTML += `<div style="color: #f59e0b; margin-top: 0.5rem;">⏳ Status check timeout - transaction may still be processing</div>`;
+            return;
+          }
+          
+        } catch (error) {
+          console.error('[Frontend] Error polling status:', error);
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+          }
+        }
+      }, 10000); // Poll every 10 seconds
+    }
+    
+    /**
+     * Enable auto-execution for a signal
+     * @param {string} symbol - Trading symbol
+     * @param {Object} signal - Strategy signal
+     */
+    function enableAutoExecution(symbol, signal) {
+      const checkbox = document.getElementById(`autoExec-${symbol}`);
+      if (!checkbox) return;
+      
+      if (checkbox.checked) {
+        const tradeTypeRadio = document.querySelector(`input[name="tradeType-${symbol}"]:checked`);
+        const tradeType = tradeTypeRadio ? tradeTypeRadio.value : 'spot';
+        const amountInput = document.getElementById(`tradeAmount-${symbol}`);
+        const amount = amountInput ? parseFloat(amountInput.value) : 1;
+        
+        autoExecutionSignals.set(symbol, { signal, tradeType, amount });
+        console.log('[Frontend] Auto-execution enabled for', symbol);
+        showToast(`Auto-execution enabled for ${symbol}`);
+      } else {
+        autoExecutionSignals.delete(symbol);
+        console.log('[Frontend] Auto-execution disabled for', symbol);
+        showToast(`Auto-execution disabled for ${symbol}`);
+      }
+    }
+    
+    /**
+     * Check if entry price is hit and execute if auto-execution is enabled
+     * This should be called periodically or when price updates
+     */
+    async function checkAutoExecution(symbol, currentPrice) {
+      const autoExec = autoExecutionSignals.get(symbol);
+      if (!autoExec) return;
+      
+      const { signal, tradeType, amount } = autoExec;
+      const entryZone = signal.entryZone || signal.entry_zone;
+      
+      if (!entryZone || !entryZone.min || !entryZone.max) return;
+      
+      // Check if price is in entry zone
+      const inZone = currentPrice >= entryZone.min && currentPrice <= entryZone.max;
+      
+      if (inZone) {
+        console.log('[Frontend] Entry zone hit for', symbol, 'at', currentPrice);
+        // Disable auto-execution to prevent multiple executions
+        autoExecutionSignals.delete(symbol);
+        const checkbox = document.getElementById(`autoExec-${symbol}`);
+        if (checkbox) checkbox.checked = false;
+        
+        // Execute trade
+        await executeTrade(symbol, signal);
+      }
+    }
+    
+    // Set up auto-execution checkbox listeners
+    document.addEventListener('change', (e) => {
+      if (e.target.id && e.target.id.startsWith('autoExec-')) {
+        const symbol = e.target.dataset.symbol;
+        const data = scanResults[symbol];
+        if (data && data.signal && data.signal.valid) {
+          enableAutoExecution(symbol, data.signal);
+        }
+      }
+    });
   </script>
 
   <!-- Particles.js Library -->
