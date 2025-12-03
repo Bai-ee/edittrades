@@ -1204,9 +1204,9 @@ function buildReasonSummary(analysis, direction, confidence) {
   
   if (!tf4h) return 'Insufficient data';
   
-  const trend4h = tf4h.indicators.analysis.trend.toLowerCase();
-  const trend1h = tf1h ? tf1h.indicators.analysis.trend.toLowerCase() : 'unknown';
-  const pullback = tf4h.indicators.analysis.pullbackState.toLowerCase().replace('_', ' ');
+  const trend4h = tf4h.indicators?.analysis?.trend ? tf4h.indicators.analysis.trend.toLowerCase() : 'unknown';
+  const trend1h = tf1h?.indicators?.analysis?.trend ? tf1h.indicators.analysis.trend.toLowerCase() : 'unknown';
+  const pullback = tf4h.indicators?.analysis?.pullbackState ? tf4h.indicators.analysis.pullbackState.toLowerCase().replace('_', ' ') : 'unknown';
   
   let summary = `4h ${trend4h}`;
   
@@ -1622,7 +1622,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   
   // PRIORITY 1: Check for 3D Swing Setup (if setupType is 'Swing' OR auto-detect)
   if (setupType === 'Swing' || setupType === 'auto') {
-    const swingSignal = evaluateSwingSetup(analysis, currentPrice, mode, marketData, dflowData);
+    const swingSignal = evaluateSwingSetup(analysis, currentPrice, mode, marketData, dflowData, overrideUsed);
     if (swingSignal && swingSignal.valid) {
       // Return swing signal directly (already includes htfBias)
       const rawSignal = {
@@ -1716,10 +1716,11 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     const invalidationReasons = [];
     
     // AGGRESSIVE_MODE or STANDARD with override: When 4H is flat, use HTF bias + lower TFs for direction
-    // htfBias is now safely initialized above
-    const effectiveTrend4h = ((mode === 'AGGRESSIVE' && trend4h === 'flat' && htfBias.confidence >= 70) ||
-                              (mode === 'STANDARD' && trend4h === 'flat' && overrideUsed && htfBias && htfBias.confidence >= 60))
-      ? (htfBias.direction === 'long' ? 'uptrend' : htfBias.direction === 'short' ? 'downtrend' : trend4h)
+    // htfBias is now safely initialized above - use local reference to avoid TDZ issues
+    const bias = htfBias; // Create local reference
+    const effectiveTrend4h = ((mode === 'AGGRESSIVE' && trend4h === 'flat' && bias.confidence >= 70) ||
+                              (mode === 'STANDARD' && trend4h === 'flat' && overrideUsed && bias && bias.confidence >= 60))
+      ? (bias.direction === 'long' ? 'uptrend' : bias.direction === 'short' ? 'downtrend' : trend4h)
       : trend4h;
   
   // PRD 3.2: Long Setup Requirements
@@ -1888,10 +1889,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   // AGGRESSIVE mode: Allow override if confidence is high even if some direction conditions not met
   let override = false;
   let notes = [];
-  // Compute HTF bias with fallback to prevent null reference
-  const htfBiasRaw = computeHTFBias(analysis);
-  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
-  
+  // htfBias already computed above at line 1704 - reuse it, don't redeclare
   // Check if we should allow override in AGGRESSIVE mode
   if (mode === 'AGGRESSIVE' && confidence >= 65 && htfBias && htfBias.direction === direction) {
     // Allow trade with override tag
