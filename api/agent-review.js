@@ -193,6 +193,22 @@ Rules:
       }
     }
 
+    // Detect signal direction from context for tone matching
+    let signalDirection = null;
+    if (context.activeSignals && context.activeSignals > 0) {
+      // Try to detect direction from trend map or HTF bias
+      if (context.htfBias && context.htfBias.direction) {
+        signalDirection = context.htfBias.direction;
+      } else if (context.trendMap) {
+        // Check if trends are mostly up or down
+        const trends = Object.values(context.trendMap);
+        const upCount = trends.filter(t => t && (t.toLowerCase().includes('up') || t.toLowerCase().includes('bull'))).length;
+        const downCount = trends.filter(t => t && (t.toLowerCase().includes('down') || t.toLowerCase().includes('bear'))).length;
+        if (upCount > downCount) signalDirection = 'long';
+        else if (downCount > upCount) signalDirection = 'short';
+      }
+    }
+
     const userPrompt = `${contextSummary.join('\n')}${temporalGuidance}${toneBlendingGuidance}
 
 Based on this context, generate a status update:
@@ -200,10 +216,10 @@ ${depth === 'short' ? '- Keep it to 1-2 lines maximum' : depth === 'normal' ? '-
 
 ${tone === 'neutral' ? 'Use a balanced, observational tone.' : tone === 'optimistic' ? 'Use a positive, encouraging tone while staying realistic.' : tone === 'cautionary' ? 'Use a warning, careful tone highlighting risks.' : 'Use a confident, assertive tone.'}
 
-IMPORTANT: Match your language to signal direction:
-- If there's a LONG signal: Use bullish language (e.g., "uptrend", "bullish momentum", "buying pressure", "upward movement")
-- If there's a SHORT signal: Use bearish language (e.g., "downtrend", "bearish momentum", "selling pressure", "downward movement")
-- The tone should reflect the direction of any active signals, not just general market conditions
+${signalDirection ? `IMPORTANT: Match your language to signal direction:
+- If signals are LONG: Use bullish language (e.g., "uptrend", "bullish momentum", "buying pressure", "upward movement", "breaking higher")
+- If signals are SHORT: Use bearish language (e.g., "downtrend", "bearish momentum", "selling pressure", "downward movement", "breaking lower")
+- The tone should reflect the direction of active signals, not just general market conditions` : ''}
 
 ${target === 'dashboard' ? 'Format for dashboard overview - concise and actionable.' : target === 'trade-panel' ? 'Format for trade panel - specific to this symbol with actionable insights.' : 'Format for marquee banner - bold, clear trend pulse, very concise.'}
 
