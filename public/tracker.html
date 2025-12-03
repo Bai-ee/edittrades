@@ -3065,8 +3065,17 @@
         }
         
         await saveTrades();
+        
+        // Re-expand the trade details to show updated position
+        const detailsRow = document.getElementById(`trade-details-${tradeId}`);
+        if (detailsRow) {
+          detailsRow.classList.add('expanded');
+          expandedTradeIds.add(tradeId);
+        }
+        
         await renderTrades();
         
+        // Show success with transaction link
         alert(`✅ Sell executed!\nTransaction: ${result.signature.substring(0, 16)}...\nView on Solscan: ${result.explorerUrl}`);
         
       } catch (error) {
@@ -3169,6 +3178,14 @@
         trade.notes = (trade.notes || '') + `\n\nAdded $${addAmountUSD.toFixed(2)} at $${currentPrice.toFixed(2)} on ${new Date().toLocaleString()}. New entry: $${newEntry.toFixed(2)}. Total position: ${totalTokens.toFixed(8)} tokens.`;
         
         await saveTrades();
+        
+        // Re-expand the trade details to show updated position
+        const detailsRow = document.getElementById(`trade-details-${tradeId}`);
+        if (detailsRow) {
+          detailsRow.classList.add('expanded');
+          expandedTradeIds.add(tradeId);
+        }
+        
         await renderTrades();
         
         alert(`✅ Added to position!\nTransaction: ${result.signature.substring(0, 16)}...\nNew entry: $${newEntry.toFixed(2)}\nView on Solscan: ${result.explorerUrl}`);
