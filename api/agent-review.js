@@ -47,7 +47,7 @@ async function handleMarketPulse(req, res, context, variables) {
     let depth = variables?.depth || 'normal';
     const target = variables?.target || 'dashboard';
     let temperature = parseFloat(variables?.temperature || '0.5');
-    const toneFlavor = variables?.toneFlavor || context?.toneFlavor || null;
+    let toneFlavor = variables?.toneFlavor || context?.toneFlavor || null;
     
     // Dev-only prompt tuning (check if in development mode)
     const isDev = process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV !== 'production';
