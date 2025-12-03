@@ -2380,28 +2380,38 @@
         // Get current market snapshot for the symbol
         const currentPrice = priceCache[trade.symbol] || trade.entry;
         
-        // Fetch market data for analysis
-        const marketResponse = await fetch(`/api/analyze/${trade.symbol}`);
+        // Fetch market data for analysis (includes all new context)
+        const marketResponse = await fetch(`/api/analyze-full?symbol=${trade.symbol}&mode=STANDARD`);
         const marketData = await marketResponse.json();
         
-        // Build market snapshot
+        // Build market snapshot with all new context data
+        // NOTE: This includes htfBias, timeframes, marketData, dflowData from analyze-full endpoint
         const marketSnapshot = {
           symbol: trade.symbol,
           currentPrice: currentPrice,
           priceChange24h: marketData.priceChange24h || 0,
           analysis: marketData.analysis || {},
           signal: marketData.signal || marketData.tradeSignal || {},
-          htfBias: marketData.htfBias || { direction: 'neutral', confidence: 0, source: 'none' }
+          htfBias: marketData.htfBias || marketData.richSymbol?.htfBias || { direction: 'neutral', confidence: 0, source: 'none' },
+          timeframes: marketData.timeframes || marketData.richSymbol?.timeframes || {},
+          marketData: marketData.marketData || marketData.richSymbol?.marketData || null,
+          dflowData: marketData.dflowData || marketData.richSymbol?.dflowData || null
         };
         
-        // Call AI analysis endpoint
+        // Verify new context is included (for debugging)
+        console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes htfBias:`, !!marketSnapshot.htfBias);
+        console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes timeframes:`, !!marketSnapshot.timeframes);
+        console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes marketData:`, !!marketSnapshot.marketData);
+        console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes dflowData:`, !!marketSnapshot.dflowData);
+        
+        // Call AI analysis endpoint (individual trade analysis mode)
         const response = await fetch('/api/agent-review', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            marketSnapshot: marketSnapshot,
+            marketSnapshot: marketSnapshot, // Contains all new context: htfBias, timeframes, marketData, dflowData
             setupType: trade.strategy || 'SCALP',
             symbol: trade.symbol
           })

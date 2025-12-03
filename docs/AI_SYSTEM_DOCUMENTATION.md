@@ -172,6 +172,21 @@ conflicting. No clean setups for now—patience is smart here.
   - `PULSE_DEV_DEPTH_TRADE_PANEL` - Depth for trade-panel
   - `PULSE_DEV_DEPTH_MARQUEE` - Depth for marquee
 
+**Bear Mode / Risk-Off Auto-Detection:**
+- Automatically detects bear market conditions or risk-off user profile
+- Sets tone to `cautionary` by default when:
+  - User risk profile is set to `risk-off` (localStorage: `userRiskProfile`)
+  - HTF bias is short with confidence ≥ 70%
+  - 60%+ of timeframes show bearish trends
+- Can be overridden by explicit tone parameter or dev config
+
+**Context Routing:**
+All AI analysis points receive the new rich context structure:
+- **Marquee AI** (`getAIMarketReview`): Receives `htfBias`, `timeframes`, `marketData`, `dflowData` via `buildRichSymbolFromScanResults`
+- **Details Section AI** (`getAIReview`): Receives context via `createDashboardView` which includes all new data
+- **Trade Tracker AI** (`analyzeTrade`): Receives context via `/api/analyze-full` which includes all new data
+- **Market Pulse Intelligence** (`getMarketPulse`): Receives context via `buildPulseContext` which includes all new data
+
 **Enhancement Guide:**
 See [Enhancement Guide](#enhancement-guide) section for details on customizing prompts and variables.
 

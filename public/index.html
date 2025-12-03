@@ -2373,8 +2373,15 @@
           const aggressiveData = scanResultsAggressive[symbol];
           if (!aggressiveData) continue;
           
+          // Use buildRichSymbolFromScanResults to get all new context
+          const richSymbol = buildRichSymbolFromScanResults(symbol, 'AGGRESSIVE') || aggressiveData?.richSymbol || aggressiveData;
+          
           allTradesData.AGGRESSIVE_MODE[symbol] = {
-            currentPrice: aggressiveData.currentPrice,
+            currentPrice: aggressiveData.currentPrice || richSymbol.currentPrice,
+            htfBias: richSymbol.htfBias || aggressiveData.htfBias || { direction: 'neutral', confidence: 0, source: 'none' },
+            timeframes: richSymbol.timeframes || {},
+            marketData: richSymbol.marketData || aggressiveData.marketData || null,
+            dflowData: richSymbol.dflowData || aggressiveData.dflowData || null,
             strategies: {}
           };
           
@@ -2387,7 +2394,6 @@
               'MicroScalp': 'MICRO_SCALP'
             };
             const backendStrategyName = strategyMap[strategyKey];
-            const richSymbol = aggressiveData?.richSymbol || aggressiveData;
             const backendStrategy = richSymbol?.strategies?.[backendStrategyName];
             const signal = backendStrategy && backendStrategy.valid ? {
               valid: true,
@@ -2403,6 +2409,12 @@
               };
             }
           });
+          
+          // Verify new context is included (for debugging)
+          console.log(`🧠 [getAIMarketReview] AGGRESSIVE ${symbol}: Context includes htfBias:`, !!allTradesData.AGGRESSIVE_MODE[symbol].htfBias);
+          console.log(`🧠 [getAIMarketReview] AGGRESSIVE ${symbol}: Context includes timeframes:`, !!allTradesData.AGGRESSIVE_MODE[symbol].timeframes);
+          console.log(`🧠 [getAIMarketReview] AGGRESSIVE ${symbol}: Context includes marketData:`, !!allTradesData.AGGRESSIVE_MODE[symbol].marketData);
+          console.log(`🧠 [getAIMarketReview] AGGRESSIVE ${symbol}: Context includes dflowData:`, !!allTradesData.AGGRESSIVE_MODE[symbol].dflowData);
         }
         
         // Restore original scan results
@@ -2528,24 +2540,77 @@
       return true;
     }
     
+    // Detect bear mode or risk-off conditions
+    function detectBearModeOrRiskOff(data, symbol) {
+      if (!data) return false;
+      
+      // Check user risk profile from localStorage
+      const userRiskProfile = localStorage.getItem('userRiskProfile');
+      if (userRiskProfile === 'risk-off') {
+        console.log(`🧠 Risk-off profile detected for ${symbol}`);
+        return true;
+      }
+      
+      // Check for bear market conditions
+      const htfBias = data.htfBias || data.richSymbol?.htfBias;
+      if (htfBias && htfBias.direction === 'short' && htfBias.confidence >= 70) {
+        console.log(`🧠 Bear mode detected: HTF bias short @ ${htfBias.confidence}%`);
+        return true;
+      }
+      
+      // Check if dominant trend across timeframes is bearish
+      if (data.analysis) {
+        let bearishCount = 0;
+        let totalTrends = 0;
+        for (const [tf, tfData] of Object.entries(data.analysis)) {
+          if (tfData && tfData.indicators && tfData.indicators.analysis) {
+            const trend = (tfData.indicators.analysis.trend || '').toUpperCase();
+            totalTrends++;
+            if (trend === 'DOWNTREND' || trend === 'DOWN') {
+              bearishCount++;
+            }
+          }
+        }
+        // If 60%+ of timeframes are bearish, consider it bear mode
+        if (totalTrends > 0 && (bearishCount / totalTrends) >= 0.6) {
+          console.log(`🧠 Bear mode detected: ${bearishCount}/${totalTrends} timeframes bearish`);
+          return true;
+        }
+      }
+      
+      return false;
+    }
+    
     // Market Pulse Intelligence - New adaptive AI system with caching
     async function getMarketPulse(symbol, target = 'dashboard', tone = 'neutral', depth = 'normal', temperature = 0.5) {
       try {
-        // Apply dev config overrides if enabled
-        if (PULSE_DEV_CONFIG.enabled) {
-          tone = PULSE_DEV_CONFIG.systemPromptTone || tone;
-          temperature = Math.min(temperature, PULSE_DEV_CONFIG.temperatureCap);
-          depth = PULSE_DEV_CONFIG.messageFormat[target] || depth;
-        }
-        
-        console.log(`🧠 Getting Market Pulse Intelligence for ${symbol} (${target}, ${tone}, ${depth})`);
-        
         const data = scanResults[symbol];
         if (!data) {
           console.error(`No data for symbol: ${symbol}`);
           // Return fallback message instead of null
           return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
         }
+        
+        // Auto-detect bear mode or risk-off and override tone
+        const isBearMode = detectBearModeOrRiskOff(data, symbol);
+        if (isBearMode && tone === 'neutral') {
+          tone = 'cautionary';
+          console.log(`🧠 Auto-setting tone to cautionary for ${symbol} (bear mode/risk-off detected)`);
+        }
+        
+        // Apply dev config overrides if enabled (after bear mode detection)
+        if (PULSE_DEV_CONFIG.enabled) {
+          // Only override if dev config doesn't explicitly set a different tone
+          if (!PULSE_DEV_CONFIG.systemPromptTone || PULSE_DEV_CONFIG.systemPromptTone === 'neutral') {
+            // Keep bear mode tone if detected
+          } else {
+            tone = PULSE_DEV_CONFIG.systemPromptTone;
+          }
+          temperature = Math.min(temperature, PULSE_DEV_CONFIG.temperatureCap);
+          depth = PULSE_DEV_CONFIG.messageFormat[target] || depth;
+        }
+        
+        console.log(`🧠 Getting Market Pulse Intelligence for ${symbol} (${target}, ${tone}, ${depth})`);
         
         // Build pulse context from existing data structure
         const pulseContext = buildPulseContext(data, symbol);
@@ -4661,6 +4726,8 @@
     }
     
     // Get AI Review for a specific symbol and setup type
+    // NOTE: This uses the individual trade analysis endpoint (not Market Pulse Intelligence)
+    // It receives the same rich context data structure but uses strategy-specific prompts
     async function getAIReview(symbol, isAutoTrigger = false) {
       const data = scanResults[symbol];
       if (!data) {
@@ -4689,9 +4756,16 @@
       
       try {
         // Create the dashboard view (same JSON that COPY TRADE exports)
+        // This includes all the new context: htfBias, timeframes, marketData, dflowData
         const marketSnapshot = createDashboardView(data);
         
-        // Call the agent API
+        // Verify new context is included (for debugging)
+        console.log(`🧠 [getAIReview] ${symbol}: Context includes htfBias:`, !!marketSnapshot.htfBias);
+        console.log(`🧠 [getAIReview] ${symbol}: Context includes timeframes:`, !!marketSnapshot.timeframes);
+        console.log(`🧠 [getAIReview] ${symbol}: Context includes marketData:`, !!data.richSymbol?.marketData || !!data.marketData);
+        console.log(`🧠 [getAIReview] ${symbol}: Context includes dflowData:`, !!data.richSymbol?.dflowData || !!data.dflowData);
+        
+        // Call the agent API (individual trade analysis mode)
         const response = await fetch('/api/agent-review', {
           method: 'POST',
           headers: {
@@ -4700,7 +4774,7 @@
           body: JSON.stringify({
             symbol,
             setupType,
-            marketSnapshot
+            marketSnapshot // Contains all new context: htfBias, timeframes, marketData, dflowData
           })
         });
         
