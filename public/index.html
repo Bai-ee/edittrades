@@ -4102,10 +4102,10 @@
               <!-- Trade Amount Input -->
               <div style="margin-bottom: 1rem;">
                 <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Trade Amount (USD)</label>
-                <input type="number" id="tradeAmount-${symbol}" value="0.5" min="0.5" max="1000" step="0.1" placeholder="0.5-1000"
+                <input type="number" id="tradeAmount-${symbol}" value="0.25" min="0.25" max="1000" step="0.05" placeholder="0.25-1000"
                   style="width: 100%; max-width: 200px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;"
                   data-symbol="${symbol}">
-                <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">Min: $0.50 USD | Default: $0.50 USD</div>
+                <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">Min: $0.25 USD | Default: $0.25 USD</div>
               </div>
               
               <!-- Auto-Execution Toggle -->
@@ -5631,11 +5631,11 @@
         const tradeTypeRadio = document.querySelector(`input[name="tradeType-${symbol}"]:checked`);
         const tradeType = tradeTypeRadio ? tradeTypeRadio.value : 'spot';
         const amountInput = document.getElementById(`tradeAmount-${symbol}`);
-        const amount = amountInput ? parseFloat(amountInput.value) : 0.5;
+        const amount = amountInput ? parseFloat(amountInput.value) : 0.25;
         
         // Validate amount
-        if (!amount || amount < 0.5 || amount > 1000) {
-          showToast('Trade amount must be between $0.50 and $1000');
+        if (!amount || amount < 0.25 || amount > 1000) {
+          showToast('Trade amount must be between $0.25 and $1000');
           return;
         }
         
