@@ -3488,6 +3488,7 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
     } else {
       console.log(`[AGGRESSIVE_FORCE] ${symbol}: SHORT conditions NOT met. HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
     }
+    } // Close the else block for htfBias check
   } else if (mode === 'AGGRESSIVE' && !is4HFlat) {
     console.log(`[AGGRESSIVE_FORCE] ${symbol}: 4H is NOT flat, forcing logic skipped`);
   }
