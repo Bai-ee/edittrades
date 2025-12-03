@@ -2466,19 +2466,97 @@
       console.log('✅ Market review updated');
     }
     
-    // Market Pulse Intelligence - New adaptive AI system
+    // Market Pulse Intelligence Cache
+    const pulseCache = new Map(); // { cacheKey: { pulse, timestamp, contextHash } }
+    const PULSE_CACHE_TTL = 60000; // 60 seconds
+    
+    // Dev-only prompt tuning configuration (set to false in production)
+    const PULSE_DEV_CONFIG = {
+      enabled: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
+      systemPromptTone: 'neutral', // Override default tone globally
+      temperatureCap: 0.8, // Maximum temperature allowed
+      messageFormat: {
+        dashboard: 'normal', // 'short' | 'normal' | 'detailed'
+        'trade-panel': 'normal',
+        marquee: 'short'
+      }
+    };
+    
+    // Generate cache key from parameters
+    function getPulseCacheKey(symbol, target, tone, depth, temperature) {
+      return `${symbol}:${target}:${tone}:${depth}:${temperature}`;
+    }
+    
+    // Generate hash of market state for change detection
+    function getMarketStateHash(context) {
+      if (!context) return null;
+      // Hash key market indicators that would invalidate cache
+      const stateKey = [
+        context.symbol,
+        context.mode,
+        context.htfBias?.direction,
+        context.htfBias?.confidence,
+        context.activeSignals,
+        context.trendMap?.['4h'],
+        context.trendMap?.['1h'],
+        context.volumeQuality,
+        context.price
+      ].join('|');
+      return stateKey;
+    }
+    
+    // Check if cached response is still valid
+    function isCacheValid(cacheKey, currentContextHash) {
+      const cached = pulseCache.get(cacheKey);
+      if (!cached) return false;
+      
+      const age = Date.now() - cached.timestamp;
+      if (age > PULSE_CACHE_TTL) {
+        console.log(`🧠 Cache expired for ${cacheKey} (age: ${age}ms)`);
+        pulseCache.delete(cacheKey);
+        return false;
+      }
+      
+      // Check if market state changed significantly
+      if (cached.contextHash !== currentContextHash) {
+        console.log(`🧠 Market state changed for ${cacheKey}, invalidating cache`);
+        pulseCache.delete(cacheKey);
+        return false;
+      }
+      
+      console.log(`🧠 Using cached pulse for ${cacheKey} (age: ${age}ms)`);
+      return true;
+    }
+    
+    // Market Pulse Intelligence - New adaptive AI system with caching
     async function getMarketPulse(symbol, target = 'dashboard', tone = 'neutral', depth = 'normal', temperature = 0.5) {
       try {
+        // Apply dev config overrides if enabled
+        if (PULSE_DEV_CONFIG.enabled) {
+          tone = PULSE_DEV_CONFIG.systemPromptTone || tone;
+          temperature = Math.min(temperature, PULSE_DEV_CONFIG.temperatureCap);
+          depth = PULSE_DEV_CONFIG.messageFormat[target] || depth;
+        }
+        
         console.log(`🧠 Getting Market Pulse Intelligence for ${symbol} (${target}, ${tone}, ${depth})`);
         
         const data = scanResults[symbol];
         if (!data) {
           console.error(`No data for symbol: ${symbol}`);
-          return null;
+          // Return fallback message instead of null
+          return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
         }
         
         // Build pulse context from existing data structure
         const pulseContext = buildPulseContext(data, symbol);
+        
+        // Check cache before making API call
+        const cacheKey = getPulseCacheKey(symbol, target, tone, depth, temperature);
+        const contextHash = getMarketStateHash(pulseContext);
+        
+        if (isCacheValid(cacheKey, contextHash)) {
+          return pulseCache.get(cacheKey).pulse;
+        }
         
         // Build pulse variables
         const pulseVariables = {
@@ -2501,18 +2579,42 @@
         });
         
         if (!response.ok) {
-          const errorData = await response.json();
+          const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || 'Market Pulse Intelligence failed');
         }
         
         const result = await response.json();
-        console.log('✅ Market Pulse Intelligence received:', result.pulse?.substring(0, 100));
+        const pulse = result.pulse;
         
-        return result.pulse;
+        if (!pulse) {
+          // Fallback if API returns empty response
+          return `Market analysis for ${symbol} is temporarily unavailable. Please check again soon.`;
+        }
+        
+        console.log('✅ Market Pulse Intelligence received:', pulse.substring(0, 100));
+        
+        // Cache the response
+        pulseCache.set(cacheKey, {
+          pulse: pulse,
+          timestamp: Date.now(),
+          contextHash: contextHash
+        });
+        
+        // Clean up old cache entries (keep only last 50)
+        if (pulseCache.size > 50) {
+          const entries = Array.from(pulseCache.entries());
+          entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+          pulseCache.clear();
+          entries.slice(0, 50).forEach(([key, value]) => pulseCache.set(key, value));
+        }
+        
+        return pulse;
         
       } catch (error) {
         console.error('❌ Market Pulse Intelligence error:', error);
-        return null;
+        // Return fallback message instead of null
+        const symbolName = symbol || 'market';
+        return `Market data for ${symbolName} is currently unavailable. Please check again soon.`;
       }
     }
     

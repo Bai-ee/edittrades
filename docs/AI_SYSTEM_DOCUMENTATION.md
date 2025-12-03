@@ -151,8 +151,35 @@ conflicting. No clean setups for now—patience is smart here.
 - `api/agent-review.js` - `handleMarketPulse()` function
 - `public/index.html` - Frontend integration functions
 
+**Caching:**
+- Responses are cached for 60 seconds
+- Cache is invalidated if market state changes significantly (HTF bias, active signals, trends)
+- Cache key includes: symbol, target, tone, depth, temperature
+- Automatic cache cleanup (keeps last 50 entries)
+
+**Fallbacks:**
+- If market data is missing: "Market data for [SYMBOL] is currently unavailable. Please check again soon."
+- If API key is missing: Returns fallback message instead of error
+- If context is invalid: Returns fallback message with context info
+
+**Dev-Only Prompt Tuning:**
+- Available when running on `localhost` or `127.0.0.1`
+- Configurable via `PULSE_DEV_CONFIG` object in frontend
+- Backend dev config via environment variables:
+  - `PULSE_DEV_TONE` - Override default tone
+  - `PULSE_DEV_TEMP_CAP` - Maximum temperature (default: 0.8)
+  - `PULSE_DEV_DEPTH_DASHBOARD` - Depth for dashboard
+  - `PULSE_DEV_DEPTH_TRADE_PANEL` - Depth for trade-panel
+  - `PULSE_DEV_DEPTH_MARQUEE` - Depth for marquee
+
 **Enhancement Guide:**
 See [Enhancement Guide](#enhancement-guide) section for details on customizing prompts and variables.
+
+**Future: Streaming AI Commentary:**
+- Planned upgrade to GPT-4 Turbo with 128k context
+- Streaming responses for continuously evolving market narration
+- Example: "Past 3 hours have seen consolidation under resistance. If this persists with volume tapering, expect signal suppression to continue."
+- Implementation: Use OpenAI streaming API with Server-Sent Events (SSE)
 
 ---
 

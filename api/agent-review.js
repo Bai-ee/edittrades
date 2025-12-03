@@ -14,20 +14,54 @@ async function handleMarketPulse(req, res, context, variables) {
     console.log('Context keys:', Object.keys(context || {}));
     console.log('Variables:', variables);
     
+    // Validate context has minimum required data
+    if (!context || !context.symbol) {
+      return res.status(400).json({
+        error: 'Invalid context: symbol is required',
+        fallback: `Market data for ${context?.symbol || 'market'} is currently unavailable. Please check again soon.`
+      });
+    }
+    
     // Get OpenAI API key
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       console.error('❌ OpenAI API key not found');
-      return res.status(500).json({ 
-        error: 'OpenAI API key not configured' 
+      // Return fallback message instead of error
+      return res.status(200).json({
+        success: true,
+        pulse: `Market data for ${context.symbol} is currently unavailable. Please check again soon.`,
+        context: {
+          symbol: context.symbol,
+          mode: context.mode,
+          tone: variables?.tone,
+          depth: variables?.depth,
+          target: variables?.target
+        },
+        timestamp: new Date().toISOString(),
+        fallback: true
       });
     }
 
     // Extract variables with defaults
-    const tone = variables?.tone || 'neutral';
-    const depth = variables?.depth || 'normal';
+    let tone = variables?.tone || 'neutral';
+    let depth = variables?.depth || 'normal';
     const target = variables?.target || 'dashboard';
-    const temperature = parseFloat(variables?.temperature || '0.5');
+    let temperature = parseFloat(variables?.temperature || '0.5');
+    
+    // Dev-only prompt tuning (check if in development mode)
+    const isDev = process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV !== 'production';
+    if (isDev) {
+      // Apply dev config overrides if set via environment variables
+      const devTone = process.env.PULSE_DEV_TONE;
+      const devTemperatureCap = parseFloat(process.env.PULSE_DEV_TEMP_CAP || '0.8');
+      const devDepth = process.env[`PULSE_DEV_DEPTH_${target.toUpperCase()}`];
+      
+      if (devTone) tone = devTone;
+      if (devDepth) depth = devDepth;
+      temperature = Math.min(temperature, devTemperatureCap);
+      
+      console.log('🔧 Dev config applied:', { tone, depth, temperature, target });
+    }
 
     // Build trend map from context
     const trendMap = context.trendMap || {};
