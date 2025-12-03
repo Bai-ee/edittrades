@@ -2540,45 +2540,151 @@
       return true;
     }
     
-    // Detect bear mode or risk-off conditions
-    function detectBearModeOrRiskOff(data, symbol) {
-      if (!data) return false;
+    // Signal timestamp tracking (temporal awareness)
+    const lastSignalTimestamps = new Map(); // { symbol: { timestamp, strategy } }
+    
+    // Update last signal timestamp when a valid signal is detected
+    function updateLastSignalTimestamp(symbol, strategy, timestamp = null) {
+      const signalTime = timestamp || Date.now();
+      lastSignalTimestamps.set(symbol, {
+        timestamp: signalTime,
+        strategy: strategy,
+        iso: new Date(signalTime).toISOString()
+      });
+      console.log(`⏰ Updated lastSignalAt for ${symbol}: ${strategy} @ ${new Date(signalTime).toISOString()}`);
+    }
+    
+    // Calculate time since last signal
+    function getTimeSinceLastSignal(symbol) {
+      const lastSignal = lastSignalTimestamps.get(symbol);
+      if (!lastSignal) return null;
       
-      // Check user risk profile from localStorage
+      const now = Date.now();
+      const elapsed = now - lastSignal.timestamp;
+      const hours = Math.floor(elapsed / (1000 * 60 * 60));
+      const minutes = Math.floor((elapsed % (1000 * 60 * 60)) / (1000 * 60));
+      
+      return {
+        hours,
+        minutes,
+        totalHours: elapsed / (1000 * 60 * 60),
+        timestamp: lastSignal.timestamp,
+        iso: lastSignal.iso,
+        strategy: lastSignal.strategy
+      };
+    }
+    
+    // Dynamic tone weighting system
+    // Scores signals + bias and blends tone weights gradually
+    function calculateDynamicToneWeight(data, symbol) {
+      if (!data) return { tone: 'neutral', weight: 0 };
+      
+      let cautionaryScore = 0;
+      let optimisticScore = 0;
+      let neutralScore = 0;
+      
+      // 1. Risk profile check (0-0.3 weight)
       const userRiskProfile = localStorage.getItem('userRiskProfile');
       if (userRiskProfile === 'risk-off') {
-        console.log(`🧠 Risk-off profile detected for ${symbol}`);
-        return true;
+        cautionaryScore += 0.3;
+        console.log(`🧠 [Tone Weight] Risk-off profile: +0.3 cautionary`);
       }
       
-      // Check for bear market conditions
+      // 2. HTF bias direction and confidence (0-0.4 weight)
       const htfBias = data.htfBias || data.richSymbol?.htfBias;
-      if (htfBias && htfBias.direction === 'short' && htfBias.confidence >= 70) {
-        console.log(`🧠 Bear mode detected: HTF bias short @ ${htfBias.confidence}%`);
-        return true;
+      if (htfBias) {
+        const biasConf = htfBias.confidence || 0;
+        if (htfBias.direction === 'short') {
+          // Short bias: cautionary weight based on confidence
+          cautionaryScore += (biasConf / 100) * 0.4;
+          console.log(`🧠 [Tone Weight] Short HTF bias @ ${biasConf}%: +${((biasConf / 100) * 0.4).toFixed(2)} cautionary`);
+        } else if (htfBias.direction === 'long') {
+          // Long bias: optimistic weight based on confidence
+          optimisticScore += (biasConf / 100) * 0.4;
+          console.log(`🧠 [Tone Weight] Long HTF bias @ ${biasConf}%: +${((biasConf / 100) * 0.4).toFixed(2)} optimistic`);
+        }
       }
       
-      // Check if dominant trend across timeframes is bearish
+      // 3. Trend alignment across timeframes (0-0.3 weight)
       if (data.analysis) {
         let bearishCount = 0;
+        let bullishCount = 0;
         let totalTrends = 0;
+        
         for (const [tf, tfData] of Object.entries(data.analysis)) {
           if (tfData && tfData.indicators && tfData.indicators.analysis) {
             const trend = (tfData.indicators.analysis.trend || '').toUpperCase();
             totalTrends++;
             if (trend === 'DOWNTREND' || trend === 'DOWN') {
               bearishCount++;
+            } else if (trend === 'UPTREND' || trend === 'UP') {
+              bullishCount++;
             }
           }
         }
-        // If 60%+ of timeframes are bearish, consider it bear mode
-        if (totalTrends > 0 && (bearishCount / totalTrends) >= 0.6) {
-          console.log(`🧠 Bear mode detected: ${bearishCount}/${totalTrends} timeframes bearish`);
-          return true;
+        
+        if (totalTrends > 0) {
+          const bearishRatio = bearishCount / totalTrends;
+          const bullishRatio = bullishCount / totalTrends;
+          
+          if (bearishRatio >= 0.6) {
+            cautionaryScore += 0.3;
+            console.log(`🧠 [Tone Weight] ${bearishCount}/${totalTrends} bearish TFs: +0.3 cautionary`);
+          } else if (bullishRatio >= 0.6) {
+            optimisticScore += 0.3;
+            console.log(`🧠 [Tone Weight] ${bullishCount}/${totalTrends} bullish TFs: +0.3 optimistic`);
+          }
         }
       }
       
-      return false;
+      // 4. Active signals count (0-0.2 weight)
+      const strategies = data.richSymbol?.strategies || {};
+      const validSignals = Object.values(strategies).filter(s => s && s.valid === true).length;
+      if (validSignals === 0) {
+        cautionaryScore += 0.1; // No signals = slightly cautionary
+        console.log(`🧠 [Tone Weight] No active signals: +0.1 cautionary`);
+      } else if (validSignals >= 2) {
+        optimisticScore += 0.2; // Multiple signals = optimistic
+        console.log(`🧠 [Tone Weight] ${validSignals} active signals: +0.2 optimistic`);
+      }
+      
+      // Normalize scores (cap at 1.0)
+      cautionaryScore = Math.min(1.0, cautionaryScore);
+      optimisticScore = Math.min(1.0, optimisticScore);
+      neutralScore = 1.0 - Math.max(cautionaryScore, optimisticScore);
+      
+      // Determine final tone based on highest score
+      let finalTone = 'neutral';
+      let weight = 0;
+      
+      if (cautionaryScore > optimisticScore && cautionaryScore > 0.5) {
+        finalTone = 'cautionary';
+        weight = cautionaryScore;
+      } else if (optimisticScore > cautionaryScore && optimisticScore > 0.5) {
+        finalTone = 'optimistic';
+        weight = optimisticScore;
+      } else {
+        finalTone = 'neutral';
+        weight = Math.max(cautionaryScore, optimisticScore);
+      }
+      
+      console.log(`🧠 [Tone Weight] Final: ${finalTone} (weight: ${weight.toFixed(2)}, cautionary: ${cautionaryScore.toFixed(2)}, optimistic: ${optimisticScore.toFixed(2)}, neutral: ${neutralScore.toFixed(2)})`);
+      
+      return {
+        tone: finalTone,
+        weight: weight,
+        scores: {
+          cautionary: cautionaryScore,
+          optimistic: optimisticScore,
+          neutral: neutralScore
+        }
+      };
+    }
+    
+    // Detect bear mode or risk-off conditions (legacy function, now uses dynamic weighting)
+    function detectBearModeOrRiskOff(data, symbol) {
+      const toneWeight = calculateDynamicToneWeight(data, symbol);
+      return toneWeight.tone === 'cautionary' && toneWeight.weight >= 0.6;
     }
     
     // Market Pulse Intelligence - New adaptive AI system with caching
@@ -2591,18 +2697,20 @@
           return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
         }
         
-        // Auto-detect bear mode or risk-off and override tone
-        const isBearMode = detectBearModeOrRiskOff(data, symbol);
-        if (isBearMode && tone === 'neutral') {
-          tone = 'cautionary';
-          console.log(`🧠 Auto-setting tone to cautionary for ${symbol} (bear mode/risk-off detected)`);
+        // Calculate dynamic tone weighting (blends tones gradually)
+        const toneWeight = calculateDynamicToneWeight(data, symbol);
+        
+        // Apply dynamic tone if base tone is neutral or if weight is strong
+        if (tone === 'neutral' || toneWeight.weight >= 0.6) {
+          tone = toneWeight.tone;
+          console.log(`🧠 Dynamic tone applied: ${tone} (weight: ${toneWeight.weight.toFixed(2)})`);
         }
         
-        // Apply dev config overrides if enabled (after bear mode detection)
+        // Apply dev config overrides if enabled (after dynamic tone calculation)
         if (PULSE_DEV_CONFIG.enabled) {
           // Only override if dev config doesn't explicitly set a different tone
           if (!PULSE_DEV_CONFIG.systemPromptTone || PULSE_DEV_CONFIG.systemPromptTone === 'neutral') {
-            // Keep bear mode tone if detected
+            // Keep dynamic tone if calculated
           } else {
             tone = PULSE_DEV_CONFIG.systemPromptTone;
           }
@@ -2612,8 +2720,11 @@
         
         console.log(`🧠 Getting Market Pulse Intelligence for ${symbol} (${target}, ${tone}, ${depth})`);
         
-        // Build pulse context from existing data structure
+        // Build pulse context from existing data structure (includes temporal awareness)
         const pulseContext = buildPulseContext(data, symbol);
+        
+        // Add tone weight information to context for prompt interpolation
+        pulseContext.toneWeight = toneWeight;
         
         // Check cache before making API call
         const cacheKey = getPulseCacheKey(symbol, target, tone, depth, temperature);

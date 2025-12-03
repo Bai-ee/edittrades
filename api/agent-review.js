@@ -139,11 +139,48 @@ Rules:
       contextSummary.push(`Trading mode: ${context.mode}`);
     }
     
-    if (context.lastSignalTime) {
+    // Temporal awareness: Add time since last signal
+    if (context.hoursSinceLastSignal !== null && context.hoursSinceLastSignal !== undefined) {
+      const hours = Math.floor(context.hoursSinceLastSignal);
+      const minutes = Math.floor((context.hoursSinceLastSignal % 1) * 60);
+      
+      if (context.hoursSinceLastSignal > 0) {
+        if (hours >= 1) {
+          contextSummary.push(`Time since last signal: ${hours} hour${hours > 1 ? 's' : ''}${minutes > 0 ? ` ${minutes} minute${minutes > 1 ? 's' : ''}` : ''}`);
+        } else {
+          contextSummary.push(`Time since last signal: ${minutes} minute${minutes > 1 ? 's' : ''}`);
+        }
+      } else {
+        contextSummary.push(`Last signal: Very recent (within the last minute)`);
+      }
+    } else if (context.lastSignalAt) {
+      contextSummary.push(`Last signal timestamp: ${context.lastSignalAt}`);
+    } else if (context.lastSignalTime) {
       contextSummary.push(`Last signal: ${context.lastSignalTime}`);
     }
+    
+    // Add temporal awareness guidance to prompt
+    let temporalGuidance = '';
+    if (context.hoursSinceLastSignal !== null && context.hoursSinceLastSignal !== undefined) {
+      if (context.hoursSinceLastSignal >= 12) {
+        temporalGuidance = `\n\nTemporal context: No trades have fired for ${Math.floor(context.hoursSinceLastSignal)} hours — this usually suggests consolidation or waiting for structure confirmation. Mention this in your analysis if relevant.`;
+      } else if (context.hoursSinceLastSignal >= 6) {
+        temporalGuidance = `\n\nTemporal context: It's been ${Math.floor(context.hoursSinceLastSignal)} hours since the last signal. The market may be consolidating.`;
+      } else if (context.hoursSinceLastSignal >= 1) {
+        temporalGuidance = `\n\nTemporal context: Last signal was ${Math.floor(context.hoursSinceLastSignal)} hour${Math.floor(context.hoursSinceLastSignal) > 1 ? 's' : ''} ago.`;
+      }
+    }
+    
+    // Dynamic tone blending guidance
+    let toneBlendingGuidance = '';
+    if (context.toneWeight && context.toneWeight.weight > 0) {
+      const scores = context.toneWeight.scores;
+      if (scores.cautionary > 0.3 || scores.optimistic > 0.3) {
+        toneBlendingGuidance = `\n\nTone blending: The market context suggests a ${context.toneWeight.tone} tone (weight: ${context.toneWeight.weight.toFixed(2)}). Blend this gradually into your response rather than using it as a hard switch.`;
+      }
+    }
 
-    const userPrompt = `${contextSummary.join('\n')}
+    const userPrompt = `${contextSummary.join('\n')}${temporalGuidance}${toneBlendingGuidance}
 
 Based on this context, generate a status update:
 ${depth === 'short' ? '- Keep it to 1-2 lines maximum' : depth === 'normal' ? '- Write 1-2 paragraphs' : '- Provide detailed multi-section analysis'}

@@ -172,12 +172,29 @@ conflicting. No clean setups for now—patience is smart here.
   - `PULSE_DEV_DEPTH_TRADE_PANEL` - Depth for trade-panel
   - `PULSE_DEV_DEPTH_MARQUEE` - Depth for marquee
 
+**Temporal Awareness Layer:**
+- Tracks `lastSignalAt` timestamps per symbol and strategy
+- Calculates time since last signal (hours/minutes)
+- Uses temporal context in prompts:
+  - "No trades have fired for 18 hours — this usually suggests consolidation. Waiting for structure confirmation."
+  - Automatically updates when valid signals are detected
+- Stored in `lastSignalTimestamps` Map for persistence
+
+**Dynamic Prompt Weighting:**
+- Instead of static tone switches, scores signals + bias and blends tone weight accordingly
+- Scoring system (weights sum to 1.0):
+  - Risk profile: 0-0.3 (risk-off adds to cautionary)
+  - HTF bias direction/confidence: 0-0.4 (short = cautionary, long = optimistic)
+  - Trend alignment: 0-0.3 (60%+ bearish/bullish TFs)
+  - Active signals count: 0-0.2 (0 signals = cautionary, 2+ = optimistic)
+- Interpolates wording gradually vs flipping tone presets
+- Example: 4 bearish TFs + risk-off = toneWeight 0.85 toward cautionary
+- Final tone determined by highest score (if > 0.5 threshold)
+
 **Bear Mode / Risk-Off Auto-Detection:**
+- Uses dynamic tone weighting system (legacy function maintained for compatibility)
 - Automatically detects bear market conditions or risk-off user profile
-- Sets tone to `cautionary` by default when:
-  - User risk profile is set to `risk-off` (localStorage: `userRiskProfile`)
-  - HTF bias is short with confidence ≥ 70%
-  - 60%+ of timeframes show bearish trends
+- Sets tone to `cautionary` when dynamic weight ≥ 0.6
 - Can be overridden by explicit tone parameter or dev config
 
 **Context Routing:**
