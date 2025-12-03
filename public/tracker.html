@@ -2924,7 +2924,8 @@
       if (!input) return;
       
       const currentPrice = priceCache[trade.symbol] || trade.entry;
-      const positionSize = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8);
+      const tokenDecimals = trade.symbol.includes('SOL') ? 9 : 8;
+      const positionSize = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, tokenDecimals);
       const currentValue = positionSize * currentPrice;
       
       if (option === 'max') {
@@ -2943,7 +2944,8 @@
       if (!input) return;
       
       const currentPrice = priceCache[trade.symbol] || trade.entry;
-      const positionSize = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, 8);
+      const tokenDecimals = trade.symbol.includes('SOL') ? 9 : 8;
+      const positionSize = parseFloat(trade.executionData?.outputAmount || 0) / Math.pow(10, tokenDecimals);
       const currentValue = positionSize * currentPrice;
       
       if (option === 'max') {
