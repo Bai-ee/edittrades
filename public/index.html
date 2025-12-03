@@ -2998,18 +2998,23 @@
         }
         
         const result = await response.json();
-        const pulse = result.pulse;
+        let pulse = result.pulse;
         
         if (!pulse) {
           // Fallback if API returns empty response
           return `Market analysis for ${symbol} is temporarily unavailable. Please check again soon.`;
         }
         
+        // Apply tone mapping if flavor is specified (backend may not apply it, so we do it here too)
+        if (toneFlavor) {
+          pulse = applyToneMapping(pulse, toneFlavor);
+        }
+        
         console.log('✅ Market Pulse Intelligence received:', pulse.substring(0, 100));
         
-        // Cache the response
+        // Cache the response (cache original, apply mapping on retrieval)
         pulseCache.set(cacheKey, {
-          pulse: pulse,
+          pulse: result.pulse, // Cache original (before mapping)
           timestamp: Date.now(),
           contextHash: contextHash
         });
