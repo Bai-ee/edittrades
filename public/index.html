@@ -2530,6 +2530,7 @@
       enabled: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
       systemPromptTone: 'neutral', // Override default tone globally
       temperatureCap: 0.8, // Maximum temperature allowed
+      toneFlavor: null, // 'relatable' | 'pro' | 'hype' | 'coach' | null (uses default)
       messageFormat: {
         dashboard: 'normal', // 'short' | 'normal' | 'detailed'
         'trade-panel': 'normal',
@@ -2537,9 +2538,78 @@
       }
     };
     
+    // Voice Packs - Natural Language Tone Mapping
+    const VOICE_PACKS = {
+      relatable: {
+        name: 'Relatable',
+        description: 'Casual, conversational tone like explaining to a peer',
+        systemPromptSuffix: `Keep your tone casual and conversational. Speak like a human trader who's explaining things to a peer, not a bot or analyst. Avoid jargon. Use phrases like "the market's been acting..." or "feels like...". Make it feel natural and relatable.`,
+        mappings: {
+          'HTF bias flipped to short (85%)': "Momentum's shifted down lately—it's looking pretty heavy.",
+          'HTF bias is long with (\\d+)% confidence': (match, p1) => `Looks like the bias is to the upside (${p1}% confidence)`,
+          'HTF bias is short with (\\d+)% confidence': (match, p1) => `Bias has shifted down (${p1}% confidence)`,
+          'No valid signal due to 4H trend = flat': "Nothing clean showing up yet. Market's kinda sideways.",
+          '4H trend is FLAT': "4H is just chopping around—no clear direction.",
+          'Entry zone: ([\\d,]+)–([\\d,]+)': (match, p1, p2) => `Best spot to jump in looks around the ${p1.replace(/,/g, '')} to ${p2.replace(/,/g, '')} area.`,
+          'Entry zone is ([\\d,]+) to ([\\d,]+)': (match, p1, p2) => `Somewhere in the ${p1.replace(/,/g, '')} to ${p2.replace(/,/g, '')} range makes sense.`,
+          'Volume quality = LOW': "Not much activity out there—feels like traders are waiting.",
+          'Volume quality is LOW': "Volume's pretty thin—not a lot happening.",
+          'Stop loss: ([\\d,]+)': (match, p1) => `Would want to cut it if price dips under ${p1.replace(/,/g, '')}.`,
+          'Stop loss at ([\\d,]+)': (match, p1) => `Stop's sitting at ${p1.replace(/,/g, '')}—that's where you'd bail.`,
+          'Targets at ([\\d,]+) and ([\\d,]+)': (match, p1, p2) => `Aiming for that ${p1.replace(/,/g, '')} and ${p2.replace(/,/g, '')} area.`,
+          'Risk-reward is 1:([\\d.]+)': (match, p1) => `Decent stretch for a ${p1}x play.`,
+          'Risk-reward ratio of 1:([\\d.]+)': (match, p1) => `You're looking at a ${p1}x setup.`
+        }
+      },
+      pro: {
+        name: 'Professional Analyst',
+        description: 'Technical, precise, institutional-grade analysis',
+        systemPromptSuffix: `Use professional, technical language appropriate for institutional traders. Be precise with terminology and data points. Maintain analytical rigor while remaining accessible.`,
+        mappings: {}
+      },
+      hype: {
+        name: 'Hype',
+        description: 'Energetic, engaging, momentum-focused',
+        systemPromptSuffix: `Use energetic, engaging language that captures momentum and excitement. Be enthusiastic about opportunities while maintaining accuracy.`,
+        mappings: {}
+      },
+      coach: {
+        name: 'Coach',
+        description: 'Educational, supportive, teaching-focused',
+        systemPromptSuffix: `Use an educational, supportive tone. Explain concepts clearly and help the trader understand why decisions are being made. Be encouraging and constructive.`,
+        mappings: {}
+      }
+    };
+    
+    // Apply natural language tone mapping to text
+    function applyToneMapping(text, toneFlavor) {
+      if (!toneFlavor || !VOICE_PACKS[toneFlavor] || !VOICE_PACKS[toneFlavor].mappings) {
+        return text; // No mapping, return original
+      }
+      
+      const mappings = VOICE_PACKS[toneFlavor].mappings;
+      let mappedText = text;
+      
+      // Apply each mapping pattern
+      for (const [pattern, replacement] of Object.entries(mappings)) {
+        if (typeof replacement === 'function') {
+          // Function replacement (for regex with captures)
+          const regex = new RegExp(pattern, 'gi');
+          mappedText = mappedText.replace(regex, replacement);
+        } else {
+          // Simple string replacement
+          const regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+          mappedText = mappedText.replace(regex, replacement);
+        }
+      }
+      
+      return mappedText;
+    }
+    
     // Generate cache key from parameters
-    function getPulseCacheKey(symbol, target, tone, depth, temperature) {
-      return `${symbol}:${target}:${tone}:${depth}:${temperature}`;
+    function getPulseCacheKey(symbol, target, tone, depth, temperature, toneFlavor = null) {
+      const flavorSuffix = toneFlavor ? `:${toneFlavor}` : '';
+      return `${symbol}:${target}:${tone}:${depth}:${temperature}${flavorSuffix}`;
     }
     
     // Generate hash of market state for change detection
@@ -2839,13 +2909,19 @@
     }
     
     // Market Pulse Intelligence - New adaptive AI system with caching
-    async function getMarketPulse(symbol, target = 'dashboard', tone = 'neutral', depth = 'normal', temperature = 0.5) {
+    async function getMarketPulse(symbol, target = 'dashboard', tone = 'neutral', depth = 'normal', temperature = 0.5, options = {}) {
       try {
         const data = scanResults[symbol];
         if (!data) {
           console.error(`No data for symbol: ${symbol}`);
           // Return fallback message instead of null
           return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
+        }
+        
+        // Extract toneFlavor from options or dev config
+        let toneFlavor = options.toneFlavor || null;
+        if (PULSE_DEV_CONFIG.enabled && PULSE_DEV_CONFIG.toneFlavor) {
+          toneFlavor = PULSE_DEV_CONFIG.toneFlavor;
         }
         
         // Calculate dynamic tone weighting (blends tones gradually)
@@ -2869,7 +2945,7 @@
           depth = PULSE_DEV_CONFIG.messageFormat[target] || depth;
         }
         
-        console.log(`🧠 Getting Market Pulse Intelligence for ${symbol} (${target}, ${tone}, ${depth})`);
+        console.log(`🧠 Getting Market Pulse Intelligence for ${symbol} (${target}, ${tone}, ${depth}${toneFlavor ? `, flavor: ${toneFlavor}` : ''})`);
         
         // Build pulse context from existing data structure (includes temporal awareness)
         const pulseContext = buildPulseContext(data, symbol);
@@ -2877,12 +2953,22 @@
         // Add tone weight information to context for prompt interpolation
         pulseContext.toneWeight = toneWeight;
         
-        // Check cache before making API call
-        const cacheKey = getPulseCacheKey(symbol, target, tone, depth, temperature);
+        // Add toneFlavor to context
+        if (toneFlavor) {
+          pulseContext.toneFlavor = toneFlavor;
+        }
+        
+        // Check cache before making API call (include toneFlavor in cache key)
+        const cacheKey = getPulseCacheKey(symbol, target, tone, depth, temperature, toneFlavor);
         const contextHash = getMarketStateHash(pulseContext);
         
         if (isCacheValid(cacheKey, contextHash)) {
-          return pulseCache.get(cacheKey).pulse;
+          const cachedPulse = pulseCache.get(cacheKey).pulse;
+          // Apply tone mapping if flavor is specified
+          if (toneFlavor) {
+            return applyToneMapping(cachedPulse, toneFlavor);
+          }
+          return cachedPulse;
         }
         
         // Build pulse variables
@@ -2890,7 +2976,8 @@
           tone: tone,
           depth: depth,
           target: target,
-          temperature: temperature.toString()
+          temperature: temperature.toString(),
+          toneFlavor: toneFlavor || null
         };
         
         // Call Market Pulse Intelligence endpoint

@@ -731,13 +731,15 @@ Uses the same strategy-specific prompts as Details Section AI, but with context 
         secondary: "neutral",
         blendRatio: 0.75
       }
-    }
+    },
+    toneFlavor: "relatable" | "pro" | "hype" | "coach" | null
   },
   pulseVariables: {
     tone: "neutral" | "optimistic" | "cautionary" | "assertive",
     depth: "short" | "normal" | "detailed",
     target: "dashboard" | "trade-panel" | "marquee",
-    temperature: "0.2" | "0.5" | "0.8"
+    temperature: "0.2" | "0.5" | "0.8",
+    toneFlavor: "relatable" | "pro" | "hype" | "coach" | null
   }
 }
 ```
@@ -789,11 +791,14 @@ conflicting. No clean setups for now—patience is smart here.
 ```
 
 **Frontend Functions:**
-- `getMarketPulse(symbol, target, tone, depth, temperature)` - Fetches adaptive analysis
+- `getMarketPulse(symbol, target, tone, depth, temperature, options)` - Fetches adaptive analysis
+  - `options.toneFlavor` - Optional voice pack ('relatable', 'pro', 'hype', 'coach')
 - `buildPulseContext(data, symbol)` - Builds context from existing data
-- `getPulseCacheKey(...)` - Generates cache key
+- `getPulseCacheKey(...)` - Generates cache key (includes toneFlavor)
 - `getMarketStateHash(context)` - Generates market state hash
 - `isCacheValid(cacheKey, contextHash)` - Checks cache validity
+- `applyToneMapping(text, toneFlavor)` - Applies natural language tone mapping
+- `VOICE_PACKS` - Voice pack definitions with mappings
 
 **Code Location:**
 - `api/agent-review.js` - `handleMarketPulse()` function (lines ~10-240)
@@ -899,7 +904,7 @@ All AI interfaces must include this context structure:
 ### Example: Complete Integration
 
 ```javascript
-async function myAIFunction(symbol) {
+async function myAIFunction(symbol, toneFlavor = null) {
   const data = scanResults[symbol];
   if (!data) {
     return `Market data for ${symbol} is currently unavailable. Please check again soon.`;
@@ -924,7 +929,8 @@ async function myAIFunction(symbol) {
     timeframes: data.timeframes || data.richSymbol?.timeframes || {},
     marketData: data.marketData || data.richSymbol?.marketData || null,
     dflowData: data.dflowData || data.richSymbol?.dflowData || null,
-    toneWeight: toneResult
+    toneWeight: toneResult,
+    toneFlavor: toneFlavor  // NEW: Include tone flavor
   };
   
   // 3. Add temporal awareness
@@ -936,6 +942,7 @@ async function myAIFunction(symbol) {
   
   // 4. Debug logging
   console.log(`🧠 [myAIFunction] ${symbol}: Tone: ${toneResult.finalTone} (weight: ${toneResult.weight.toFixed(2)})`);
+  console.log(`🧠 [myAIFunction] ${symbol}: Tone Flavor: ${toneFlavor || 'default'}`);
   console.log(`🧠 [myAIFunction] ${symbol}: Context includes all required fields`);
   
   // 5. Call API
@@ -945,14 +952,47 @@ async function myAIFunction(symbol) {
     body: JSON.stringify({
       symbol,
       context,
+      pulseVariables: {
+        tone: toneResult.finalTone,
+        toneFlavor: toneFlavor  // NEW: Pass tone flavor
+      }
       // ... other parameters
     })
   });
   
   // 6. Handle response
   const result = await response.json();
-  return result.analysis || `Market analysis for ${symbol} is temporarily unavailable.`;
+  let analysis = result.analysis || result.pulse || `Market analysis for ${symbol} is temporarily unavailable.`;
+  
+  // 7. Apply tone mapping if flavor specified (backup in case backend didn't apply it)
+  if (toneFlavor) {
+    analysis = applyToneMapping(analysis, toneFlavor);
+  }
+  
+  return analysis;
 }
+```
+
+### Example: Using Tone Flavor
+
+```javascript
+// Relatable/casual style
+const pulse = await getMarketPulse('BTCUSDT', 'dashboard', 'neutral', 'normal', 0.5, { 
+  toneFlavor: 'relatable' 
+});
+// Output: "Looks like BTC's still got some fuel—bias is to the upside..."
+
+// Professional style
+const pulse = await getMarketPulse('BTCUSDT', 'dashboard', 'neutral', 'normal', 0.5, { 
+  toneFlavor: 'pro' 
+});
+// Output: "HTF bias indicates long positioning with 75% confidence..."
+
+// Hype style
+const pulse = await getMarketPulse('BTCUSDT', 'dashboard', 'optimistic', 'normal', 0.5, { 
+  toneFlavor: 'hype' 
+});
+// Output: "BTC is firing! Momentum is building with strong HTF support..."
 ```
 
 ---

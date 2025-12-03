@@ -47,6 +47,7 @@ async function handleMarketPulse(req, res, context, variables) {
     let depth = variables?.depth || 'normal';
     const target = variables?.target || 'dashboard';
     let temperature = parseFloat(variables?.temperature || '0.5');
+    const toneFlavor = variables?.toneFlavor || context?.toneFlavor || null;
     
     // Dev-only prompt tuning (check if in development mode)
     const isDev = process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV !== 'production';
@@ -55,12 +56,14 @@ async function handleMarketPulse(req, res, context, variables) {
       const devTone = process.env.PULSE_DEV_TONE;
       const devTemperatureCap = parseFloat(process.env.PULSE_DEV_TEMP_CAP || '0.8');
       const devDepth = process.env[`PULSE_DEV_DEPTH_${target.toUpperCase()}`];
+      const devToneFlavor = process.env.PULSE_DEV_TONE_FLAVOR;
       
       if (devTone) tone = devTone;
       if (devDepth) depth = devDepth;
+      if (devToneFlavor) toneFlavor = devToneFlavor;
       temperature = Math.min(temperature, devTemperatureCap);
       
-      console.log('🔧 Dev config applied:', { tone, depth, temperature, target });
+      console.log('🔧 Dev config applied:', { tone, depth, temperature, target, toneFlavor: toneFlavor || 'default' });
     }
 
     // Build trend map from context
@@ -73,13 +76,23 @@ async function handleMarketPulse(req, res, context, variables) {
       '15m': trendMap['15m'] || trendMap['15m'] || 'unknown'
     };
 
+    // Voice Pack system prompt suffix
+    const voicePacks = {
+      relatable: `Keep your tone casual and conversational. Speak like a human trader who's explaining things to a peer, not a bot or analyst. Avoid jargon. Use phrases like "the market's been acting..." or "feels like...". Make it feel natural and relatable.`,
+      pro: `Use professional, technical language appropriate for institutional traders. Be precise with terminology and data points. Maintain analytical rigor while remaining accessible.`,
+      hype: `Use energetic, engaging language that captures momentum and excitement. Be enthusiastic about opportunities while maintaining accuracy.`,
+      coach: `Use an educational, supportive tone. Explain concepts clearly and help the trader understand why decisions are being made. Be encouraging and constructive.`
+    };
+    
+    const voiceSuffix = toneFlavor && voicePacks[toneFlavor] ? `\n\n${voicePacks[toneFlavor]}` : '';
+    
     // Build system prompt with variable injection
     const systemPrompt = `You are the Market Pulse AI, embedded in a crypto trading system. Your job is to interpret system-generated context and deliver timely, human-like summaries of market posture, strategy logic, and signal availability. Speak clearly, don't speculate, and use judgment calibrated by confidence inputs. Adapt tone and length as requested.
 
 Tone: ${tone} (neutral = balanced, optimistic = positive outlook, cautionary = warning, assertive = confident)
 Depth: ${depth} (short = 1-2 lines, normal = 1-2 paragraphs, detailed = multi-section)
 Target: ${target} (dashboard = overview, trade-panel = specific symbol, marquee = banner message)
-Temperature: ${temperature} (controls creativity/variability)
+Temperature: ${temperature} (controls creativity/variability)${toneFlavor ? `\nStyle: ${toneFlavor} (${voicePacks[toneFlavor]?.split('.')[0] || 'custom style'})` : ''}
 
 Rules:
 - Do not invent signals. If none are present, explain why using current market structure.
@@ -87,7 +100,7 @@ Rules:
 - Use trader-oriented reasoning: note what looks promising, what's blocking, and what may trigger next.
 - Format appropriately for ${target} context.
 - Keep ${depth} length as specified.
-- Use ${tone} tone throughout.`;
+- Use ${tone} tone throughout.${voiceSuffix}`;
 
     // Build user prompt from context
     const contextSummary = [];
