@@ -2846,6 +2846,28 @@
       // Get last signal time (from generatedAt if available)
       const lastSignalTime = data.richSymbol?.generatedAt || data.generatedAt || null;
       
+      // Calculate temporal awareness (time since last signal)
+      const timeSinceLastSignal = getTimeSinceLastSignal(symbol);
+      let lastSignalAt = null;
+      let hoursSinceLastSignal = null;
+      
+      if (timeSinceLastSignal) {
+        lastSignalAt = timeSinceLastSignal.iso;
+        hoursSinceLastSignal = timeSinceLastSignal.totalHours;
+      } else if (lastSignalTime) {
+        // Fallback to generatedAt if no explicit signal timestamp
+        lastSignalAt = lastSignalTime;
+        const now = Date.now();
+        const lastSignal = new Date(lastSignalTime).getTime();
+        hoursSinceLastSignal = (now - lastSignal) / (1000 * 60 * 60);
+      }
+      
+      // Update last signal timestamp if we have a valid signal now
+      const bestSignal = data.richSymbol?.bestSignal || null;
+      if (bestSignal && strategies[bestSignal] && strategies[bestSignal].valid) {
+        updateLastSignalTimestamp(symbol, bestSignal, lastSignalTime ? new Date(lastSignalTime).getTime() : Date.now());
+      }
+      
       return {
         symbol: symbol,
         mode: currentMode,
@@ -2856,7 +2878,9 @@
         volumeQuality: volumeQuality,
         dflowStatus: dflowStatus,
         activeSignals: activeSignals,
-        lastSignalTime: lastSignalTime
+        lastSignalTime: lastSignalTime,
+        lastSignalAt: lastSignalAt, // ISO timestamp
+        hoursSinceLastSignal: hoursSinceLastSignal // Numeric hours
       };
     }
     
