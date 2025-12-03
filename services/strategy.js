@@ -123,7 +123,9 @@ function validateStrategySignal(signal) {
  */
 function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') {
   // Extract htfBias (should already be computed)
-  const htfBias = rawSignal.htfBias || computeHTFBias(multiTimeframeData);
+  // Safe htfBias access with fallback
+  const htfBiasRaw = rawSignal.htfBias || computeHTFBias(multiTimeframeData);
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
   
   // Build timeframes object from multiTimeframeData
   const timeframes = {};
