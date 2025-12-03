@@ -7,7 +7,181 @@
  * Uses raw fetch (not SDK) for better Vercel serverless compatibility
  */
 
-// Market Review Handler (new)
+// Market Pulse Intelligence Handler (new adaptive AI)
+async function handleMarketPulse(req, res, context, variables) {
+  try {
+    console.log('🧠 Market Pulse Intelligence handler called');
+    console.log('Context keys:', Object.keys(context || {}));
+    console.log('Variables:', variables);
+    
+    // Get OpenAI API key
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error('❌ OpenAI API key not found');
+      return res.status(500).json({ 
+        error: 'OpenAI API key not configured' 
+      });
+    }
+
+    // Extract variables with defaults
+    const tone = variables?.tone || 'neutral';
+    const depth = variables?.depth || 'normal';
+    const target = variables?.target || 'dashboard';
+    const temperature = parseFloat(variables?.temperature || '0.5');
+
+    // Build trend map from context
+    const trendMap = context.trendMap || {};
+    const trendState = {
+      '3d': trendMap['3d'] || trendMap['3D'] || 'unknown',
+      '1d': trendMap['1d'] || trendMap['1D'] || 'unknown',
+      '4h': trendMap['4h'] || trendMap['4H'] || 'unknown',
+      '1h': trendMap['1h'] || trendMap['1H'] || 'unknown',
+      '15m': trendMap['15m'] || trendMap['15m'] || 'unknown'
+    };
+
+    // Build system prompt with variable injection
+    const systemPrompt = `You are the Market Pulse AI, embedded in a crypto trading system. Your job is to interpret system-generated context and deliver timely, human-like summaries of market posture, strategy logic, and signal availability. Speak clearly, don't speculate, and use judgment calibrated by confidence inputs. Adapt tone and length as requested.
+
+Tone: ${tone} (neutral = balanced, optimistic = positive outlook, cautionary = warning, assertive = confident)
+Depth: ${depth} (short = 1-2 lines, normal = 1-2 paragraphs, detailed = multi-section)
+Target: ${target} (dashboard = overview, trade-panel = specific symbol, marquee = banner message)
+Temperature: ${temperature} (controls creativity/variability)
+
+Rules:
+- Do not invent signals. If none are present, explain why using current market structure.
+- Mention key misalignments or flat trends blocking trades.
+- Use trader-oriented reasoning: note what looks promising, what's blocking, and what may trigger next.
+- Format appropriately for ${target} context.
+- Keep ${depth} length as specified.
+- Use ${tone} tone throughout.`;
+
+    // Build user prompt from context
+    const contextSummary = [];
+    
+    if (context.symbol) {
+      contextSummary.push(`${context.symbol} context:`);
+    }
+    
+    if (context.volatility3d) {
+      contextSummary.push(`Volatility over last 3 days: ${context.volatility3d}`);
+    }
+    
+    // Trend state summary
+    const flatTrends = [];
+    const activeTrends = [];
+    Object.entries(trendState).forEach(([tf, trend]) => {
+      if (trend === 'flat' || trend === 'FLAT') {
+        flatTrends.push(tf);
+      } else if (trend !== 'unknown') {
+        activeTrends.push(`${tf}: ${trend}`);
+      }
+    });
+    
+    if (flatTrends.length > 0) {
+      contextSummary.push(`Flat timeframes: ${flatTrends.join(', ')}`);
+    }
+    if (activeTrends.length > 0) {
+      contextSummary.push(`Active trends: ${activeTrends.join(', ')}`);
+    }
+    
+    if (context.htfBias) {
+      const bias = context.htfBias;
+      contextSummary.push(`HTF bias: ${bias.direction} (${bias.confidence}% confidence)`);
+    }
+    
+    if (context.volumeQuality) {
+      contextSummary.push(`Volume quality: ${context.volumeQuality}`);
+    }
+    
+    if (context.dflowStatus) {
+      contextSummary.push(`Prediction markets: ${context.dflowStatus}`);
+    }
+    
+    if (context.activeSignals !== undefined) {
+      contextSummary.push(`Active signals: ${context.activeSignals}`);
+    }
+    
+    if (context.mode) {
+      contextSummary.push(`Trading mode: ${context.mode}`);
+    }
+    
+    if (context.lastSignalTime) {
+      contextSummary.push(`Last signal: ${context.lastSignalTime}`);
+    }
+
+    const userPrompt = `${contextSummary.join('\n')}
+
+Based on this context, generate a status update:
+${depth === 'short' ? '- Keep it to 1-2 lines maximum' : depth === 'normal' ? '- Write 1-2 paragraphs' : '- Provide detailed multi-section analysis'}
+
+${tone === 'neutral' ? 'Use a balanced, observational tone.' : tone === 'optimistic' ? 'Use a positive, encouraging tone while staying realistic.' : tone === 'cautionary' ? 'Use a warning, careful tone highlighting risks.' : 'Use a confident, assertive tone.'}
+
+${target === 'dashboard' ? 'Format for dashboard overview - concise and actionable.' : target === 'trade-panel' ? 'Format for trade panel - specific to this symbol with actionable insights.' : 'Format for marquee banner - bold, clear trend pulse, very concise.'}
+
+Explain why signals are or aren't appearing. If no signals, explain what needs to happen for signals to trigger.`;
+
+    console.log('📤 Calling OpenAI API for Market Pulse Intelligence...');
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: temperature,
+        max_tokens: depth === 'short' ? 100 : depth === 'normal' ? 300 : 600
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ OpenAI API error:', response.status, errorText);
+      return res.status(500).json({
+        error: 'OpenAI API request failed',
+        message: `API returned ${response.status}`
+      });
+    }
+
+    const data = await response.json();
+    const pulseText = data.choices[0]?.message?.content;
+
+    if (!pulseText) {
+      return res.status(500).json({ 
+        error: 'No response from AI' 
+      });
+    }
+
+    console.log('✅ Market Pulse Intelligence received:', pulseText.substring(0, 100));
+
+    return res.status(200).json({
+      success: true,
+      pulse: pulseText.trim(),
+      context: {
+        symbol: context.symbol,
+        mode: context.mode,
+        tone,
+        depth,
+        target
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Market Pulse Intelligence error:', error);
+    return res.status(500).json({ 
+      error: 'Market Pulse Intelligence failed',
+      message: error.message
+    });
+  }
+}
+
+// Market Review Handler (existing - keep for backward compatibility)
 async function handleMarketReview(req, res, tradesData, systemPrompt) {
   try {
     console.log('🔍 Market review handler called');
@@ -110,16 +284,24 @@ export default async function handler(req, res) {
     console.log('🚀 [AGENT-REVIEW] POST request received');
     console.log('🚀 [AGENT-REVIEW] Request body exists:', !!req.body);
     console.log('🚀 [AGENT-REVIEW] Request body keys:', Object.keys(req.body || {}));
-    const { marketSnapshot, setupType, symbol, tradesData, systemPrompt } = req.body;
+    const { marketSnapshot, setupType, symbol, tradesData, systemPrompt, pulseContext, pulseVariables } = req.body;
     console.log('🚀 [AGENT-REVIEW] Extracted params:', {
       hasMarketSnapshot: !!marketSnapshot,
       hasSetupType: !!setupType,
       hasSymbol: !!symbol,
       hasTradesData: !!tradesData,
-      hasSystemPrompt: !!systemPrompt
+      hasSystemPrompt: !!systemPrompt,
+      hasPulseContext: !!pulseContext,
+      hasPulseVariables: !!pulseVariables
     });
 
-    // Market review mode (new)
+    // Market Pulse Intelligence mode (new adaptive AI)
+    if (pulseContext && pulseVariables) {
+      console.log('🧠 [AGENT-REVIEW] Market Pulse Intelligence mode detected');
+      return await handleMarketPulse(req, res, pulseContext, pulseVariables);
+    }
+
+    // Market review mode (existing - keep for backward compatibility)
     if (tradesData && systemPrompt) {
       console.log('🚀 [AGENT-REVIEW] Market review mode detected');
       console.log('🚀 [AGENT-REVIEW] System prompt length:', systemPrompt?.length);

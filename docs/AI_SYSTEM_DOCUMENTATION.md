@@ -27,8 +27,132 @@ The EditTrades system uses **OpenAI's GPT-4o-mini** model to provide AI-powered 
 1. **Marquee** - Market-wide sentiment analysis (scrolling banner)
 2. **Details Section** - Individual trade call analysis (per symbol)
 3. **Trade Tracker** - Active position analysis (per tracked trade)
+4. **Market Pulse Intelligence** - Adaptive context-aware market analysis (NEW)
 
 All AI analysis flows through a single API endpoint (`/api/agent-review`) with different prompts and data structures depending on the use case.
+
+### Market Pulse Intelligence (NEW)
+
+A unified, adaptive AI system that automatically comments on current market state, justifies lack of signals when relevant, and adapts tone based on context. This system uses variable-controlled prompts that can be tuned system-wide without code changes.
+
+---
+
+## Market Pulse Intelligence (NEW)
+
+**Location:** Can be used in any context (dashboard, trade panel, marquee, notifications)
+
+**Purpose:** Provides adaptive, context-aware market analysis that automatically explains market conditions, signal availability, and what to monitor next.
+
+**Key Features:**
+- **Variable-Controlled Prompts:** Tone, depth, target, and temperature can be adjusted without code changes
+- **Auto-Context Building:** Automatically extracts context from existing data structures
+- **Adaptive Output:** Different formats for different contexts (dashboard, trade-panel, marquee)
+- **Zero Manual Prompting:** Fully automated based on current market state
+
+**Trigger:**
+- Can be called programmatically from any frontend location
+- Can replace or enhance existing marquee AI
+- Can be used in details sections
+- Can be triggered on-demand or automatically
+
+**Data Input:**
+```javascript
+{
+  pulseContext: {
+    symbol: "BTCUSDT",
+    mode: "STANDARD" | "AGGRESSIVE",
+    price: 91371,
+    htfBias: {
+      direction: "long",
+      confidence: 75,
+      source: "1h"
+    },
+    trendMap: {
+      "3d": "FLAT",
+      "1d": "FLAT",
+      "4h": "FLAT",
+      "1h": "UPTREND",
+      "15m": "UPTREND"
+    },
+    volatility3d: "9.8%",
+    volumeQuality: "MEDIUM",
+    dflowStatus: "Available" | "Unavailable",
+    activeSignals: 0,
+    lastSignalTime: "2025-01-27T12:34:56.789Z"
+  },
+  pulseVariables: {
+    tone: "neutral" | "optimistic" | "cautionary" | "assertive",
+    depth: "short" | "normal" | "detailed",
+    target: "dashboard" | "trade-panel" | "marquee",
+    temperature: "0.2" | "0.5" | "0.8"
+  }
+}
+```
+
+**System Prompt:**
+Dynamically constructed based on variables:
+```
+You are the Market Pulse AI, embedded in a crypto trading system. 
+Your job is to interpret system-generated context and deliver timely, 
+human-like summaries of market posture, strategy logic, and signal availability.
+
+Tone: [tone] (neutral = balanced, optimistic = positive outlook, 
+cautionary = warning, assertive = confident)
+Depth: [depth] (short = 1-2 lines, normal = 1-2 paragraphs, 
+detailed = multi-section)
+Target: [target] (dashboard = overview, trade-panel = specific symbol, 
+marquee = banner message)
+Temperature: [temperature] (controls creativity/variability)
+
+Rules:
+- Do not invent signals. If none are present, explain why using current market structure.
+- Mention key misalignments or flat trends blocking trades.
+- Use trader-oriented reasoning: note what looks promising, what's blocking, 
+  and what may trigger next.
+- Format appropriately for [target] context.
+- Keep [depth] length as specified.
+- Use [tone] tone throughout.
+```
+
+**LLM Settings:**
+- **Model:** `gpt-4o-mini`
+- **Temperature:** Variable (0.2-0.8, default 0.5)
+- **Max Tokens:** 
+  - `short`: 100 tokens
+  - `normal`: 300 tokens
+  - `detailed`: 600 tokens
+
+**Output Examples:**
+
+**Dashboard | Neutral | Short:**
+```
+BTC is rangebound. 4H and 1D trends are flat, so the system is holding 
+off on entries. 1H is pushing up, but more confluence is needed.
+```
+
+**Trade-Panel | Optimistic | Normal:**
+```
+No trades yet, but signs are shifting. 1H is in a clean uptrend and 
+HTF bias is now long with 75% confidence. If 4H breaks upward or volume 
+improves, expect potential signals in the next 6–12 hours.
+```
+
+**Marquee | Cautionary | Short:**
+```
+Market's been indecisive the last few days. Volatility high, trends 
+conflicting. No clean setups for now—patience is smart here.
+```
+
+**Frontend Functions:**
+- `getMarketPulse(symbol, target, tone, depth, temperature)` - Fetches adaptive analysis
+- `buildPulseContext(data, symbol)` - Builds context from existing data
+
+**Code Location:**
+- `api/agent-review.js` - `handleMarketPulse()` function
+- `public/index.html` - Frontend integration functions
+
+**Enhancement Guide:**
+See [Enhancement Guide](#enhancement-guide) section for details on customizing prompts and variables.
 
 ---
 

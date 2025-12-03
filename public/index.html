@@ -2466,6 +2466,122 @@
       console.log('✅ Market review updated');
     }
     
+    // Market Pulse Intelligence - New adaptive AI system
+    async function getMarketPulse(symbol, target = 'dashboard', tone = 'neutral', depth = 'normal', temperature = 0.5) {
+      try {
+        console.log(`🧠 Getting Market Pulse Intelligence for ${symbol} (${target}, ${tone}, ${depth})`);
+        
+        const data = scanResults[symbol];
+        if (!data) {
+          console.error(`No data for symbol: ${symbol}`);
+          return null;
+        }
+        
+        // Build pulse context from existing data structure
+        const pulseContext = buildPulseContext(data, symbol);
+        
+        // Build pulse variables
+        const pulseVariables = {
+          tone: tone,
+          depth: depth,
+          target: target,
+          temperature: temperature.toString()
+        };
+        
+        // Call Market Pulse Intelligence endpoint
+        const response = await fetch('/api/agent-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            pulseContext: pulseContext,
+            pulseVariables: pulseVariables
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Market Pulse Intelligence failed');
+        }
+        
+        const result = await response.json();
+        console.log('✅ Market Pulse Intelligence received:', result.pulse?.substring(0, 100));
+        
+        return result.pulse;
+        
+      } catch (error) {
+        console.error('❌ Market Pulse Intelligence error:', error);
+        return null;
+      }
+    }
+    
+    // Build pulse context from existing data structure
+    function buildPulseContext(data, symbol) {
+      const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+      // Get current mode from global state or data
+      const modeFromData = data.mode || (data.richSymbol?.mode === 'SAFE' ? 'STANDARD' : 'AGGRESSIVE');
+      const currentMode = modeFromData === 'SAFE' ? 'STANDARD' : modeFromData;
+      
+      // Extract trend states from analysis
+      const trendMap = {};
+      if (data.analysis) {
+        for (const [tf, tfData] of Object.entries(data.analysis)) {
+          if (tfData && tfData.indicators && tfData.indicators.analysis) {
+            const trend = tfData.indicators.analysis.trend || 'UNKNOWN';
+            trendMap[tf] = trend.toUpperCase();
+          }
+        }
+      }
+      
+      // Calculate volatility (3-day range if available)
+      let volatility3d = null;
+      if (data.analysis && data.analysis['3d']) {
+        // Simple volatility calculation from price range
+        const tf3d = data.analysis['3d'];
+        if (tf3d.indicators && tf3d.indicators.price) {
+          const currentPrice = tf3d.indicators.price.current || data.currentPrice;
+          // Estimate volatility from recent price action (simplified)
+          volatility3d = 'N/A'; // Could be enhanced with actual volatility calculation
+        }
+      }
+      
+      // Get market data
+      const marketData = data.richSymbol?.marketData || data.marketData || null;
+      const volumeQuality = marketData?.volumeQuality || 'N/A';
+      
+      // Get dFlow status
+      const dflowData = data.richSymbol?.dflowData || data.dflowData || null;
+      const dflowStatus = dflowData && dflowData.markets && dflowData.markets.length > 0 
+        ? 'Available' 
+        : 'Unavailable';
+      
+      // Count active signals
+      const strategies = data.richSymbol?.strategies || {};
+      let activeSignals = 0;
+      Object.values(strategies).forEach(strategy => {
+        if (strategy && strategy.valid === true) {
+          activeSignals++;
+        }
+      });
+      
+      // Get last signal time (from generatedAt if available)
+      const lastSignalTime = data.richSymbol?.generatedAt || data.generatedAt || null;
+      
+      return {
+        symbol: symbol,
+        mode: currentMode,
+        price: data.currentPrice || null,
+        htfBias: htfBias,
+        trendMap: trendMap,
+        volatility3d: volatility3d,
+        volumeQuality: volumeQuality,
+        dflowStatus: dflowStatus,
+        activeSignals: activeSignals,
+        lastSignalTime: lastSignalTime
+      };
+    }
+    
     function startMarketReview() {
       console.log('🤖 Starting AI market review...');
       // Initial review display with placeholder
