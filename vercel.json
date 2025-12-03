@@ -48,6 +48,14 @@
       "dest": "/api/parse-trade-image.js"
     },
     {
+      "src": "/api/execute-trade",
+      "dest": "/api/execute-trade.js"
+    },
+    {
+      "src": "/api/trade-status/(.*)",
+      "dest": "/api/trade-status.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "/public/$1"
     }
