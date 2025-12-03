@@ -2420,6 +2420,49 @@
         // Restore original scan results
         scanResults = originalScanResults;
         
+        // Calculate tone for market review using tone interpolation module
+        // Aggregate scores across all symbols
+        let aggregateRiskScore = 0;
+        let aggregateTrendScore = 0;
+        let aggregateSignalScore = 0;
+        let symbolCount = 0;
+        
+        for (const symbol of symbols) {
+          const safeData = scanResultsSafe[symbol];
+          const aggressiveData = scanResultsAggressive[symbol];
+          const data = safeData || aggressiveData;
+          
+          if (data) {
+            const scores = calculateToneScores(data, symbol);
+            aggregateRiskScore += scores.riskScore;
+            aggregateTrendScore += scores.trendScore;
+            aggregateSignalScore += scores.signalScore;
+            symbolCount++;
+          }
+        }
+        
+        // Average scores across symbols
+        if (symbolCount > 0) {
+          aggregateRiskScore /= symbolCount;
+          aggregateTrendScore /= symbolCount;
+          aggregateSignalScore /= symbolCount;
+        }
+        
+        const marketTone = getInterpolatedTone({
+          riskScore: aggregateRiskScore,
+          trendScore: aggregateTrendScore,
+          signalScore: aggregateSignalScore,
+          overrideTone: null,
+          allowOverride: true
+        });
+        
+        console.log(`🧠 [getAIMarketReview] Market tone: ${marketTone.finalTone} (weight: ${marketTone.weight.toFixed(2)})`);
+        
+        // Build system prompt with tone guidance
+        const toneGuidance = marketTone.softToneHints.secondary 
+          ? `Tone: ${marketTone.finalTone} (blend with ${marketTone.softToneHints.secondary} at ${(marketTone.softToneHints.blendRatio * 100).toFixed(0)}% strength).`
+          : `Tone: ${marketTone.finalTone} (${(marketTone.weight * 100).toFixed(0)}% strength).`;
+        
         // Call AI agent for market review
         console.log('📤 Sending request to /api/agent-review with trades data');
         const response = await fetch('/api/agent-review', {
@@ -2429,7 +2472,7 @@
           },
           body: JSON.stringify({
             tradesData: allTradesData,
-            systemPrompt: 'When analyzing trade JSON, respond with direct, concise market insight. Avoid technical jargon unless necessary. Focus on what the market is behaving like rather than what indicators say. Identify whether assets influence each other and call out any shared momentum or correlation. If no trades appear, state why the structure isn\'t clean. Tone should be confident, observational, and actionable—similar to a seasoned trader explaining what they see without fluff. Always keep responses tight, honest, and rooted in the bigger picture sentiment behind the data, not just the numbers. Keep your response to 1-2 sentences maximum.'
+            systemPrompt: `When analyzing trade JSON, respond with direct, concise market insight. Avoid technical jargon unless necessary. Focus on what the market is behaving like rather than what indicators say. Identify whether assets influence each other and call out any shared momentum or correlation. If no trades appear, state why the structure isn't clean. ${toneGuidance} Tone should be confident, observational, and actionable—similar to a seasoned trader explaining what they see without fluff. Always keep responses tight, honest, and rooted in the bigger picture sentiment behind the data, not just the numbers. Keep your response to 1-2 sentences maximum.`
           })
         });
         
