@@ -180,13 +180,46 @@ conflicting. No clean setups for now—patience is smart here.
   - Automatically updates when valid signals are detected
 - Stored in `lastSignalTimestamps` Map for persistence
 
-**Dynamic Prompt Weighting:**
-- Instead of static tone switches, scores signals + bias and blends tone weight accordingly
-- Scoring system (weights sum to 1.0):
+**Tone Interpolation Module (Reusable Globally):**
+- Centralized `getInterpolatedTone()` function used across all AI interfaces
+- **Function Signature:**
+  ```javascript
+  getInterpolatedTone({
+    riskScore: 0-1,        // Risk profile (higher = risk-off)
+    trendScore: -1 to 1,  // Trend alignment (negative = bearish, positive = bullish)
+    signalScore: 0-1,     // Signal count (higher = more signals)
+    overrideTone: null,    // Optional override ('neutral' | 'optimistic' | 'cautionary' | 'assertive')
+    allowOverride: true    // Whether to allow override
+  })
+  ```
+- **Returns:**
+  ```javascript
+  {
+    finalTone: 'neutral' | 'optimistic' | 'cautionary' | 'assertive',
+    weight: 0-1,           // Confidence in tone
+    scores: {              // Component scores
+      cautionary: 0-1,
+      optimistic: 0-1,
+      neutral: 0-1
+    },
+    softToneHints: {       // For gradual blending
+      primary: 'neutral',
+      secondary: 'cautionary' | 'optimistic' | null,
+      blendRatio: 0-1      // How much to blend secondary tone
+    },
+    override: false        // Whether override was applied
+  }
+  ```
+- **Scoring System (weights sum to 1.0):**
   - Risk profile: 0-0.3 (risk-off adds to cautionary)
   - HTF bias direction/confidence: 0-0.4 (short = cautionary, long = optimistic)
   - Trend alignment: 0-0.3 (60%+ bearish/bullish TFs)
   - Active signals count: 0-0.2 (0 signals = cautionary, 2+ = optimistic)
+- **Usage Across Interfaces:**
+  - **Dashboard/Marquee AI** (`getAIMarketReview`): Aggregates scores across all symbols
+  - **Details Section AI** (`getAIReview`): Uses symbol-specific scores
+  - **Trade Tracker AI** (`analyzeTrade`): Uses trade-specific scores
+  - **Market Pulse Intelligence** (`getMarketPulse`): Uses symbol-specific scores
 - Interpolates wording gradually vs flipping tone presets
 - Example: 4 bearish TFs + risk-off = toneWeight 0.85 toward cautionary
 - Final tone determined by highest score (if > 0.5 threshold)

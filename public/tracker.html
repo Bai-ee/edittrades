@@ -691,6 +691,172 @@
 
   <!-- Scripts -->
   <script>
+    // ============================================
+    // Tone Interpolation Module (Shared from index.html)
+    // ============================================
+    // Note: These functions should ideally be in a shared module
+    // For now, we include them here for tracker.html
+    
+    function calculateToneScores(data, symbol) {
+      if (!data) return { riskScore: 0, trendScore: 0, signalScore: 0 };
+      
+      // 1. Risk score (0-1)
+      let riskScore = 0;
+      const userRiskProfile = localStorage.getItem('userRiskProfile');
+      if (userRiskProfile === 'risk-off') {
+        riskScore = 1.0;
+      }
+      
+      // 2. Trend score (-1 to 1, negative = bearish, positive = bullish)
+      let trendScore = 0;
+      const htfBias = data.htfBias || data.richSymbol?.htfBias;
+      if (htfBias) {
+        const biasConf = (htfBias.confidence || 0) / 100;
+        if (htfBias.direction === 'short') {
+          trendScore = -biasConf;
+        } else if (htfBias.direction === 'long') {
+          trendScore = biasConf;
+        }
+      }
+      
+      if (data.analysis) {
+        let bearishCount = 0;
+        let bullishCount = 0;
+        let totalTrends = 0;
+        
+        for (const [tf, tfData] of Object.entries(data.analysis)) {
+          if (tfData && tfData.indicators && tfData.indicators.analysis) {
+            const trend = (tfData.indicators.analysis.trend || '').toUpperCase();
+            totalTrends++;
+            if (trend === 'DOWNTREND' || trend === 'DOWN') {
+              bearishCount++;
+            } else if (trend === 'UPTREND' || trend === 'UP') {
+              bullishCount++;
+            }
+          }
+        }
+        
+        if (totalTrends > 0) {
+          const bearishRatio = bearishCount / totalTrends;
+          const bullishRatio = bullishCount / totalTrends;
+          
+          if (bearishRatio >= 0.6) {
+            trendScore = trendScore * 0.7 - 0.3;
+          } else if (bullishRatio >= 0.6) {
+            trendScore = trendScore * 0.7 + 0.3;
+          }
+        }
+      }
+      
+      trendScore = Math.max(-1, Math.min(1, trendScore));
+      
+      // 3. Signal score (0-1)
+      let signalScore = 0;
+      const strategies = data.richSymbol?.strategies || {};
+      const validSignals = Object.values(strategies).filter(s => s && s.valid === true).length;
+      if (validSignals === 0) {
+        signalScore = 0;
+      } else if (validSignals === 1) {
+        signalScore = 0.3;
+      } else if (validSignals >= 2) {
+        signalScore = 1.0;
+      }
+      
+      return { riskScore, trendScore, signalScore };
+    }
+    
+    function getInterpolatedTone({ riskScore = 0, trendScore = 0, signalScore = 0, overrideTone = null, allowOverride = true }) {
+      if (allowOverride && overrideTone && ['neutral', 'optimistic', 'cautionary', 'assertive'].includes(overrideTone)) {
+        return {
+          finalTone: overrideTone,
+          weight: 1.0,
+          scores: {
+            cautionary: overrideTone === 'cautionary' ? 1.0 : 0,
+            optimistic: overrideTone === 'optimistic' ? 1.0 : 0,
+            neutral: overrideTone === 'neutral' ? 1.0 : 0,
+            assertive: overrideTone === 'assertive' ? 1.0 : 0
+          },
+          softToneHints: {
+            primary: overrideTone,
+            secondary: null,
+            blendRatio: 1.0
+          },
+          override: true
+        };
+      }
+      
+      let cautionaryScore = 0;
+      let optimisticScore = 0;
+      
+      if (riskScore > 0) {
+        cautionaryScore += riskScore * 0.3;
+      }
+      
+      if (trendScore < 0) {
+        const bearishWeight = Math.abs(trendScore) * 0.4;
+        cautionaryScore += bearishWeight;
+      } else if (trendScore > 0) {
+        const bullishWeight = trendScore * 0.4;
+        optimisticScore += bullishWeight;
+      }
+      
+      if (signalScore === 0) {
+        cautionaryScore += 0.1;
+      } else if (signalScore >= 0.5) {
+        optimisticScore += 0.2;
+      }
+      
+      cautionaryScore = Math.min(1.0, cautionaryScore);
+      optimisticScore = Math.min(1.0, optimisticScore);
+      const neutralScore = Math.max(0, 1.0 - Math.max(cautionaryScore, optimisticScore));
+      
+      let finalTone = 'neutral';
+      let weight = 0;
+      let softToneHints = {
+        primary: 'neutral',
+        secondary: null,
+        blendRatio: 1.0
+      };
+      
+      if (cautionaryScore > optimisticScore && cautionaryScore > 0.5) {
+        finalTone = 'cautionary';
+        weight = cautionaryScore;
+        softToneHints = {
+          primary: 'cautionary',
+          secondary: optimisticScore > 0.2 ? 'optimistic' : 'neutral',
+          blendRatio: cautionaryScore
+        };
+      } else if (optimisticScore > cautionaryScore && optimisticScore > 0.5) {
+        finalTone = 'optimistic';
+        weight = optimisticScore;
+        softToneHints = {
+          primary: 'optimistic',
+          secondary: cautionaryScore > 0.2 ? 'cautionary' : 'neutral',
+          blendRatio: optimisticScore
+        };
+      } else {
+        finalTone = 'neutral';
+        weight = Math.max(cautionaryScore, optimisticScore);
+        softToneHints = {
+          primary: 'neutral',
+          secondary: cautionaryScore > optimisticScore ? 'cautionary' : (optimisticScore > 0 ? 'optimistic' : null),
+          blendRatio: weight
+        };
+      }
+      
+      return {
+        finalTone,
+        weight,
+        scores: {
+          cautionary: cautionaryScore,
+          optimistic: optimisticScore,
+          neutral: neutralScore
+        },
+        softToneHints,
+        override: false
+      };
+    }
+    
     // Firebase Configuration
     const firebaseConfig = {
       apiKey: "AIzaSyBbelW2KJhS6d9XjlfeNVBmWMIRLlPJt18",
@@ -2398,11 +2564,41 @@
           dflowData: marketData.dflowData || marketData.richSymbol?.dflowData || null
         };
         
+        // Calculate tone for this trade using tone interpolation module
+        // Note: We need to reconstruct a data-like object from marketSnapshot
+        const tradeData = {
+          htfBias: marketSnapshot.htfBias,
+          analysis: marketSnapshot.analysis,
+          richSymbol: {
+            strategies: marketSnapshot.signal?.valid ? {
+              [trade.strategy || 'SCALP_1H']: {
+                valid: marketSnapshot.signal.valid,
+                direction: marketSnapshot.signal.direction,
+                confidence: marketSnapshot.signal.confidence || 0
+              }
+            } : {}
+          }
+        };
+        
+        const scores = calculateToneScores(tradeData, trade.symbol);
+        const tradeTone = getInterpolatedTone({
+          riskScore: scores.riskScore,
+          trendScore: scores.trendScore,
+          signalScore: scores.signalScore,
+          overrideTone: null,
+          allowOverride: true
+        });
+        
+        console.log(`🧠 [analyzeTrade] ${trade.symbol}: Tone: ${tradeTone.finalTone} (weight: ${tradeTone.weight.toFixed(2)})`);
+        
         // Verify new context is included (for debugging)
         console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes htfBias:`, !!marketSnapshot.htfBias);
         console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes timeframes:`, !!marketSnapshot.timeframes);
         console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes marketData:`, !!marketSnapshot.marketData);
         console.log(`🧠 [analyzeTrade] ${trade.symbol}: Context includes dflowData:`, !!marketSnapshot.dflowData);
+        
+        // Add tone information to market snapshot for backend
+        marketSnapshot.toneWeight = tradeTone;
         
         // Call AI analysis endpoint (individual trade analysis mode)
         const response = await fetch('/api/agent-review', {
@@ -2411,7 +2607,7 @@
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            marketSnapshot: marketSnapshot, // Contains all new context: htfBias, timeframes, marketData, dflowData
+            marketSnapshot: marketSnapshot, // Contains all new context: htfBias, timeframes, marketData, dflowData, toneWeight
             setupType: trade.strategy || 'SCALP',
             symbol: trade.symbol
           })

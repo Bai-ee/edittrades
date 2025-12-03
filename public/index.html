@@ -2574,38 +2574,160 @@
       };
     }
     
-    // Dynamic tone weighting system
-    // Scores signals + bias and blends tone weights gradually
-    function calculateDynamicToneWeight(data, symbol) {
-      if (!data) return { tone: 'neutral', weight: 0 };
-      
-      let cautionaryScore = 0;
-      let optimisticScore = 0;
-      let neutralScore = 0;
-      
-      // 1. Risk profile check (0-0.3 weight)
-      const userRiskProfile = localStorage.getItem('userRiskProfile');
-      if (userRiskProfile === 'risk-off') {
-        cautionaryScore += 0.3;
-        console.log(`🧠 [Tone Weight] Risk-off profile: +0.3 cautionary`);
+    // ============================================
+    // Tone Interpolation Module (Reusable Globally)
+    // ============================================
+    // Centralized tone weighting system for all AI interfaces
+    // (dashboard, marquee, tracker, details section)
+    
+    /**
+     * Get interpolated tone based on market scores
+     * @param {Object} params - Scoring parameters
+     * @param {number} params.riskScore - Risk profile score (0-1, higher = more risk-off)
+     * @param {number} params.trendScore - Trend alignment score (-1 to 1, negative = bearish, positive = bullish)
+     * @param {number} params.signalScore - Signal count score (0-1, higher = more signals)
+     * @param {string} params.overrideTone - Optional override tone ('neutral' | 'optimistic' | 'cautionary' | 'assertive')
+     * @param {boolean} params.allowOverride - Whether to allow override (default: true)
+     * @returns {Object} Tone interpolation result
+     */
+    function getInterpolatedTone({ riskScore = 0, trendScore = 0, signalScore = 0, overrideTone = null, allowOverride = true }) {
+      // Apply override if provided and allowed
+      if (allowOverride && overrideTone && ['neutral', 'optimistic', 'cautionary', 'assertive'].includes(overrideTone)) {
+        console.log(`🧠 [Tone Interpolation] Override applied: ${overrideTone}`);
+        return {
+          finalTone: overrideTone,
+          weight: 1.0,
+          scores: {
+            cautionary: overrideTone === 'cautionary' ? 1.0 : 0,
+            optimistic: overrideTone === 'optimistic' ? 1.0 : 0,
+            neutral: overrideTone === 'neutral' ? 1.0 : 0,
+            assertive: overrideTone === 'assertive' ? 1.0 : 0
+          },
+          softToneHints: {
+            primary: overrideTone,
+            secondary: null,
+            blendRatio: 1.0
+          },
+          override: true
+        };
       }
       
-      // 2. HTF bias direction and confidence (0-0.4 weight)
+      // Calculate component scores
+      let cautionaryScore = 0;
+      let optimisticScore = 0;
+      
+      // 1. Risk score (0-0.3 weight toward cautionary)
+      if (riskScore > 0) {
+        cautionaryScore += riskScore * 0.3;
+        console.log(`🧠 [Tone Interpolation] Risk score: +${(riskScore * 0.3).toFixed(2)} cautionary`);
+      }
+      
+      // 2. Trend score (-1 to 1, mapped to 0-0.4 weight)
+      if (trendScore < 0) {
+        // Bearish trend
+        const bearishWeight = Math.abs(trendScore) * 0.4;
+        cautionaryScore += bearishWeight;
+        console.log(`🧠 [Tone Interpolation] Bearish trend: +${bearishWeight.toFixed(2)} cautionary`);
+      } else if (trendScore > 0) {
+        // Bullish trend
+        const bullishWeight = trendScore * 0.4;
+        optimisticScore += bullishWeight;
+        console.log(`🧠 [Tone Interpolation] Bullish trend: +${bullishWeight.toFixed(2)} optimistic`);
+      }
+      
+      // 3. Signal score (0-0.2 weight)
+      if (signalScore === 0) {
+        cautionaryScore += 0.1; // No signals = slightly cautionary
+        console.log(`🧠 [Tone Interpolation] No signals: +0.1 cautionary`);
+      } else if (signalScore >= 0.5) {
+        optimisticScore += 0.2; // Multiple signals = optimistic
+        console.log(`🧠 [Tone Interpolation] Strong signals: +0.2 optimistic`);
+      }
+      
+      // Normalize scores (cap at 1.0)
+      cautionaryScore = Math.min(1.0, cautionaryScore);
+      optimisticScore = Math.min(1.0, optimisticScore);
+      const neutralScore = Math.max(0, 1.0 - Math.max(cautionaryScore, optimisticScore));
+      
+      // Determine final tone based on highest score
+      let finalTone = 'neutral';
+      let weight = 0;
+      let softToneHints = {
+        primary: 'neutral',
+        secondary: null,
+        blendRatio: 1.0
+      };
+      
+      if (cautionaryScore > optimisticScore && cautionaryScore > 0.5) {
+        finalTone = 'cautionary';
+        weight = cautionaryScore;
+        softToneHints = {
+          primary: 'cautionary',
+          secondary: optimisticScore > 0.2 ? 'optimistic' : 'neutral',
+          blendRatio: cautionaryScore
+        };
+      } else if (optimisticScore > cautionaryScore && optimisticScore > 0.5) {
+        finalTone = 'optimistic';
+        weight = optimisticScore;
+        softToneHints = {
+          primary: 'optimistic',
+          secondary: cautionaryScore > 0.2 ? 'cautionary' : 'neutral',
+          blendRatio: optimisticScore
+        };
+      } else {
+        finalTone = 'neutral';
+        weight = Math.max(cautionaryScore, optimisticScore);
+        softToneHints = {
+          primary: 'neutral',
+          secondary: cautionaryScore > optimisticScore ? 'cautionary' : (optimisticScore > 0 ? 'optimistic' : null),
+          blendRatio: weight
+        };
+      }
+      
+      console.log(`🧠 [Tone Interpolation] Final: ${finalTone} (weight: ${weight.toFixed(2)}, cautionary: ${cautionaryScore.toFixed(2)}, optimistic: ${optimisticScore.toFixed(2)}, neutral: ${neutralScore.toFixed(2)})`);
+      
+      return {
+        finalTone,
+        weight,
+        scores: {
+          cautionary: cautionaryScore,
+          optimistic: optimisticScore,
+          neutral: neutralScore
+        },
+        softToneHints,
+        override: false
+      };
+    }
+    
+    /**
+     * Calculate scores from market data for tone interpolation
+     * @param {Object} data - Market data object
+     * @param {string} symbol - Trading symbol
+     * @returns {Object} Scores object { riskScore, trendScore, signalScore }
+     */
+    function calculateToneScores(data, symbol) {
+      if (!data) return { riskScore: 0, trendScore: 0, signalScore: 0 };
+      
+      // 1. Risk score (0-1)
+      let riskScore = 0;
+      const userRiskProfile = localStorage.getItem('userRiskProfile');
+      if (userRiskProfile === 'risk-off') {
+        riskScore = 1.0;
+      }
+      
+      // 2. Trend score (-1 to 1, negative = bearish, positive = bullish)
+      let trendScore = 0;
       const htfBias = data.htfBias || data.richSymbol?.htfBias;
       if (htfBias) {
-        const biasConf = htfBias.confidence || 0;
+        const biasConf = (htfBias.confidence || 0) / 100;
         if (htfBias.direction === 'short') {
-          // Short bias: cautionary weight based on confidence
-          cautionaryScore += (biasConf / 100) * 0.4;
-          console.log(`🧠 [Tone Weight] Short HTF bias @ ${biasConf}%: +${((biasConf / 100) * 0.4).toFixed(2)} cautionary`);
+          trendScore = -biasConf; // Negative for bearish
         } else if (htfBias.direction === 'long') {
-          // Long bias: optimistic weight based on confidence
-          optimisticScore += (biasConf / 100) * 0.4;
-          console.log(`🧠 [Tone Weight] Long HTF bias @ ${biasConf}%: +${((biasConf / 100) * 0.4).toFixed(2)} optimistic`);
+          trendScore = biasConf; // Positive for bullish
         }
       }
       
-      // 3. Trend alignment across timeframes (0-0.3 weight)
+      // Also consider trend alignment across timeframes
       if (data.analysis) {
         let bearishCount = 0;
         let bullishCount = 0;
@@ -2627,58 +2749,44 @@
           const bearishRatio = bearishCount / totalTrends;
           const bullishRatio = bullishCount / totalTrends;
           
+          // Blend with HTF bias (trend alignment gets 0.3 weight)
           if (bearishRatio >= 0.6) {
-            cautionaryScore += 0.3;
-            console.log(`🧠 [Tone Weight] ${bearishCount}/${totalTrends} bearish TFs: +0.3 cautionary`);
+            trendScore = trendScore * 0.7 - 0.3; // Shift more bearish
           } else if (bullishRatio >= 0.6) {
-            optimisticScore += 0.3;
-            console.log(`🧠 [Tone Weight] ${bullishCount}/${totalTrends} bullish TFs: +0.3 optimistic`);
+            trendScore = trendScore * 0.7 + 0.3; // Shift more bullish
           }
         }
       }
       
-      // 4. Active signals count (0-0.2 weight)
+      // Clamp trend score to -1 to 1
+      trendScore = Math.max(-1, Math.min(1, trendScore));
+      
+      // 3. Signal score (0-1)
+      let signalScore = 0;
       const strategies = data.richSymbol?.strategies || {};
       const validSignals = Object.values(strategies).filter(s => s && s.valid === true).length;
       if (validSignals === 0) {
-        cautionaryScore += 0.1; // No signals = slightly cautionary
-        console.log(`🧠 [Tone Weight] No active signals: +0.1 cautionary`);
+        signalScore = 0;
+      } else if (validSignals === 1) {
+        signalScore = 0.3;
       } else if (validSignals >= 2) {
-        optimisticScore += 0.2; // Multiple signals = optimistic
-        console.log(`🧠 [Tone Weight] ${validSignals} active signals: +0.2 optimistic`);
+        signalScore = 1.0;
       }
       
-      // Normalize scores (cap at 1.0)
-      cautionaryScore = Math.min(1.0, cautionaryScore);
-      optimisticScore = Math.min(1.0, optimisticScore);
-      neutralScore = 1.0 - Math.max(cautionaryScore, optimisticScore);
-      
-      // Determine final tone based on highest score
-      let finalTone = 'neutral';
-      let weight = 0;
-      
-      if (cautionaryScore > optimisticScore && cautionaryScore > 0.5) {
-        finalTone = 'cautionary';
-        weight = cautionaryScore;
-      } else if (optimisticScore > cautionaryScore && optimisticScore > 0.5) {
-        finalTone = 'optimistic';
-        weight = optimisticScore;
-      } else {
-        finalTone = 'neutral';
-        weight = Math.max(cautionaryScore, optimisticScore);
-      }
-      
-      console.log(`🧠 [Tone Weight] Final: ${finalTone} (weight: ${weight.toFixed(2)}, cautionary: ${cautionaryScore.toFixed(2)}, optimistic: ${optimisticScore.toFixed(2)}, neutral: ${neutralScore.toFixed(2)})`);
-      
-      return {
-        tone: finalTone,
-        weight: weight,
-        scores: {
-          cautionary: cautionaryScore,
-          optimistic: optimisticScore,
-          neutral: neutralScore
-        }
-      };
+      return { riskScore, trendScore, signalScore };
+    }
+    
+    // Dynamic tone weighting system (uses tone interpolation module)
+    // Scores signals + bias and blends tone weights gradually
+    function calculateDynamicToneWeight(data, symbol, overrideTone = null) {
+      const scores = calculateToneScores(data, symbol);
+      return getInterpolatedTone({
+        riskScore: scores.riskScore,
+        trendScore: scores.trendScore,
+        signalScore: scores.signalScore,
+        overrideTone: overrideTone,
+        allowOverride: true
+      });
     }
     
     // Detect bear mode or risk-off conditions (legacy function, now uses dynamic weighting)
@@ -4894,11 +5002,26 @@
         // This includes all the new context: htfBias, timeframes, marketData, dflowData
         const marketSnapshot = createDashboardView(data);
         
+        // Calculate tone for this symbol using tone interpolation module
+        const scores = calculateToneScores(data, symbol);
+        const symbolTone = getInterpolatedTone({
+          riskScore: scores.riskScore,
+          trendScore: scores.trendScore,
+          signalScore: scores.signalScore,
+          overrideTone: null,
+          allowOverride: true
+        });
+        
+        console.log(`🧠 [getAIReview] ${symbol}: Tone: ${symbolTone.finalTone} (weight: ${symbolTone.weight.toFixed(2)})`);
+        
         // Verify new context is included (for debugging)
         console.log(`🧠 [getAIReview] ${symbol}: Context includes htfBias:`, !!marketSnapshot.htfBias);
         console.log(`🧠 [getAIReview] ${symbol}: Context includes timeframes:`, !!marketSnapshot.timeframes);
         console.log(`🧠 [getAIReview] ${symbol}: Context includes marketData:`, !!data.richSymbol?.marketData || !!data.marketData);
         console.log(`🧠 [getAIReview] ${symbol}: Context includes dflowData:`, !!data.richSymbol?.dflowData || !!data.dflowData);
+        
+        // Add tone information to market snapshot for backend
+        marketSnapshot.toneWeight = symbolTone;
         
         // Call the agent API (individual trade analysis mode)
         const response = await fetch('/api/agent-review', {
@@ -4909,7 +5032,7 @@
           body: JSON.stringify({
             symbol,
             setupType,
-            marketSnapshot // Contains all new context: htfBias, timeframes, marketData, dflowData
+            marketSnapshot // Contains all new context: htfBias, timeframes, marketData, dflowData, toneWeight
           })
         });
         
