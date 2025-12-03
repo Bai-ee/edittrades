@@ -152,21 +152,34 @@ export default async function handler(req, res) {
 
     // Provide more user-friendly error messages
     let errorMessage = error.message;
-    if (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
+    let statusCode = 500;
+    
+    // Check for missing environment variables (common in Vercel)
+    if (error.message.includes('SOLANA_PRIVATE_KEY') || error.message.includes('environment variable is not set')) {
+      errorMessage = 'Trading wallet not configured. Please set SOLANA_PRIVATE_KEY in Vercel environment variables.';
+      statusCode = 503; // Service Unavailable
+      console.error('[ExecuteTrade] ❌ MISSING ENV VAR: SOLANA_PRIVATE_KEY not set in Vercel');
+    } else if (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
       errorMessage = 'Cannot connect to Jupiter API. Please check your internet connection and try again.';
     } else if (error.message.includes('Cannot connect to Jupiter API')) {
       errorMessage = error.message; // Already user-friendly
+    } else if (error.message.includes('Failed to load wallet')) {
+      errorMessage = 'Wallet configuration error. Please check SOLANA_PRIVATE_KEY in Vercel environment variables.';
+      statusCode = 503;
+      console.error('[ExecuteTrade] ❌ WALLET CONFIG ERROR: Check Vercel environment variables');
     }
     
     console.error('[ExecuteTrade] === ERROR ===');
     console.error('[ExecuteTrade] Error:', error.message);
     console.error('[ExecuteTrade] Stack:', error.stack);
     console.error('[ExecuteTrade] User-friendly message:', errorMessage);
+    console.error('[ExecuteTrade] Status code:', statusCode);
 
-    return res.status(500).json({
-      error: 'Internal server error',
+    return res.status(statusCode).json({
+      error: statusCode === 503 ? 'Service configuration error' : 'Internal server error',
       message: errorMessage,
       timestamp: new Date().toISOString(),
+      hint: statusCode === 503 ? 'This is likely a missing environment variable in Vercel. Check deployment documentation.' : undefined
     });
   }
 }
