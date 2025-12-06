@@ -89,7 +89,16 @@ export default async function handler(req, res) {
 
       try {
         // Calculate indicators and structure
-        const indicators = indicatorService.calculateAllIndicators(candles);
+        // Wrap in try-catch to prevent crashes
+        let indicators;
+        try {
+          indicators = indicatorService.calculateAllIndicators(candles);
+        } catch (indicatorError) {
+          console.error(`[Analyze] Indicator calculation error for ${interval}:`, indicatorError.message);
+          analysis[interval] = { error: `Indicator calculation failed: ${indicatorError.message}` };
+          continue;
+        }
+        
         const swingPoints = indicatorService.detectSwingPoints(candles, 20);
         
         // Get last 2 candles for enriched analysis
