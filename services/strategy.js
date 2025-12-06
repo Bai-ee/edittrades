@@ -1195,7 +1195,7 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
 
   // Apply ADX trend strength filter
   let adxPenalty = 0;
-  const tf4h = multiTimeframeData['4h'];
+  // Reuse tf4h from above (line 992) - don't redeclare
   if (tf4h && tf4h.indicators && tf4h.indicators.trendStrength) {
     const trendStrength = tf4h.indicators.trendStrength;
     if (trendStrength.adx < 25) {
