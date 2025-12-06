@@ -5035,8 +5035,18 @@
       };
       
       // Build analysis structure from timeframes
+      // IMPORTANT: We need to get the FULL indicators from the original analysis object
+      // The richSymbol.timeframes is a summary, but we need the full data from richSymbol.analysis
       const analysis = {};
-      if (richSymbol.timeframes) {
+      
+      // First, try to get full analysis from richSymbol.analysis (if it exists)
+      if (richSymbol.analysis) {
+        // Use the full analysis object directly - it has all the chart analysis data
+        for (const [tf, tfData] of Object.entries(richSymbol.analysis)) {
+          analysis[tf] = tfData; // Use full data structure
+        }
+      } else if (richSymbol.timeframes) {
+        // Fallback: Build from timeframes summary (but include chart analysis if available)
         for (const [tf, tfData] of Object.entries(richSymbol.timeframes)) {
           analysis[tf] = {
             indicators: {
@@ -5049,7 +5059,12 @@
                 ema21: tfData.ema21 || null,
                 ema200: tfData.ema200 || null
               },
-              stochRSI: tfData.stochRsi || null
+              stochRSI: tfData.stochRsi || null,
+              // Include chart analysis data if available in timeframes
+              candlestickPatterns: tfData.candlestickPatterns || null,
+              wickAnalysis: tfData.wickAnalysis || null,
+              trendStrength: tfData.trendStrength || null,
+              rsi: tfData.rsi || null
             },
             structure: tfData.structure || null
           };

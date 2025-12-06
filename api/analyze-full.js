@@ -490,12 +490,13 @@ export default async function handler(req, res) {
         source: htfBias.source || 'none'
       },
       timeframes: timeframes || {}, // Always include, even if empty
+      analysis: analysis || {}, // ✅ CRITICAL: Include full analysis object with all chart data
       strategies: { ...strategies }, // ✅ Includes TREND_RIDER automatically
       bestSignal: allStrategiesResult?.bestSignal || null,
       marketData: marketDataInfo || null, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData || null, // Prediction market data
       schemaVersion: '1.0.0',
-      jsonVersion: '0.05', // Increment on JSON structure changes
+      jsonVersion: '0.06', // Incremented - now includes full analysis object
       generatedAt: new Date().toISOString()
     };
 
