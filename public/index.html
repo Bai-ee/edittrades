@@ -4475,11 +4475,17 @@
               
               // Add Chart Analysis data to Market Data section (NEW)
               const chartAnalysisHtml = (function() {
-                const analysis4h = data.analysis?.['4h'];
-                const analysis1h = data.analysis?.['1h'];
-                const momentumData = data.momentum;
+                // Check multiple possible data paths
+                const analysis4h = data.analysis?.['4h'] || data.richSymbol?.analysis?.['4h'];
+                const analysis1h = data.analysis?.['1h'] || data.richSymbol?.analysis?.['1h'];
+                const momentumData = data.momentum || data.richSymbol?.momentum;
+                
+                // Debug logging
+                console.log(`[Chart Analysis] ${symbol} - analysis4h:`, !!analysis4h, 'analysis1h:', !!analysis1h, 'momentum:', !!momentumData);
+                console.log(`[Chart Analysis] ${symbol} - data.analysis:`, !!data.analysis, 'data.richSymbol:', !!data.richSymbol);
                 
                 if (!analysis4h && !analysis1h && !momentumData) {
+                  console.log(`[Chart Analysis] ${symbol} - No chart analysis data available`);
                   return '';
                 }
                 
@@ -4489,9 +4495,11 @@
                 // 4H Chart Analysis
                 if (analysis4h?.indicators) {
                   const patterns = analysis4h.indicators.candlestickPatterns;
-                  const wick = analysis4h.indicators.wickAnalysis;
-                  const trendStrength = analysis4h.indicators.trendStrength;
+                  const wick = analysis4h.indicators.wickAnalysis || analysis4h.indicators.candle?.wickDominance;
+                  const trendStrength = analysis4h.indicators.analysis?.trendStrength || analysis4h.indicators.trendStrength;
                   const rsi = analysis4h.indicators.rsi;
+                  
+                  console.log(`[Chart Analysis] ${symbol} 4H - patterns:`, !!patterns, 'wick:', !!wick, 'trendStrength:', !!trendStrength, 'rsi:', !!rsi);
                   
                   html += '<div style="margin-bottom: 1rem; padding: 0.75rem; background-color: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm);">' +
                     '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: bold;">4H Timeframe</div>';
