@@ -133,16 +133,28 @@ export default async function handler(req, res) {
         const volumeData = volumeAnalysis.calculateVolumeAnalysis(candles);
         
         // Add chart analysis data to indicators object (so frontend can find it)
-        indicators.candlestickPatterns = indicators.candlestickPatterns || null;
-        indicators.wickAnalysis = indicators.wickAnalysis || null;
-        indicators.trendStrength = indicators.trendStrength || null;
-        indicators.rsi = indicators.rsi || null;
+        // Log what we have before assignment
+        console.log(`[Analyze] ${interval} - indicators keys before:`, Object.keys(indicators));
+        console.log(`[Analyze] ${interval} - candlestickPatterns:`, !!indicators.candlestickPatterns, indicators.candlestickPatterns);
+        console.log(`[Analyze] ${interval} - wickAnalysis:`, !!indicators.wickAnalysis, indicators.wickAnalysis);
+        console.log(`[Analyze] ${interval} - trendStrength:`, !!indicators.trendStrength, indicators.trendStrength);
+        console.log(`[Analyze] ${interval} - rsi:`, !!indicators.rsi, indicators.rsi);
+        
+        // Ensure these are on the indicators object (they should already be from calculateAllIndicators)
+        if (!indicators.candlestickPatterns) indicators.candlestickPatterns = null;
+        if (!indicators.wickAnalysis) indicators.wickAnalysis = null;
+        if (!indicators.trendStrength) indicators.trendStrength = null;
+        if (!indicators.rsi) indicators.rsi = null;
+        
         indicators.candleMetrics = {
           ...candleDesc,
           wickDominance: candleDesc.wickDominance || null,
           bodyStrength: candleDesc.bodyStrength || null,
           exhaustionSignals: candleDesc.exhaustionSignals || null
         };
+        
+        // Log after assignment
+        console.log(`[Analyze] ${interval} - indicators keys after:`, Object.keys(indicators));
         
         // Chart analysis data (already calculated in indicators service)
         const chartData = {
