@@ -132,6 +132,18 @@ export default async function handler(req, res) {
         // Calculate volume analysis
         const volumeData = volumeAnalysis.calculateVolumeAnalysis(candles);
         
+        // Add chart analysis data to indicators object (so frontend can find it)
+        indicators.candlestickPatterns = indicators.candlestickPatterns || null;
+        indicators.wickAnalysis = indicators.wickAnalysis || null;
+        indicators.trendStrength = indicators.trendStrength || null;
+        indicators.rsi = indicators.rsi || null;
+        indicators.candleMetrics = {
+          ...candleDesc,
+          wickDominance: candleDesc.wickDominance || null,
+          bodyStrength: candleDesc.bodyStrength || null,
+          exhaustionSignals: candleDesc.exhaustionSignals || null
+        };
+        
         // Chart analysis data (already calculated in indicators service)
         const chartData = {
           candlestickPatterns: indicators.candlestickPatterns,
@@ -161,7 +173,7 @@ export default async function handler(req, res) {
         const confluenceScores = confluenceScoring.calculateConfluence(tfData);
         
         analysis[interval] = {
-          indicators,
+          indicators,  // Now includes candlestickPatterns, wickAnalysis, trendStrength, rsi, candleMetrics
           structure: swingPoints,
           candleCount: candles.length,
           lastCandle: candles[candles.length - 1],
@@ -170,7 +182,7 @@ export default async function handler(req, res) {
           candle: candleDesc,
           priceAction: priceAction,
           
-          // Chart-based analysis
+          // Chart-based analysis (also at top level for backward compatibility)
           ...chartData,
           
           // Support/resistance levels (4h and 1h only)
