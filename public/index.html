@@ -4090,22 +4090,64 @@
               <!-- Trade Type Selector -->
               <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
                 <label style="color: var(--color-yellow-75); font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                  <input type="radio" name="tradeType-${symbol}" value="spot" checked style="accent-color: ${directionColor};" data-symbol="${symbol}">
+                  <input type="radio" name="tradeType-${symbol}" value="spot" checked style="accent-color: ${directionColor};" data-symbol="${symbol}" onchange="handleTradeTypeChange('${symbol}')">
                   <span>Spot Swap</span>
                 </label>
-                <label style="color: var(--color-yellow-75); font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; opacity: 0.5;">
-                  <input type="radio" name="tradeType-${symbol}" value="perp" disabled style="accent-color: ${directionColor};" data-symbol="${symbol}">
-                  <span>Perpetual (Coming Soon)</span>
+                <label style="color: var(--color-yellow-75); font-size: 0.875rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                  <input type="radio" name="tradeType-${symbol}" value="perp" style="accent-color: ${directionColor};" data-symbol="${symbol}" onchange="handleTradeTypeChange('${symbol}')">
+                  <span>Perpetual</span>
                 </label>
+              </div>
+              
+              <!-- Perp-Specific Fields (hidden by default) -->
+              <div id="perpFields-${symbol}" style="display: none; margin-bottom: 1rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.3); border-radius: var(--radius-sm); border: 1px solid rgba(255, 255, 255, 0.1);">
+                <!-- Leverage Selector -->
+                <div style="margin-bottom: 1rem;">
+                  <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Leverage</label>
+                  <select id="leverage-${symbol}" style="width: 100%; max-width: 200px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;" onchange="updateMarginDisplay('${symbol}')">
+                    <option value="1">1x</option>
+                    <option value="2">2x</option>
+                    <option value="5">5x</option>
+                    <option value="10">10x</option>
+                    <option value="20">20x</option>
+                    <option value="50">50x</option>
+                    <option value="100">100x</option>
+                    <option value="200">200x</option>
+                  </select>
+                  <div id="leverageWarning-${symbol}" style="display: none; color: #ef4444; font-size: 0.75rem; margin-top: 0.25rem;">⚠️ High leverage increases risk of liquidation</div>
+                </div>
+                
+                <!-- Margin Display -->
+                <div style="margin-bottom: 1rem;">
+                  <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Margin Required</label>
+                  <div id="marginDisplay-${symbol}" style="color: var(--color-yellow-75); font-size: 0.875rem; font-weight: bold;">$0.00 USD</div>
+                  <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">Position Size ÷ Leverage</div>
+                </div>
+                
+                <!-- Liquidation Price (placeholder) -->
+                <div style="margin-bottom: 1rem;">
+                  <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Estimated Liquidation Price</label>
+                  <div id="liquidationPrice-${symbol}" style="color: var(--color-yellow-75); font-size: 0.875rem;">Calculated after position opens</div>
+                </div>
+                
+                <!-- Funding Rate (placeholder) -->
+                <div>
+                  <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Funding Rate</label>
+                  <div id="fundingRate-${symbol}" style="color: var(--color-yellow-75); font-size: 0.875rem;">Loading...</div>
+                </div>
               </div>
               
               <!-- Trade Amount Input -->
               <div style="margin-bottom: 1rem;">
-                <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">Trade Amount (USD)</label>
+                <label style="color: var(--color-yellow-75); font-size: 0.75rem; display: block; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                  <span id="amountLabel-${symbol}">Trade Amount (USD)</span>
+                </label>
                 <input type="number" id="tradeAmount-${symbol}" value="0.25" min="0.25" max="1000" step="0.05" placeholder="0.25-1000"
                   style="width: 100%; max-width: 200px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;"
-                  data-symbol="${symbol}">
-                <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">Min: $0.25 USD | Default: $0.25 USD</div>
+                  data-symbol="${symbol}" oninput="updateMarginDisplay('${symbol}')">
+                <div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-top: 0.25rem;">
+                  <span id="amountHint-${symbol}">Min: $0.25 USD | Default: $0.25 USD</span>
+                </div>
               </div>
               
               <!-- Auto-Execution Toggle -->
@@ -4431,6 +4473,75 @@
               const volumeImbalance = rt.volumeImbalance !== undefined ? rt.volumeImbalance + '%' : 'N/A';
               const imbalanceColor = rt.volumeImbalance > 0 ? '#22c55e' : rt.volumeImbalance < 0 ? '#ef4444' : '#9ca3af';
               
+              // Add Chart Analysis data to Market Data section (NEW)
+              const chartAnalysisHtml = (function() {
+                const analysis4h = data.analysis?.['4h'];
+                const analysis1h = data.analysis?.['1h'];
+                const momentumData = data.momentum;
+                
+                if (!analysis4h && !analysis1h && !momentumData) {
+                  return '';
+                }
+                
+                let html = '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                  '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Chart Analysis</div>';
+                
+                // 4H Chart Analysis
+                if (analysis4h?.indicators) {
+                  const patterns = analysis4h.indicators.candlestickPatterns;
+                  const wick = analysis4h.indicators.wickAnalysis;
+                  const trendStrength = analysis4h.indicators.trendStrength;
+                  const rsi = analysis4h.indicators.rsi;
+                  
+                  html += '<div style="margin-bottom: 1rem; padding: 0.75rem; background-color: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm);">' +
+                    '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: bold;">4H Timeframe</div>';
+                  
+                  if (patterns && patterns.current) {
+                    const patternColor = patterns.bullish ? '#22c55e' : patterns.bearish ? '#ef4444' : '#9ca3af';
+                    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; font-size: 0.75rem; margin-bottom: 0.5rem;">' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Pattern</div><div style="color: ' + patternColor + '; font-weight: bold;">' + patterns.current + '</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Confidence</div><div style="color: var(--color-yellow-75);">' + (patterns.confidence * 100).toFixed(0) + '%</div></div>';
+                    if (wick && wick.exhaustionSignal && wick.exhaustionSignal !== 'NONE') {
+                      const exhaustionColor = wick.exhaustionSignal.includes('LOWER') ? '#22c55e' : wick.exhaustionSignal.includes('UPPER') ? '#ef4444' : '#9ca3af';
+                      html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Exhaustion</div><div style="color: ' + exhaustionColor + '; font-size: 0.7rem;">' + wick.exhaustionSignal.replace(/_/g, ' ') + '</div></div>';
+                    }
+                    html += '</div>';
+                  }
+                  
+                  if (trendStrength && trendStrength.adx) {
+                    const adxColor = trendStrength.strong ? '#22c55e' : '#f59e0b';
+                    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; font-size: 0.75rem;">' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">ADX</div><div style="color: ' + adxColor + '; font-weight: bold;">' + trendStrength.adx.toFixed(1) + '</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Trend Strength</div><div style="color: ' + adxColor + '; font-size: 0.7rem;">' + trendStrength.category + '</div></div>';
+                    if (rsi && rsi.value) {
+                      const rsiColor = rsi.overbought ? '#ef4444' : rsi.oversold ? '#22c55e' : '#9ca3af';
+                      html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">RSI</div><div style="color: ' + rsiColor + '; font-weight: bold;">' + rsi.value.toFixed(1) + '</div></div>';
+                    }
+                    html += '</div>';
+                  }
+                  
+                  html += '</div>';
+                }
+                
+                // Momentum Alignment
+                if (momentumData && momentumData.alignment) {
+                  const momentumColor = momentumData.alignment.includes('BULLISH') ? '#22c55e' : 
+                                       momentumData.alignment.includes('BEARISH') ? '#ef4444' : '#9ca3af';
+                  html += '<div style="padding: 0.75rem; background-color: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm);">' +
+                    '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: bold;">Multi-Timeframe Momentum</div>' +
+                    '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; font-size: 0.75rem;">' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Alignment</div><div style="color: ' + momentumColor + '; font-weight: bold; text-transform: uppercase;">' + momentumData.alignment.replace(/_/g, ' ') + '</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Score</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + momentumData.alignmentScore.toFixed(1) + '%</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Bullish TFs</div><div style="color: #22c55e;">' + momentumData.bullishCount + '</div></div>' +
+                      '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Bearish TFs</div><div style="color: #ef4444;">' + momentumData.bearishCount + '</div></div>' +
+                    '</div>' +
+                    '</div>';
+                }
+                
+                html += '</div>';
+                return html;
+              })();
+              
               // Add Prediction Markets to the same Market Data section - ALWAYS SHOW
               const dflowData = data.richSymbol?.dflowData || data.dflowData;
               let predictionMarketsHtml = '';
@@ -4521,6 +4632,7 @@
                     '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Volume Imbalance</div><div style="color: ' + imbalanceColor + '; font-weight: bold;">' + volumeImbalance + '</div></div>' +
                   '</div>' +
                 '</div>' +
+                chartAnalysisHtml +
                 predictionMarketsHtml +
                 '</div>';
             })()}
@@ -5018,6 +5130,11 @@
                 d: stoch.d || null,
                 state: stochState
               },
+              // Chart-based analysis (NEW)
+              candlestickPatterns: tfData.indicators?.candlestickPatterns || null,
+              wickAnalysis: tfData.indicators?.wickAnalysis || null,
+              trendStrength: tfData.indicators?.trendStrength || null,
+              rsi: tfData.indicators?.rsi || null,
               confluenceScore: null,
               structureSummary: '',
               notes: ''
@@ -5031,6 +5148,9 @@
       // Get market data and dFlow data from richSymbol if available
       const marketDataInfo = data.richSymbol?.marketData || data.marketData || null;
       const dflowData = data.richSymbol?.dflowData || data.dflowData || null;
+      
+      // Get momentum alignment data (NEW)
+      const momentumData = data.momentum || null;
       
       return {
         symbol,
@@ -5046,8 +5166,9 @@
         bestSignal,
         marketData: marketDataInfo, // Include market data (spread, bid/ask, etc.)
         dflowData: dflowData, // Include prediction market data
+        momentum: momentumData, // Include multi-timeframe momentum alignment (NEW)
         schemaVersion: '1.0.0',
-        jsonVersion: '0.05',
+        jsonVersion: '0.06', // Incremented for chart analysis data
         generatedAt: new Date().toISOString()
       };
     }
@@ -5618,7 +5739,61 @@
     }
     
     /**
-     * Execute a trade via Jupiter Swap API
+     * Handle trade type change (spot/perp toggle)
+     * @param {string} symbol - Trading symbol
+     */
+    function handleTradeTypeChange(symbol) {
+      const tradeTypeRadio = document.querySelector(`input[name="tradeType-${symbol}"]:checked`);
+      const tradeType = tradeTypeRadio ? tradeTypeRadio.value : 'spot';
+      const perpFields = document.getElementById(`perpFields-${symbol}`);
+      const amountLabel = document.getElementById(`amountLabel-${symbol}`);
+      const amountHint = document.getElementById(`amountHint-${symbol}`);
+      
+      if (tradeType === 'perp') {
+        perpFields.style.display = 'block';
+        amountLabel.textContent = 'Position Size (USD)';
+        amountHint.textContent = 'Min: $0.25 USD | This is the notional position size';
+        updateMarginDisplay(symbol);
+      } else {
+        perpFields.style.display = 'none';
+        amountLabel.textContent = 'Trade Amount (USD)';
+        amountHint.textContent = 'Min: $0.25 USD | Default: $0.25 USD';
+      }
+    }
+    
+    /**
+     * Update margin display when amount or leverage changes
+     * @param {string} symbol - Trading symbol
+     */
+    function updateMarginDisplay(symbol) {
+      const tradeTypeRadio = document.querySelector(`input[name="tradeType-${symbol}"]:checked`);
+      const tradeType = tradeTypeRadio ? tradeTypeRadio.value : 'spot';
+      
+      if (tradeType !== 'perp') return;
+      
+      const amountInput = document.getElementById(`tradeAmount-${symbol}`);
+      const leverageSelect = document.getElementById(`leverage-${symbol}`);
+      const marginDisplay = document.getElementById(`marginDisplay-${symbol}`);
+      const leverageWarning = document.getElementById(`leverageWarning-${symbol}`);
+      
+      const amount = amountInput ? parseFloat(amountInput.value) : 0.25;
+      const leverage = leverageSelect ? parseFloat(leverageSelect.value) : 1;
+      
+      if (amount && leverage) {
+        const marginRequired = amount / leverage;
+        marginDisplay.textContent = `$${marginRequired.toFixed(2)} USD`;
+        
+        // Show warning for high leverage
+        if (leverage > 10) {
+          leverageWarning.style.display = 'block';
+        } else {
+          leverageWarning.style.display = 'none';
+        }
+      }
+    }
+    
+    /**
+     * Execute a trade via Jupiter Swap API or Perpetuals API
      * @param {string} symbol - Trading symbol
      * @param {Object} signal - Strategy signal object
      */
@@ -5632,6 +5807,13 @@
         const tradeType = tradeTypeRadio ? tradeTypeRadio.value : 'spot';
         const amountInput = document.getElementById(`tradeAmount-${symbol}`);
         const amount = amountInput ? parseFloat(amountInput.value) : 0.25;
+        
+        // Get leverage for perp trades
+        let leverage = 1;
+        if (tradeType === 'perp') {
+          const leverageSelect = document.getElementById(`leverage-${symbol}`);
+          leverage = leverageSelect ? parseFloat(leverageSelect.value) : 1;
+        }
         
         // Validate amount
         if (!amount || amount < 0.25 || amount > 1000) {
@@ -5652,17 +5834,26 @@
         statusText.innerHTML = '🔄 Preparing trade transaction...';
         
         // Call API
+        const requestBody = {
+          symbol,
+          signal,
+          tradeType,
+          amount,
+        };
+        
+        // Add leverage for perp trades
+        if (tradeType === 'perp') {
+          requestBody.leverage = leverage;
+        }
+        
+        console.log('[Frontend] Request body:', requestBody);
+        
         const response = await fetch('/api/execute-trade', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            symbol,
-            signal,
-            tradeType,
-            amount,
-          }),
+          body: JSON.stringify(requestBody),
         });
         
         const result = await response.json();
@@ -5680,26 +5871,46 @@
         tradeBtn.textContent = '✅ Trade Executed';
         tradeBtn.style.background = 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)';
         
-        // Calculate human-readable amounts for display
-        const inputAmountUSD = parseFloat(result.inputAmount) / 1000000; // USDC has 6 decimals
-        
-        // Get token decimals based on symbol (SOL=9, BTC/ETH=8)
-        const tokenDecimals = symbol.includes('SOL') ? 9 : 8;
-        const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, tokenDecimals);
-        const entryPrice = inputAmountUSD / outputAmountTokens;
-        
-        statusText.innerHTML = `
+        // Display results based on trade type
+        let statusHTML = `
           <div style="color: #22c55e; font-weight: bold; margin-bottom: 0.5rem;">✅ Trade Executed Successfully</div>
           <div style="margin-bottom: 0.25rem;"><strong>Direction:</strong> ${result.direction.toUpperCase()}</div>
-          <div style="margin-bottom: 0.25rem;"><strong>Type:</strong> ${result.tradeType}</div>
-          <div style="margin-bottom: 0.25rem;"><strong>Input Amount:</strong> $${inputAmountUSD.toFixed(2)} USDC</div>
-          <div style="margin-bottom: 0.25rem;"><strong>Output Amount:</strong> ${outputAmountTokens.toFixed(8)} tokens</div>
-          <div style="margin-bottom: 0.25rem;"><strong>Entry Price:</strong> $${entryPrice.toFixed(2)}</div>
-          ${result.priceImpact ? `<div style="margin-bottom: 0.25rem;"><strong>Price Impact:</strong> ${result.priceImpact}%</div>` : ''}
+          <div style="margin-bottom: 0.25rem;"><strong>Type:</strong> ${result.tradeType.toUpperCase()}</div>
+        `;
+        
+        if (result.tradeType === 'spot') {
+          // Spot swap display
+          const inputAmountUSD = parseFloat(result.inputAmount) / 1000000; // USDC has 6 decimals
+          const tokenDecimals = symbol.includes('SOL') ? 9 : 8;
+          const outputAmountTokens = parseFloat(result.outputAmount) / Math.pow(10, tokenDecimals);
+          const entryPrice = inputAmountUSD / outputAmountTokens;
+          
+          statusHTML += `
+            <div style="margin-bottom: 0.25rem;"><strong>Input Amount:</strong> $${inputAmountUSD.toFixed(2)} USDC</div>
+            <div style="margin-bottom: 0.25rem;"><strong>Output Amount:</strong> ${outputAmountTokens.toFixed(8)} tokens</div>
+            <div style="margin-bottom: 0.25rem;"><strong>Entry Price:</strong> $${entryPrice.toFixed(2)}</div>
+            ${result.priceImpact ? `<div style="margin-bottom: 0.25rem;"><strong>Price Impact:</strong> ${result.priceImpact}%</div>` : ''}
+          `;
+        } else if (result.tradeType === 'perp') {
+          // Perpetual position display
+          statusHTML += `
+            <div style="margin-bottom: 0.25rem;"><strong>Position ID:</strong> ${result.positionId || 'N/A'}</div>
+            <div style="margin-bottom: 0.25rem;"><strong>Leverage:</strong> ${result.leverage}x</div>
+            <div style="margin-bottom: 0.25rem;"><strong>Position Size:</strong> $${parseFloat(result.size || 0).toFixed(2)} USD</div>
+            <div style="margin-bottom: 0.25rem;"><strong>Margin Required:</strong> $${parseFloat(result.marginRequired || 0).toFixed(2)} USD</div>
+            ${result.liquidationPrice ? `<div style="margin-bottom: 0.25rem;"><strong>Liquidation Price:</strong> $${parseFloat(result.liquidationPrice).toFixed(2)}</div>` : ''}
+            ${result.stopLoss ? `<div style="margin-bottom: 0.25rem;"><strong>Stop Loss:</strong> $${parseFloat(result.stopLoss).toFixed(2)}</div>` : ''}
+            ${result.takeProfit ? `<div style="margin-bottom: 0.25rem;"><strong>Take Profit:</strong> $${parseFloat(result.takeProfit).toFixed(2)}</div>` : ''}
+          `;
+        }
+        
+        statusHTML += `
           <div style="margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
             <div style="font-size: 0.7rem; color: rgba(255,255,255,0.7); word-break: break-all;"><strong>Transaction:</strong> ${result.signature}</div>
           </div>
         `;
+        
+        statusText.innerHTML = statusHTML;
         
         // Show explorer link
         if (result.explorerUrl) {

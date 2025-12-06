@@ -19,6 +19,7 @@ This document describes the **complete** JSON structure returned by `/api/analyz
   "tradeSignal": { ... },               // Alias for signal
   "timeframes": { ... },                // Clean format in /api/indicators
   "analysis": { ... },                  // Full format in /api/analyze
+  "momentum": { ... },                  // Multi-timeframe momentum alignment (NEW)
   "timestamp": "2025-11-27T04:32:05.017Z"
 }
 ```
@@ -66,6 +67,45 @@ This document describes the **complete** JSON structure returned by `/api/analyz
 
 ---
 
+## 📊 Momentum Alignment Object (NEW)
+
+**Endpoint:** `/api/analyze` only
+
+```json
+"momentum": {
+  "alignment": "BULLISH",               // Overall momentum alignment
+  "alignmentScore": 75.5,              // 0-100 score
+  "bullishCount": 4,                    // Number of bullish timeframes
+  "bearishCount": 1,                    // Number of bearish timeframes
+  "neutralCount": 0,                    // Number of neutral timeframes
+  "totalTimeframes": 5,                 // Total timeframes analyzed
+  "timeframes": {
+    "1m": {
+      "momentum": "BULLISH",
+      "momentumStrength": 65.2,
+      "stochRSI": { "k": 35, "d": 40 },
+      "rsi": 45.2
+    },
+    "5m": { ... },
+    "15m": { ... },
+    "1h": { ... },
+    "4h": { ... }
+  },
+  "score": {
+    "score": 82.5,                      // Momentum score (0-100)
+    "alignment": "BULLISH",
+    "consensusRatio": 0.8
+  },
+  "bias": {
+    "bias": "BULLISH",                  // Overall bias
+    "strength": 75.5,                   // Bias strength
+    "confidence": "HIGH"                // "HIGH" | "MEDIUM"
+  }
+}
+```
+
+---
+
 ## 📈 Complete Timeframe Object
 
 Each timeframe (4h, 1h, 15m, 5m) contains:
@@ -95,7 +135,52 @@ Each timeframe (4h, 1h, 15m, 5m) contains:
   "swingHigh": 91874,
   "swingLow": 86299.5,
   
-  // E. Candle Structure (DETAILED)
+  // E. Chart-Based Analysis (NEW)
+  "candlestickPatterns": {
+    "current": "HAMMER",                // Primary pattern detected
+    "confidence": 0.75,                 // 0-1 confidence score
+    "bullish": true,                    // Is pattern bullish?
+    "bearish": false,                   // Is pattern bearish?
+    "patterns": ["HAMMER"]              // All patterns detected
+  },
+  "wickAnalysis": {
+    "upperWickDominance": 15.2,         // Upper wick as % of range
+    "lowerWickDominance": 65.8,         // Lower wick as % of range
+    "bodyDominance": 19.0,              // Body as % of range
+    "exhaustionSignal": "LOWER_WICK_REJECTION",  // Exhaustion type
+    "upperWickSize": 125.50,
+    "lowerWickSize": 542.30,
+    "bodySize": 157.20,
+    "range": 825.00,
+    "wickDominance": {
+      "dominantWick": "LOWER",
+      "wickRatio": 4.32
+    },
+    "bodyStrength": {
+      "bodyStrength": 19.0,
+      "bodyStrengthCategory": "WEAK"
+    },
+    "exhaustionSignals": {
+      "exhaustionSignal": "LOWER_WICK_REJECTION",
+      "exhaustionType": "BULLISH",
+      "confidence": 0.85
+    }
+  },
+  "trendStrength": {
+    "adx": 28.5,                        // ADX value
+    "strong": true,                     // ADX ≥ 25
+    "weak": false,                      // ADX < 25
+    "veryStrong": false,                // ADX ≥ 40
+    "category": "STRONG"                // "WEAK" | "MODERATE" | "STRONG" | "VERY_STRONG"
+  },
+  "rsi": {
+    "value": 45.2,                      // RSI value (0-100)
+    "overbought": false,                // RSI > 70
+    "oversold": false,                  // RSI < 30
+    "history": [45.2, 44.8, ...]       // RSI history array
+  },
+  
+  // F. Candle Structure (DETAILED)
   "candle": {
     "direction": "bull",                // "bull" | "bear" | "doji"
     "bodyPct": 46.48,                   // body size as % of total range (0-100)

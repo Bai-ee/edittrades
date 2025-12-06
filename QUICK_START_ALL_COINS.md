@@ -310,3 +310,4 @@ localStorage.getItem('favoriteSymbols')
 
 
 
+

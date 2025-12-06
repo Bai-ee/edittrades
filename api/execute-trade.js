@@ -7,6 +7,7 @@
  */
 
 import * as tradeExecution from '../services/tradeExecution.js';
+import * as positionManager from '../services/positionManager.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -36,12 +37,13 @@ export default async function handler(req, res) {
     console.log('[ExecuteTrade] Body type:', typeof req.body);
     console.log('[ExecuteTrade] Body:', JSON.stringify(req.body, null, 2));
 
-    const { symbol, signal, tradeType = 'spot', amount } = req.body;
+    const { symbol, signal, tradeType = 'spot', amount, leverage = 1 } = req.body;
 
     console.log('[ExecuteTrade] Extracted params:');
     console.log('[ExecuteTrade]   - symbol:', symbol);
     console.log('[ExecuteTrade]   - tradeType:', tradeType);
     console.log('[ExecuteTrade]   - amount:', amount);
+    console.log('[ExecuteTrade]   - leverage:', leverage);
     console.log('[ExecuteTrade]   - signal exists:', !!signal);
     console.log('[ExecuteTrade]   - signal type:', typeof signal);
 
@@ -87,6 +89,40 @@ export default async function handler(req, res) {
     console.log('[ExecuteTrade] Trade type:', tradeType);
     console.log('[ExecuteTrade] Amount:', amount);
 
+    // Validate leverage for perp trades
+    if (tradeType === 'perp') {
+      const leverageNum = parseFloat(leverage);
+      if (isNaN(leverageNum) || leverageNum < 1 || leverageNum > 200) {
+        console.error('[ExecuteTrade] ❌ Invalid leverage');
+        return res.status(400).json({
+          error: 'Invalid leverage',
+          leverage,
+          message: 'Leverage must be between 1x and 200x'
+        });
+      }
+      
+      // Safety warning for high leverage
+      if (leverageNum > 10) {
+        console.warn('[ExecuteTrade] ⚠️  HIGH LEVERAGE WARNING:', leverageNum, 'x');
+      }
+      
+      // Check minimum margin requirement
+      const marginRequired = amount ? amount / leverageNum : 0;
+      const minMargin = 0.01;
+      if (marginRequired < minMargin) {
+        console.error('[ExecuteTrade] ❌ Insufficient margin');
+        return res.status(400).json({
+          error: 'Insufficient margin',
+          marginRequired: marginRequired.toFixed(2),
+          minMargin,
+          message: `Margin required ($${marginRequired.toFixed(2)}) is below minimum ($${minMargin})`
+        });
+      }
+      
+      console.log('[ExecuteTrade] Leverage validated:', leverageNum, 'x');
+      console.log('[ExecuteTrade] Margin required:', marginRequired.toFixed(2), 'USD');
+    }
+
     // Check safety limits
     const maxTradeSize = parseFloat(process.env.MAX_TRADE_SIZE_USD || '1000');
     console.log('[ExecuteTrade] Max trade size:', maxTradeSize);
@@ -107,8 +143,10 @@ export default async function handler(req, res) {
     console.log('[ExecuteTrade]   - signal:', JSON.stringify(signal, null, 2));
     console.log('[ExecuteTrade]   - tradeType:', tradeType);
     console.log('[ExecuteTrade]   - amount:', amount);
+    console.log('[ExecuteTrade]   - leverage:', leverage);
     
-    const result = await tradeExecution.executeTrade(signal, tradeType, amount);
+    const leverageNum = tradeType === 'perp' ? parseFloat(leverage) : 1;
+    const result = await tradeExecution.executeTrade(signal, tradeType, amount, leverageNum);
     
     console.log('[ExecuteTrade] ========================================');
     console.log('[ExecuteTrade] Trade execution returned:');
@@ -126,24 +164,56 @@ export default async function handler(req, res) {
     console.log('[ExecuteTrade] === SUCCESS ===');
     console.log('[ExecuteTrade] Transaction signature:', result.signature);
 
-    // Return success response
-    return res.status(200).json({
+    // Return success response (unified structure for spot and perp)
+    const response = {
       success: true,
       tradeType: result.tradeType,
       direction: result.direction,
       symbol: result.symbol,
       signature: result.signature,
       explorerUrl: result.explorerUrl,
-      inputAmount: result.inputAmount,
-      outputAmount: result.outputAmount,
-      priceImpact: result.priceImpact,
       signal: {
         entryZone: result.signal.entryZone,
         stopLoss: result.signal.stopLoss,
         targets: result.signal.targets,
       },
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    // Add spot-specific fields
+    if (result.tradeType === 'spot') {
+      response.inputAmount = result.inputAmount;
+      response.outputAmount = result.outputAmount;
+      response.priceImpact = result.priceImpact;
+    }
+
+    // Add perp-specific fields
+    if (result.tradeType === 'perp') {
+      response.positionId = result.positionId;
+      response.leverage = result.leverage;
+      response.marginRequired = result.marginRequired;
+      response.size = result.size;
+      response.liquidationPrice = result.liquidationPrice;
+      response.stopLoss = result.stopLoss;
+      response.takeProfit = result.takeProfit;
+      
+      // Track the position
+      try {
+        positionManager.trackPerpPosition(
+          result.positionId,
+          signal,
+          result.leverage,
+          result
+        );
+        positionManager.savePositionsToStorage();
+        console.log('[ExecuteTrade] ✅ Perpetual position tracked');
+      } catch (trackError) {
+        console.error('[ExecuteTrade] ⚠️  Failed to track position:', trackError.message);
+        // Don't fail the trade if tracking fails
+      }
+    }
+
+    return res.status(200).json(response);
 
   } catch (error) {
     console.error('[ExecuteTrade] === ERROR ===');

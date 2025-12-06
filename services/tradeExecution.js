@@ -1,11 +1,11 @@
 /**
  * Trade Execution Service
  * Orchestrates trade execution based on strategy signals
- * Currently supports spot swaps via Jupiter
- * Perpetuals support will be added after swap testing
+ * Supports spot swaps via Jupiter and perpetual futures via Jupiter Perps
  */
 
 import * as jupiterSwap from './jupiterSwap.js';
+import * as perpsProvider from './perpsProvider.js';
 import * as tokenMapping from './tokenMapping.js';
 import { getWallet } from './walletManager.js';
 import { getConnection } from './walletManager.js';
@@ -13,11 +13,12 @@ import { getConnection } from './walletManager.js';
 /**
  * Execute a trade based on strategy signal
  * @param {Object} signal - Strategy signal object
- * @param {string} tradeType - 'spot' or 'perp' (currently only 'spot' supported)
+ * @param {string} tradeType - 'spot' or 'perp'
  * @param {number} amountUSD - Trade amount in USD (optional, defaults to signal-based calculation)
+ * @param {number} leverage - Leverage for perp trades (1-200, default: 1)
  * @returns {Promise<Object>} Execution result
  */
-export async function executeTrade(signal, tradeType = 'spot', amountUSD = null) {
+export async function executeTrade(signal, tradeType = 'spot', amountUSD = null, leverage = 1) {
   try {
     console.log('[TradeExecution] ========================================');
     console.log('[TradeExecution] ===== Starting Trade Execution =====');
@@ -40,9 +41,13 @@ export async function executeTrade(signal, tradeType = 'spot', amountUSD = null)
       throw new Error('Invalid signal: entryZone is required');
     }
 
-    // Currently only spot swaps are supported
-    if (tradeType !== 'spot') {
-      throw new Error(`Trade type "${tradeType}" not yet supported. Only "spot" swaps are available.`);
+    // Route to appropriate execution based on trade type
+    if (tradeType === 'perp') {
+      return await executePerpTrade(signal, amountUSD, leverage);
+    } else if (tradeType === 'spot') {
+      // Continue with spot swap execution
+    } else {
+      throw new Error(`Invalid trade type: "${tradeType}". Must be "spot" or "perp".`);
     }
 
     // Get symbol from signal (assumes signal has symbol field)
@@ -307,5 +312,211 @@ export function validateSignal(signal) {
     valid: errors.length === 0,
     errors,
   };
+}
+
+/**
+ * Execute a perpetual futures trade
+ * @param {Object} signal - Strategy signal object
+ * @param {number} amountUSD - Trade amount in USD (position size)
+ * @param {number} leverage - Leverage multiplier (1-200)
+ * @returns {Promise<Object>} Execution result
+ */
+export async function executePerpTrade(signal, amountUSD = null, leverage = 1) {
+  try {
+    console.log('[TradeExecution] ===== Starting Perpetual Trade Execution =====');
+    console.log('[TradeExecution] Signal:', JSON.stringify(signal, null, 2));
+    console.log('[TradeExecution] Amount:', amountUSD, 'USD');
+    console.log('[TradeExecution] Leverage:', leverage, 'x');
+
+    // Validate signal
+    if (!signal || !signal.valid) {
+      throw new Error('Invalid signal: signal must be valid');
+    }
+
+    if (!signal.direction || (signal.direction !== 'long' && signal.direction !== 'short')) {
+      throw new Error('Invalid signal: direction must be "long" or "short"');
+    }
+
+    // Validate leverage
+    if (leverage < 1 || leverage > 200) {
+      throw new Error('Leverage must be between 1x and 200x');
+    }
+    
+    // Safety warning for high leverage
+    if (leverage > 10) {
+      console.warn('[TradeExecution] ⚠️  HIGH LEVERAGE WARNING:', leverage, 'x leverage increases liquidation risk');
+    }
+
+    // Get symbol
+    const symbol = signal.symbol || signal.pair || 'SOLUSDT';
+    console.log('[TradeExecution] Symbol:', symbol);
+
+    // Determine position size
+    const positionSize = amountUSD || 1; // Default to $1 USD
+    console.log('[TradeExecution] Position size:', positionSize, 'USD');
+
+    // Calculate margin required
+    const marginRequired = positionSize / leverage;
+    console.log('[TradeExecution] Margin required:', marginRequired, 'USD');
+
+    // Get stop loss and take profit from signal
+    const stopLoss = signal.stopLoss || null;
+    const takeProfit = signal.targets && signal.targets.length > 0 ? signal.targets[0] : null;
+
+    // Execute perpetual position opening using provider interface (auto-selects best provider)
+    console.log('[TradeExecution] Using perpsProvider with auto-selection (Drift → Mango → Jupiter)...');
+    const result = await perpsProvider.openPerpPosition(
+      'auto', // Auto-select provider with fallback
+      symbol,
+      signal.direction,
+      positionSize,
+      leverage,
+      stopLoss,
+      takeProfit
+    );
+
+    console.log('[TradeExecution] ✅ Perpetual trade executed successfully');
+    console.log('[TradeExecution] Provider used:', result.selectedProvider || result.provider);
+    console.log('[TradeExecution] Result:', JSON.stringify(result, null, 2));
+
+    return {
+      success: result.success !== false,
+      tradeType: 'perp',
+      direction: signal.direction,
+      symbol,
+      provider: result.selectedProvider || result.provider,
+      signature: result.signature,
+      positionId: result.positionId || result.signature,
+      leverage: result.leverage || leverage,
+      marginRequired: result.marginRequired,
+      size: result.size || positionSize,
+      liquidationPrice: result.liquidationPrice,
+      stopLoss: result.stopLoss || stopLoss,
+      takeProfit: result.takeProfit || takeProfit,
+      explorerUrl: result.explorerUrl,
+      fallbackUsed: result.fallbackUsed || false,
+      signal: {
+        entryZone: signal.entryZone,
+        stopLoss: signal.stopLoss,
+        targets: signal.targets,
+      },
+    };
+  } catch (error) {
+    console.error('[TradeExecution] ===== Perpetual Trade Execution Failed =====');
+    console.error('[TradeExecution] Error:', error.message);
+    console.error('[TradeExecution] Stack:', error.stack);
+
+    return {
+      success: false,
+      error: error.message,
+      tradeType: 'perp',
+      signal,
+    };
+  }
+}
+
+/**
+ * Close a perpetual position
+ * @param {string} positionId - Position ID to close
+ * @param {number} size - Size to close (null for full close)
+ * @returns {Promise<Object>} Execution result
+ */
+export async function closePerpTrade(positionId, size = null, provider = 'auto') {
+  try {
+    console.log('[TradeExecution] Closing perpetual position...');
+    console.log('[TradeExecution] Position ID:', positionId);
+    console.log('[TradeExecution] Size:', size || 'Full close');
+    console.log('[TradeExecution] Provider:', provider);
+
+    // If provider is auto, try to determine from positionId or try all providers
+    if (provider === 'auto') {
+      // Try each provider until one succeeds
+      const providers = ['drift', 'mango', 'jupiter'];
+      let lastError = null;
+      
+      for (const prov of providers) {
+        try {
+          const result = await perpsProvider.closePerpPosition(prov, positionId);
+          console.log('[TradeExecution] ✅ Position closed successfully with', prov);
+          return {
+            success: true,
+            provider: prov,
+            positionId,
+            signature: result.signature,
+            sizeClosed: result.sizeClosed,
+            explorerUrl: result.explorerUrl,
+          };
+        } catch (error) {
+          console.warn(`[TradeExecution] ${prov} close failed:`, error.message);
+          lastError = error;
+          continue;
+        }
+      }
+      
+      throw lastError || new Error('All providers failed to close position');
+    }
+
+    // Use specific provider
+    const result = await perpsProvider.closePerpPosition(provider, positionId);
+    console.log('[TradeExecution] ✅ Position closed successfully');
+
+    return {
+      success: true,
+      provider,
+      positionId,
+      signature: result.signature,
+      sizeClosed: result.sizeClosed,
+      explorerUrl: result.explorerUrl,
+    };
+  } catch (error) {
+    console.error('[TradeExecution] ❌ Error closing position:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Update stop loss for a perpetual position
+ * @param {string} positionId - Position ID
+ * @param {number} stopPrice - New stop loss price
+ * @returns {Promise<Object>} Execution result
+ */
+export async function updatePerpStopLoss(positionId, stopPrice, provider = 'auto') {
+  try {
+    console.log('[TradeExecution] Updating stop loss...');
+    console.log('[TradeExecution] Position ID:', positionId);
+    console.log('[TradeExecution] Stop price:', stopPrice);
+    console.log('[TradeExecution] Provider:', provider);
+    console.warn('[TradeExecution] ⚠️  Stop loss updates are provider-specific and may not be supported by all providers');
+
+    // Note: Stop loss updates are provider-specific
+    // For now, this is a placeholder - each provider would need specific implementation
+    throw new Error('Stop loss updates require provider-specific implementation. Not yet fully supported across all providers.');
+  } catch (error) {
+    console.error('[TradeExecution] ❌ Error updating stop loss:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Update take profit for a perpetual position
+ * @param {string} positionId - Position ID
+ * @param {number} takeProfitPrice - New take profit price
+ * @returns {Promise<Object>} Execution result
+ */
+export async function updatePerpTakeProfit(positionId, takeProfitPrice, provider = 'auto') {
+  try {
+    console.log('[TradeExecution] Updating take profit...');
+    console.log('[TradeExecution] Position ID:', positionId);
+    console.log('[TradeExecution] Take profit price:', takeProfitPrice);
+    console.log('[TradeExecution] Provider:', provider);
+    console.warn('[TradeExecution] ⚠️  Take profit updates are provider-specific and may not be supported by all providers');
+
+    // Note: Take profit updates are provider-specific
+    // For now, this is a placeholder - each provider would need specific implementation
+    throw new Error('Take profit updates require provider-specific implementation. Not yet fully supported across all providers.');
+  } catch (error) {
+    console.error('[TradeExecution] ❌ Error updating take profit:', error.message);
+    throw error;
+  }
 }
 

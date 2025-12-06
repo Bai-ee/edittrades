@@ -56,7 +56,18 @@ User Request (Frontend/API)
     ├─→ Market Data Section
     ├─→ Prediction Markets Section
     ├─→ Timeframe Grid
+    ├─→ Trade Execution UI (Spot/Perp Toggle)
     └─→ JSON Export
+6. Trade Execution (Optional - User Initiated)
+    ├─→ Spot Swap (services/jupiterSwap.js)
+    │   ├─→ Get quote from Jupiter API
+    │   ├─→ Build swap transaction
+    │   └─→ Execute on Solana
+    └─→ Perpetuals (services/jupiterPerps.js)
+        ├─→ Get perp quote
+        ├─→ Open position with leverage
+        ├─→ Track position (services/positionManager.js)
+        └─→ Monitor P&L and liquidation risk
 ```
 
 ### Detailed Step-by-Step Workflow
@@ -925,6 +936,17 @@ Input: Rich symbol object from API
    ├─→ copyCoinView() → Single coin JSON
    ├─→ copyAllCoinsView() → All coins JSON
    └─→ Includes all data from rich symbol object
+   ↓
+7. Trade Execution (User Initiated)
+   ├─→ User selects trade type (Spot/Perp)
+   ├─→ User sets amount and leverage (if perp)
+   ├─→ User clicks "Execute Trade"
+   ├─→ Frontend sends request to /api/execute-trade
+   ├─→ API validates and routes to tradeExecution service
+   ├─→ Service executes trade (spot swap or perp position)
+   ├─→ Transaction sent to Solana blockchain
+   ├─→ Position tracked (if perp)
+   └─→ UI displays execution result
 ```
 
 ---

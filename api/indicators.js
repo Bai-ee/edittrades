@@ -121,6 +121,14 @@ export default async function handler(req, res) {
         // Calculate volume analysis
         const volumeData = volumeAnalysis.calculateVolumeAnalysis(candles);
         
+        // Chart analysis data (already calculated in indicators service)
+        const chartData = {
+          candlestickPatterns: indicators.candlestickPatterns,
+          wickAnalysis: indicators.wickAnalysis,
+          trendStrength: indicators.trendStrength,
+          rsi: indicators.rsi
+        };
+        
         // Build timeframe data object (will be used for confluence scoring)
         const tfData = {
           currentPrice: parseFloat(indicators.price.current.toFixed(2)),
@@ -135,6 +143,7 @@ export default async function handler(req, res) {
             d: indicators.stochRSI.d ? parseFloat(indicators.stochRSI.d.toFixed(2)) : null,
             condition: indicators.stochRSI.condition
           },
+          rsi: indicators.rsi,
           pullback: {
             state: indicators.analysis.pullbackState,
             distanceFrom21EMA: indicators.analysis.distanceFrom21EMA !== null 
@@ -150,6 +159,9 @@ export default async function handler(req, res) {
           
           // Price action patterns
           priceAction: priceAction,
+          
+          // Chart-based analysis
+          ...chartData,
           
           // Support/resistance levels (4h and 1h only)
           ...(levelsData && { levels: levelsData }),

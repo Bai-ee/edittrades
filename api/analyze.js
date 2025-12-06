@@ -13,6 +13,7 @@ import * as levels from '../lib/levels.js';
 import * as advancedIndicators from '../lib/advancedIndicators.js';
 import * as volumeAnalysis from '../lib/volumeAnalysis.js';
 import * as confluenceScoring from '../lib/confluenceScoring.js';
+import * as momentumAlignment from '../lib/momentumAlignment.js';
 
 export default async function handler(req, res) {
   // Set CORS headers
@@ -122,6 +123,14 @@ export default async function handler(req, res) {
         // Calculate volume analysis
         const volumeData = volumeAnalysis.calculateVolumeAnalysis(candles);
         
+        // Chart analysis data (already calculated in indicators service)
+        const chartData = {
+          candlestickPatterns: indicators.candlestickPatterns,
+          wickAnalysis: indicators.wickAnalysis,
+          trendStrength: indicators.trendStrength,
+          rsi: indicators.rsi
+        };
+        
         // Build complete timeframe data (for confluence calculation)
         const tfData = {
           trend: indicators.analysis.trend,
@@ -134,6 +143,8 @@ export default async function handler(req, res) {
             distanceFrom21EMA: indicators.analysis.distanceFrom21EMA
           },
           stoch: indicators.stochRSI,
+          rsi: indicators.rsi,
+          trendStrength: indicators.trendStrength,
           ...advancedData
         };
         
@@ -149,6 +160,9 @@ export default async function handler(req, res) {
           // Enhanced candle analysis
           candle: candleDesc,
           priceAction: priceAction,
+          
+          // Chart-based analysis
+          ...chartData,
           
           // Support/resistance levels (4h and 1h only)
           ...(levelsData && { levels: levelsData }),
@@ -173,6 +187,23 @@ export default async function handler(req, res) {
       }
     }
 
+    // Calculate multi-timeframe momentum alignment
+    console.log(`[Analyze] Calculating momentum alignment...`);
+    let momentumData = null;
+    try {
+      momentumData = momentumAlignment.checkMomentumAlignment(analysis, ['1m', '5m', '15m', '1h', '4h']);
+      const momentumScore = momentumAlignment.calculateMomentumScore(analysis);
+      const momentumBias = momentumAlignment.getMomentumBias(analysis, ['15m', '1h', '4h']);
+      
+      momentumData = {
+        ...momentumData,
+        score: momentumScore,
+        bias: momentumBias
+      };
+    } catch (error) {
+      console.warn(`[Analyze] Momentum alignment error:`, error.message);
+    }
+
     // Get current price
     console.log(`[Analyze] Fetching current price for ${symbol}...`);
     const ticker = await marketData.getTickerPrice(symbol);
@@ -184,6 +215,11 @@ export default async function handler(req, res) {
     // Get mode from query (default to 'STANDARD')
     const mode = req.query.mode || 'STANDARD';
     console.log(`[Analyze] Mode: ${mode}`);
+
+    // Add momentum data to analysis for strategy engine access
+    if (momentumData) {
+      analysis._momentum = momentumData;
+    }
 
     // Run strategy evaluation (will check Swing first, then 4H/Scalp)
     console.log(`[Analyze] Running strategy evaluation (${setupType}, mode: ${mode})...`);
@@ -220,6 +256,9 @@ export default async function handler(req, res) {
       
       // Full analysis object (for detailed UI)
       analysis,
+      
+      // Multi-timeframe momentum alignment
+      ...(momentumData && { momentum: momentumData }),
       
       // Micro-scalp info
       microScalpEligible: microScalpResult.eligible,

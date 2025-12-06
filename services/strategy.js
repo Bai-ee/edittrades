@@ -1152,6 +1152,102 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     dflowScore = 0;
     dflowNote = 'dFlow data missing - treated as neutral';
   }
+
+  // Apply candlestick pattern bonuses/penalties
+  let patternBonus = 0;
+  const primaryTfs = ['4h', '1h'];
+  for (const tf of primaryTfs) {
+    const tfData = multiTimeframeData[tf];
+    if (tfData && tfData.indicators && tfData.indicators.candlestickPatterns) {
+      const patterns = tfData.indicators.candlestickPatterns;
+      if (patterns.current && patterns.confidence > 0.7) {
+        // Strong bullish pattern for long trades
+        if (direction === 'long' && patterns.bullish) {
+          patternBonus += Math.min(15, patterns.confidence * 20);
+          penaltiesApplied.push({
+            layer: 'pattern',
+            reason: `${tf} ${patterns.current} pattern (bullish)`,
+            multiplier: 1.0 + (patterns.confidence * 0.15)
+          });
+        }
+        // Strong bearish pattern for short trades
+        else if (direction === 'short' && patterns.bearish) {
+          patternBonus += Math.min(15, patterns.confidence * 20);
+          penaltiesApplied.push({
+            layer: 'pattern',
+            reason: `${tf} ${patterns.current} pattern (bearish)`,
+            multiplier: 1.0 + (patterns.confidence * 0.15)
+          });
+        }
+        // Contradictory pattern penalty
+        else if ((direction === 'long' && patterns.bearish) || (direction === 'short' && patterns.bullish)) {
+          patternBonus -= Math.min(10, patterns.confidence * 15);
+          penaltiesApplied.push({
+            layer: 'pattern',
+            reason: `${tf} ${patterns.current} pattern contradicts direction`,
+            multiplier: 1.0 - (patterns.confidence * 0.1)
+          });
+        }
+      }
+    }
+  }
+  baseConfidence += patternBonus;
+
+  // Apply ADX trend strength filter
+  let adxPenalty = 0;
+  const tf4h = multiTimeframeData['4h'];
+  if (tf4h && tf4h.indicators && tf4h.indicators.trendStrength) {
+    const trendStrength = tf4h.indicators.trendStrength;
+    if (trendStrength.adx < 25) {
+      // Weak trend - apply penalty
+      adxPenalty = trendStrength.adx < 20 ? -15 : -10;
+      baseConfidence += adxPenalty;
+      penaltiesApplied.push({
+        layer: 'trend_strength',
+        reason: `Weak trend (ADX: ${trendStrength.adx})`,
+        multiplier: 1.0 + (adxPenalty / 100)
+      });
+    } else if (trendStrength.adx >= 40) {
+      // Very strong trend - small bonus
+      baseConfidence += 3;
+      penaltiesApplied.push({
+        layer: 'trend_strength',
+        reason: `Very strong trend (ADX: ${trendStrength.adx})`,
+        multiplier: 1.03
+      });
+    }
+  }
+
+  // Apply momentum alignment bonus (if available in multiTimeframeData)
+  // Note: This is calculated at the API level and passed through if available
+  let momentumBonus = 0;
+  if (multiTimeframeData._momentum) {
+    const momentum = multiTimeframeData._momentum;
+    if (momentum.alignment) {
+      const aligned = (direction === 'long' && (momentum.alignment === 'BULLISH' || momentum.alignment === 'BULLISH_WEAK')) ||
+                     (direction === 'short' && (momentum.alignment === 'BEARISH' || momentum.alignment === 'BEARISH_WEAK'));
+      
+      if (aligned && momentum.alignmentScore >= 60) {
+        // Bonus based on alignment score (5-10%)
+        momentumBonus = Math.min(10, (momentum.alignmentScore - 50) / 5);
+        baseConfidence += momentumBonus;
+        penaltiesApplied.push({
+          layer: 'momentum',
+          reason: `Multi-timeframe momentum aligned (${momentum.alignment}, score: ${momentum.alignmentScore})`,
+          multiplier: 1.0 + (momentumBonus / 100)
+        });
+      } else if (!aligned && momentum.alignmentScore >= 60) {
+        // Penalty for contradictory momentum
+        momentumBonus = -Math.min(8, (momentum.alignmentScore - 50) / 6);
+        baseConfidence += momentumBonus;
+        penaltiesApplied.push({
+          layer: 'momentum',
+          reason: `Multi-timeframe momentum contradicts (${momentum.alignment}, score: ${momentum.alignmentScore})`,
+          multiplier: 1.0 + (momentumBonus / 100)
+        });
+      }
+    }
+  }
   
   // Check if all conditions align for 95% cap in AGGRESSIVE mode
   const allConditionsAligned = mode === 'AGGRESSIVE' &&

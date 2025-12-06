@@ -4,7 +4,9 @@
  * Uses technicalindicators library for accurate calculations
  */
 
-import { EMA, StochasticRSI } from 'technicalindicators';
+import { EMA, StochasticRSI, RSI, ADX } from 'technicalindicators';
+import * as chartAnalysis from '../lib/chartAnalysis.js';
+import * as candleFeatures from '../lib/candleFeatures.js';
 
 /**
  * Calculate 21 EMA from price data
@@ -146,6 +148,78 @@ export function calculateAllIndicators(candles) {
     }
   }
 
+  // Calculate RSI for momentum analysis
+  let rsi = null;
+  let currentRSI = null;
+  try {
+    if (closes.length >= 14) {
+      rsi = RSI.calculate({ values: closes, period: 14 });
+      currentRSI = rsi.length > 0 ? rsi[rsi.length - 1] : null;
+    }
+  } catch (error) {
+    console.warn('[Indicators] RSI calculation error:', error.message);
+  }
+
+  // Calculate ADX for trend strength
+  let adx = null;
+  let currentADX = null;
+  let trendStrength = null;
+  try {
+    if (closes.length >= 14 && highs.length >= 14 && lows.length >= 14) {
+      adx = ADX.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: 14
+      });
+      currentADX = adx.length > 0 ? adx[adx.length - 1] : null;
+      
+      if (currentADX !== null) {
+        trendStrength = {
+          adx: parseFloat(currentADX.toFixed(2)),
+          strong: currentADX >= 25,
+          weak: currentADX < 25,
+          veryStrong: currentADX >= 40,
+          category: currentADX >= 40 ? 'VERY_STRONG' : 
+                   currentADX >= 25 ? 'STRONG' : 
+                   currentADX >= 20 ? 'MODERATE' : 'WEAK'
+        };
+      }
+    }
+  } catch (error) {
+    console.warn('[Indicators] ADX calculation error:', error.message);
+  }
+
+  // Detect candlestick patterns
+  let candlestickPatterns = null;
+  try {
+    candlestickPatterns = chartAnalysis.detectCandlestickPatterns(candles);
+  } catch (error) {
+    console.warn('[Indicators] Pattern detection error:', error.message);
+  }
+
+  // Analyze wick/body ratios
+  let wickAnalysis = null;
+  try {
+    wickAnalysis = chartAnalysis.analyzeWickBodyRatios(candles);
+    
+    // Enhance with candleFeatures functions
+    if (candles.length > 0) {
+      const latest = candles[candles.length - 1];
+      const wickDominance = candleFeatures.calculateWickDominance(latest);
+      const bodyStrength = candleFeatures.analyzeBodyStrength(latest);
+      const exhaustionSignals = candleFeatures.detectExhaustionSignals(candles.slice(-3));
+      
+      if (wickAnalysis) {
+        wickAnalysis.wickDominance = wickDominance;
+        wickAnalysis.bodyStrength = bodyStrength;
+        wickAnalysis.exhaustionSignals = exhaustionSignals;
+      }
+    }
+  } catch (error) {
+    console.warn('[Indicators] Wick analysis error:', error.message);
+  }
+
   return {
     price: {
       current: currentPrice,
@@ -165,11 +239,20 @@ export function calculateAllIndicators(candles) {
       condition: stochCondition,
       history: stochRSI
     },
+    rsi: currentRSI ? {
+      value: parseFloat(currentRSI.toFixed(2)),
+      history: rsi,
+      overbought: currentRSI > 70,
+      oversold: currentRSI < 30
+    } : null,
     analysis: {
       trend,
       pullbackState,
       distanceFrom21EMA
     },
+    trendStrength,
+    candlestickPatterns,
+    wickAnalysis,
     metadata: {
       candleCount: candles.length,
       lastUpdate: new Date(candles[candles.length - 1].timestamp).toISOString()

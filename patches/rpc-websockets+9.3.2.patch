@@ -1,0 +1,19 @@
+diff --git a/node_modules/rpc-websockets/package.json b/node_modules/rpc-websockets/package.json
+index 1234567..abcdefg 100644
+--- a/node_modules/rpc-websockets/package.json
++++ b/node_modules/rpc-websockets/package.json
+@@ -10,6 +10,11 @@
+       "import": "./dist/index.mjs",
+       "require": "./dist/index.cjs"
+     }
++  },
++  "exports": {
++    "./dist/lib/client": {
++      "import": "./dist/index.mjs",
++      "require": "./dist/index.cjs"
++    }
+   },
+   "browser": {
+     "import": "./dist/index.browser.mjs",
+
+

@@ -1,180 +1,264 @@
-<!-- 372492de-183e-429e-b3b9-dbf3b1093556 c9e21cb0-dd09-4b59-99fb-eac47db17c59 -->
-# Add TREND_RIDER Strategy Implementation
+---
+name: Jupiter Trading Integration MVP Plan
+overview: ""
+todos: []
+---
+
+# Jupiter Trading Integration MVP Plan
 
 ## Overview
 
-Add a new "Trend Rider" continuation strategy that enters earlier in strong trends (not just deep pullbacks) using 4H trend + 1H execution + 15m/5m confirmation. This strategy will be available in both STANDARD and AGGRESSIVE modes and positioned between TREND_4H and SCALP_1H in priority.
+Integrate Jupiter Swap API and Perpetuals API to enable automated trading execution from the frontend. Users can manually execute trades via TRADE button or enable auto-execution when entry prices are hit. MVP supports BTC/ETH/SOL on Solana mainnet with hot wallet for development.
+
+## Architecture
+
+### New Components
+
+1. **services/jupiterSwap.js** - Jupiter Swap API integration (spot token swaps)
+2. **services/jupiterPerps.js** - Jupiter Perpetuals API integration (leveraged positions)
+3. **services/tradeExecution.js** - Trade execution orchestrator (calls swap/perps based on signal)
+4. **services/walletManager.js** - Hot wallet management (dev only, loads from env vars)
+5. **api/execute-trade.js** - API endpoint for trade execution
+6. **api/auto-execution.js** - Background service for monitoring entry prices (optional)
+
+### Modified Components
+
+1. **public/index.html** - Add TRADE button, auto-execution toggle, trade status UI
+2. **server.js** - Add new API routes
+3. **package.json** - Add Solana dependencies
+
+## Implementation Strategy
+
+**Phased Approach:**
+
+1. **Phase 1-7: Swap API Integration** - Implement, test, and confirm swap functionality working
+2. **Phase 8-10: Perpetuals Integration** - Add perpetual trading after swaps are confirmed working
+
+This ensures we have a working foundation before adding the more complex perpetual trading feature.
 
 ## Implementation Steps
 
-### 1. Add evaluateTrendRider Function (services/strategy.js)
+### Phase 1: Dependencies & Setup
 
-**Location:** After `evaluateMicroScalp` function (around line 1836) or after TREND_4H-related logic
+**Files: package.json**
 
-**Action:** Add the complete `evaluateTrendRider` function as provided in the specification. The function:
+- Install `@solana/web3.js` (latest version)
+- Install `bs58` for base58 encoding/decoding (private keys)
+- Add environment variable documentation for `SOLANA_PRIVATE_KEY`, `SOLANA_RPC_URL`, `JUPITER_API_KEY` (optional)
 
-- Takes `multiTimeframeData`, `currentPrice`, and `mode` parameters
-- Extracts indicators from 4h, 1h, 15m, 5m timeframes
-- Uses `computeHTFBias` to get higher timeframe bias
-- Allows FLAT 4H in AGGRESSIVE mode if HTF bias is strong
-- Validates pullback states and LTF confirmation
-- Uses `calculateEntryZone`, `calculateSLTP`, and `calculateConfidenceWithHierarchy`
-- Returns a canonical signal structure matching existing strategy patterns
+**Files: .env.example (create if doesn't exist)**
 
-**Key Features:**
+- Add `SOLANA_PRIVATE_KEY=your_base58_private_key`
+- Add `SOLANA_RPC_URL=https://api.mainnet-beta.solana.com` (or QuickNode/Helius)
+- Add `JUPITER_API_KEY=` (optional, for higher rate limits)
+- Add `AUTO_EXECUTION_ENABLED=false` (default off for safety)
 
-- Requires HTF bias confidence >= 55 (STANDARD) or >= 55 (AGGRESSIVE)
-- Allows shallow pullbacks (RETRACING/ENTRY_ZONE) on 1H
-- Max overextension: 3.0% (STANDARD) or 4.5% (AGGRESSIVE)
-- Uses 15m/5m Stoch RSI for confirmation
-- RR targets: [2.0, 3.5]
-- Entry zone anchored to 1H EMA21 with slight widening in AGGRESSIVE mode
+### Phase 2: Wallet Management
 
-### 5. Wire into evaluateStrategy (services/strategy.js)
+**Files: services/walletManager.js (NEW)**
 
-**Location:** In `evaluateStrategy` function, after TREND_4H check (around line 1395-1615)
+- Load private key from `process.env.SOLANA_PRIVATE_KEY`
+- Decode base58 private key to Uint8Array
+- Create Keypair from private key
+- Export functions: `getWallet()`, `getWalletAddress()`, `getConnection()`
+- Add comprehensive logging for wallet operations
+- Add safety checks (warn if using mainnet with real funds in dev)
 
-**Action:** Add TREND_RIDER as PRIORITY 3, after TREND_4H and before SCALP_1H:
+### Phase 3: Token Mapping
 
-```javascript
-// PRIORITY 3: TREND_RIDER (after TREND_4H, before SCALP_1H)
-if (setupType === 'TrendRider' || setupType === 'auto') {
-  const trendRiderSignal = evaluateTrendRider(analysis, currentPrice, mode);
-  if (trendRiderSignal && trendRiderSignal.valid) {
-    return normalizeToCanonical(trendRiderSignal, analysis, mode);
-  }
+**Files: services/tokenMapping.js (NEW)**
+
+- Map Kraken symbols (BTCUSDT, ETHUSDT, SOLUSDT) to Solana SPL token addresses
+- BTC: `So11111111111111111111111111111111111111112` (Wrapped SOL as placeholder, need actual BTC token)
+- ETH: Need wrapped ETH token address on Solana
+- SOL: Native SOL (use `So11111111111111111111111111111111111111112`)
+- USDC: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`
+- Create function: `getTokenAddress(symbol)` returns mint address
+- Create function: `getTokenDecimals(symbol)` returns decimals
+- Structure for easy extension (add more tokens later)
+
+### Phase 4: Jupiter Swap Integration
+
+**Files: services/jupiterSwap.js (NEW)**
+
+- Implement Jupiter Swap API v6 integration
+- Functions:
+  - `getSwapQuote(inputMint, outputMint, amount, slippageBps)` - Call Jupiter `/quote` endpoint
+  - `buildSwapTransaction(quote, userPublicKey)` - Call Jupiter `/swap` endpoint
+  - `executeSwap(transaction, wallet)` - Sign and send transaction
+  - `swapTokens(inputMint, outputMint, amountIn, slippageBps, wallet)` - Complete swap flow
+- Use Jupiter API base URL: `https://quote-api.jup.ag/v6`
+- Handle errors gracefully with detailed logging
+- Return transaction signature for tracking
+
+### Phase 5: Jupiter Perpetuals Integration
+
+**Files: services/jupiterPerps.js (NEW)**
+
+- Research Jupiter Perpetuals API endpoints (may need to check latest docs)
+- Functions:
+  - `openPerpPosition(market, direction, size, leverage, wallet)` - Open leveraged position
+  - `closePerpPosition(positionId, wallet)` - Close position
+  - `setStopLoss(positionId, stopPrice, wallet)` - Set stop loss
+  - `setTakeProfit(positionId, takeProfitPrice, wallet)` - Set take profit
+- Handle margin requirements and liquidation risks
+- Add comprehensive logging
+
+### Phase 6: Trade Execution Service
+
+**Files: services/tradeExecution.js (NEW)**
+
+- Orchestrate trade execution based on strategy signals
+- Functions:
+  - `executeTrade(signal, tradeType, wallet)` - Main execution function
+    - `tradeType`: 'spot' or 'perp'
+    - Convert signal direction (long/short) to swap direction
+    - Calculate swap amounts from entry zone
+    - Call appropriate service (jupiterSwap or jupiterPerps)
+  - `executeStopLoss(signal, entryPrice, wallet)` - Execute stop loss
+  - `executeTakeProfit(signal, entryPrice, targetIndex, wallet)` - Execute take profit
+- Map strategy signals to Jupiter trade parameters
+- Handle partial fills and slippage
+- Return execution status and transaction signatures
+
+### Phase 7: API Endpoints
+
+**Files: api/execute-trade.js (NEW)**
+
+- POST `/api/execute-trade`
+- Request body: `{ symbol, signal, tradeType, amount?, leverage? }`
+- Validate signal (must have valid entryZone, stopLoss, targets)
+- Call `tradeExecution.executeTrade()`
+- Return: `{ success, txSignature, error? }`
+- Add comprehensive logging
+
+**Files: api/auto-execution.js (NEW)**
+
+- Background service (runs on interval or via webhook)
+- Monitor active signals for entry price hits
+- When entry price hit: call execute-trade endpoint
+- Store active signals in memory (or simple file-based storage for MVP)
+- Add safety limits (max trades per hour, max position size)
+
+**Files: server.js**
+
+- Add route: `app.post('/api/execute-trade', ...)` - Import and use execute-trade handler
+- Add route: `app.get('/api/trade-status/:txSignature', ...)` - Check transaction status
+- Ensure CORS is enabled for new endpoints
+
+### Phase 8: Frontend Integration
+
+**Files: public/index.html**
+
+- Add TRADE button next to each valid signal in the details view
+- Button should be:
+  - Visible only when `signal.valid === true`
+  - Disabled during execution
+  - Show loading state during execution
+- Add trade type selector (Spot Swap / Perpetual) - default to Spot
+- Add auto-execution toggle (checkbox) - default OFF
+- Add trade status display (pending, executing, success, error)
+- Add transaction signature link (Solscan explorer)
+- Functions:
+  - `executeTrade(symbol, signal, tradeType)` - Call `/api/execute-trade`
+  - `enableAutoExecution(symbol, signal)` - Enable auto-execution for this signal
+  - `disableAutoExecution(symbol)` - Disable auto-execution
+  - `checkTradeStatus(txSignature)` - Poll transaction status
+- Update UI to show execution status
+- Add error handling and user feedback
+
+### Phase 9: Testing & Safety
+
+**Files: test-jupiter-integration.js (NEW)**
+
+- Test wallet connection
+- Test token mapping
+- Test swap quote retrieval (no execution)
+- Test transaction building (no signing)
+- Test with small amounts on devnet first (if possible)
+- Add comprehensive logging at each step
+
+**Safety Measures:**
+
+- Add confirmation dialog before executing trades
+- Add maximum trade size limits (configurable)
+- Add rate limiting (max trades per hour)
+- Log all trade executions to file
+- Add dry-run mode (test without executing)
+- Warn user if using mainnet with real funds
+
+### Phase 10: Documentation
+
+**Files: docs/JUPITER_TRADING_INTEGRATION.md (NEW)**
+
+- Document setup process (wallet, API keys, RPC)
+- Document trade execution flow
+- Document auto-execution behavior
+- Document token mapping and extension
+- Document safety measures and limits
+- Document error handling
+
+## Critical Considerations
+
+1. **No Breaking Changes**: All existing strategy evaluation code remains untouched. Trading is additive functionality.
+
+2. **Error Handling**: Every Jupiter API call must have try-catch with detailed logging. Failures should not crash the system.
+
+3. **Logging**: Add console.log at every step:
+
+   - Wallet loaded
+   - Quote retrieved
+   - Transaction built
+   - Transaction signed
+   - Transaction sent
+   - Transaction confirmed
+
+4. **Testing Strategy**: 
+
+   - Start with quote-only calls (no execution)
+   - Then test transaction building (no signing)
+   - Then test with minimal amounts
+   - Finally test full flow
+
+5. **Token Support**: MVP supports BTC/ETH/SOL. Architecture allows easy extension via tokenMapping.js.
+
+6. **Auto-Execution**: Should be opt-in, clearly labeled, with confirmation. Monitor entry prices via polling or webhook.
+
+## File Structure
+
+```
+services/
+  ├── jupiterSwap.js (NEW)
+  ├── jupiterPerps.js (NEW)
+  ├── tradeExecution.js (NEW)
+  ├── walletManager.js (NEW)
+  └── tokenMapping.js (NEW)
+
+api/
+  ├── execute-trade.js (NEW)
+  └── auto-execution.js (NEW)
+
+public/
+  └── index.html (MODIFIED - add TRADE button, auto-exec toggle)
+
+docs/
+  └── JUPITER_TRADING_INTEGRATION.md (NEW)
+```
+
+## Dependencies to Add
+
+```json
+{
+  "@solana/web3.js": "^1.87.0",
+  "bs58": "^5.0.0"
 }
 ```
 
-**Note:** Update priority comments to reflect: TREND_4H → TREND_RIDER → SWING → SCALP_1H → MICRO_SCALP
+## Environment Variables
 
-### 3. Wire into evaluateAllStrategies (services/strategy.js)
-
-**Location:** In `evaluateAllStrategies` function (starting at line 2029)
-
-**Actions:**
-
-a) **Add TREND_RIDER to strategies object** (line 2032):
-
-```javascript
-const strategies = {
-  SWING: null,
-  TREND_4H: null,
-  TREND_RIDER: null,  // NEW
-  SCALP_1H: null,
-  MICRO_SCALP: null
-};
-```
-
-b) **Add TREND_RIDER to SAFE_MODE blocking** (line 2054):
-
-```javascript
-strategies.TREND_RIDER = createNoTradeStrategy('TREND_RIDER', flatReason);
-```
-
-c) **Evaluate TREND_RIDER** (after line 2075, before SCALP_1H):
-
-```javascript
-const trendRiderResult = evaluateStrategy(symbol, multiTimeframeData, 'TrendRider', mode);
-```
-
-d) **Normalize TREND_RIDER result** (after line 2082):
-
-```javascript
-strategies.TREND_RIDER = normalizeStrategyResult(trendRiderResult, 'TREND_RIDER', mode);
-```
-
-e) **Update priority arrays** (lines 2408-2409 and 2422-2423):
-
-```javascript
-// STANDARD priority
-const priority = ['TREND_4H', 'TREND_RIDER', 'SWING', 'SCALP_1H', 'MICRO_SCALP'];
-
-// AGGRESSIVE priority  
-const priority = ['TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP', 'SWING'];
-```
-
-### 4. Export evaluateTrendRider (services/strategy.js)
-
-**Location:** At the end of the file in the exports object (around line 2665)
-
-**Action:** Add `evaluateTrendRider` to the exports:
-
-```javascript
-export {
-  evaluateStrategy,
-  evaluateAllStrategies,
-  evaluateTrendSetup4h,
-  evaluateScalp1h,
-  evaluateMicroScalp,
-  evaluateSwingSetup,
-  evaluateTrendRider,  // NEW
-  computeHTFBias
-};
-```
-
-### 5. Frontend UI Updates (public/index.html) - Optional
-
-**Location:** Strategy options and mapping (around lines 1118-1155)
-
-**Actions:**
-
-a) **Add to strategyOptions array** (line 1118):
-
-```javascript
-const strategyOptions = ['4h', 'Swing', 'TrendRider', 'Scalp', 'MicroScalp'];
-```
-
-b) **Add to strategyMap** (if exists, around line 1120):
-
-```javascript
-const strategyMap = {
-  '4h': 'TREND_4H',
-  'Swing': 'SWING',
-  'TrendRider': 'TREND_RIDER',  // NEW
-  'Scalp': 'SCALP_1H',
-  'MicroScalp': 'MICRO_SCALP'
-};
-```
-
-c) **Add strategy configuration** (in strategyConfig object, around line 1133):
-
-```javascript
-'TrendRider': {
-  label: '4H/1H Trend Rider',
-  anchorTimeframes: ['4h', '1h'],
-  confirmTimeframes: ['15m', '5m'],
-  entryTimeframes: ['15m', '5m'],
-  minConfidence: 0.65,
-  maxLeverage: 25,
-  rrTargets: [2.0, 3.5],
-  maxHoldCandles: { '1h': 24 },
-  displayName: 'TREND RIDER'
-}
-```
-
-## Verification Checklist
-
-- [ ] `evaluateTrendRider` function added and follows existing pattern
-- [ ] Function uses correct data paths (indicators.analysis.trend, etc.)
-- [ ] Function calls helper functions correctly (calculateEntryZone, calculateSLTP, etc.)
-- [ ] Wired into `evaluateStrategy` with correct priority
-- [ ] Wired into `evaluateAllStrategies` with correct priority arrays
-- [ ] Added to exports
-- [ ] Frontend UI updated (if desired)
-- [ ] No breaking changes to existing strategies
-- [ ] Strategy appears in JSON output when valid
-- [ ] Strategy respects STANDARD vs AGGRESSIVE mode differences
-
-## Testing Notes
-
-- STANDARD mode: Should only fire in strong, clean trends with shallow pullbacks
-- AGGRESSIVE mode: Should tolerate FLAT 4H if HTF bias is strong (>=70%) and 4H stoch agrees
-- Priority: TREND_RIDER should be selected after TREND_4H but before SCALP_1H when both are valid
-- Entry zones should be slightly wider in AGGRESSIVE mode
-- Confidence should use hierarchical system with alignment bonuses
-
-## Files to Modify
-
-1. `services/strategy.js` - Add function, wire into dispatchers, update priorities, export
-2. `public/index.html` - Optional UI updates for strategy selector
+- `SOLANA_PRIVATE_KEY` - Base58 encoded private key (hot wallet)
+- `SOLANA_RPC_URL` - Solana RPC endpoint (QuickNode/Helius recommended)
+- `JUPITER_API_KEY` - Optional, for higher rate limits
+- `AUTO_EXECUTION_ENABLED` - Default false
+- `MAX_TRADE_SIZE_USD` - Safety limit
+- `MAX_TRADES_PER_HOUR` - Rate limit

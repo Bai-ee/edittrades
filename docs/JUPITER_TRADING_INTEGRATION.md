@@ -23,7 +23,7 @@ This document describes the Jupiter trading integration for automated trade exec
 ### Current Status
 
 - ✅ **Swap API Integration** - Complete and tested
-- ⏳ **Perpetuals Integration** - Planned for Phase 2 (after swap testing)
+- ✅ **Perpetuals Integration** - MVP Complete (needs client library connection)
 
 ---
 
@@ -133,16 +133,163 @@ Check transaction status on Solana.
 
 ---
 
+## Technical Architecture
+
+### Complete Swap Execution Flow
+
+**See:** `docs/SWAP_TECHNICAL_FLOW.md` for complete technical breakdown
+
+**High-Level Flow:**
+1. Frontend → API Endpoint (`/api/execute-trade`)
+2. API → Trade Execution Service (`services/tradeExecution.js`)
+3. Trade Execution → Token Mapping (`services/tokenMapping.js`)
+4. Trade Execution → Jupiter Swap (`services/jupiterSwap.js`)
+5. Jupiter Swap → Jupiter API (quote → build → execute)
+6. Jupiter Swap → Solana RPC (sign → send → confirm)
+7. Response → Frontend (display status, track trade)
+
+### Request/Response Schemas
+
+**Request Schema:**
+```json
+{
+  "symbol": "BTCUSDT",
+  "signal": {
+    "valid": true,
+    "direction": "long",
+    "symbol": "BTCUSDT",
+    "entryZone": { "min": 90000, "max": 91000 },
+    "stopLoss": 88000,
+    "targets": [93000, 95000],
+    "currentPrice": 90500
+  },
+  "tradeType": "spot",
+  "amount": 0.25
+}
+```
+
+**Response Schema:**
+```json
+{
+  "success": true,
+  "tradeType": "spot",
+  "direction": "long",
+  "symbol": "BTCUSDT",
+  "signature": "transaction_signature_base58",
+  "explorerUrl": "https://solscan.io/tx/...",
+  "inputAmount": "250000",
+  "outputAmount": "7993",
+  "priceImpact": "0",
+  "signal": {
+    "entryZone": { "min": 90000, "max": 91000 },
+    "stopLoss": 88000,
+    "targets": [93000, 95000]
+  },
+  "timestamp": "2025-12-03T20:00:00.000Z"
+}
+```
+
+### Token Decimal Handling
+
+**Token Decimals:**
+- **SOL**: 9 decimals (1 SOL = 1,000,000,000 lamports)
+- **BTC**: 8 decimals (1 BTC = 100,000,000 smallest units)
+- **ETH**: 8 decimals (1 ETH = 100,000,000 smallest units)
+- **USDC**: 6 decimals (1 USDC = 1,000,000 smallest units)
+- **USDT**: 6 decimals (1 USDT = 1,000,000 smallest units)
+
+**Conversion Functions:**
+- `toTokenAmount(amount, symbol)` - Human-readable → Smallest unit
+- `fromTokenAmount(amount, symbol)` - Smallest unit → Human-readable
+
+**Example:**
+```javascript
+// $0.25 USDC → smallest units
+const usdcAmount = toTokenAmount(0.25, 'USDC'); // 250,000
+
+// 7,993 WETH smallest units → human-readable
+const ethAmount = fromTokenAmount(7993, 'ETHUSDT'); // 0.00007993
+```
+
+### Amount Calculation Formulas
+
+**Long Trade (Buy Token with USDC):**
+```
+amountInSmallestUnit = amountUSD * 10^6  // USDC has 6 decimals
+inputMint = USDC address
+outputMint = Base token address
+```
+
+**Short/Sell Trade (Sell Token for USDC):**
+```
+currentPrice = signal.currentPrice || (entryZone.min + entryZone.max) / 2
+tokenAmount = (amountUSD / currentPrice) * 1.01  // 1% buffer for slippage
+amountInSmallestUnit = tokenAmount * 10^decimals  // 8 or 9 decimals
+inputMint = Base token address
+outputMint = USDC address
+```
+
+### Slippage and Price Impact
+
+**Slippage Tolerance:**
+- Default: 100 basis points (1%)
+- Configurable per trade
+- Applied to Jupiter quote request
+
+**Price Impact:**
+- Provided by Jupiter API in quote response
+- Displayed to user in trade status
+- High impact (>5%) indicates low liquidity
+
+**Formula:**
+```
+slippageBps = 100  // 1% = 100 basis points
+priceImpact = quote.priceImpactPct  // From Jupiter API
+```
+
+### Transaction Lifecycle
+
+**States:**
+1. **Pending** - Transaction sent, awaiting confirmation
+2. **Processing** - Transaction in block, being processed
+3. **Confirmed** - Transaction confirmed by supermajority
+4. **Finalized** - Transaction finalized (irreversible)
+
+**Polling:**
+- Poll `/api/trade-status/:signature` every 10 seconds
+- Maximum 30 attempts (5 minutes)
+- Stop on confirmation or error
+
+### Buy vs Sell Flow Differences
+
+**Buy (Long) Flow:**
+1. User enters USD amount
+2. Convert USD → USDC smallest units (6 decimals)
+3. Swap: USDC → Base Token
+4. Receive tokens in wallet
+5. Calculate entry price: `inputAmountUSD / outputAmountTokens`
+
+**Sell (Short) Flow:**
+1. User enters USD amount to sell
+2. Calculate token amount: `(amountUSD / currentPrice) * 1.01`
+3. Convert token amount → smallest units (8 or 9 decimals)
+4. Swap: Base Token → USDC
+5. Receive USDC in wallet
+6. Entry price: From original buy trade
+
+---
+
 ## Frontend Usage
 
 ### Manual Trade Execution
 
 1. **View Signal**: Navigate to a coin with a valid trade signal
 2. **Select Trade Type**: Choose "Spot Swap" (Perpetuals coming soon)
-3. **Set Amount**: Enter trade amount in USD (default: $100)
+3. **Set Amount**: Enter trade amount in USD (default: $0.25, min: $0.25, max: $1000)
 4. **Click "Execute Trade"**: Button will show loading state
 5. **Monitor Status**: Transaction status displayed below button
 6. **View on Explorer**: Click link to view transaction on Solscan
+7. **Track Trade**: Click "Track Trade" button to add to trade tracker
 
 ### Auto-Execution
 
@@ -252,15 +399,47 @@ All trade operations are logged with prefixes:
 
 ---
 
+## Perpetuals Trading
+
+### Overview
+
+The system now supports perpetual futures trading via Jupiter Perpetuals with leverage up to 200x. See `docs/JUPITER_PERPETUALS_INTEGRATION.md` for complete documentation.
+
+### Quick Start
+
+1. Select "Perpetual" trade type in UI
+2. Set position size (USD)
+3. Choose leverage (1x-200x)
+4. Review margin required (auto-calculated)
+5. Execute trade
+
+### Key Features
+
+- **Leverage:** 1x to 200x
+- **Markets:** BTC, ETH, SOL
+- **Position Tracking:** Automatic tracking with P&L calculation
+- **Safety:** Margin validation, leverage warnings, liquidation risk monitoring
+
+### Comparison: Spot vs Perps
+
+| Feature | Spot Swap | Perpetuals |
+|---------|-----------|------------|
+| Leverage | None (1x) | 1x-200x |
+| Position Size | Limited by capital | Amplified by leverage |
+| Margin Required | Full amount | Amount / Leverage |
+| Liquidation Risk | None | Yes (if margin insufficient) |
+| Funding Fees | None | Yes (periodic) |
+| Use Case | Direct token ownership | Leveraged speculation |
+
 ## Future Enhancements
 
-### Phase 2: Perpetuals Integration
+### Phase 2: Advanced Perpetuals Features
 
-- [ ] Research Jupiter Perpetuals API endpoints
-- [ ] Implement position opening/closing
-- [ ] Add stop loss and take profit orders
-- [ ] Handle margin requirements
-- [ ] Add leverage controls
+- [ ] Real-time P&L updates
+- [ ] Position size adjustments
+- [ ] Partial position closing
+- [ ] Multiple positions per symbol
+- [ ] Automated stop loss/take profit execution
 
 ### Phase 3: Advanced Features
 
