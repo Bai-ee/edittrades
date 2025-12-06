@@ -161,63 +161,82 @@ export function calculateAllIndicators(candles) {
   }
 
   // Calculate ADX for trend strength
+  // Note: ADX requires at least period*2 candles for reliable results (14*2=28 minimum)
   let adx = null;
   let currentADX = null;
   let trendStrength = null;
   try {
-    if (closes.length >= 14 && highs.length >= 14 && lows.length >= 14) {
-      adx = ADX.calculate({
-        high: highs,
-        low: lows,
-        close: closes,
-        period: 14
-      });
-      currentADX = adx.length > 0 ? adx[adx.length - 1] : null;
+    // ADX needs more data - use at least 28 candles for reliable calculation
+    if (closes.length >= 28 && highs.length >= 28 && lows.length >= 28) {
+      // Ensure all arrays are the same length and contain valid numbers
+      const minLength = Math.min(closes.length, highs.length, lows.length);
+      const validHighs = highs.slice(-minLength).filter(v => typeof v === 'number' && !isNaN(v) && v > 0);
+      const validLows = lows.slice(-minLength).filter(v => typeof v === 'number' && !isNaN(v) && v > 0);
+      const validCloses = closes.slice(-minLength).filter(v => typeof v === 'number' && !isNaN(v) && v > 0);
       
-      if (currentADX !== null) {
-        trendStrength = {
-          adx: parseFloat(currentADX.toFixed(2)),
-          strong: currentADX >= 25,
-          weak: currentADX < 25,
-          veryStrong: currentADX >= 40,
-          category: currentADX >= 40 ? 'VERY_STRONG' : 
-                   currentADX >= 25 ? 'STRONG' : 
-                   currentADX >= 20 ? 'MODERATE' : 'WEAK'
-        };
+      if (validHighs.length >= 28 && validLows.length >= 28 && validCloses.length >= 28) {
+        adx = ADX.calculate({
+          high: validHighs,
+          low: validLows,
+          close: validCloses,
+          period: 14
+        });
+        currentADX = adx && Array.isArray(adx) && adx.length > 0 ? adx[adx.length - 1] : null;
+        
+        if (currentADX !== null && typeof currentADX === 'number' && !isNaN(currentADX) && isFinite(currentADX)) {
+          trendStrength = {
+            adx: parseFloat(currentADX.toFixed(2)),
+            strong: currentADX >= 25,
+            weak: currentADX < 25,
+            veryStrong: currentADX >= 40,
+            category: currentADX >= 40 ? 'VERY_STRONG' : 
+                     currentADX >= 25 ? 'STRONG' : 
+                     currentADX >= 20 ? 'MODERATE' : 'WEAK'
+          };
+        }
       }
     }
   } catch (error) {
     console.warn('[Indicators] ADX calculation error:', error.message);
+    // Don't throw - just skip ADX if it fails
   }
 
   // Detect candlestick patterns
   let candlestickPatterns = null;
   try {
-    candlestickPatterns = chartAnalysis.detectCandlestickPatterns(candles);
+    if (candles && candles.length > 0) {
+      candlestickPatterns = chartAnalysis.detectCandlestickPatterns(candles);
+    }
   } catch (error) {
     console.warn('[Indicators] Pattern detection error:', error.message);
+    // Don't throw - just skip patterns if detection fails
   }
 
   // Analyze wick/body ratios
   let wickAnalysis = null;
   try {
-    wickAnalysis = chartAnalysis.analyzeWickBodyRatios(candles);
-    
-    // Enhance with candleFeatures functions
-    if (candles.length > 0) {
-      const latest = candles[candles.length - 1];
-      const wickDominance = candleFeatures.calculateWickDominance(latest);
-      const bodyStrength = candleFeatures.analyzeBodyStrength(latest);
-      const exhaustionSignals = candleFeatures.detectExhaustionSignals(candles.slice(-3));
+    if (candles && candles.length > 0) {
+      wickAnalysis = chartAnalysis.analyzeWickBodyRatios(candles);
       
-      if (wickAnalysis) {
-        wickAnalysis.wickDominance = wickDominance;
-        wickAnalysis.bodyStrength = bodyStrength;
-        wickAnalysis.exhaustionSignals = exhaustionSignals;
+      // Enhance with candleFeatures functions
+      if (candles.length > 0) {
+        const latest = candles[candles.length - 1];
+        if (latest && latest.open && latest.high && latest.low && latest.close) {
+          const wickDominance = candleFeatures.calculateWickDominance(latest);
+          const bodyStrength = candleFeatures.analyzeBodyStrength(latest);
+          const exhaustionSignals = candleFeatures.detectExhaustionSignals(candles.slice(-3));
+          
+          if (wickAnalysis) {
+            wickAnalysis.wickDominance = wickDominance;
+            wickAnalysis.bodyStrength = bodyStrength;
+            wickAnalysis.exhaustionSignals = exhaustionSignals;
+          }
+        }
       }
     }
   } catch (error) {
     console.warn('[Indicators] Wick analysis error:', error.message);
+    // Don't throw - just skip wick analysis if it fails
   }
 
   return {
