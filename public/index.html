@@ -4492,93 +4492,104 @@
                 let html = '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
                   '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Chart Analysis</div>';
                 
-                // 4H Chart Analysis - Show ALL available data
+                // 4H Chart Analysis - ALWAYS SHOW ALL FIELDS (even if null/N/A)
+                html += '<div style="margin-bottom: 1rem; padding: 0.75rem; background-color: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm);">' +
+                  '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: bold;">4H Timeframe</div>';
+                
+                // Log the full structure for debugging
+                console.log(`[Chart Analysis] ${symbol} 4H - analysis4h exists:`, !!analysis4h);
+                console.log(`[Chart Analysis] ${symbol} 4H - analysis4h.indicators exists:`, !!analysis4h?.indicators);
                 if (analysis4h?.indicators) {
-                  // Log the full structure for debugging
                   console.log(`[Chart Analysis] ${symbol} 4H full indicators:`, analysis4h.indicators);
                   console.log(`[Chart Analysis] ${symbol} 4H indicators keys:`, Object.keys(analysis4h.indicators || {}));
-                  
-                  const patterns = analysis4h.indicators.candlestickPatterns;
-                  const wick = analysis4h.indicators.wickAnalysis || analysis4h.indicators.candle?.wickDominance || analysis4h.candle?.wickDominance;
-                  const trendStrength = analysis4h.indicators.analysis?.trendStrength || analysis4h.indicators.trendStrength;
-                  const rsi = analysis4h.indicators.rsi;
-                  const candleMetrics = analysis4h.indicators.candleMetrics || analysis4h.candle;
-                  
-                  html += '<div style="margin-bottom: 1rem; padding: 0.75rem; background-color: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm);">' +
-                    '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: bold;">4H Timeframe</div>';
-                  
-                  // Always show a grid, even if some data is missing
-                  html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; font-size: 0.75rem; margin-bottom: 0.5rem;">';
-                  
-                  // Candlestick Patterns
-                  if (patterns && patterns.current) {
-                    const patternColor = patterns.bullish ? '#22c55e' : patterns.bearish ? '#ef4444' : '#9ca3af';
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Pattern</div><div style="color: ' + patternColor + '; font-weight: bold;">' + patterns.current + '</div></div>';
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Confidence</div><div style="color: var(--color-yellow-75);">' + ((patterns.confidence || 0) * 100).toFixed(0) + '%</div></div>';
-                  } else {
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Pattern</div><div style="color: #9ca3af;">None</div></div>';
-                  }
-                  
-                  // Wick Analysis
-                  if (wick) {
-                    if (wick.exhaustionSignal && wick.exhaustionSignal !== 'NONE') {
-                      const exhaustionColor = wick.exhaustionSignal.includes('LOWER') ? '#22c55e' : wick.exhaustionSignal.includes('UPPER') ? '#ef4444' : '#9ca3af';
-                      html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Exhaustion</div><div style="color: ' + exhaustionColor + '; font-size: 0.7rem;">' + wick.exhaustionSignal.replace(/_/g, ' ') + '</div></div>';
-                    }
-                    if (wick.dominance) {
-                      html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Wick Dominance</div><div style="color: #9ca3af; font-size: 0.7rem;">' + wick.dominance + '</div></div>';
-                    }
-                  } else if (candleMetrics && candleMetrics.wickDominance) {
-                    const wd = candleMetrics.wickDominance;
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Wick Dominance</div><div style="color: #9ca3af; font-size: 0.7rem;">' + (wd.dominance || 'NONE') + '</div></div>';
-                    if (wd.upper !== undefined) {
-                      html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Upper Wick</div><div style="color: #9ca3af;">' + wd.upper.toFixed(1) + '%</div></div>';
-                    }
-                    if (wd.lower !== undefined) {
-                      html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Lower Wick</div><div style="color: #9ca3af;">' + wd.lower.toFixed(1) + '%</div></div>';
-                    }
-                  }
-                  
-                  // Trend Strength (ADX)
-                  if (trendStrength && trendStrength.adx !== null && trendStrength.adx !== undefined) {
-                    const adxColor = trendStrength.strong ? '#22c55e' : trendStrength.weak ? '#ef4444' : '#f59e0b';
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">ADX</div><div style="color: ' + adxColor + '; font-weight: bold;">' + trendStrength.adx.toFixed(1) + '</div></div>';
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Trend Strength</div><div style="color: ' + adxColor + '; font-size: 0.7rem;">' + (trendStrength.category || trendStrength.state || 'N/A') + '</div></div>';
-                  } else {
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">ADX</div><div style="color: #9ca3af;">N/A</div></div>';
-                  }
-                  
-                  // RSI
-                  if (rsi && (rsi.value !== null && rsi.value !== undefined)) {
-                    const rsiValue = typeof rsi === 'number' ? rsi : rsi.value;
-                    const rsiColor = rsiValue > 70 ? '#ef4444' : rsiValue < 30 ? '#22c55e' : '#9ca3af';
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">RSI</div><div style="color: ' + rsiColor + '; font-weight: bold;">' + rsiValue.toFixed(1) + '</div></div>';
-                  } else if (typeof rsi === 'number') {
-                    const rsiColor = rsi > 70 ? '#ef4444' : rsi < 30 ? '#22c55e' : '#9ca3af';
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">RSI</div><div style="color: ' + rsiColor + '; font-weight: bold;">' + rsi.toFixed(1) + '</div></div>';
-                  } else {
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">RSI</div><div style="color: #9ca3af;">N/A</div></div>';
-                  }
-                  
-                  // Body Strength
-                  if (candleMetrics && candleMetrics.bodyStrength) {
-                    const bs = candleMetrics.bodyStrength;
-                    html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Body Strength</div><div style="color: #9ca3af; font-size: 0.7rem;">' + (bs.strength || 'N/A') + '</div></div>';
-                    if (bs.bodyToRangeRatio !== undefined) {
-                      html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Body/Range</div><div style="color: #9ca3af;">' + bs.bodyToRangeRatio.toFixed(1) + '%</div></div>';
-                    }
-                  }
-                  
-                  html += '</div>'; // Close grid
-                  html += '</div>'; // Close 4H timeframe div
-                } else {
-                  // Show that we have analysis4h but no indicators
-                  html += '<div style="margin-bottom: 1rem; padding: 0.75rem; background-color: rgba(255, 255, 255, 0.03); border-radius: var(--radius-sm);">' +
-                    '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.75rem; margin-bottom: 0.5rem; font-weight: bold;">4H Timeframe</div>' +
-                    '<div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem;">Data structure available but indicators missing</div>' +
-                    '<div style="color: rgba(255, 255, 255, 0.4); font-size: 0.65rem; margin-top: 0.5rem;">Available keys: ' + (analysis4h ? Object.keys(analysis4h).join(', ') : 'none') + '</div>' +
-                    '</div>';
                 }
+                
+                // Always show a grid with ALL fields, even if data is missing
+                html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; font-size: 0.75rem;">';
+                
+                // 1. Candlestick Pattern - ALWAYS SHOW
+                const patterns = analysis4h?.indicators?.candlestickPatterns;
+                if (patterns && patterns.current) {
+                  const patternColor = patterns.bullish ? '#22c55e' : patterns.bearish ? '#ef4444' : '#9ca3af';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Pattern</div><div style="color: ' + patternColor + '; font-weight: bold;">' + patterns.current + '</div></div>';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Pattern Confidence</div><div style="color: var(--color-yellow-75);">' + ((patterns.confidence || 0) * 100).toFixed(0) + '%</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Pattern</div><div style="color: #9ca3af;">N/A</div></div>';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Pattern Confidence</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                // 2. ADX (Trend Strength) - ALWAYS SHOW
+                const trendStrength = analysis4h?.indicators?.trendStrength || analysis4h?.indicators?.analysis?.trendStrength;
+                if (trendStrength && trendStrength.adx !== null && trendStrength.adx !== undefined) {
+                  const adxColor = trendStrength.strong ? '#22c55e' : trendStrength.weak ? '#ef4444' : '#f59e0b';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">ADX</div><div style="color: ' + adxColor + '; font-weight: bold;">' + trendStrength.adx.toFixed(1) + '</div></div>';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Trend Strength</div><div style="color: ' + adxColor + '; font-size: 0.7rem;">' + (trendStrength.category || trendStrength.state || 'N/A') + '</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">ADX</div><div style="color: #9ca3af;">N/A</div></div>';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Trend Strength</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                // 3. RSI - ALWAYS SHOW
+                const rsi = analysis4h?.indicators?.rsi;
+                if (rsi && (rsi.value !== null && rsi.value !== undefined)) {
+                  const rsiValue = typeof rsi === 'number' ? rsi : rsi.value;
+                  const rsiColor = rsiValue > 70 ? '#ef4444' : rsiValue < 30 ? '#22c55e' : '#9ca3af';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">RSI</div><div style="color: ' + rsiColor + '; font-weight: bold;">' + rsiValue.toFixed(1) + '</div></div>';
+                } else if (typeof rsi === 'number') {
+                  const rsiColor = rsi > 70 ? '#ef4444' : rsi < 30 ? '#22c55e' : '#9ca3af';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">RSI</div><div style="color: ' + rsiColor + '; font-weight: bold;">' + rsi.toFixed(1) + '</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">RSI</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                // 4. Wick Analysis - ALWAYS SHOW
+                const wick = analysis4h?.indicators?.wickAnalysis;
+                const candleMetrics = analysis4h?.indicators?.candleMetrics || analysis4h?.candle;
+                const wickDominance = wick?.wickDominance || candleMetrics?.wickDominance;
+                
+                if (wickDominance && wickDominance.dominance) {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Wick Dominance</div><div style="color: #9ca3af; font-size: 0.7rem;">' + wickDominance.dominance + '</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Wick Dominance</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                if (wickDominance && wickDominance.upper !== undefined) {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Upper Wick</div><div style="color: #9ca3af;">' + wickDominance.upper.toFixed(1) + '%</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Upper Wick</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                if (wickDominance && wickDominance.lower !== undefined) {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Lower Wick</div><div style="color: #9ca3af;">' + wickDominance.lower.toFixed(1) + '%</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Lower Wick</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                // 5. Exhaustion Signal - ALWAYS SHOW
+                const exhaustion = wick?.exhaustionSignal || wick?.exhaustionSignals?.exhaustionSignal || candleMetrics?.exhaustionSignals?.exhaustionSignal;
+                if (exhaustion && exhaustion !== 'NONE') {
+                  const exhaustionColor = exhaustion.includes('LOWER') ? '#22c55e' : exhaustion.includes('UPPER') ? '#ef4444' : '#9ca3af';
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Exhaustion Signal</div><div style="color: ' + exhaustionColor + '; font-size: 0.7rem;">' + exhaustion.replace(/_/g, ' ') + '</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Exhaustion Signal</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                // 6. Body Strength - ALWAYS SHOW
+                const bodyStrength = candleMetrics?.bodyStrength || wick?.bodyStrength;
+                if (bodyStrength && bodyStrength.strength) {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Body Strength</div><div style="color: #9ca3af; font-size: 0.7rem;">' + bodyStrength.strength + '</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Body Strength</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                if (bodyStrength && bodyStrength.bodyToRangeRatio !== undefined) {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Body/Range Ratio</div><div style="color: #9ca3af;">' + bodyStrength.bodyToRangeRatio.toFixed(1) + '%</div></div>';
+                } else {
+                  html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Body/Range Ratio</div><div style="color: #9ca3af;">N/A</div></div>';
+                }
+                
+                html += '</div>'; // Close grid
+                html += '</div>'; // Close 4H timeframe div
                 
                 // Momentum Alignment
                 if (momentumData && momentumData.alignment) {
