@@ -8,7 +8,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "backtest:btc4h": "node backtests/btc-4h-backtest.js",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "vercel-build": "npm install --legacy-peer-deps && npm run postinstall"
   },
   "keywords": [
     "trading",
