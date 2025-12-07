@@ -163,20 +163,29 @@ export default async function handler(req, res) {
           };
         }
         
-        // Calculate volume metrics - Always include (even if null)
+        // Calculate volume metrics - Always include structured object (never null)
         let volume = null;
         try {
           const { calculateVolumeAnalysis } = await import('../lib/volumeAnalysis.js');
           volume = calculateVolumeAnalysis(candles, 20);
+          // Ensure volume is always a structured object
+          if (!volume || typeof volume !== 'object') {
+            const lastCandle = candles[candles.length - 1];
+            volume = {
+              current: lastCandle?.volume || 0,
+              avg20: 0,
+              trend: 'flat'
+            };
+          }
         } catch (volumeError) {
           console.warn(`[Analyze-Full] Volume calculation error for ${interval}:`, volumeError.message);
-          // Set default volume if calculation fails
+          // Always return structured object on error
           const lastCandle = candles[candles.length - 1];
-          volume = lastCandle?.volume ? {
-            current: lastCandle.volume,
-            avg20: null,
-            trend: null
-          } : null;
+          volume = {
+            current: lastCandle?.volume || 0,
+            avg20: 0,
+            trend: 'flat'
+          };
         }
         
         // Build analysis object with advanced modules - ALWAYS include all fields (even if null/empty)
@@ -193,16 +202,16 @@ export default async function handler(req, res) {
             lastChoch: { type: 'CHOCH', direction: 'neutral', fromSwing: null, toSwing: null, price: null, timestamp: null }
           },
           volatility: volatility || { atr: null, atrPctOfPrice: null, state: 'normal' }, // Always include
-          volume: volume || null, // Volume metrics (current, avg20, trend)
+          volume: volume || { current: 0, avg20: 0, trend: 'flat' }, // Always include structured object
           volumeProfile: advancedChart.volumeProfile || {
             highVolumeNodes: [],
             lowVolumeNodes: [],
             valueAreaHigh: null,
             valueAreaLow: null
           },
-          liquidityZones: (advancedChart.liquidityZones !== undefined && Array.isArray(advancedChart.liquidityZones)) ? advancedChart.liquidityZones : [], // Always include array (never null)
-          fairValueGaps: (advancedChart.fairValueGaps !== undefined && Array.isArray(advancedChart.fairValueGaps)) ? advancedChart.fairValueGaps : [], // Always include array (never null)
-          divergences: (advancedChart.divergences !== undefined && Array.isArray(advancedChart.divergences)) ? advancedChart.divergences : [] // Always include array (never null)
+          liquidityZones: Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [], // Always include array (never null)
+          fairValueGaps: Array.isArray(advancedChart.fairValueGaps) ? advancedChart.fairValueGaps : [], // Always include array (never null)
+          divergences: Array.isArray(advancedChart.divergences) ? advancedChart.divergences : [] // Always include array (never null)
         };
 
         // Validate and fix data consistency issues
