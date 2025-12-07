@@ -432,19 +432,19 @@ app.get('/api/analyze-full', async (req, res) => {
           console.warn(`[Analyze-Full] ATR calculation error for ${interval}:`, atrError.message);
         }
         
-        // Build analysis object with advanced modules
+        // Build analysis object with advanced modules - ALWAYS include all fields (even if null/empty)
         const tfAnalysis = {
           indicators,
           structure: swingPoints,
           candleCount: candles.length,
           lastCandle: candles[candles.length - 1],
-          // Advanced chart analysis modules
-          ...(advancedChart.marketStructure && { marketStructure: advancedChart.marketStructure }),
-          ...(volatility && { volatility }),
-          ...(advancedChart.volumeProfile && { volumeProfile: advancedChart.volumeProfile }),
-          liquidityZones: Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [], // Always include
-          ...(advancedChart.fairValueGaps && advancedChart.fairValueGaps.length > 0 && { fairValueGaps: advancedChart.fairValueGaps }),
-          divergences: advancedChart.divergences || []
+          // Advanced chart analysis modules - ALWAYS include (even if null/empty)
+          marketStructure: advancedChart.marketStructure !== undefined ? advancedChart.marketStructure : null,
+          volatility: volatility || { atr: null, atrPctOfPrice: null, state: 'normal' }, // Always include
+          volumeProfile: advancedChart.volumeProfile !== undefined ? advancedChart.volumeProfile : null,
+          liquidityZones: Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [], // Always include array
+          fairValueGaps: Array.isArray(advancedChart.fairValueGaps) ? advancedChart.fairValueGaps : [], // Always include array
+          divergences: Array.isArray(advancedChart.divergences) ? advancedChart.divergences : [] // Always include array
         };
 
         // Validate and fix data consistency issues
