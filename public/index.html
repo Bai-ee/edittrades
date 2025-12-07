@@ -866,14 +866,14 @@
           </svg>
         </button>
         
-        <!-- Copy Trade -->
+        <!-- Download Data -->
         <button 
           id="dataCopyBtn" 
-          onclick="copyAllCoins()"
+          onclick="downloadAllCoins()"
           style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem;"
-          title="Copy All Data"
+          title="Download All Data as .txt file"
         >
-          <span style="font-weight: bold;">COPY ALL</span>
+          <span style="font-weight: bold;">DL DATA</span>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -4167,7 +4167,7 @@
       
       if (score >= 60 && bestStrategy) {
         const direction = bestStrategy.direction === 'LONG' || bestStrategy.direction === 'long' ? 'LONG' : 'SHORT';
-        bestTradeEl.innerHTML = `🎯 <span style="color: var(--color-yellow-75);">${bestStrategy.key}</span> ${direction} on <span style="color: var(--color-yellow-75);">${symbol}</span> is your best trade right now`;
+        bestTradeEl.innerHTML = `🎯 Hey, <span style="color: var(--color-yellow-75);">${bestStrategy.key}</span> ${direction} on <span style="color: var(--color-yellow-75);">${symbol}</span> is your best trade right now`;
         
         const reasons = [];
         if (breakdown.htfAlignment.score >= 25) reasons.push('HTF trend alignment');
@@ -4811,11 +4811,11 @@
               DETAILS
             </button>
             <button 
-              onclick="copyCoinView('${symbol}')"
+              onclick="downloadCoinView('${symbol}')"
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
             >
-              COPY
+              DL DATA
             </button>
             <button 
               onclick="trackThisTrade('${symbol}')"
@@ -6088,9 +6088,9 @@
       }
     }
 
-    // Copy single coin view - UNIFIED: Trade + Full Signal Snapshot (ONE COIN ONLY)
-    function copyCoinView(symbol) {
-      console.log(`📋 Copying ${symbol}...`);
+    // Download single coin view - UNIFIED: Trade + Full Signal Snapshot (ONE COIN ONLY)
+    function downloadCoinView(symbol) {
+      console.log(`💾 Downloading ${symbol}...`);
       
       // Try to get data from scanResults first (faster, preserves user gesture)
       const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
@@ -6189,13 +6189,19 @@
       
       const jsonString = JSON.stringify(unifiedPayload, null, 2);
       
-      // Copy immediately while still in user gesture context (critical for mobile)
-      const result = copyToClipboardSync(jsonString);
-      if (result.success) {
-        showCopySuccess(`${symbol.replace('USDT', '')} COPIED!`);
-      } else {
-        // Error already handled in copyToClipboardSync
-      }
+      // Create blob and download as .txt file
+      const blob = new Blob([jsonString], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      a.download = `${symbol.replace('USDT', '').toLowerCase()}-data-${timestamp}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      console.log(`✅ ${symbol} data downloaded successfully!`);
     }
 
     // Convert rich symbol from /api/analyze-full to legacy format for backward compatibility
@@ -6466,8 +6472,9 @@
     }
 
     // Copy all coins with ALL strategies from BOTH modes (RICH FORMAT)
-    function copyAllCoins() {
-      console.log('📋 Copying all trades with rich format (all strategies included)...');
+    // Download all coins data as .txt file
+    function downloadAllCoins() {
+      console.log('💾 Downloading all trades with rich format (all strategies included)...');
       
       const allViews = {
         SAFE_MODE: {},
@@ -6482,7 +6489,7 @@
         for (const mode of modes) {
             const richSymbol = buildRichSymbolFromScanResults(symbol, mode);
             if (richSymbol) {
-              // ✅ CRITICAL: Merge advanced modules from analysis into timeframes for copyAllCoins
+              // ✅ CRITICAL: Merge advanced modules from analysis into timeframes for downloadAllCoins
               if (richSymbol.analysis && richSymbol.timeframes) {
                 for (const [tf, tfData] of Object.entries(richSymbol.analysis)) {
                   if (tfData && richSymbol.timeframes[tf]) {
@@ -6537,19 +6544,35 @@
       const hasData = Object.keys(allViews.SAFE_MODE).length > 0 || Object.keys(allViews.AGGRESSIVE_MODE).length > 0;
       if (!hasData) {
         console.error('❌ No data collected for any symbol!');
-        alert('No data available to copy. Please wait for scan to complete.');
+        alert('No data available to download. Please wait for scan to complete.');
         return;
       }
       
       const jsonString = JSON.stringify(allViews, null, 2);
       
-      // Copy immediately while still in user gesture context (critical for mobile)
-      const result = copyToClipboardSync(jsonString);
-      if (result.success) {
-        showCopySuccess('ALL COINS COPIED!');
-      } else {
-        // Error already handled in copyToClipboardSync
+      // Create blob and download as .txt file
+      const blob = new Blob([jsonString], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      a.download = `tradingview-data-${timestamp}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      // Show success message
+      const btn = document.getElementById('dataCopyBtn');
+      if (btn) {
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span style="font-weight: bold;">✓ DOWNLOADED</span>';
+        setTimeout(() => {
+          btn.innerHTML = originalText;
+        }, 2000);
       }
+      
+      console.log('✅ Data downloaded successfully!');
     }
 
     // Generate formatted trade call text (matches text file format exactly)
