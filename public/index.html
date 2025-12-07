@@ -3988,40 +3988,67 @@
       const section = document.getElementById('trade-readiness-section');
       if (!section) return;
       
-      const scoreData = calculateTradeReadinessScore(richSymbol, timeframes, currentPrice);
-      const { score, playType, breakdown } = scoreData;
+      // Use tradeReadiness from API if available, otherwise calculate locally
+      let tradeReadiness = richSymbol?.tradeReadiness;
+      
+      if (!tradeReadiness) {
+        // Fallback to local calculation if API doesn't have it yet
+        const scoreData = calculateTradeReadinessScore(richSymbol, timeframes, currentPrice);
+        const { score, playType, breakdown } = scoreData;
+        
+        // Convert to new format
+        let level;
+        if (score < 40) level = 'DONT_BOTHER';
+        else if (score < 70) level = 'WATCH';
+        else level = 'PRIME';
+        
+        tradeReadiness = {
+          tradeReadinessScore: score,
+          tradeReadinessLevel: level,
+          directionBias: richSymbol?.htfBias?.direction || 'neutral',
+          timeframeAlignment: {
+            '1d': 'unknown',
+            '4h': 'unknown',
+            '1h': 'unknown',
+            aligned: false
+          },
+          keyDrivers: Object.values(breakdown).filter(b => b.score > 0).map(b => b.details).slice(0, 5),
+          redFlags: Object.values(breakdown).filter(b => b.score < 0).map(b => b.details).slice(0, 3),
+          quickView: {
+            htfAligned: breakdown.htfAlignment.score >= 25,
+            liquidityClean: breakdown.structureLiquidity.score >= 15,
+            volatilityTradable: breakdown.volatility.score >= 5,
+            structureClean: breakdown.structureLiquidity.score >= 10,
+            fvgContext: breakdown.fvgContext.score > 0 ? 'supportive' : 'none',
+            divergenceContext: breakdown.divergences.score > 0 ? 'supportive' : breakdown.divergences.score < 0 ? 'warning' : 'none'
+          }
+        };
+      }
+      
+      const { tradeReadinessScore, tradeReadinessLevel, directionBias, keyDrivers, redFlags, quickView } = tradeReadiness;
       
       // Show section
       section.classList.remove('hidden');
       
-      // Determine label and color
+      // Determine label and color based on level
       let label, color, message, modeText;
       
-      if (score < 30) {
+      if (tradeReadinessLevel === 'DONT_BOTHER') {
         label = "DON'T BOTHER";
         color = '#ef4444';
-        message = "Conditions are mid or conflicting. Not worth your focus right now.";
+        message = redFlags.length > 0 ? redFlags[0] : "Conditions are mid or conflicting. Not worth your focus right now.";
         modeText = "No clear edge";
-      } else if (score < 60) {
-        label = "MEH – BE SELECTIVE";
+      } else if (tradeReadinessLevel === 'WATCH') {
+        label = "WATCH ONLY";
         color = '#f59e0b';
-        message = "Some good signals, but not clean. Size small or wait for better confluence.";
+        message = keyDrivers.length > 0 ? keyDrivers[0] : "Some good signals, but not clean. Size small or wait for better confluence.";
         modeText = "Mixed conditions";
       } else {
-        label = "PAY ATTENTION";
+        label = "PRIME SETUP";
         color = '#10b981';
-        if (playType === 'trend') {
-          const htfBias = richSymbol?.htfBias || {};
-          const dir = htfBias.direction === 'long' ? 'Longs' : htfBias.direction === 'short' ? 'Shorts' : 'Neutral';
-          message = "High-probability TREND setups forming. Check your trend modules.";
-          modeText = `Mode: Trend ${dir}`;
-        } else if (playType === 'reversal') {
-          message = "High-probability REVERSAL conditions. Look for liquidity + divergence entries.";
-          modeText = "Mode: Reversal";
-        } else {
-          message = "Prime trading conditions detected.";
-          modeText = "Mode: Mixed";
-        }
+        const dir = directionBias === 'long' ? 'Longs' : directionBias === 'short' ? 'Shorts' : 'Neutral';
+        message = keyDrivers.length > 0 ? keyDrivers.slice(0, 2).join(' → ') : "Prime trading conditions detected.";
+        modeText = `Bias: ${dir.toUpperCase()}`;
       }
       
       // Update meter
@@ -4031,7 +4058,7 @@
       const modeEl = document.getElementById('readiness-mode');
       
       if (scoreEl) {
-        scoreEl.textContent = score;
+        scoreEl.textContent = tradeReadinessScore;
         scoreEl.style.color = color;
         scoreEl.style.textShadow = `0 0 30px ${color}, 0 0 60px ${color}40`;
       }
@@ -4046,58 +4073,58 @@
         modeEl.textContent = modeText;
       }
       
-      // Update breakdown tiles
+      // Update key drivers and red flags display
+      updateReadinessInsights(keyDrivers, redFlags, quickView);
+      
+      // Update breakdown tiles - show quickView status
       const breakdownEl = document.getElementById('readiness-breakdown');
-      if (breakdownEl) {
+      if (breakdownEl && quickView) {
         const tiles = [
           {
-            title: 'Trend Alignment',
-            score: breakdown.htfAlignment.score,
-            details: breakdown.htfAlignment.details,
-            max: 35
+            title: 'HTF Alignment',
+            status: quickView.htfAligned,
+            icon: quickView.htfAligned ? '✓' : '✗',
+            color: quickView.htfAligned ? '#10b981' : '#6b7280'
           },
           {
-            title: 'Structure & Liquidity',
-            score: breakdown.structureLiquidity.score,
-            details: breakdown.structureLiquidity.details,
-            max: 20
+            title: 'Liquidity Clean',
+            status: quickView.liquidityClean,
+            icon: quickView.liquidityClean ? '✓' : '✗',
+            color: quickView.liquidityClean ? '#10b981' : '#6b7280'
+          },
+          {
+            title: 'Volatility Tradable',
+            status: quickView.volatilityTradable,
+            icon: quickView.volatilityTradable ? '✓' : '✗',
+            color: quickView.volatilityTradable ? '#10b981' : '#6b7280'
+          },
+          {
+            title: 'Structure Clean',
+            status: quickView.structureClean,
+            icon: quickView.structureClean ? '✓' : '✗',
+            color: quickView.structureClean ? '#10b981' : '#6b7280'
           },
           {
             title: 'FVG Context',
-            score: breakdown.fvgContext.score,
-            details: breakdown.fvgContext.details,
-            max: 10
+            status: quickView.fvgContext !== 'none',
+            icon: quickView.fvgContext === 'supportive' ? '✓' : quickView.fvgContext === 'opposite' ? '⚠' : '—',
+            color: quickView.fvgContext === 'supportive' ? '#10b981' : quickView.fvgContext === 'opposite' ? '#ef4444' : '#6b7280'
           },
           {
-            title: 'Divergences',
-            score: breakdown.divergences.score,
-            details: breakdown.divergences.details,
-            max: 15
-          },
-          {
-            title: 'Volatility',
-            score: breakdown.volatility.score,
-            details: breakdown.volatility.details,
-            max: 10
-          },
-          {
-            title: 'Volume Profile',
-            score: breakdown.volumeProfile.score,
-            details: breakdown.volumeProfile.details,
-            max: 10
+            title: 'Divergence',
+            status: quickView.divergenceContext !== 'none',
+            icon: quickView.divergenceContext === 'supportive' ? '✓' : quickView.divergenceContext === 'warning' ? '⚠' : '—',
+            color: quickView.divergenceContext === 'supportive' ? '#10b981' : quickView.divergenceContext === 'warning' ? '#ef4444' : '#6b7280'
           }
         ];
         
         breakdownEl.innerHTML = tiles.map(tile => {
-          const pct = (tile.score / tile.max) * 100;
-          const tileColor = tile.score >= tile.max * 0.7 ? '#10b981' : tile.score >= tile.max * 0.4 ? '#f59e0b' : '#6b7280';
-          
           return `
-            <div class="tf-card" style="padding: 1rem; border-color: ${tileColor}40;">
+            <div class="tf-card" style="padding: 1rem; border-color: ${tile.color}40;">
               <div style="position: relative; z-index: 1;">
                 <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem; text-transform: uppercase;">${tile.title}</div>
-                <div style="font-size: 1.5rem; font-weight: bold; color: ${tileColor}; margin-bottom: 0.25rem;">${tile.score >= 0 ? '+' : ''}${tile.score}</div>
-                <div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.7);">${tile.details}</div>
+                <div style="font-size: 2rem; font-weight: bold; color: ${tile.color}; margin-bottom: 0.25rem;">${tile.icon}</div>
+                <div style="font-size: 0.875rem; color: ${tile.color}; font-weight: bold;">${tile.status ? 'GOOD' : 'CHECK'}</div>
               </div>
             </div>
           `;
@@ -4150,7 +4177,52 @@
       }
       
       // Update AI Breakdown
-      updateAITradeBreakdown(richSymbol, scoreData);
+      updateAITradeBreakdown(richSymbol, { score: tradeReadinessScore, playType: directionBias, breakdown: {} });
+    }
+    
+    // Update Readiness Insights (Key Drivers & Red Flags)
+    function updateReadinessInsights(keyDrivers, redFlags, quickView) {
+      // Add a new section for key drivers and red flags if it doesn't exist
+      let insightsSection = document.getElementById('readiness-insights');
+      if (!insightsSection) {
+        const meterSection = document.getElementById('readiness-meter');
+        if (meterSection && meterSection.parentElement) {
+          insightsSection = document.createElement('div');
+          insightsSection.id = 'readiness-insights';
+          insightsSection.style.marginTop = '2rem';
+          insightsSection.style.paddingTop = '2rem';
+          insightsSection.style.borderTop = '1px solid rgba(255, 255, 255, 0.1)';
+          meterSection.parentElement.insertBefore(insightsSection, meterSection.nextSibling);
+        } else {
+          return;
+        }
+      }
+      
+      let html = '<div style="font-family: var(--font-mathias); font-size: 1.125rem; color: var(--color-yellow-75); margin-bottom: 1rem; font-weight: bold;">Quick Insights</div>';
+      
+      // Key Drivers
+      if (keyDrivers && keyDrivers.length > 0) {
+        html += '<div style="margin-bottom: 1.5rem;">';
+        html += '<div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 0.5rem; text-transform: uppercase;">Key Drivers</div>';
+        html += '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
+        keyDrivers.slice(0, 5).forEach(driver => {
+          html += `<span style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.875rem; color: #10b981;">✓ ${driver}</span>`;
+        });
+        html += '</div></div>';
+      }
+      
+      // Red Flags
+      if (redFlags && redFlags.length > 0) {
+        html += '<div>';
+        html += '<div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 0.5rem; text-transform: uppercase;">Red Flags</div>';
+        html += '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
+        redFlags.slice(0, 3).forEach(flag => {
+          html += `<span style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.875rem; color: #ef4444;">⚠ ${flag}</span>`;
+        });
+        html += '</div></div>';
+      }
+      
+      insightsSection.innerHTML = html;
     }
     
     // Update AI Trade Breakdown
