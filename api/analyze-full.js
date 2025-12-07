@@ -185,11 +185,21 @@ export default async function handler(req, res) {
           structure: swingPoints,
           candleCount: candles.length,
           lastCandle: candles[candles.length - 1],
-          // Advanced chart analysis modules - ALWAYS include (even if null/empty)
-          marketStructure: advancedChart.marketStructure !== undefined ? advancedChart.marketStructure : null,
+          // Advanced chart analysis modules - ALWAYS include structured objects (never null)
+          marketStructure: advancedChart.marketStructure || {
+            currentStructure: 'unknown',
+            lastSwings: [],
+            lastBos: { type: 'BOS', direction: 'neutral', fromSwing: null, toSwing: null, price: null, timestamp: null },
+            lastChoch: { type: 'CHOCH', direction: 'neutral', fromSwing: null, toSwing: null, price: null, timestamp: null }
+          },
           volatility: volatility || { atr: null, atrPctOfPrice: null, state: 'normal' }, // Always include
           volume: volume || null, // Volume metrics (current, avg20, trend)
-          volumeProfile: advancedChart.volumeProfile !== undefined ? advancedChart.volumeProfile : null,
+          volumeProfile: advancedChart.volumeProfile || {
+            highVolumeNodes: [],
+            lowVolumeNodes: [],
+            valueAreaHigh: null,
+            valueAreaLow: null
+          },
           liquidityZones: (advancedChart.liquidityZones !== undefined && Array.isArray(advancedChart.liquidityZones)) ? advancedChart.liquidityZones : [], // Always include array (never null)
           fairValueGaps: (advancedChart.fairValueGaps !== undefined && Array.isArray(advancedChart.fairValueGaps)) ? advancedChart.fairValueGaps : [], // Always include array (never null)
           divergences: (advancedChart.divergences !== undefined && Array.isArray(advancedChart.divergences)) ? advancedChart.divergences : [] // Always include array (never null)
