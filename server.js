@@ -17,6 +17,7 @@ import * as marketData from './services/marketData.js';
 import * as scannerService from './services/scanner.js';
 import * as advancedChartAnalysis from './lib/advancedChartAnalysis.js';
 import * as dataValidation from './lib/dataValidation.js';
+import { generateSignal } from './lib/signalEngine.js';
 
 // Use CoinGecko as fallback if Binance is geo-restricted (for old endpoints)
 let dataService = binanceService;
@@ -693,6 +694,52 @@ app.get('/api/analyze-full', async (req, res) => {
       source: htfBiasRaw.source || 'none'
     };
     
+    // Generate signal using confluence engine
+    console.log('[Server] Step 7: Generating signal with confluence engine...');
+    let engineSignal = null;
+    try {
+      // Build richSymbol-like object for engine
+      const engineInput = {
+        symbol,
+        mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
+        currentPrice: currentPrice || 0,
+        htfBias: {
+          direction: htfBias.direction || 'neutral',
+          confidence: typeof htfBias.confidence === 'number' 
+            ? (htfBias.confidence > 1 ? htfBias.confidence : htfBias.confidence * 100)
+            : 0,
+          source: htfBias.source || 'none'
+        },
+        timeframes: timeframes || {} // Already has all advanced modules
+      };
+      
+      engineSignal = generateSignal(engineInput);
+      console.log('[Server] Step 7: Signal engine result:', {
+        valid: engineSignal.valid,
+        direction: engineSignal.direction,
+        selectedStrategy: engineSignal.selectedStrategy,
+        confidence: engineSignal.confidence
+      });
+    } catch (engineError) {
+      console.error('[Server] Step 7: Signal engine error:', engineError.message);
+      console.error('[Server] Step 7: Stack:', engineError.stack);
+      // Don't fail - use existing strategies
+      engineSignal = {
+        valid: false,
+        direction: 'NO_TRADE',
+        setupType: 'auto',
+        selectedStrategy: 'NO_TRADE',
+        strategiesChecked: ['SWING', 'TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP'],
+        confidence: 0,
+        reason: `Signal engine error: ${engineError.message}`,
+        entryZone: { min: null, max: null },
+        stopLoss: null,
+        invalidationLevel: null,
+        targets: { tp1: null, tp2: null, tp3: null },
+        riskReward: { tp1RR: null, tp2RR: null, tp3RR: null },
+      };
+    }
+    
     // Build rich symbol object
     const richSymbol = {
       symbol,
@@ -708,13 +755,14 @@ app.get('/api/analyze-full', async (req, res) => {
       timeframes,
       analysis: analysis || {}, // ✅ CRITICAL: Include full analysis object with all chart data
       strategies: { ...allStrategiesResult.strategies }, // ✅ Includes TREND_RIDER automatically
-      bestSignal: allStrategiesResult.bestSignal,
+      bestSignal: engineSignal?.valid ? engineSignal.selectedStrategy : (allStrategiesResult.bestSignal || null),
+      signal: engineSignal, // ✅ NEW: Confluence-based signal from engine
       overrideUsed: allStrategiesResult?.overrideUsed || false, // NEW: Override flag
       overrideNotes: allStrategiesResult?.overrideNotes || [], // NEW: Override explanation
       marketData: marketDataInfo, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData, // Prediction market data
       schemaVersion: '1.0.0',
-      jsonVersion: '0.06', // Incremented - now includes full analysis object
+      jsonVersion: '0.11', // Incremented - now includes signal engine
       generatedAt: new Date().toISOString()
     };
 
