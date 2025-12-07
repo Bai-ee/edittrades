@@ -4988,6 +4988,25 @@
         console.log(`✅ Added analysis object to signalSnapshot for ${symbol}`);
       }
       
+      // ✅ CRITICAL: Merge advanced modules from analysis into timeframes
+      if (signalSnapshot.analysis && signalSnapshot.timeframes) {
+        for (const [tf, tfData] of Object.entries(signalSnapshot.analysis)) {
+          if (tfData && signalSnapshot.timeframes[tf]) {
+            // Add advanced modules to timeframes object
+            signalSnapshot.timeframes[tf].marketStructure = tfData.marketStructure || null;
+            signalSnapshot.timeframes[tf].volatility = tfData.volatility || null;
+            signalSnapshot.timeframes[tf].volumeProfile = tfData.volumeProfile || null;
+            signalSnapshot.timeframes[tf].liquidityZones = Array.isArray(tfData.liquidityZones) ? tfData.liquidityZones : [];
+            signalSnapshot.timeframes[tf].fairValueGaps = Array.isArray(tfData.fairValueGaps) ? tfData.fairValueGaps : [];
+            signalSnapshot.timeframes[tf].divergences = Array.isArray(tfData.divergences) ? tfData.divergences : [];
+            
+            // Add volume metrics from analysis object
+            signalSnapshot.timeframes[tf].volume = tfData.volume || null;
+          }
+        }
+        console.log(`✅ Merged advanced modules into timeframes for ${symbol}`);
+      }
+      
       // Pick the strategy (use bestSignal or user-selected)
       const selectedStrategyIndex = strategyStates[symbol] || 0;
       const strategyOptions = ['4h', 'Swing', 'TrendRider', 'Scalp', 'MicroScalp'];
@@ -5215,7 +5234,7 @@
       // Build htfBias from data
       const htfBias = data.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
       
-      // Build timeframes summary
+      // Build timeframes summary - INCLUDE ALL ADVANCED MODULES
       const timeframes = {};
       if (data.analysis) {
         for (const [tf, tfData] of Object.entries(data.analysis)) {
@@ -5224,6 +5243,9 @@
             let stochState = 'neutral';
             if (stoch.k > 80 && stoch.d > 80) stochState = 'overbought';
             else if (stoch.k < 20 && stoch.d < 20) stochState = 'oversold';
+            
+            // Get volume metrics from analysis object (calculated in backend)
+            const volume = tfData.volume || null;
             
             timeframes[tf] = {
               trend: (tfData.indicators.analysis?.trend || 'UNKNOWN').toLowerCase(),
@@ -5234,11 +5256,19 @@
                 d: stoch.d || null,
                 state: stochState
               },
-              // Chart-based analysis (NEW)
+              // Chart-based analysis
               candlestickPatterns: tfData.indicators?.candlestickPatterns || null,
               wickAnalysis: tfData.indicators?.wickAnalysis || null,
               trendStrength: tfData.indicators?.trendStrength || null,
               rsi: tfData.indicators?.rsi || null,
+              // ✅ ADVANCED MODULES - Include all from analysis object
+              marketStructure: tfData.marketStructure || null,
+              volatility: tfData.volatility || null,
+              volume: volume, // Volume metrics (current, avg20, trend)
+              volumeProfile: tfData.volumeProfile || null,
+              liquidityZones: Array.isArray(tfData.liquidityZones) ? tfData.liquidityZones : [],
+              fairValueGaps: Array.isArray(tfData.fairValueGaps) ? tfData.fairValueGaps : [],
+              divergences: Array.isArray(tfData.divergences) ? tfData.divergences : [],
               confluenceScore: null,
               structureSummary: '',
               notes: ''
@@ -5298,6 +5328,21 @@
         for (const mode of modes) {
             const richSymbol = buildRichSymbolFromScanResults(symbol, mode);
             if (richSymbol) {
+              // ✅ CRITICAL: Merge advanced modules from analysis into timeframes for copyAllCoins
+              if (richSymbol.analysis && richSymbol.timeframes) {
+                for (const [tf, tfData] of Object.entries(richSymbol.analysis)) {
+                  if (tfData && richSymbol.timeframes[tf]) {
+                    richSymbol.timeframes[tf].marketStructure = tfData.marketStructure || null;
+                    richSymbol.timeframes[tf].volatility = tfData.volatility || null;
+                    richSymbol.timeframes[tf].volumeProfile = tfData.volumeProfile || null;
+                    richSymbol.timeframes[tf].liquidityZones = Array.isArray(tfData.liquidityZones) ? tfData.liquidityZones : [];
+                    richSymbol.timeframes[tf].fairValueGaps = Array.isArray(tfData.fairValueGaps) ? tfData.fairValueGaps : [];
+                    richSymbol.timeframes[tf].divergences = Array.isArray(tfData.divergences) ? tfData.divergences : [];
+                    richSymbol.timeframes[tf].volume = tfData.volume || null;
+                  }
+                }
+              }
+              
               const modeKey = mode === 'STANDARD' ? 'SAFE_MODE' : 'AGGRESSIVE_MODE';
               allViews[modeKey][symbol] = richSymbol;
             } else {

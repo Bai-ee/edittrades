@@ -163,6 +163,22 @@ export default async function handler(req, res) {
           };
         }
         
+        // Calculate volume metrics - Always include (even if null)
+        let volume = null;
+        try {
+          const { calculateVolumeAnalysis } = await import('../lib/volumeAnalysis.js');
+          volume = calculateVolumeAnalysis(candles, 20);
+        } catch (volumeError) {
+          console.warn(`[Analyze-Full] Volume calculation error for ${interval}:`, volumeError.message);
+          // Set default volume if calculation fails
+          const lastCandle = candles[candles.length - 1];
+          volume = lastCandle?.volume ? {
+            current: lastCandle.volume,
+            avg20: null,
+            trend: null
+          } : null;
+        }
+        
         // Build analysis object with advanced modules - ALWAYS include all fields (even if null/empty)
         const tfAnalysis = {
           indicators,
@@ -172,6 +188,7 @@ export default async function handler(req, res) {
           // Advanced chart analysis modules - ALWAYS include (even if null/empty)
           marketStructure: advancedChart.marketStructure !== undefined ? advancedChart.marketStructure : null,
           volatility: volatility || { atr: null, atrPctOfPrice: null, state: 'normal' }, // Always include
+          volume: volume || null, // Volume metrics (current, avg20, trend)
           volumeProfile: advancedChart.volumeProfile !== undefined ? advancedChart.volumeProfile : null,
           liquidityZones: (advancedChart.liquidityZones !== undefined && Array.isArray(advancedChart.liquidityZones)) ? advancedChart.liquidityZones : [], // Always include array (never null)
           fairValueGaps: (advancedChart.fairValueGaps !== undefined && Array.isArray(advancedChart.fairValueGaps)) ? advancedChart.fairValueGaps : [], // Always include array (never null)

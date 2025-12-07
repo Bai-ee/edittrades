@@ -416,20 +416,48 @@ app.get('/api/analyze-full', async (req, res) => {
           trend
         );
         
-        // Get volatility from advancedIndicators if available
+        // Get volatility from advancedIndicators - Always include (even if null)
         let volatility = null;
         try {
           const { calculateATR } = await import('./lib/advancedIndicators.js');
           const atrData = calculateATR(candles);
           if (atrData) {
+            // Ensure state is always set
+            const state = (atrData.volatilityState || 'NORMAL').toLowerCase();
             volatility = {
               atr: atrData.atr,
               atrPctOfPrice: atrData.atrPct,
-              state: (atrData.volatilityState || 'NORMAL').toLowerCase()
+              state: ['low', 'normal', 'high', 'extreme'].includes(state) ? state : 'normal'
+            };
+          } else {
+            volatility = {
+              atr: null,
+              atrPctOfPrice: null,
+              state: 'normal' // Default state
             };
           }
         } catch (atrError) {
-          console.warn(`[Analyze-Full] ATR calculation error for ${interval}:`, atrError.message);
+          console.warn(`[Server] ATR calculation error for ${interval}:`, atrError.message);
+          volatility = {
+            atr: null,
+            atrPctOfPrice: null,
+            state: 'normal' // Default state
+          };
+        }
+        
+        // Calculate volume metrics - Always include (even if null)
+        let volume = null;
+        try {
+          const { calculateVolumeAnalysis } = await import('./lib/volumeAnalysis.js');
+          volume = calculateVolumeAnalysis(candles, 20);
+        } catch (volumeError) {
+          console.warn(`[Server] Volume calculation error for ${interval}:`, volumeError.message);
+          const lastCandle = candles[candles.length - 1];
+          volume = lastCandle?.volume ? {
+            current: lastCandle.volume,
+            avg20: null,
+            trend: null
+          } : null;
         }
         
         // Build analysis object with advanced modules - ALWAYS include all fields (even if null/empty)
@@ -441,6 +469,7 @@ app.get('/api/analyze-full', async (req, res) => {
           // Advanced chart analysis modules - ALWAYS include (even if null/empty)
           marketStructure: advancedChart.marketStructure !== undefined ? advancedChart.marketStructure : null,
           volatility: volatility || { atr: null, atrPctOfPrice: null, state: 'normal' }, // Always include
+          volume: volume || null, // Volume metrics (current, avg20, trend)
           volumeProfile: advancedChart.volumeProfile !== undefined ? advancedChart.volumeProfile : null,
           liquidityZones: (advancedChart.liquidityZones !== undefined && Array.isArray(advancedChart.liquidityZones)) ? advancedChart.liquidityZones : [], // Always include array (never null)
           fairValueGaps: (advancedChart.fairValueGaps !== undefined && Array.isArray(advancedChart.fairValueGaps)) ? advancedChart.fairValueGaps : [], // Always include array (never null)
