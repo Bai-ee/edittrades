@@ -652,6 +652,21 @@ app.get('/api/analyze-full', async (req, res) => {
           orderBook: orderBookData,
           recentTrades: recentTradesData
         };
+      } else {
+        // Ticker response had an error - use fallback values
+        console.warn(`[Analyze-Full] Ticker response error for ${symbol} - using fallback values`);
+        marketDataInfo = {
+          spread: 0,
+          spreadPercent: 0,
+          bid: currentPrice || 0,
+          ask: currentPrice || 0,
+          bidAskImbalance: 0,
+          volumeQuality: 'MEDIUM',
+          tradeCount24h: 0,
+          orderBook: { bidLiquidity: null, askLiquidity: null, imbalance: null },
+          recentTrades: { overallFlow: 'N/A', buyPressure: null, sellPressure: null, volumeImbalance: null },
+          apiWorking: false
+        };
       }
     } catch (error) {
       console.warn(`[Analyze-Full] Market data unavailable for ${symbol}:`, error.message, '- Using fallback values');
