@@ -583,7 +583,7 @@ export default async function handler(req, res) {
       marketData: marketDataInfo || null, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData || null, // Prediction market data
       schemaVersion: '1.0.0',
-      jsonVersion: '0.07', // Incremented - now includes confidence breakdown, override metadata, trend/pullback mapping
+      jsonVersion: '0.10', // Incremented - now includes all advanced modules in timeframes object
       generatedAt: new Date().toISOString()
     };
 
