@@ -9,6 +9,8 @@
 import * as marketData from '../services/marketData.js';
 import * as indicatorService from '../services/indicators.js';
 import strategyService from '../services/strategy.js';
+import * as advancedChartAnalysis from '../lib/advancedChartAnalysis.js';
+import * as dataValidation from '../lib/dataValidation.js';
 import axios from 'axios';
 
 export default async function handler(req, res) {
@@ -120,12 +122,49 @@ export default async function handler(req, res) {
         const indicators = indicatorService.calculateAllIndicators(candles);
         const swingPoints = indicatorService.detectSwingPoints(candles, 20);
         
-        analysis[interval] = {
+        // Calculate advanced chart analysis modules
+        const trend = indicators.analysis?.trend || 'FLAT';
+        const advancedChart = advancedChartAnalysis.calculateAllAdvancedChartAnalysis(
+          candles,
+          indicators,
+          swingPoints,
+          trend
+        );
+        
+        // Get volatility from advancedIndicators
+        let volatility = null;
+        try {
+          const { calculateATR } = await import('../lib/advancedIndicators.js');
+          const atrData = calculateATR(candles);
+          if (atrData) {
+            volatility = {
+              atr: atrData.atr,
+              atrPctOfPrice: atrData.atrPct,
+              state: (atrData.volatilityState || 'NORMAL').toLowerCase()
+            };
+          }
+        } catch (atrError) {
+          console.warn(`[Analyze-Full] ATR calculation error for ${interval}:`, atrError.message);
+        }
+        
+        // Build analysis object with advanced modules
+        const tfAnalysis = {
           indicators,
           structure: swingPoints,
           candleCount: candles.length,
-          lastCandle: candles[candles.length - 1]
+          lastCandle: candles[candles.length - 1],
+          // Advanced chart analysis modules
+          ...(advancedChart.marketStructure && { marketStructure: advancedChart.marketStructure }),
+          ...(volatility && { volatility }),
+          ...(advancedChart.volumeProfile && { volumeProfile: advancedChart.volumeProfile }),
+          liquidityZones: Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [], // Always include
+          ...(advancedChart.fairValueGaps && advancedChart.fairValueGaps.length > 0 && { fairValueGaps: advancedChart.fairValueGaps }),
+          divergences: advancedChart.divergences || []
         };
+
+        // Validate and fix data consistency issues
+        const currentPrice = indicators.price?.current || candles[candles.length - 1]?.close;
+        analysis[interval] = dataValidation.validateTimeframeAnalysis(tfAnalysis, currentPrice);
         console.log(`[Analyze-Full] Step 2: ${interval} processed successfully`);
       } catch (err) {
         console.error(`[Analyze-Full] Step 2: ERROR processing ${interval}:`, err.message);
@@ -502,6 +541,21 @@ export default async function handler(req, res) {
 
     console.log('[Analyze-Full] Step 8: Building response object...');
     console.log('[Analyze-Full] Step 8: Rich symbol keys:', Object.keys(richSymbol));
+    
+    // ✅ DEBUG: Log analysis object to verify advanced modules are present
+    console.log('[Analyze-Full] FINAL ANALYSIS BEFORE EXPORT:');
+    console.log('[Analyze-Full] Analysis keys:', Object.keys(analysis));
+    if (Object.keys(analysis).length > 0) {
+      const firstTf = Object.keys(analysis)[0];
+      console.log(`[Analyze-Full] Sample timeframe (${firstTf}) keys:`, Object.keys(analysis[firstTf] || {}));
+      console.log(`[Analyze-Full] Sample timeframe (${firstTf}) has marketStructure:`, !!analysis[firstTf]?.marketStructure);
+      console.log(`[Analyze-Full] Sample timeframe (${firstTf}) has volumeProfile:`, !!analysis[firstTf]?.volumeProfile);
+      console.log(`[Analyze-Full] Sample timeframe (${firstTf}) has liquidityZones:`, !!analysis[firstTf]?.liquidityZones);
+      console.log(`[Analyze-Full] Sample timeframe (${firstTf}) has fairValueGaps:`, !!analysis[firstTf]?.fairValueGaps);
+      console.log(`[Analyze-Full] Sample timeframe (${firstTf}) has divergences:`, !!analysis[firstTf]?.divergences);
+      console.log(`[Analyze-Full] Sample timeframe (${firstTf}) has volatility:`, !!analysis[firstTf]?.volatility);
+    }
+    
     console.log('[Analyze-Full] === REQUEST SUCCESS ===');
 
     return res.status(200).json(richSymbol);

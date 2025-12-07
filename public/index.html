@@ -4958,13 +4958,34 @@
     function copyCoinView(symbol) {
       console.log(`📋 Copying ${symbol}...`);
       
-      // Use existing scanResults data - NO ASYNC FETCH (preserves user gesture for mobile)
+      // Try to get data from scanResults first (faster, preserves user gesture)
       const currentMode = aggressiveMode ? 'AGGRESSIVE' : 'STANDARD';
-      const signalSnapshot = buildRichSymbolFromScanResults(symbol, currentMode);
+      const results = currentMode === 'STANDARD' ? scanResultsSafe : scanResultsAggressive;
+      const scanData = results[symbol];
       
-        if (!signalSnapshot) {
-          alert(`No data available for ${symbol}. Please wait for scan to complete.`);
-          return;
+      // Check if we have richSymbol with full analysis object
+      const richSymbol = scanData?.richSymbol || scanData;
+      
+      let signalSnapshot;
+      if (richSymbol && richSymbol.analysis) {
+        // Use richSymbol directly if it has the full analysis object
+        console.log(`✅ Using richSymbol with full analysis for ${symbol}`);
+        signalSnapshot = richSymbol;
+      } else {
+        // Fallback to building from scanResults (but this won't have advanced modules)
+        console.log(`⚠️ Building from scanResults (may be missing advanced modules) for ${symbol}`);
+        signalSnapshot = buildRichSymbolFromScanResults(symbol, currentMode);
+      }
+      
+      if (!signalSnapshot) {
+        alert(`No data available for ${symbol}. Please wait for scan to complete.`);
+        return;
+      }
+      
+      // Ensure analysis object is included if it exists in richSymbol
+      if (richSymbol?.analysis && !signalSnapshot.analysis) {
+        signalSnapshot.analysis = richSymbol.analysis;
+        console.log(`✅ Added analysis object to signalSnapshot for ${symbol}`);
       }
       
       // Pick the strategy (use bestSignal or user-selected)
@@ -5235,6 +5256,9 @@
       // Get momentum alignment data (NEW)
       const momentumData = data.momentum || null;
       
+      // Get full analysis object from richSymbol if available (includes advanced modules)
+      const fullAnalysis = data.richSymbol?.analysis || data.analysis || null;
+      
       return {
         symbol,
         mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
@@ -5245,6 +5269,7 @@
           source: htfBias.source || 'none'
         },
         timeframes,
+        analysis: fullAnalysis, // ✅ CRITICAL: Include full analysis object with advanced modules
         strategies,
         bestSignal,
         marketData: marketDataInfo, // Include market data (spread, bid/ask, etc.)

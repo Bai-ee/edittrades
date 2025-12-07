@@ -15,6 +15,8 @@ import * as indicatorService from './services/indicators.js';
 import * as strategyService from './services/strategy.js';
 import * as marketData from './services/marketData.js';
 import * as scannerService from './services/scanner.js';
+import * as advancedChartAnalysis from './lib/advancedChartAnalysis.js';
+import * as dataValidation from './lib/dataValidation.js';
 
 // Use CoinGecko as fallback if Binance is geo-restricted (for old endpoints)
 let dataService = binanceService;
@@ -405,12 +407,49 @@ app.get('/api/analyze-full', async (req, res) => {
         const indicators = indicatorService.calculateAllIndicators(candles);
         const swingPoints = indicatorService.detectSwingPoints(candles, 20);
         
-        analysis[interval] = {
+        // Calculate advanced chart analysis modules
+        const trend = indicators.analysis?.trend || 'FLAT';
+        const advancedChart = advancedChartAnalysis.calculateAllAdvancedChartAnalysis(
+          candles,
+          indicators,
+          swingPoints,
+          trend
+        );
+        
+        // Get volatility from advancedIndicators if available
+        let volatility = null;
+        try {
+          const { calculateATR } = await import('./lib/advancedIndicators.js');
+          const atrData = calculateATR(candles);
+          if (atrData) {
+            volatility = {
+              atr: atrData.atr,
+              atrPctOfPrice: atrData.atrPct,
+              state: (atrData.volatilityState || 'NORMAL').toLowerCase()
+            };
+          }
+        } catch (atrError) {
+          console.warn(`[Analyze-Full] ATR calculation error for ${interval}:`, atrError.message);
+        }
+        
+        // Build analysis object with advanced modules
+        const tfAnalysis = {
           indicators,
           structure: swingPoints,
           candleCount: candles.length,
-          lastCandle: candles[candles.length - 1]
+          lastCandle: candles[candles.length - 1],
+          // Advanced chart analysis modules
+          ...(advancedChart.marketStructure && { marketStructure: advancedChart.marketStructure }),
+          ...(volatility && { volatility }),
+          ...(advancedChart.volumeProfile && { volumeProfile: advancedChart.volumeProfile }),
+          liquidityZones: Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [], // Always include
+          ...(advancedChart.fairValueGaps && advancedChart.fairValueGaps.length > 0 && { fairValueGaps: advancedChart.fairValueGaps }),
+          divergences: advancedChart.divergences || []
         };
+
+        // Validate and fix data consistency issues
+        const currentPrice = indicators.price?.current || candles[candles.length - 1]?.close;
+        analysis[interval] = dataValidation.validateTimeframeAnalysis(tfAnalysis, currentPrice);
       } catch (err) {
         analysis[interval] = { error: err.message };
       }
@@ -576,12 +615,13 @@ app.get('/api/analyze-full', async (req, res) => {
         source: htfBias.source || 'none'
       },
       timeframes,
+      analysis: analysis || {}, // ✅ CRITICAL: Include full analysis object with all chart data
       strategies: { ...allStrategiesResult.strategies }, // ✅ Includes TREND_RIDER automatically
       bestSignal: allStrategiesResult.bestSignal,
       marketData: marketDataInfo, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData, // Prediction market data
       schemaVersion: '1.0.0',
-      jsonVersion: '0.05', // Increment on JSON structure changes
+      jsonVersion: '0.06', // Incremented - now includes full analysis object
       generatedAt: new Date().toISOString()
     };
 

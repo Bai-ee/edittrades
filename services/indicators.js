@@ -110,13 +110,32 @@ export function calculateAllIndicators(candles) {
   const currentStochRSI = stochRSI ? stochRSI[stochRSI.length - 1] : null;
 
   // Calculate trend (from PRD: price > 21 EMA > 200 EMA = uptrend)
+  // Improved logic: Respect EMA relationship for trend direction
   let trend = 'FLAT';
   if (currentEMA21 && currentEMA200) {
+    // Strong uptrend: price > EMA21 > EMA200
     if (currentPrice > currentEMA21 && currentEMA21 > currentEMA200) {
       trend = 'UPTREND';
-    } else if (currentPrice < currentEMA21 && currentEMA21 < currentEMA200) {
+    } 
+    // Strong downtrend: price < EMA21 < EMA200
+    else if (currentPrice < currentEMA21 && currentEMA21 < currentEMA200) {
       trend = 'DOWNTREND';
     }
+    // Weak uptrend: price > EMA21 but EMA21 < EMA200 (EMA alignment bearish, but price bullish)
+    else if (currentPrice > currentEMA21 && currentEMA21 < currentEMA200) {
+      trend = 'FLAT'; // Conflicting signals - EMA bearish but price bullish
+    }
+    // Weak downtrend: price < EMA21 but EMA21 > EMA200 (EMA alignment bullish, but price bearish)
+    else if (currentPrice < currentEMA21 && currentEMA21 > currentEMA200) {
+      trend = 'FLAT'; // Conflicting signals - EMA bullish but price bearish
+    }
+    // Price between EMAs or EMAs equal
+    else {
+      trend = 'FLAT';
+    }
+  } else if (currentEMA21) {
+    // Only EMA21 available - simple price vs EMA21
+    trend = currentPrice > currentEMA21 ? 'UPTREND' : currentPrice < currentEMA21 ? 'DOWNTREND' : 'FLAT';
   }
 
   // Determine Stochastic RSI conditions
