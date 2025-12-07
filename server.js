@@ -497,9 +497,19 @@ app.get('/api/analyze-full', async (req, res) => {
           structure: null,
           candleCount: 0,
           lastCandle: null,
-          marketStructure: null,
+          marketStructure: {
+            currentStructure: 'unknown',
+            lastSwings: [],
+            lastBos: { type: 'BOS', direction: 'neutral', fromSwing: null, toSwing: null, price: null, timestamp: null },
+            lastChoch: { type: 'CHOCH', direction: 'neutral', fromSwing: null, toSwing: null, price: null, timestamp: null }
+          },
           volatility: { atr: null, atrPctOfPrice: null, state: 'normal' },
-          volumeProfile: null,
+          volumeProfile: {
+            highVolumeNodes: [],
+            lowVolumeNodes: [],
+            valueAreaHigh: null,
+            valueAreaLow: null
+          },
           liquidityZones: [], // Always include as array
           fairValueGaps: [], // Always include as array
           divergences: [] // Always include as array
