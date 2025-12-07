@@ -173,9 +173,9 @@ export default async function handler(req, res) {
           marketStructure: advancedChart.marketStructure !== undefined ? advancedChart.marketStructure : null,
           volatility: volatility || { atr: null, atrPctOfPrice: null, state: 'normal' }, // Always include
           volumeProfile: advancedChart.volumeProfile !== undefined ? advancedChart.volumeProfile : null,
-          liquidityZones: Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [], // Always include array
-          fairValueGaps: Array.isArray(advancedChart.fairValueGaps) ? advancedChart.fairValueGaps : [], // Always include array
-          divergences: Array.isArray(advancedChart.divergences) ? advancedChart.divergences : [] // Always include array
+          liquidityZones: (advancedChart.liquidityZones !== undefined && Array.isArray(advancedChart.liquidityZones)) ? advancedChart.liquidityZones : [], // Always include array (never null)
+          fairValueGaps: (advancedChart.fairValueGaps !== undefined && Array.isArray(advancedChart.fairValueGaps)) ? advancedChart.fairValueGaps : [], // Always include array (never null)
+          divergences: (advancedChart.divergences !== undefined && Array.isArray(advancedChart.divergences)) ? advancedChart.divergences : [] // Always include array (never null)
         };
 
         // Validate and fix data consistency issues
