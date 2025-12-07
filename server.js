@@ -470,43 +470,61 @@ app.get('/api/analyze-full', async (req, res) => {
           };
         }
         
-        // Build analysis object with advanced modules - ALWAYS include all fields (even if null/empty)
+        // Build analysis object with advanced modules - ALWAYS include all fields (never null)
+        // Ensure all fallbacks are applied BEFORE building tfAnalysis
+        const finalVolume = volume || { current: 0, avg20: 0, trend: 'flat' };
+        const finalLiquidityZones = Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [];
+        const finalFairValueGaps = Array.isArray(advancedChart.fairValueGaps) ? advancedChart.fairValueGaps : [];
+        const finalDivergences = Array.isArray(advancedChart.divergences) ? advancedChart.divergences : [];
+        
+        // Ensure marketStructure has proper BOS/CHOCH fallbacks
+        let finalMarketStructure = advancedChart.marketStructure || {
+          currentStructure: 'unknown',
+          lastSwings: [],
+          lastBos: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null },
+          lastChoch: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null }
+        };
+        
+        // Ensure BOS/CHOCH are never null or have null type
+        if (!finalMarketStructure.lastBos || finalMarketStructure.lastBos.type === null || (!finalMarketStructure.lastBos.price && finalMarketStructure.lastBos.type !== 'none')) {
+          finalMarketStructure.lastBos = { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null };
+        }
+        if (!finalMarketStructure.lastChoch || finalMarketStructure.lastChoch.type === null || (!finalMarketStructure.lastChoch.price && finalMarketStructure.lastChoch.type !== 'none')) {
+          finalMarketStructure.lastChoch = { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null };
+        }
+        
         const tfAnalysis = {
           indicators,
           structure: swingPoints,
           candleCount: candles.length,
           lastCandle: candles[candles.length - 1],
           // Advanced chart analysis modules - ALWAYS include structured objects (never null)
-          marketStructure: advancedChart.marketStructure || {
-            currentStructure: 'unknown',
-            lastSwings: [],
-            lastBos: { type: 'BOS', direction: 'neutral', fromSwing: null, toSwing: null, price: null, timestamp: null },
-            lastChoch: { type: 'CHOCH', direction: 'neutral', fromSwing: null, toSwing: null, price: null, timestamp: null }
-          },
+          marketStructure: finalMarketStructure,
           volatility: volatility || { atr: null, atrPctOfPrice: null, state: 'normal' }, // Always include
-          volume: volume || { current: 0, avg20: 0, trend: 'flat' }, // Always include structured object
+          volume: finalVolume, // Always include structured object (never null)
           volumeProfile: advancedChart.volumeProfile || {
             highVolumeNodes: [],
             lowVolumeNodes: [],
             valueAreaHigh: null,
             valueAreaLow: null
           },
-          liquidityZones: Array.isArray(advancedChart.liquidityZones) ? advancedChart.liquidityZones : [], // Always include array (never null)
-          fairValueGaps: Array.isArray(advancedChart.fairValueGaps) ? advancedChart.fairValueGaps : [], // Always include array (never null)
-          divergences: Array.isArray(advancedChart.divergences) ? advancedChart.divergences : [] // Always include array (never null)
+          liquidityZones: finalLiquidityZones, // Always include array (never null)
+          fairValueGaps: finalFairValueGaps, // Always include array (never null)
+          divergences: finalDivergences // Always include array (never null)
         };
 
         // Validate and fix data consistency issues
         const currentPrice = indicators.price?.current || candles[candles.length - 1]?.close;
         analysis[interval] = dataValidation.validateTimeframeAnalysis(tfAnalysis, currentPrice);
       } catch (err) {
-        // Even on error, include all required fields with defaults
+        // Even on error, include all required fields with structured defaults (never null)
+        const lastCandle = candles && candles.length > 0 ? candles[candles.length - 1] : null;
         analysis[interval] = {
           error: err.message,
           indicators: null,
           structure: null,
-          candleCount: 0,
-          lastCandle: null,
+          candleCount: candles ? candles.length : 0,
+          lastCandle: lastCandle,
           marketStructure: {
             currentStructure: 'unknown',
             lastSwings: [],
@@ -514,16 +532,16 @@ app.get('/api/analyze-full', async (req, res) => {
             lastChoch: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null }
           },
           volatility: { atr: null, atrPctOfPrice: null, state: 'normal' },
-          volume: { current: 0, avg20: 0, trend: 'flat' },
+          volume: { current: lastCandle?.volume || 0, avg20: 0, trend: 'flat' }, // Always structured object
           volumeProfile: {
             highVolumeNodes: [],
             lowVolumeNodes: [],
             valueAreaHigh: null,
             valueAreaLow: null
           },
-          liquidityZones: [], // Always include as array
-          fairValueGaps: [], // Always include as array
-          divergences: [] // Always include as array
+          liquidityZones: [], // Always array (never null)
+          fairValueGaps: [], // Always array (never null)
+          divergences: [] // Always array (never null)
         };
       }
     }
