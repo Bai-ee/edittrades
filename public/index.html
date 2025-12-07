@@ -1162,6 +1162,63 @@
             </div>
 
           </div>
+          
+          <!-- Trade Readiness Meter -->
+          <div id="trade-readiness-section" class="hidden" style="margin-top: 3rem; padding-top: 2rem; border-top: 2px solid rgba(255, 255, 255, 0.1);">
+            <div class="card-edittrax rounded-lg" style="border: 2px solid var(--color-yellow-75); padding: 2rem; background: rgba(0, 0, 0, 0.8);">
+              <h2 style="font-family: var(--font-mathias); font-size: 1.5rem; color: var(--color-yellow-75); margin-bottom: 2rem; text-align: center; font-weight: bold;">
+                TRADE READINESS METER
+              </h2>
+              
+              <!-- Big Meter -->
+              <div id="readiness-meter" style="text-align: center; margin-bottom: 3rem;">
+                <div id="readiness-score" style="font-size: 5rem; font-weight: bold; font-family: var(--font-mathias); margin-bottom: 1rem; text-shadow: 0 0 30px currentColor;">
+                  -
+                </div>
+                <div id="readiness-label" style="font-size: 2rem; font-weight: bold; font-family: var(--font-mathias); margin-bottom: 0.5rem;">
+                  -
+                </div>
+                <div id="readiness-message" style="font-size: 1.125rem; color: rgba(255, 255, 255, 0.7); font-family: var(--font-mathias); margin-bottom: 1rem;">
+                  -
+                </div>
+                <div id="readiness-mode" style="font-size: 1rem; color: rgba(255, 255, 255, 0.5); font-family: var(--font-mathias);">
+                  -
+                </div>
+              </div>
+              
+              <!-- Why This Score Tiles -->
+              <div id="readiness-breakdown" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                <!-- Tiles will be populated dynamically -->
+              </div>
+              
+              <!-- Active Strategy Signals -->
+              <div id="active-strategies" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                <div style="font-family: var(--font-mathias); font-size: 1.125rem; color: var(--color-yellow-75); margin-bottom: 1rem; font-weight: bold;">
+                  Active Strategy Signals
+                </div>
+                <div id="strategy-signals-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                  <!-- Strategy cards will be populated dynamically -->
+                </div>
+              </div>
+              
+              <!-- AI Breakdown -->
+              <div id="ai-trade-breakdown" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                <div style="font-family: var(--font-mathias); font-size: 1.125rem; color: var(--color-yellow-75); margin-bottom: 1rem; font-weight: bold;">
+                  AI Trade Analysis
+                </div>
+                <div id="ai-breakdown-content" class="tf-card" style="padding: 1.5rem; min-height: 150px;">
+                  <div style="position: relative; z-index: 1;">
+                    <div id="ai-best-trade" style="font-size: 1.5rem; font-weight: bold; font-family: var(--font-mathias); margin-bottom: 1rem; color: var(--color-yellow-75);">
+                      Analyzing...
+                    </div>
+                    <div id="ai-breakdown-text" style="font-size: 1rem; color: rgba(255, 255, 255, 0.8); line-height: 1.6; font-family: var(--font-mathias);">
+                      Waiting for data...
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -3652,6 +3709,507 @@
       
       // 6. Volume Profile Bias
       updateVolumeProfileBias(timeframes, currentPrice);
+      
+      // 7. Trade Readiness Meter
+      updateTradeReadinessMeter(richSymbol, timeframes, currentPrice);
+    }
+    
+    // Calculate Trade Readiness Score
+    function calculateTradeReadinessScore(richSymbol, timeframes, currentPrice) {
+      const tf1d = timeframes['1d'];
+      const tf4h = timeframes['4h'];
+      const tf1h = timeframes['1h'];
+      const htfBias = richSymbol?.htfBias || { direction: 'neutral', confidence: 0 };
+      const strategies = richSymbol?.strategies || {};
+      
+      let score = 0;
+      let playType = 'none';
+      const breakdown = {
+        htfAlignment: { score: 0, details: '' },
+        structureLiquidity: { score: 0, details: '' },
+        fvgContext: { score: 0, details: '' },
+        divergences: { score: 0, details: '' },
+        volatility: { score: 0, details: '' },
+        volumeProfile: { score: 0, details: '' },
+        strategyBoost: { score: 0, details: '' }
+      };
+      
+      // A. HTF Trend Alignment (up to 35 pts)
+      const trends = {
+        '1d': tf1d?.trend ? String(tf1d.trend).toLowerCase() : null,
+        '4h': tf4h?.trend ? String(tf4h.trend).toLowerCase() : null,
+        '1h': tf1h?.trend ? String(tf1h.trend).toLowerCase() : null
+      };
+      
+      const trendDirs = Object.values(trends).filter(t => t && (t.includes('up') || t.includes('down')));
+      const upCount = trendDirs.filter(t => t.includes('up')).length;
+      const downCount = trendDirs.filter(t => t.includes('down')).length;
+      const allSame = (upCount === 3) || (downCount === 3);
+      const twoAligned = (upCount === 2) || (downCount === 2);
+      
+      if (allSame && htfBias.confidence >= 70) {
+        breakdown.htfAlignment.score = 35;
+        breakdown.htfAlignment.details = `All 3 aligned ${upCount === 3 ? '↑' : '↓'} (${htfBias.confidence}% confidence)`;
+        playType = 'trend';
+      } else if (twoAligned && htfBias.confidence >= 60) {
+        breakdown.htfAlignment.score = 25;
+        breakdown.htfAlignment.details = `2/3 aligned (${htfBias.confidence}% confidence)`;
+        playType = 'trend';
+      } else if (trendDirs.length > 0) {
+        breakdown.htfAlignment.score = 10;
+        breakdown.htfAlignment.details = 'Mixed/choppy alignment';
+      } else {
+        breakdown.htfAlignment.score = 0;
+        breakdown.htfAlignment.details = 'No clear trend';
+      }
+      score += breakdown.htfAlignment.score;
+      
+      // B. Market Structure & Liquidity (up to 20 pts)
+      let structScore = 0;
+      const ms4h = tf4h?.marketStructure;
+      const lz4h = tf4h?.liquidityZones || [];
+      
+      // Check structure clarity
+      if (ms4h) {
+        const swings = ms4h.lastSwings || [];
+        const lastBos = ms4h.lastBos;
+        const lastChoch = ms4h.lastChoch;
+        const currentStruct = ms4h.currentStructure;
+        
+        // Clean series check (simplified)
+        if (swings.length >= 2) {
+          const swingTypes = swings.map(s => s.type);
+          const hasHH = swingTypes.includes('HH');
+          const hasHL = swingTypes.includes('HL');
+          const hasLH = swingTypes.includes('LH');
+          const hasLL = swingTypes.includes('LL');
+          
+          if (currentStruct === 'uptrend' && (hasHH || hasHL)) structScore += 10;
+          else if (currentStruct === 'downtrend' && (hasLH || hasLL)) structScore += 10;
+        }
+        
+        // BOS in HTF direction
+        if (lastBos && lastBos.type === 'BOS') {
+          const bosDir = lastBos.direction;
+          const htfDir = htfBias.direction;
+          if ((htfDir === 'long' && bosDir === 'bullish') || (htfDir === 'short' && bosDir === 'bearish')) {
+            structScore += 5;
+          }
+        }
+        
+        // CHOCH against trend (trend weakening)
+        if (lastChoch && lastChoch.type === 'CHOCH') {
+          const chochDir = lastChoch.direction;
+          const htfDir = htfBias.direction;
+          if ((htfDir === 'long' && chochDir === 'bearish') || (htfDir === 'short' && chochDir === 'bullish')) {
+            structScore -= 5;
+          }
+        }
+      }
+      
+      // Liquidity check
+      const equalHighs = lz4h.filter(z => z.type === 'equal_highs');
+      const equalLows = lz4h.filter(z => z.type === 'equal_lows');
+      const htfDir = htfBias.direction;
+      
+      if (htfDir === 'short' && equalLows.length > 0) {
+        structScore += 5; // Liquidity below for shorts
+      } else if (htfDir === 'long' && equalHighs.length > 0) {
+        structScore += 5; // Liquidity above for longs
+      }
+      
+      // Opposing liquidity penalty
+      if (htfDir === 'short' && equalHighs.length > equalLows.length * 2) {
+        structScore -= 5; // Too much liquidity above blocking shorts
+      } else if (htfDir === 'long' && equalLows.length > equalHighs.length * 2) {
+        structScore -= 5; // Too much liquidity below blocking longs
+      }
+      
+      breakdown.structureLiquidity.score = Math.max(0, Math.min(20, structScore));
+      breakdown.structureLiquidity.details = breakdown.structureLiquidity.score >= 15 
+        ? 'Clean structure + liquidity aligned' 
+        : breakdown.structureLiquidity.score >= 10 
+        ? 'Structure clear, some liquidity' 
+        : 'Structure unclear or conflicting';
+      score += breakdown.structureLiquidity.score;
+      
+      // C. FVG Context (up to 10 pts)
+      const fvgs4h = tf4h?.fairValueGaps || [];
+      const fvgs1h = tf1h?.fairValueGaps || [];
+      const allFvgs = [...fvgs4h, ...fvgs1h];
+      const unfilledBullish = allFvgs.filter(f => f.direction === 'bullish' && !f.filled);
+      const unfilledBearish = allFvgs.filter(f => f.direction === 'bearish' && !f.filled);
+      
+      let fvgScore = 0;
+      if (playType === 'trend') {
+        // Price pulling back toward FVG in trend direction
+        if (htfDir === 'short' && unfilledBearish.length > 0) {
+          const nearFvg = unfilledBearish.some(f => Math.abs(currentPrice - f.high) / currentPrice < 0.02);
+          if (nearFvg) fvgScore = 10;
+          else fvgScore = 7;
+        } else if (htfDir === 'long' && unfilledBullish.length > 0) {
+          const nearFvg = unfilledBullish.some(f => Math.abs(currentPrice - f.low) / currentPrice < 0.02);
+          if (nearFvg) fvgScore = 10;
+          else fvgScore = 7;
+        }
+        
+        // Price inside FVG
+        const inBullishFvg = unfilledBullish.some(f => currentPrice > f.low && currentPrice < f.high);
+        const inBearishFvg = unfilledBearish.some(f => currentPrice > f.low && currentPrice < f.high);
+        if (inBullishFvg || inBearishFvg) fvgScore = Math.max(fvgScore, 7);
+      }
+      
+      breakdown.fvgContext.score = fvgScore;
+      breakdown.fvgContext.details = fvgScore >= 7 
+        ? 'Price near/inside FVG - high probability move' 
+        : fvgScore > 0 
+        ? 'FVG context present' 
+        : 'No active FVG';
+      score += breakdown.fvgContext.score;
+      
+      // D. Divergences (up to 15 pts)
+      const tf15m = timeframes['15m'];
+      const divs1h = tf1h?.divergences || [];
+      const divs15m = tf15m?.divergences || [];
+      const allDivs = [...divs1h, ...divs15m];
+      
+      let divScore = 0;
+      const bullishDivs = allDivs.filter(d => d.side === 'bullish');
+      const bearishDivs = allDivs.filter(d => d.side === 'bearish');
+      
+      if (playType === 'trend') {
+        // Divergence against trend reduces score
+        if (htfDir === 'short' && bullishDivs.length >= 2) {
+          divScore = -10; // Bullish divergence in downtrend = bad for trend
+        } else if (htfDir === 'long' && bearishDivs.length >= 2) {
+          divScore = -10; // Bearish divergence in uptrend = bad for trend
+        }
+        
+        // Hidden divergence with trend is good
+        const hiddenWithTrend = allDivs.filter(d => 
+          d.type === 'hidden' && 
+          ((htfDir === 'short' && d.side === 'bearish') || (htfDir === 'long' && d.side === 'bullish'))
+        );
+        if (hiddenWithTrend.length > 0) divScore = 10;
+      } else if (playType === 'reversal' || (bullishDivs.length >= 2 || bearishDivs.length >= 2)) {
+        // Reversal mode: regular divergence at extreme
+        if (bullishDivs.length >= 2 || bearishDivs.length >= 2) {
+          divScore = 15;
+          playType = 'reversal';
+        }
+      }
+      
+      breakdown.divergences.score = divScore;
+      breakdown.divergences.details = divScore >= 10 
+        ? 'Strong divergence signal' 
+        : divScore < 0 
+        ? 'Divergence against trend' 
+        : 'No significant divergences';
+      score += breakdown.divergences.score;
+      
+      // E. Volatility / ATR (up to 10 pts)
+      const vol4h = tf4h?.volatility;
+      const volState = vol4h?.state || 'normal';
+      let volScore = 0;
+      
+      if (volState === 'normal') volScore = 10;
+      else if (volState === 'high') volScore = 5;
+      else if (volState === 'low') volScore = 0;
+      else if (volState === 'extreme') volScore = -5;
+      
+      breakdown.volatility.score = volScore;
+      breakdown.volatility.details = volState === 'normal' 
+        ? 'Normal - Prime trading conditions' 
+        : volState === 'high' 
+        ? 'High - Manage size' 
+        : volState === 'extreme' 
+        ? 'Extreme - Reduce risk' 
+        : 'Low - Choppy conditions';
+      score += breakdown.volatility.score;
+      
+      // F. Volume Profile Position (up to 10 pts)
+      const vp4h = tf4h?.volumeProfile;
+      let vpScore = 0;
+      
+      if (vp4h && vp4h.valueAreaHigh && vp4h.valueAreaLow && currentPrice) {
+        const vah = vp4h.valueAreaHigh;
+        const val = vp4h.valueAreaLow;
+        const mid = (vah + val) / 2;
+        
+        if (playType === 'trend') {
+          if (htfDir === 'short' && currentPrice >= mid) vpScore = 10; // Upper half for shorts
+          else if (htfDir === 'short' && currentPrice > val) vpScore = 5;
+          else if (htfDir === 'long' && currentPrice <= mid) vpScore = 10; // Lower half for longs
+          else if (htfDir === 'long' && currentPrice < vah) vpScore = 5;
+        } else if (playType === 'reversal') {
+          if (currentPrice >= vah || currentPrice <= val) vpScore = 10; // At extremes for reversal
+        }
+      }
+      
+      breakdown.volumeProfile.score = vpScore;
+      breakdown.volumeProfile.details = vpScore >= 10 
+        ? 'Optimal VP position' 
+        : vpScore > 0 
+        ? 'Good VP position' 
+        : 'Neutral VP position';
+      score += breakdown.volumeProfile.score;
+      
+      // Strategy Boost
+      const validStrategies = Object.values(strategies).filter(s => s && s.valid === true);
+      let strategyBoost = 0;
+      
+      if (validStrategies.length === 0) {
+        // No valid strategy = cap score
+        score = Math.min(score, 40);
+        breakdown.strategyBoost.details = 'No valid setups - environment may be ok but no trade';
+      } else {
+        const bestConfidence = Math.max(...validStrategies.map(s => s.confidence || 0));
+        strategyBoost = Math.min(bestConfidence / 2, 15); // Max +15 from strategy confidence
+        score += strategyBoost;
+        breakdown.strategyBoost.details = `Best strategy: ${bestConfidence}% confidence`;
+      }
+      breakdown.strategyBoost.score = strategyBoost;
+      
+      // Final score clamp
+      score = Math.max(0, Math.min(100, score));
+      
+      return { score, playType, breakdown };
+    }
+    
+    // Update Trade Readiness Meter
+    function updateTradeReadinessMeter(richSymbol, timeframes, currentPrice) {
+      const section = document.getElementById('trade-readiness-section');
+      if (!section) return;
+      
+      const scoreData = calculateTradeReadinessScore(richSymbol, timeframes, currentPrice);
+      const { score, playType, breakdown } = scoreData;
+      
+      // Show section
+      section.classList.remove('hidden');
+      
+      // Determine label and color
+      let label, color, message, modeText;
+      
+      if (score < 30) {
+        label = "DON'T BOTHER";
+        color = '#ef4444';
+        message = "Conditions are mid or conflicting. Not worth your focus right now.";
+        modeText = "No clear edge";
+      } else if (score < 60) {
+        label = "MEH – BE SELECTIVE";
+        color = '#f59e0b';
+        message = "Some good signals, but not clean. Size small or wait for better confluence.";
+        modeText = "Mixed conditions";
+      } else {
+        label = "PAY ATTENTION";
+        color = '#10b981';
+        if (playType === 'trend') {
+          const htfBias = richSymbol?.htfBias || {};
+          const dir = htfBias.direction === 'long' ? 'Longs' : htfBias.direction === 'short' ? 'Shorts' : 'Neutral';
+          message = "High-probability TREND setups forming. Check your trend modules.";
+          modeText = `Mode: Trend ${dir}`;
+        } else if (playType === 'reversal') {
+          message = "High-probability REVERSAL conditions. Look for liquidity + divergence entries.";
+          modeText = "Mode: Reversal";
+        } else {
+          message = "Prime trading conditions detected.";
+          modeText = "Mode: Mixed";
+        }
+      }
+      
+      // Update meter
+      const scoreEl = document.getElementById('readiness-score');
+      const labelEl = document.getElementById('readiness-label');
+      const messageEl = document.getElementById('readiness-message');
+      const modeEl = document.getElementById('readiness-mode');
+      
+      if (scoreEl) {
+        scoreEl.textContent = score;
+        scoreEl.style.color = color;
+        scoreEl.style.textShadow = `0 0 30px ${color}, 0 0 60px ${color}40`;
+      }
+      if (labelEl) {
+        labelEl.textContent = label;
+        labelEl.style.color = color;
+      }
+      if (messageEl) {
+        messageEl.textContent = message;
+      }
+      if (modeEl) {
+        modeEl.textContent = modeText;
+      }
+      
+      // Update breakdown tiles
+      const breakdownEl = document.getElementById('readiness-breakdown');
+      if (breakdownEl) {
+        const tiles = [
+          {
+            title: 'Trend Alignment',
+            score: breakdown.htfAlignment.score,
+            details: breakdown.htfAlignment.details,
+            max: 35
+          },
+          {
+            title: 'Structure & Liquidity',
+            score: breakdown.structureLiquidity.score,
+            details: breakdown.structureLiquidity.details,
+            max: 20
+          },
+          {
+            title: 'FVG Context',
+            score: breakdown.fvgContext.score,
+            details: breakdown.fvgContext.details,
+            max: 10
+          },
+          {
+            title: 'Divergences',
+            score: breakdown.divergences.score,
+            details: breakdown.divergences.details,
+            max: 15
+          },
+          {
+            title: 'Volatility',
+            score: breakdown.volatility.score,
+            details: breakdown.volatility.details,
+            max: 10
+          },
+          {
+            title: 'Volume Profile',
+            score: breakdown.volumeProfile.score,
+            details: breakdown.volumeProfile.details,
+            max: 10
+          }
+        ];
+        
+        breakdownEl.innerHTML = tiles.map(tile => {
+          const pct = (tile.score / tile.max) * 100;
+          const tileColor = tile.score >= tile.max * 0.7 ? '#10b981' : tile.score >= tile.max * 0.4 ? '#f59e0b' : '#6b7280';
+          
+          return `
+            <div class="tf-card" style="padding: 1rem; border-color: ${tileColor}40;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem; text-transform: uppercase;">${tile.title}</div>
+                <div style="font-size: 1.5rem; font-weight: bold; color: ${tileColor}; margin-bottom: 0.25rem;">${tile.score >= 0 ? '+' : ''}${tile.score}</div>
+                <div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.7);">${tile.details}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+      
+      // Update active strategy signals
+      const strategiesEl = document.getElementById('strategy-signals-list');
+      const strategies = richSymbol?.strategies || {};
+      
+      if (strategiesEl) {
+        const strategyList = [
+          { key: 'TREND_RIDER', name: 'TREND_RIDER' },
+          { key: 'TREND_4H', name: 'TREND_4H' },
+          { key: 'SWING', name: 'SWING' },
+          { key: 'SCALP_1H', name: 'SCALP_1H' },
+          { key: 'MICRO_SCALP', name: 'MICRO_SCALP' }
+        ];
+        
+        strategiesEl.innerHTML = strategyList.map(strat => {
+          const s = strategies[strat.key];
+          const isValid = s && s.valid === true;
+          const direction = s?.direction || 'NO_TRADE';
+          const confidence = s?.confidence || 0;
+          
+          const bgColor = isValid 
+            ? (direction === 'LONG' || direction === 'long' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)')
+            : 'rgba(107, 114, 128, 0.1)';
+          const borderColor = isValid 
+            ? (direction === 'LONG' || direction === 'long' ? '#10b981' : '#ef4444')
+            : 'rgba(255, 255, 255, 0.1)';
+          const textColor = isValid 
+            ? (direction === 'LONG' || direction === 'long' ? '#10b981' : '#ef4444')
+            : 'rgba(255, 255, 255, 0.4)';
+          
+          return `
+            <div class="tf-card" style="padding: 1rem; background: ${bgColor}; border-color: ${borderColor};">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-size: 0.875rem; font-weight: bold; color: ${textColor}; margin-bottom: 0.5rem;">${strat.name}</div>
+                <div style="font-size: 1.25rem; font-weight: bold; color: ${textColor}; margin-bottom: 0.25rem;">
+                  ${isValid ? direction.toUpperCase() : 'NO_TRADE'}
+                </div>
+                <div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.7);">
+                  ${isValid ? `${confidence}% confidence` : 'No setup'}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+      
+      // Update AI Breakdown
+      updateAITradeBreakdown(richSymbol, scoreData);
+    }
+    
+    // Update AI Trade Breakdown
+    function updateAITradeBreakdown(richSymbol, scoreData) {
+      const bestTradeEl = document.getElementById('ai-best-trade');
+      const breakdownEl = document.getElementById('ai-breakdown-text');
+      
+      if (!bestTradeEl || !breakdownEl) return;
+      
+      const { score, playType, breakdown } = scoreData;
+      const strategies = richSymbol?.strategies || {};
+      const symbol = richSymbol?.symbol || 'BTCUSDT';
+      
+      // Find best strategy
+      const validStrategies = Object.entries(strategies)
+        .filter(([key, s]) => s && s.valid === true)
+        .map(([key, s]) => ({ key, ...s }))
+        .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+      
+      const bestStrategy = validStrategies[0];
+      
+      if (score >= 60 && bestStrategy) {
+        const direction = bestStrategy.direction === 'LONG' || bestStrategy.direction === 'long' ? 'LONG' : 'SHORT';
+        bestTradeEl.innerHTML = `🎯 <span style="color: var(--color-yellow-75);">${bestStrategy.key}</span> ${direction} on <span style="color: var(--color-yellow-75);">${symbol}</span> is your best trade right now`;
+        
+        const reasons = [];
+        if (breakdown.htfAlignment.score >= 25) reasons.push('HTF trend alignment');
+        if (breakdown.structureLiquidity.score >= 15) reasons.push('clean structure & liquidity');
+        if (breakdown.fvgContext.score >= 7) reasons.push('FVG context');
+        if (breakdown.divergences.score >= 10) reasons.push('divergence confirmation');
+        if (breakdown.volatility.score >= 10) reasons.push('optimal volatility');
+        if (breakdown.volumeProfile.score >= 10) reasons.push('volume profile position');
+        
+        breakdownEl.innerHTML = `
+          <div style="margin-bottom: 1rem;">
+            <strong style="color: var(--color-yellow-75);">Why this trade:</strong> ${reasons.join(', ')}.
+          </div>
+          <div style="margin-bottom: 1rem;">
+            <strong style="color: var(--color-yellow-75);">Confidence:</strong> ${bestStrategy.confidence}% | 
+            <strong style="color: var(--color-yellow-75);">Readiness Score:</strong> ${score}/100
+          </div>
+          <div>
+            <strong style="color: var(--color-yellow-75);">Mode:</strong> ${playType === 'trend' ? 'Trend Following' : playType === 'reversal' ? 'Reversal Setup' : 'Mixed Conditions'}
+          </div>
+        `;
+      } else if (score >= 30) {
+        bestTradeEl.innerHTML = `<span style="color: #f59e0b;">⚠️ Conditions are MEH - Be Selective</span>`;
+        breakdownEl.innerHTML = `
+          <div style="margin-bottom: 1rem;">
+            Some signals present but not enough confluence. Wait for better setup or size very small.
+          </div>
+          <div>
+            <strong>Score:</strong> ${score}/100 | Consider waiting for score > 60 for high-probability trades.
+          </div>
+        `;
+      } else {
+        bestTradeEl.innerHTML = `<span style="color: #ef4444;">❌ DON'T BOTHER - No Trade Right Now</span>`;
+        breakdownEl.innerHTML = `
+          <div style="margin-bottom: 1rem;">
+            Conditions are conflicting or unclear. Not worth your focus right now.
+          </div>
+          <div>
+            <strong>Score:</strong> ${score}/100 | Check back when conditions improve.
+          </div>
+        `;
+      }
     }
     
     // Update HTF Trend State
