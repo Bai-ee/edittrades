@@ -5592,31 +5592,31 @@
               const marketDataInfo = data.richSymbol?.marketData || data.marketData;
               
               // Always show Market Data section, even if no data - show all line items
-              const spread = marketDataInfo?.spread ? '$' + marketDataInfo.spread.toFixed(2) : 'N/A';
-              const spreadPercent = marketDataInfo?.spreadPercent ? marketDataInfo.spreadPercent.toFixed(4) + '%' : '0.000%';
-              const bid = marketDataInfo?.bid ? '$' + marketDataInfo.bid.toLocaleString() : 'N/A';
-              const ask = marketDataInfo?.ask ? '$' + marketDataInfo.ask.toLocaleString() : 'N/A';
-              const bidAskImbalance = marketDataInfo?.bidAskImbalance !== undefined ? marketDataInfo.bidAskImbalance.toFixed(1) + '%' : 'N/A';
+              const spread = (marketDataInfo?.spread !== undefined && marketDataInfo?.spread !== null) ? '$' + marketDataInfo.spread.toFixed(2) : 'N/A';
+              const spreadPercent = (marketDataInfo?.spreadPercent !== undefined && marketDataInfo?.spreadPercent !== null) ? marketDataInfo.spreadPercent.toFixed(4) + '%' : '0.000%';
+              const bid = (marketDataInfo?.bid !== undefined && marketDataInfo?.bid !== null) ? '$' + marketDataInfo.bid.toLocaleString() : 'N/A';
+              const ask = (marketDataInfo?.ask !== undefined && marketDataInfo?.ask !== null) ? '$' + marketDataInfo.ask.toLocaleString() : 'N/A';
+              const bidAskImbalance = (marketDataInfo?.bidAskImbalance !== undefined && marketDataInfo?.bidAskImbalance !== null) ? marketDataInfo.bidAskImbalance.toFixed(1) + '%' : 'N/A';
               const bidAskImbalanceColor = marketDataInfo?.bidAskImbalance > 0 ? '#22c55e' : marketDataInfo?.bidAskImbalance < 0 ? '#ef4444' : '#9ca3af';
               const bidAskImbalanceArrow = marketDataInfo?.bidAskImbalance > 0 ? '↑' : marketDataInfo?.bidAskImbalance < 0 ? '↓' : '';
               const volumeQuality = marketDataInfo?.volumeQuality || 'N/A';
               const volumeQualityColor = volumeQuality === 'HIGH' ? '#22c55e' : volumeQuality === 'MEDIUM' ? '#f59e0b' : volumeQuality === 'LOW' ? '#ef4444' : '#9ca3af';
-              const tradeCount24h = marketDataInfo?.tradeCount24h ? marketDataInfo.tradeCount24h.toLocaleString() : 'N/A';
+              const tradeCount24h = (marketDataInfo?.tradeCount24h !== undefined && marketDataInfo?.tradeCount24h !== null && marketDataInfo.tradeCount24h > 0) ? marketDataInfo.tradeCount24h.toLocaleString() : 'N/A';
               
               // Order Book Depth - always show, even if no data
               const ob = marketDataInfo?.orderBook || {};
-              const bidLiquidity = ob.bidLiquidity !== undefined ? ob.bidLiquidity : 'N/A';
-              const askLiquidity = ob.askLiquidity !== undefined ? ob.askLiquidity : 'N/A';
-              const obImbalance = ob.imbalance !== undefined ? ob.imbalance + '%' : 'N/A';
+              const bidLiquidity = (ob.bidLiquidity !== undefined && ob.bidLiquidity !== null) ? ob.bidLiquidity.toLocaleString() : 'N/A';
+              const askLiquidity = (ob.askLiquidity !== undefined && ob.askLiquidity !== null) ? ob.askLiquidity.toLocaleString() : 'N/A';
+              const obImbalance = (ob.imbalance !== undefined && ob.imbalance !== null) ? ob.imbalance.toFixed(1) + '%' : 'N/A';
               const obImbalanceColor = ob.imbalance > 0 ? '#22c55e' : ob.imbalance < 0 ? '#ef4444' : '#9ca3af';
               
               // Recent Trades Flow - always show, even if no data
               const rt = marketDataInfo?.recentTrades || {};
               const overallFlow = rt.overallFlow || 'N/A';
               const flowColor = overallFlow === 'BUY' ? '#22c55e' : overallFlow === 'SELL' ? '#ef4444' : '#9ca3af';
-              const buyPressure = rt.buyPressure !== undefined ? rt.buyPressure + '%' : 'N/A';
-              const sellPressure = rt.sellPressure !== undefined ? rt.sellPressure + '%' : 'N/A';
-              const volumeImbalance = rt.volumeImbalance !== undefined ? rt.volumeImbalance + '%' : 'N/A';
+              const buyPressure = (rt.buyPressure !== undefined && rt.buyPressure !== null) ? rt.buyPressure.toFixed(1) + '%' : 'N/A';
+              const sellPressure = (rt.sellPressure !== undefined && rt.sellPressure !== null) ? rt.sellPressure.toFixed(1) + '%' : 'N/A';
+              const volumeImbalance = (rt.volumeImbalance !== undefined && rt.volumeImbalance !== null) ? rt.volumeImbalance.toFixed(1) + '%' : 'N/A';
               const imbalanceColor = rt.volumeImbalance > 0 ? '#22c55e' : rt.volumeImbalance < 0 ? '#ef4444' : '#9ca3af';
               
               // Add Chart Analysis data to Market Data section (NEW)
