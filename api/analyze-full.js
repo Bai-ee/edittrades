@@ -12,6 +12,7 @@ import strategyService from '../services/strategy.js';
 import * as advancedChartAnalysis from '../lib/advancedChartAnalysis.js';
 import * as dataValidation from '../lib/dataValidation.js';
 import { generateSignal } from '../lib/signalEngine.js';
+import { evaluateTradeReadiness } from '../lib/tradeReadiness.js';
 import axios from 'axios';
 
 export default async function handler(req, res) {
@@ -599,8 +600,45 @@ export default async function handler(req, res) {
       MICRO_SCALP: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Strategy evaluation returned null' }
     };
     
+    // Evaluate trade readiness
+    console.log('[Analyze-Full] Step 7: Evaluating trade readiness...');
+    let tradeReadiness = null;
+    try {
+      const engineInput = {
+        symbol,
+        mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
+        currentPrice,
+        htfBias,
+        timeframes
+      };
+      tradeReadiness = evaluateTradeReadiness(engineInput);
+      console.log('[Analyze-Full] Step 7: Trade readiness result:', {
+        score: tradeReadiness.tradeReadinessScore,
+        level: tradeReadiness.tradeReadinessLevel,
+        direction: tradeReadiness.directionBias
+      });
+    } catch (readinessError) {
+      console.error('[Analyze-Full] Step 7: Trade readiness error:', readinessError.message);
+      tradeReadiness = {
+        tradeReadinessScore: 0,
+        tradeReadinessLevel: 'DONT_BOTHER',
+        directionBias: 'neutral',
+        timeframeAlignment: { '1d': 'unknown', '4h': 'unknown', '1h': 'unknown', aligned: false },
+        keyDrivers: ['Error evaluating readiness'],
+        redFlags: ['Evaluation failed'],
+        quickView: {
+          htfAligned: false,
+          liquidityClean: false,
+          volatilityTradable: false,
+          structureClean: false,
+          fvgContext: 'none',
+          divergenceContext: 'none'
+        }
+      };
+    }
+
     // Generate signal using confluence engine
-    console.log('[Analyze-Full] Step 7: Generating signal with confluence engine...');
+    console.log('[Analyze-Full] Step 8: Generating signal with confluence engine...');
     let engineSignal = null;
     try {
       // Build richSymbol-like object for engine
@@ -666,8 +704,9 @@ export default async function handler(req, res) {
       overrideNotes: allStrategiesResult?.overrideNotes || [], // NEW: Override explanation
       marketData: marketDataInfo || null, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData || null, // Prediction market data
+      tradeReadiness: tradeReadiness, // Trade readiness meter score and analysis
       schemaVersion: '1.0.0',
-      jsonVersion: '0.11', // Incremented - now includes signal engine
+      jsonVersion: '0.12', // Incremented - now includes trade readiness meter
       generatedAt: new Date().toISOString()
     };
 

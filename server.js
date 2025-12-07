@@ -721,8 +721,46 @@ app.get('/api/analyze-full', async (req, res) => {
       source: htfBiasRaw.source || 'none'
     };
     
+    // Evaluate trade readiness
+    console.log('[Server] Step 7: Evaluating trade readiness...');
+    let tradeReadiness = null;
+    try {
+      const { evaluateTradeReadiness } = await import('./lib/tradeReadiness.js');
+      const engineInput = {
+        symbol,
+        mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
+        currentPrice,
+        htfBias,
+        timeframes
+      };
+      tradeReadiness = evaluateTradeReadiness(engineInput);
+      console.log('[Server] Step 7: Trade readiness result:', {
+        score: tradeReadiness.tradeReadinessScore,
+        level: tradeReadiness.tradeReadinessLevel,
+        direction: tradeReadiness.directionBias
+      });
+    } catch (readinessError) {
+      console.error('[Server] Step 7: Trade readiness error:', readinessError.message);
+      tradeReadiness = {
+        tradeReadinessScore: 0,
+        tradeReadinessLevel: 'DONT_BOTHER',
+        directionBias: 'neutral',
+        timeframeAlignment: { '1d': 'unknown', '4h': 'unknown', '1h': 'unknown', aligned: false },
+        keyDrivers: ['Error evaluating readiness'],
+        redFlags: ['Evaluation failed'],
+        quickView: {
+          htfAligned: false,
+          liquidityClean: false,
+          volatilityTradable: false,
+          structureClean: false,
+          fvgContext: 'none',
+          divergenceContext: 'none'
+        }
+      };
+    }
+
     // Generate signal using confluence engine
-    console.log('[Server] Step 7: Generating signal with confluence engine...');
+    console.log('[Server] Step 8: Generating signal with confluence engine...');
     let engineSignal = null;
     try {
       // Build richSymbol-like object for engine
