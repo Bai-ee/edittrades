@@ -827,7 +827,7 @@ app.get('/api/analyze-full', async (req, res) => {
       marketData: marketDataInfo, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData, // Prediction market data
       schemaVersion: '1.0.0',
-      jsonVersion: '0.11', // Incremented - now includes signal engine
+        jsonVersion: '0.12', // Incremented - now includes trade readiness meter
       generatedAt: new Date().toISOString()
     };
 
