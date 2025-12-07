@@ -4059,11 +4059,22 @@ export function buildTimeframeSummary(multiTimeframeData) {
       trendStrength: indicators.trendStrength || null, // ADX trend strength
       pullbackState: indicators.analysis?.pullbackState || null, // Pullback state
       rsi: indicators.rsi || null,
-      // ✅ ADVANCED MODULES - Include all from data object
-      marketStructure: data.marketStructure || null,
-      volatility: data.volatility || null,
-      volume: data.volume || null,
-      volumeProfile: data.volumeProfile || null,
+      // ✅ ADVANCED MODULES - Include all from data object with proper fallbacks
+      // Ensure all modules have structured objects (never null)
+      marketStructure: data.marketStructure || {
+        currentStructure: 'unknown',
+        lastSwings: [],
+        lastBos: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null },
+        lastChoch: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null }
+      },
+      volatility: data.volatility || { atr: null, atrPctOfPrice: null, state: 'normal' },
+      volume: data.volume || { current: 0, avg20: 0, trend: 'flat' },
+      volumeProfile: data.volumeProfile || {
+        highVolumeNodes: [],
+        lowVolumeNodes: [],
+        valueAreaHigh: null,
+        valueAreaLow: null
+      },
       liquidityZones: Array.isArray(data.liquidityZones) ? data.liquidityZones : [],
       fairValueGaps: Array.isArray(data.fairValueGaps) ? data.fairValueGaps : [],
       divergences: Array.isArray(data.divergences) ? data.divergences : [],
