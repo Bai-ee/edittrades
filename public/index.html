@@ -4992,16 +4992,26 @@
       if (signalSnapshot.analysis && signalSnapshot.timeframes) {
         for (const [tf, tfData] of Object.entries(signalSnapshot.analysis)) {
           if (tfData && signalSnapshot.timeframes[tf]) {
-            // Add advanced modules to timeframes object
-            signalSnapshot.timeframes[tf].marketStructure = tfData.marketStructure || null;
-            signalSnapshot.timeframes[tf].volatility = tfData.volatility || null;
-            signalSnapshot.timeframes[tf].volumeProfile = tfData.volumeProfile || null;
+            // Add advanced modules to timeframes object with structured fallbacks
+            signalSnapshot.timeframes[tf].marketStructure = tfData.marketStructure || {
+              currentStructure: 'unknown',
+              lastSwings: [],
+              lastBos: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null },
+              lastChoch: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null }
+            };
+            signalSnapshot.timeframes[tf].volatility = tfData.volatility || { atr: null, atrPctOfPrice: null, state: 'normal' };
+            signalSnapshot.timeframes[tf].volumeProfile = tfData.volumeProfile || {
+              highVolumeNodes: [],
+              lowVolumeNodes: [],
+              valueAreaHigh: null,
+              valueAreaLow: null
+            };
             signalSnapshot.timeframes[tf].liquidityZones = Array.isArray(tfData.liquidityZones) ? tfData.liquidityZones : [];
             signalSnapshot.timeframes[tf].fairValueGaps = Array.isArray(tfData.fairValueGaps) ? tfData.fairValueGaps : [];
             signalSnapshot.timeframes[tf].divergences = Array.isArray(tfData.divergences) ? tfData.divergences : [];
             
-            // Add volume metrics from analysis object
-            signalSnapshot.timeframes[tf].volume = tfData.volume || null;
+            // Add volume metrics from analysis object (always structured)
+            signalSnapshot.timeframes[tf].volume = tfData.volume || { current: 0, avg20: 0, trend: 'flat' };
           }
         }
         console.log(`✅ Merged advanced modules into timeframes for ${symbol}`);
@@ -5261,11 +5271,21 @@
               wickAnalysis: tfData.indicators?.wickAnalysis || null,
               trendStrength: tfData.indicators?.trendStrength || null,
               rsi: tfData.indicators?.rsi || null,
-              // ✅ ADVANCED MODULES - Include all from analysis object
-              marketStructure: tfData.marketStructure || null,
-              volatility: tfData.volatility || null,
-              volume: volume, // Volume metrics (current, avg20, trend)
-              volumeProfile: tfData.volumeProfile || null,
+              // ✅ ADVANCED MODULES - Include all from analysis object with structured fallbacks
+              marketStructure: tfData.marketStructure || {
+                currentStructure: 'unknown',
+                lastSwings: [],
+                lastBos: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null },
+                lastChoch: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null }
+              },
+              volatility: tfData.volatility || { atr: null, atrPctOfPrice: null, state: 'normal' },
+              volume: volume || { current: 0, avg20: 0, trend: 'flat' }, // Always structured object
+              volumeProfile: tfData.volumeProfile || {
+                highVolumeNodes: [],
+                lowVolumeNodes: [],
+                valueAreaHigh: null,
+                valueAreaLow: null
+              },
               liquidityZones: Array.isArray(tfData.liquidityZones) ? tfData.liquidityZones : [],
               fairValueGaps: Array.isArray(tfData.fairValueGaps) ? tfData.fairValueGaps : [],
               divergences: Array.isArray(tfData.divergences) ? tfData.divergences : [],
@@ -5332,13 +5352,23 @@
               if (richSymbol.analysis && richSymbol.timeframes) {
                 for (const [tf, tfData] of Object.entries(richSymbol.analysis)) {
                   if (tfData && richSymbol.timeframes[tf]) {
-                    richSymbol.timeframes[tf].marketStructure = tfData.marketStructure || null;
-                    richSymbol.timeframes[tf].volatility = tfData.volatility || null;
-                    richSymbol.timeframes[tf].volumeProfile = tfData.volumeProfile || null;
+                    richSymbol.timeframes[tf].marketStructure = tfData.marketStructure || {
+                      currentStructure: 'unknown',
+                      lastSwings: [],
+                      lastBos: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null },
+                      lastChoch: { type: 'none', direction: 'none', fromSwing: null, toSwing: null, price: null, timestamp: null }
+                    };
+                    richSymbol.timeframes[tf].volatility = tfData.volatility || { atr: null, atrPctOfPrice: null, state: 'normal' };
+                    richSymbol.timeframes[tf].volumeProfile = tfData.volumeProfile || {
+                      highVolumeNodes: [],
+                      lowVolumeNodes: [],
+                      valueAreaHigh: null,
+                      valueAreaLow: null
+                    };
                     richSymbol.timeframes[tf].liquidityZones = Array.isArray(tfData.liquidityZones) ? tfData.liquidityZones : [];
                     richSymbol.timeframes[tf].fairValueGaps = Array.isArray(tfData.fairValueGaps) ? tfData.fairValueGaps : [];
                     richSymbol.timeframes[tf].divergences = Array.isArray(tfData.divergences) ? tfData.divergences : [];
-                    richSymbol.timeframes[tf].volume = tfData.volume || null;
+                    richSymbol.timeframes[tf].volume = tfData.volume || { current: 0, avg20: 0, trend: 'flat' };
                   }
                 }
               }
