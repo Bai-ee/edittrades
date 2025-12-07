@@ -451,7 +451,20 @@ app.get('/api/analyze-full', async (req, res) => {
         const currentPrice = indicators.price?.current || candles[candles.length - 1]?.close;
         analysis[interval] = dataValidation.validateTimeframeAnalysis(tfAnalysis, currentPrice);
       } catch (err) {
-        analysis[interval] = { error: err.message };
+        // Even on error, include all required fields with defaults
+        analysis[interval] = {
+          error: err.message,
+          indicators: null,
+          structure: null,
+          candleCount: 0,
+          lastCandle: null,
+          marketStructure: null,
+          volatility: { atr: null, atrPctOfPrice: null, state: 'normal' },
+          volumeProfile: null,
+          liquidityZones: [], // Always include as array
+          fairValueGaps: [], // Always include as array
+          divergences: [] // Always include as array
+        };
       }
     }
 
