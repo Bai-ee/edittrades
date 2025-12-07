@@ -32,11 +32,32 @@ User Request (Frontend/API)
 2. Indicator Calculation (services/indicators.js)
     ├─→ EMA21, EMA200
     ├─→ Stochastic RSI
+    ├─→ RSI
     ├─→ Trend Detection
     ├─→ Pullback State Analysis
+    ├─→ Trend Strength (ADX)
+    ├─→ Candlestick Patterns
+    ├─→ Wick Analysis
     └─→ Swing Point Detection
     ↓
-3. Strategy Evaluation (services/strategy.js)
+3. Advanced Chart Analysis (lib/advancedChartAnalysis.js)
+    ├─→ Market Structure (BOS/CHOCH, swings)
+    ├─→ Volume Profile (HVN, LVN, Value Area)
+    ├─→ Liquidity Zones (equal highs/lows)
+    ├─→ Fair Value Gaps
+    └─→ Divergences (RSI/StochRSI)
+    ↓
+4. Volatility & Volume Analysis
+    ├─→ ATR Calculation (lib/advancedIndicators.js)
+    ├─→ Volatility State Classification
+    └─→ Volume Analysis (lib/volumeAnalysis.js)
+    ↓
+5. Data Validation (lib/dataValidation.js)
+    ├─→ Structure validation
+    ├─→ Fallback enforcement
+    └─→ Consistency checks
+    ↓
+6. Strategy Evaluation (services/strategy.js)
     ├─→ HTF Bias Calculation
     ├─→ Strategy Gatekeepers
     ├─→ Entry Logic Evaluation
@@ -44,13 +65,25 @@ User Request (Frontend/API)
     ├─→ SL/TP Calculation
     └─→ Signal Generation
     ↓
-4. API Response Assembly (api/analyze-full.js)
+7. Timeframe Summary Building (services/strategy.js)
+    ├─→ buildTimeframeSummary()
+    ├─→ Merge all modules into timeframes
+    └─→ Apply structured fallbacks
+    ↓
+8. API Response Assembly (api/analyze-full.js)
     ├─→ Rich Symbol Object
     ├─→ All Strategies Results
     ├─→ Best Signal Selection
+    ├─→ Complete Analysis Object
     └─→ Market Data Integration
     ↓
-5. Frontend Rendering (public/index.html)
+9. Frontend Export (public/index.html)
+    ├─→ buildRichSymbolFromScanResults()
+    ├─→ Merge analysis into timeframes
+    ├─→ Apply structured fallbacks
+    └─→ JSON Export
+    ↓
+10. Frontend Rendering (public/index.html)
     ├─→ Trade Call Display
     ├─→ AI Analytics Section
     ├─→ Market Data Section

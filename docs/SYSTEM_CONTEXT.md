@@ -20,13 +20,35 @@ When generating strategy updates, you MUST:
 
 ## Current System State
 
+### Data Pipeline Status
+
+**✅ MILESTONE ACHIEVED:** Complete TradingView-level data parity (Tag: `v1.0-data-parity`)
+
+**All Advanced Modules Present:**
+- ✅ Market Structure (BOS/CHOCH, swings, structural trend)
+- ✅ Volatility (ATR, ATR%, state classification)
+- ✅ Liquidity Zones (equal highs/lows, clusters)
+- ✅ Fair Value Gaps (bullish/bearish, fill state)
+- ✅ Divergences (RSI/StochRSI, regular/hidden)
+- ✅ Volume Profile (HVN, LVN, Value Area)
+- ✅ Volume Analysis (current, avg20, trend)
+- ✅ All modules guaranteed to exist (never null)
+
+**Data Consistency:**
+- ✅ All timeframes have complete data structure
+- ✅ Structured fallbacks at every layer
+- ✅ No null values in exported JSON
+- ✅ Production-ready for AI agent consumption
+
 ### Strategies (5 Total)
 
 1. **SWING** - `evaluateSwingSetup()` - 3D → 1D → 4H structure trades
 2. **TREND_4H** - `evaluateStrategy(..., '4h')` - 4H trend following
-3. **TREND_RIDER** - `evaluateTrendRider()` - 4H/1H continuation (NEW)
+3. **TREND_RIDER** - `evaluateTrendRider()` - 4H/1H continuation
 4. **SCALP_1H** - `evaluateStrategy(..., 'Scalp')` - 1H scalps
 5. **MICRO_SCALP** - `evaluateMicroScalp()` - LTF mean reversion
+
+**All strategies now have access to complete advanced module data.**
 
 ### Priority Order
 
@@ -67,6 +89,92 @@ const stochRSI = tf4h.indicators.stochRSI;  // { k, d, condition, history }
 const currentPrice = tf4h.indicators.price.current;
 const swingHigh = tf4h.structure.swingHigh;
 const swingLow = tf4h.structure.swingLow;
+```
+
+### Advanced Module Access (✅ GUARANTEED TO EXIST)
+
+```javascript
+// ✅ CORRECT - All modules guaranteed to exist (never null)
+const tf4h = analysis['4h'];
+
+// Market Structure (always object)
+const ms = tf4h.marketStructure;
+const currentStructure = ms.currentStructure;  // "uptrend" | "downtrend" | "flat" | "unknown"
+const lastBos = ms.lastBos;  // { type: "BOS" | "none", direction: "bullish" | "bearish" | "none", ... }
+const lastChoch = ms.lastChoch;  // { type: "CHOCH" | "none", direction: "bullish" | "bearish" | "none", ... }
+const lastSwings = ms.lastSwings;  // Array of swing points
+
+// Volatility (always object with state)
+const vol = tf4h.volatility;
+const atr = vol.atr;  // number | null
+const atrPct = vol.atrPctOfPrice;  // number | null
+const volState = vol.state;  // "low" | "normal" | "high" | "extreme" (never null)
+
+// Volume (always object)
+const volume = tf4h.volume;
+const currentVol = volume.current;  // number (never null, defaults to 0)
+const avg20Vol = volume.avg20;  // number (never null, defaults to 0)
+const volTrend = volume.trend;  // "up" | "down" | "flat"
+
+// Volume Profile (always object)
+const vp = tf4h.volumeProfile;
+const hvn = vp.highVolumeNodes;  // Array (never null)
+const lvn = vp.lowVolumeNodes;  // Array (never null)
+const valueAreaHigh = vp.valueAreaHigh;  // number | null
+const valueAreaLow = vp.valueAreaLow;  // number | null
+
+// Liquidity Zones (always array)
+const lz = tf4h.liquidityZones;  // Array (never null, empty if none)
+lz.forEach(zone => {
+  // zone: { type: "equal_highs" | "equal_lows", price, strength, touches, side }
+});
+
+// Fair Value Gaps (always array)
+const fvgs = tf4h.fairValueGaps;  // Array (never null, empty if none)
+fvgs.forEach(fvg => {
+  // fvg: { direction: "bullish" | "bearish", low, high, filled, candleIndex }
+});
+
+// Divergences (always array)
+const divs = tf4h.divergences;  // Array (never null, empty if none)
+divs.forEach(div => {
+  // div: { oscillator: "RSI" | "StochRSI", type: "regular" | "hidden", side: "bullish" | "bearish", ... }
+});
+```
+
+### Common Mistakes to Avoid
+
+❌ **WRONG:**
+```javascript
+// Don't check for null - modules always exist
+if (analysis[tf].marketStructure) {  // Unnecessary
+  // ...
+}
+
+// Don't check for null - arrays always exist
+if (analysis[tf].liquidityZones) {  // Unnecessary
+  // ...
+}
+```
+
+✅ **CORRECT:**
+```javascript
+// Modules guaranteed to exist - use directly
+const ms = analysis[tf].marketStructure;  // Always exists
+if (ms.lastBos.type === 'BOS') {
+  // Use it
+}
+
+// Arrays guaranteed to exist - use directly
+const lz = analysis[tf].liquidityZones;  // Always array
+if (lz.length > 0) {
+  // Process zones
+}
+
+// Check optional fields within guaranteed structures
+if (vp.valueAreaHigh && vp.valueAreaLow) {
+  // Use value area
+}
 ```
 
 ### Common Mistakes to Avoid

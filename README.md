@@ -17,9 +17,23 @@ Professional crypto trading signal generator with serverless API deployment. Bui
 ### 📈 Technical Indicators
 - 21 EMA & 200 EMA trend identification
 - Stochastic RSI (14,14,3) with %K and %D
-- Market structure (swing highs/lows)
+- RSI with overbought/oversold detection
+- Market structure (swing highs/lows, BOS/CHOCH)
 - Pullback state detection
 - Wick rejection analysis
+- Trend strength (ADX)
+- Candlestick pattern detection
+
+### 🎯 Advanced Chart Analysis (✅ Complete TradingView-level parity)
+- **Market Structure:** BOS/CHOCH detection, swing analysis, structural trend
+- **Volatility:** ATR calculation with state classification (low/normal/high/extreme)
+- **Volume Profile:** HVN/LVN detection, Value Area calculation
+- **Liquidity Zones:** Equal highs/lows detection with strength scoring
+- **Fair Value Gaps:** Bullish/bearish gap detection with fill state
+- **Divergences:** RSI/StochRSI divergence detection (regular/hidden)
+- **Volume Analysis:** Current volume, 20-period average, trend analysis
+
+**All advanced modules guaranteed to exist (never null) across all timeframes.**
 
 ### 🔍 Market Scanner
 - Scan 30+ curated coins or 300+ Kraken pairs
