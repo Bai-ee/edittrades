@@ -654,8 +654,20 @@ app.get('/api/analyze-full', async (req, res) => {
         };
       }
     } catch (error) {
-      console.warn(`[Analyze-Full] Market data unavailable for ${symbol}:`, error.message);
-      marketDataInfo = null;
+      console.warn(`[Analyze-Full] Market data unavailable for ${symbol}:`, error.message, '- Using fallback values');
+      // Set default values instead of null so UI always shows the section
+      marketDataInfo = {
+        spread: 0,
+        spreadPercent: 0,
+        bid: currentPrice || 0,
+        ask: currentPrice || 0,
+        bidAskImbalance: 0,
+        volumeQuality: 'MEDIUM', // Use MEDIUM as neutral fallback instead of 'N/A'
+        tradeCount24h: 0,
+        orderBook: { bidLiquidity: null, askLiquidity: null, imbalance: null },
+        recentTrades: { overallFlow: 'N/A', buyPressure: null, sellPressure: null, volumeImbalance: null },
+        apiWorking: false // Flag to indicate API failure
+      };
     }
 
     // Fetch dFlow prediction market data (non-blocking - don't fail if unavailable)
