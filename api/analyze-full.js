@@ -185,7 +185,20 @@ export default async function handler(req, res) {
       } catch (err) {
         console.error(`[Analyze-Full] Step 2: ERROR processing ${interval}:`, err.message);
         console.error(`[Analyze-Full] Step 2: ${interval} stack:`, err.stack);
-        analysis[interval] = { error: err.message };
+        // Even on error, include all required fields with defaults
+        analysis[interval] = {
+          error: err.message,
+          indicators: null,
+          structure: null,
+          candleCount: 0,
+          lastCandle: null,
+          marketStructure: null,
+          volatility: { atr: null, atrPctOfPrice: null, state: 'normal' },
+          volumeProfile: null,
+          liquidityZones: [], // Always include as array
+          fairValueGaps: [], // Always include as array
+          divergences: [] // Always include as array
+        };
       }
     }
     console.log('[Analyze-Full] Step 2: Complete - processed', Object.keys(analysis).length, 'timeframes');
