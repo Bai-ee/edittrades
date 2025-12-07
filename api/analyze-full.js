@@ -11,6 +11,7 @@ import * as indicatorService from '../services/indicators.js';
 import strategyService from '../services/strategy.js';
 import * as advancedChartAnalysis from '../lib/advancedChartAnalysis.js';
 import * as dataValidation from '../lib/dataValidation.js';
+import { generateSignal } from '../lib/signalEngine.js';
 import axios from 'axios';
 
 export default async function handler(req, res) {
@@ -598,6 +599,52 @@ export default async function handler(req, res) {
       MICRO_SCALP: { valid: false, direction: 'NO_TRADE', confidence: 0, reason: 'Strategy evaluation returned null' }
     };
     
+    // Generate signal using confluence engine
+    console.log('[Analyze-Full] Step 7: Generating signal with confluence engine...');
+    let engineSignal = null;
+    try {
+      // Build richSymbol-like object for engine
+      const engineInput = {
+        symbol,
+        mode: mode === 'STANDARD' ? 'SAFE' : 'AGGRESSIVE',
+        currentPrice: currentPrice || 0,
+        htfBias: {
+          direction: htfBias.direction || 'neutral',
+          confidence: typeof htfBias.confidence === 'number' 
+            ? (htfBias.confidence > 1 ? htfBias.confidence : htfBias.confidence * 100)
+            : 0,
+          source: htfBias.source || 'none'
+        },
+        timeframes: timeframes || {} // Already has all advanced modules
+      };
+      
+      engineSignal = generateSignal(engineInput);
+      console.log('[Analyze-Full] Step 7: Signal engine result:', {
+        valid: engineSignal.valid,
+        direction: engineSignal.direction,
+        selectedStrategy: engineSignal.selectedStrategy,
+        confidence: engineSignal.confidence
+      });
+    } catch (engineError) {
+      console.error('[Analyze-Full] Step 7: Signal engine error:', engineError.message);
+      console.error('[Analyze-Full] Step 7: Stack:', engineError.stack);
+      // Don't fail - use existing strategies
+      engineSignal = {
+        valid: false,
+        direction: 'NO_TRADE',
+        setupType: 'auto',
+        selectedStrategy: 'NO_TRADE',
+        strategiesChecked: ['SWING', 'TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP'],
+        confidence: 0,
+        reason: `Signal engine error: ${engineError.message}`,
+        entryZone: { min: null, max: null },
+        stopLoss: null,
+        invalidationLevel: null,
+        targets: { tp1: null, tp2: null, tp3: null },
+        riskReward: { tp1RR: null, tp2RR: null, tp3RR: null },
+      };
+    }
+
     // Build rich symbol object - ensure all required fields are present
     const richSymbol = {
       symbol,
@@ -613,13 +660,14 @@ export default async function handler(req, res) {
       timeframes: timeframes || {}, // Always include, even if empty
       analysis: analysis || {}, // ✅ CRITICAL: Include full analysis object with all chart data
       strategies: { ...strategies }, // ✅ Includes TREND_RIDER automatically
-      bestSignal: allStrategiesResult?.bestSignal || null,
+      bestSignal: engineSignal?.valid ? engineSignal.selectedStrategy : (allStrategiesResult?.bestSignal || null),
+      signal: engineSignal, // ✅ NEW: Confluence-based signal from engine
       overrideUsed: allStrategiesResult?.overrideUsed || false, // NEW: Override flag
       overrideNotes: allStrategiesResult?.overrideNotes || [], // NEW: Override explanation
       marketData: marketDataInfo || null, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData || null, // Prediction market data
       schemaVersion: '1.0.0',
-      jsonVersion: '0.10', // Incremented - now includes all advanced modules in timeframes object
+      jsonVersion: '0.11', // Incremented - now includes signal engine
       generatedAt: new Date().toISOString()
     };
 
