@@ -3518,6 +3518,13 @@
             resultData.richSymbol = richSymbol;
             resultData.strategies = richSymbol.strategies;
             resultData.bestSignal = richSymbol.bestSignal;
+            // Preserve marketData and dflowData from richSymbol if not already in resultData
+            if (richSymbol.marketData && !resultData.marketData) {
+              resultData.marketData = richSymbol.marketData;
+            }
+            if (richSymbol.dflowData && !resultData.dflowData) {
+              resultData.dflowData = richSymbol.dflowData;
+            }
           }
           if (resultMode === 'AGGRESSIVE') {
             scanResultsAggressive[symbol] = resultData;
@@ -5577,6 +5584,11 @@
             
             <!-- Market Data Section - THIRD: Spread, Bid/Ask, Volume Quality, Order Book, Recent Trades -->
             ${(function() {
+              // Debug: Log data structure
+              console.log(`[Market Data] ${symbol} - data.marketData:`, !!data.marketData, data.marketData);
+              console.log(`[Market Data] ${symbol} - data.richSymbol?.marketData:`, !!data.richSymbol?.marketData, data.richSymbol?.marketData);
+              console.log(`[Market Data] ${symbol} - data keys:`, Object.keys(data || {}));
+              
               const marketDataInfo = data.richSymbol?.marketData || data.marketData;
               
               // Always show Market Data section, even if no data - show all line items
