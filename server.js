@@ -618,6 +618,8 @@ app.get('/api/analyze-full', async (req, res) => {
       analysis: analysis || {}, // ✅ CRITICAL: Include full analysis object with all chart data
       strategies: { ...allStrategiesResult.strategies }, // ✅ Includes TREND_RIDER automatically
       bestSignal: allStrategiesResult.bestSignal,
+      overrideUsed: allStrategiesResult?.overrideUsed || false, // NEW: Override flag
+      overrideNotes: allStrategiesResult?.overrideNotes || [], // NEW: Override explanation
       marketData: marketDataInfo, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData, // Prediction market data
       schemaVersion: '1.0.0',

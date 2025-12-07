@@ -175,6 +175,7 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     penaltiesApplied: rawSignal.penaltiesApplied || [],
     capsApplied: rawSignal.capsApplied || [],
     explanation: rawSignal.explanation || null,
+    confidenceBreakdown: rawSignal.confidenceBreakdown || null, // NEW: Detailed confidence breakdown
     confluence: rawSignal.confluence || null,
     invalidation: rawSignal.invalidation || null,
     conditionsRequired: rawSignal.conditionsRequired || [],
@@ -1297,11 +1298,43 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     exhaustionCount, penaltiesApplied, capsApplied, finalConfidence, baseConfidence
   );
   
+  // Build detailed confidence breakdown
+  const confidenceBreakdown = {
+    baseConfidence: strategyName && BASE_CONFIDENCE[strategyName] ? BASE_CONFIDENCE[strategyName] : 0,
+    macroLayer: {
+      score: macroAlignment,
+      multiplier: macroMultiplier,
+      weight: 0.4,
+      trends: macroTrends,
+      contradiction: macroContradiction,
+      contradictionLevel: macroContradictionLevel
+    },
+    primaryLayer: {
+      score: primaryAlignment,
+      multiplier: primaryMultiplier,
+      weight: 0.35,
+      contradiction: primaryContradiction
+    },
+    executionLayer: {
+      score: avgExecAlignment,
+      multiplier: execMultiplier,
+      weight: 0.25,
+      exhaustionCount: exhaustionCount
+    },
+    marketFilters: {
+      volumeQuality: marketData?.volumeQuality || null,
+      tradeFlow: marketData?.recentTrades?.overallFlow || null,
+      dflowAlignment: dflowScore
+    },
+    finalConfidence: Math.round(finalConfidence)
+  };
+
   return {
     confidence: Math.round(finalConfidence),
     penaltiesApplied,
     capsApplied,
     explanation,
+    breakdown: confidenceBreakdown, // NEW: Detailed breakdown
     dflowNote: dflowNote || null, // Return note for missing dFlow data
     volumeNote: volumeNote || null // Return note for missing volume data
   };
@@ -1648,6 +1681,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
   const penaltiesApplied = confidenceResult.penaltiesApplied;
   const capsApplied = confidenceResult.capsApplied;
   const confidenceExplanation = confidenceResult.explanation;
+  const confidenceBreakdown = confidenceResult.breakdown; // NEW: Get breakdown
   
   // Apply volume quality soft block for MICRO_SCALP (not applicable to SWING, but keep pattern)
   // Volume quality penalty already applied in calculateConfidenceWithHierarchy
@@ -1693,7 +1727,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
   const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
   
   // Build swing signal
-  return {
+  const swingSignal = {
     valid: true,
     direction: direction,
     setupType: 'Swing',
@@ -1705,6 +1739,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     penaltiesApplied: penaltiesApplied,
     capsApplied: capsApplied,
     explanation: confidenceExplanation,
+    confidenceBreakdown: confidenceBreakdown, // NEW: Detailed confidence breakdown
     entryType: entryType, // 'pullback' or 'breakout'
     entry_zone: {
       min: parseFloat(entryMin.toFixed(2)),
@@ -1745,8 +1780,11 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     ],
     currentPrice: parseFloat(currentPrice.toFixed(2)),
     timestamp: new Date().toISOString(),
-    htfBias: htfBias
+    htfBias: htfBias,
+    confidenceBreakdown: confidenceBreakdown // NEW: Detailed confidence breakdown
   };
+  
+  return swingSignal;
 }
 
 /**
@@ -2046,6 +2084,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   let penaltiesApplied = [...confidenceResult.penaltiesApplied];
   const capsApplied = confidenceResult.capsApplied;
   const confidenceExplanation = confidenceResult.explanation;
+  const confidenceBreakdown = confidenceResult.breakdown; // NEW: Get breakdown
   const dflowNote = confidenceResult.dflowNote || null;
   const volumeNote = confidenceResult.volumeNote || null;
   
@@ -2348,6 +2387,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const penaltiesApplied = confidenceResult.penaltiesApplied;
           const capsApplied = confidenceResult.capsApplied;
           const confidenceExplanation = confidenceResult.explanation;
+          const confidenceBreakdown = confidenceResult.breakdown; // NEW: Get breakdown
           
           // Scalp-specific bonus: bias alignment
           const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.1) : 0;
@@ -2442,6 +2482,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             penaltiesApplied: penaltiesApplied,
             capsApplied: capsApplied,
             explanation: confidenceExplanation,
+            confidenceBreakdown: confidenceBreakdown, // NEW: Detailed confidence breakdown
             invalidation: {
               level: parseFloat(sltp.invalidationLevel.toFixed(2)),
               description: '1H scalp invalidation – loss of pullback structure on 15m/5m'
@@ -2757,6 +2798,7 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
     penaltiesApplied: confidenceResult.penaltiesApplied || [],
     capsApplied: confidenceResult.capsApplied || [],
     explanation: confidenceResult.explanation || '',
+    confidenceBreakdown: confidenceResult.breakdown || null, // NEW: Detailed confidence breakdown
     entryType: 'pullback', // MICRO_SCALP uses pullback-only entries
     entry: {
       min: parseFloat(entryMin.toFixed(2)),
@@ -3097,6 +3139,7 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     penaltiesApplied: confidenceResult.penaltiesApplied || [],
     capsApplied: confidenceResult.capsApplied || [],
     explanation: confidenceResult.explanation || '',
+    confidenceBreakdown: confidenceResult.breakdown || null, // NEW: Detailed confidence breakdown
     entryType: entryType, // 'pullback' or 'breakout'
 
     entryZone: {
@@ -3817,7 +3860,9 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   
   return {
     strategies,
-    bestSignal
+    bestSignal,
+    overrideUsed: overrideUsed || false, // NEW: Track if override was used
+    overrideNotes: overrideNotes || [] // NEW: Override explanation notes
   };
   
   } catch (error) {
@@ -3913,8 +3958,11 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD', overri
     penaltiesApplied: signal.penaltiesApplied || [],
     capsApplied: signal.capsApplied || [],
     explanation: signal.explanation || null,
+    confidenceBreakdown: signal.confidenceBreakdown || null, // NEW: Detailed confidence breakdown
     override: signal.override || overrideUsed || false, // Mark if override was used
-    notes: signal.notes || (overrideUsed && overrideNotes.length > 0 ? overrideNotes : overrideUsed ? ['SAFE override activated'] : []) // Add override notes if used
+    overrideUsed: overrideUsed || false, // Explicit override flag
+    overrideNotes: overrideUsed && overrideNotes.length > 0 ? overrideNotes : (overrideUsed ? ['SAFE override activated'] : []), // Override notes
+    notes: signal.notes || []
   };
   
   return normalized;
@@ -4005,6 +4053,8 @@ export function buildTimeframeSummary(multiTimeframeData) {
         d: stochD, // Clamped to [0, 100]
         state: stochState
       },
+      trendStrength: indicators.trendStrength || null, // NEW: ADX trend strength
+      pullbackState: indicators.analysis?.pullbackState || null, // NEW: Pullback state
       confluenceScore: indicators.confluence?.overall || null,
       structureSummary: buildStructureSummary(data.structure, indicators),
       notes: buildTimeframeNotes(tf, indicators, data.structure)

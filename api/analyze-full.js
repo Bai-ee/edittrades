@@ -532,10 +532,12 @@ export default async function handler(req, res) {
       analysis: analysis || {}, // ✅ CRITICAL: Include full analysis object with all chart data
       strategies: { ...strategies }, // ✅ Includes TREND_RIDER automatically
       bestSignal: allStrategiesResult?.bestSignal || null,
+      overrideUsed: allStrategiesResult?.overrideUsed || false, // NEW: Override flag
+      overrideNotes: allStrategiesResult?.overrideNotes || [], // NEW: Override explanation
       marketData: marketDataInfo || null, // Spread, bid/ask, volume quality, order book, recent trades
       dflowData: dflowData || null, // Prediction market data
       schemaVersion: '1.0.0',
-      jsonVersion: '0.06', // Incremented - now includes full analysis object
+      jsonVersion: '0.07', // Incremented - now includes confidence breakdown, override metadata, trend/pullback mapping
       generatedAt: new Date().toISOString()
     };
 
