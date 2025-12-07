@@ -324,11 +324,48 @@ async function handleMarketReview(req, res, tradesData, systemPrompt) {
 
     console.log('✅ API key found');
 
-    const userPrompt = `Analyze this market data and provide a concise 1-2 sentence market review:
+    // Check if there's a user question to answer
+    // Extract just the question, not the instruction text
+    let userQuestion = tradesData?.userQuestion;
+    if (!userQuestion && tradesData?.questionToAnswer) {
+      // Extract question from questionToAnswer if it's in the format "USER IS ASKING: ..."
+      const match = tradesData.questionToAnswer.match(/USER IS ASKING: "([^"]+)"/);
+      userQuestion = match ? match[1] : tradesData.questionToAnswer;
+    }
+    const hasQuestion = !!userQuestion;
+    
+    let userPrompt;
+    if (hasQuestion) {
+      // Chat mode - answer specific question with trader voice
+      // Extract key market data for easier reference
+      const signals = tradesData?.signals || tradesData?.marketData || {};
+      const topSignals = signals?.topSignals || [];
+      const totalSignals = signals?.totalSignals || 0;
+      
+      // Build focused prompt with question first
+      userPrompt = `**QUESTION TO ANSWER:**
+"${userQuestion}"
+
+**CURRENT MARKET SNAPSHOT:**
+
+Active Signals: ${totalSignals}
+
+Top Trade Signals:
+${topSignals.map((s, i) => `${i + 1}. ${s.symbol} ${s.direction} (${s.strategy}) - Score: ${s.readinessScore}/100, Confidence: ${s.confidence}%, Entry: ${s.entryZone?.min ? `$${s.entryZone.min.toLocaleString()}` : 'N/A'}`).join('\n')}
+
+Full Market Data:
+${JSON.stringify(tradesData, null, 2)}
+
+**INSTRUCTIONS:**
+Answer the question above directly and specifically. Use the market data to give a concrete answer. If they ask about "best trade" - tell them which signal is strongest and why. If they ask about entry prices - give them the exact numbers. If they ask about market state - give them the real talk on what's happening. Be specific with numbers, symbols, and reasons.`;
+    } else {
+      // Market review mode - general analysis with trader voice
+      userPrompt = `Quick market snapshot - what's actually happening:
 
 ${JSON.stringify(tradesData, null, 2)}
 
-Remember: Keep it tight, observational, and focused on overall market behavior and correlation between assets.`;
+Give me the real talk on market state. What's moving, what's stuck, what's worth watching. Keep it tight - 1-2 sentences max, trader to trader.`;
+    }
 
     console.log('📤 Calling OpenAI API for market review (using raw fetch)...');
 
@@ -345,8 +382,8 @@ Remember: Keep it tight, observational, and focused on overall market behavior a
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7,
-        max_tokens: 150
+        temperature: 0.8,
+        max_tokens: hasQuestion ? 500 : 200
       })
     });
 
@@ -428,9 +465,14 @@ export default async function handler(req, res) {
     }
 
     // Market review mode (existing - keep for backward compatibility)
-    if (tradesData && systemPrompt) {
+    // Check if tradesData exists and is an object (not null/undefined/empty string)
+    const hasTradesData = tradesData && typeof tradesData === 'object' && Object.keys(tradesData).length > 0;
+    const hasSystemPrompt = systemPrompt && typeof systemPrompt === 'string' && systemPrompt.trim().length > 0;
+    
+    if (hasTradesData && hasSystemPrompt) {
       console.log('🚀 [AGENT-REVIEW] Market review mode detected');
       console.log('🚀 [AGENT-REVIEW] System prompt length:', systemPrompt?.length);
+      console.log('🚀 [AGENT-REVIEW] Trades data keys:', Object.keys(tradesData));
       console.log('🚀 [AGENT-REVIEW] Trades data preview:', JSON.stringify(tradesData).substring(0, 200) + '...');
       return await handleMarketReview(req, res, tradesData, systemPrompt);
     }
@@ -448,10 +490,19 @@ export default async function handler(req, res) {
       console.error('🚀 [AGENT-REVIEW] Missing check:', {
         marketSnapshot: !marketSnapshot,
         setupType: !setupType,
-        symbol: !symbol
+        symbol: !symbol,
+        tradesData: !hasTradesData,
+        systemPrompt: !hasSystemPrompt
       });
       return res.status(400).json({ 
-        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt' 
+        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt',
+        received: {
+          hasMarketSnapshot: !!marketSnapshot,
+          hasSetupType: !!setupType,
+          hasSymbol: !!symbol,
+          hasTradesData: hasTradesData,
+          hasSystemPrompt: hasSystemPrompt
+        }
       });
     }
 

@@ -1217,6 +1217,36 @@
                   </div>
                 </div>
               </div>
+              
+              <!-- AI Chat Section -->
+              <div id="ai-chat-section" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                <div style="font-family: var(--font-mathias); font-size: 1.125rem; color: var(--color-yellow-75); margin-bottom: 1rem; font-weight: bold;">
+                  Ask About Trades & Market
+                </div>
+                <div id="ai-chat-messages" style="max-height: 400px; overflow-y: auto; margin-bottom: 1rem; padding: 1rem; background: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); border: 1px solid rgba(255, 255, 255, 0.1);">
+                  <div style="color: rgba(255, 255, 255, 0.6); font-size: 0.875rem; font-family: var(--font-system); text-align: center; padding: 1rem;">
+                    Ask questions about trade signals, market state, or specific setups...
+                  </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                  <input 
+                    type="text" 
+                    id="ai-chat-input" 
+                    placeholder="Ask about trades, market state, or specific signals..." 
+                    style="flex: 1; padding: 0.75rem; background: rgba(0, 0, 0, 0.6); border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); color: white; font-family: var(--font-system); font-size: 0.875rem;"
+                    onkeypress="if(event.key === 'Enter') { sendChatMessage(); }"
+                  >
+                  <button 
+                    id="ai-chat-send" 
+                    onclick="sendChatMessage()"
+                    style="padding: 0.75rem 1.5rem; background: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); font-family: var(--font-mathias); font-weight: bold; cursor: pointer; transition: all 0.3s;"
+                    onmouseover="this.style.background='#d4d7cc'; this.style.borderColor='#d4d7cc';"
+                    onmouseout="this.style.background='var(--color-yellow-75)'; this.style.borderColor='var(--color-yellow-75)';"
+                  >
+                    SEND
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -3620,7 +3650,16 @@
     
     // Display scan results
     function displayResults() {
+      console.log('[displayResults] Starting displayResults()');
+      console.log('[displayResults] scanResults keys:', Object.keys(scanResults));
+      console.log('[displayResults] scanResults structure:', scanResults);
+      
       const tableBody = document.getElementById('opportunitiesTable');
+      if (!tableBody) {
+        console.error('[displayResults] ERROR: opportunitiesTable tbody element not found!');
+        return;
+      }
+      
       tableBody.innerHTML = '';
       
       // Always show all symbols, even if they have errors or no trades
@@ -3628,6 +3667,15 @@
       
       for (const symbol of symbolsToShow) {
         const data = scanResults[symbol];
+        console.log(`[displayResults] Processing ${symbol}:`, {
+          hasData: !!data,
+          hasError: data?.error,
+          hasRichSymbol: !!data?.richSymbol,
+          hasStrategies: !!data?.strategies,
+          hasSignal: !!data?.signal,
+          hasTradeSignal: !!data?.tradeSignal
+        });
+        
         // Show symbol even if data is missing or has errors - create minimal data structure
         const displayData = data || {
           error: true,
@@ -3643,29 +3691,32 @@
           displayData.currentPrice = null;
         }
         
-          try {
-            // Auto-select best strategy for this symbol
-            autoSelectStrategy(symbol);
-            
+        try {
+          // Auto-select best strategy for this symbol
+          autoSelectStrategy(symbol);
+          
           const row = createCoinRow(symbol, displayData);
           const detailsRow = createDetailsRow(symbol, displayData);
-            tableBody.appendChild(row);
-            tableBody.appendChild(detailsRow);
-            
-            // Update strategy buttons after row is added to DOM
-            setTimeout(() => updateStrategyButtons(symbol), 10);
-          } catch (error) {
-            console.error(`Error creating row for ${symbol}:`, error);
+          tableBody.appendChild(row);
+          tableBody.appendChild(detailsRow);
+          
+          // Update strategy buttons after row is added to DOM
+          setTimeout(() => updateStrategyButtons(symbol), 10);
+        } catch (error) {
+          console.error(`[displayResults] Error creating row for ${symbol}:`, error);
+          console.error(`[displayResults] Error stack:`, error.stack);
           // Still try to create a basic row even on error
           try {
             const errorRow = document.createElement('tr');
-            errorRow.innerHTML = `<td colspan="10">Error displaying ${symbol}: ${error.message}</td>`;
+            errorRow.innerHTML = `<td colspan="10" style="padding: 1rem; text-align: center; color: #ef4444;">Error displaying ${symbol}: ${error.message}</td>`;
             tableBody.appendChild(errorRow);
           } catch (e) {
-            console.error(`Failed to create error row for ${symbol}:`, e);
+            console.error(`[displayResults] Failed to create error row for ${symbol}:`, e);
           }
         }
       }
+      
+      console.log(`[displayResults] Completed. Rows added: ${tableBody.children.length}`);
       
       // Update trading indicators
       updateTradingIndicators();
@@ -3719,6 +3770,9 @@
       
       // 7. Trade Readiness Meter
       updateTradeReadinessMeter(richSymbol, timeframes, currentPrice);
+      
+      // 8. AI Trade Breakdown - Analyze all signals from all symbols
+      updateAITradeBreakdown(scanResults);
     }
     
     // Calculate Trade Readiness Score
@@ -4176,8 +4230,7 @@
         }).join('');
       }
       
-      // Update AI Breakdown
-      updateAITradeBreakdown(richSymbol, { score: tradeReadinessScore, playType: directionBias, breakdown: {} });
+      // Note: AI Breakdown is now updated in updateHighLevelDashboard() with all scanResults
     }
     
     // Update Readiness Insights (Key Drivers & Red Flags)
@@ -4225,69 +4278,508 @@
       insightsSection.innerHTML = html;
     }
     
-    // Update AI Trade Breakdown
-    function updateAITradeBreakdown(richSymbol, scoreData) {
+    // Collect all valid trade signals from scanResults
+    function collectAllTradeSignals(allScanResults) {
+      const allSignals = [];
+      
+      Object.entries(allScanResults).forEach(([symbol, data]) => {
+        if (!data || data.error) return;
+        
+        const richSymbol = data?.richSymbol || data;
+        const strategies = richSymbol?.strategies || {};
+        const timeframes = richSymbol?.timeframes || {};
+        const currentPrice = richSymbol?.currentPrice || data?.currentPrice || 0;
+        
+        // Check each strategy type
+        Object.entries(strategies).forEach(([strategyKey, strategy]) => {
+          if (strategy && strategy.valid) {
+            // Get trade readiness for this symbol
+            const readinessScore = calculateTradeReadinessScore(richSymbol, timeframes, currentPrice);
+            
+            // Map strategy key to readable name
+            const strategyNames = {
+              'TREND_4H': '4H',
+              'SWING': 'Swing',
+              'SCALP_1H': 'Scalp',
+              'MICRO_SCALP': 'MicroScalp'
+            };
+            
+            allSignals.push({
+              symbol,
+              strategy: strategyNames[strategyKey] || strategyKey,
+              strategyKey: strategyKey,
+              direction: strategy.direction,
+              confidence: strategy.confidence || 0,
+              entryZone: strategy.entryZone || strategy.entry_zone,
+              stopLoss: strategy.stopLoss || strategy.stop_loss,
+              targets: strategy.targets,
+              readinessScore: readinessScore.score,
+              readinessBreakdown: readinessScore.breakdown,
+              readinessPlayType: readinessScore.playType,
+              htfBias: richSymbol?.htfBias,
+              timeframes: timeframes,
+              currentPrice: currentPrice,
+              reason: strategy.reason || strategy.reason_summary || ''
+            });
+          }
+        });
+      });
+      
+      return allSignals;
+    }
+    
+    // Rank signals by readiness score + confidence
+    function rankSignals(signals) {
+      return signals.sort((a, b) => {
+        const scoreA = (a.readinessScore || 0) * 0.6 + (a.confidence || 0) * 0.4;
+        const scoreB = (b.readinessScore || 0) * 0.6 + (b.confidence || 0) * 0.4;
+        return scoreB - scoreA;
+      });
+    }
+    
+    // Analyze all trade signals using AI
+    async function analyzeAllTradeSignals(signals) {
+      if (!signals || signals.length === 0) {
+        return {
+          bestTrade: null,
+          analysis: 'No valid trade signals found. Market conditions may not be favorable for trading right now.',
+          topSignals: []
+        };
+      }
+      
+      // Get top 3 signals
+      const topSignals = signals.slice(0, 3);
+      
+      // Build context for AI
+      const signalsContext = topSignals.map(signal => ({
+        symbol: signal.symbol,
+        strategy: signal.strategy,
+        direction: signal.direction,
+        confidence: signal.confidence,
+        readinessScore: signal.readinessScore,
+        entryZone: signal.entryZone,
+        stopLoss: signal.stopLoss,
+        targets: signal.targets,
+        readinessBreakdown: signal.readinessBreakdown,
+        htfBias: signal.htfBias
+      }));
+      
+      try {
+        const response = await fetch('/api/agent-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            tradesData: {
+              signals: signalsContext,
+              totalSignals: signals.length,
+              topSignals: topSignals.length
+            },
+            systemPrompt: `You're an expert trader analyzing live signals. Give quick snapshots, real talk only.
+
+WHAT TO DO:
+1. Call out the STRONGEST signals - why they're fire, what entry to hit
+2. Best price entry for each - be specific with numbers
+3. Market state snapshot - what's actually happening
+4. Risk factors - what could go wrong, be honest
+
+STYLE:
+- Talk like a trader: "BTC short looks clean, entry around $89.2k, structure's aligned"
+- Quick snapshots, not long analysis
+- Use readiness scores to back your calls
+- If something's mid, say it's mid - don't sugarcoat
+- Real talk: "This one's risky because..." or "This is the play right now because..."
+
+FOCUS:
+- Readiness score tells you if it's worth it
+- HTF alignment = trend is clean
+- Entry zone = where to get in
+- Structure = is it clean or messy
+- Confluence = multiple things lining up
+
+Keep it tight, actionable, and real. No fluff.`
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        return {
+          bestTrade: topSignals[0] || null,
+          analysis: data.review || data.pulse || 'Analysis completed',
+          topSignals: topSignals
+        };
+      } catch (error) {
+        console.error('[analyzeAllTradeSignals] Error:', error);
+        // Fallback to local analysis
+        return {
+          bestTrade: topSignals[0] || null,
+          analysis: generateLocalAnalysis(topSignals),
+          topSignals: topSignals
+        };
+      }
+    }
+    
+    // Generate local analysis fallback
+    function generateLocalAnalysis(topSignals) {
+      if (topSignals.length === 0) {
+        return 'No valid trade signals found.';
+      }
+      
+      const best = topSignals[0];
+      const entryZone = best.entryZone || {};
+      const bestEntry = entryZone.min ? `$${entryZone.min.toLocaleString()}` : 'N/A';
+      
+      let analysis = `🎯 STRONGEST SIGNAL: ${best.symbol} ${best.direction} (${best.strategy} strategy)\n\n`;
+      analysis += `Readiness Score: ${best.readinessScore}/100 | Confidence: ${best.confidence}%\n\n`;
+      analysis += `BEST ENTRY: ${bestEntry}`;
+      if (entryZone.max) {
+        analysis += ` - $${entryZone.max.toLocaleString()}`;
+      }
+      analysis += `\n\nWhy it's strong:\n`;
+      
+      const breakdown = best.readinessBreakdown || {};
+      if (breakdown.htfAlignment?.score >= 25) {
+        analysis += `✓ HTF alignment: ${breakdown.htfAlignment.details}\n`;
+      }
+      if (breakdown.structureLiquidity?.score >= 15) {
+        analysis += `✓ Structure: ${breakdown.structureLiquidity.details}\n`;
+      }
+      if (breakdown.fvgContext?.score >= 7) {
+        analysis += `✓ FVG context: ${breakdown.fvgContext.details}\n`;
+      }
+      
+      if (topSignals.length > 1) {
+        analysis += `\nOther strong signals: ${topSignals.slice(1).map(s => `${s.symbol} ${s.direction} (${s.readinessScore}/100)`).join(', ')}`;
+      }
+      
+      return analysis;
+    }
+    
+    // Update AI Trade Breakdown - Enhanced to analyze all signals
+    async function updateAITradeBreakdown(allScanResults) {
       const bestTradeEl = document.getElementById('ai-best-trade');
       const breakdownEl = document.getElementById('ai-breakdown-text');
       
-      if (!bestTradeEl || !breakdownEl) return;
+      if (!bestTradeEl || !breakdownEl) {
+        console.warn('[updateAITradeBreakdown] AI breakdown elements not found');
+        return;
+      }
       
-      const { score, playType, breakdown } = scoreData;
-      const strategies = richSymbol?.strategies || {};
-      const symbol = richSymbol?.symbol || 'BTCUSDT';
+      // Show loading state
+      bestTradeEl.innerHTML = 'Analyzing all trade signals...';
+      breakdownEl.innerHTML = 'Collecting signals and calculating readiness scores...';
       
-      // Find best strategy
-      const validStrategies = Object.entries(strategies)
-        .filter(([key, s]) => s && s.valid === true)
-        .map(([key, s]) => ({ key, ...s }))
-        .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-      
-      const bestStrategy = validStrategies[0];
-      
-      if (score >= 60 && bestStrategy) {
-        const direction = bestStrategy.direction === 'LONG' || bestStrategy.direction === 'long' ? 'LONG' : 'SHORT';
-        bestTradeEl.innerHTML = `🎯 Hey, <span style="color: var(--color-yellow-75);">${bestStrategy.key}</span> ${direction} on <span style="color: var(--color-yellow-75);">${symbol}</span> is your best trade right now`;
+      try {
+        // Collect all signals
+        const allSignals = collectAllTradeSignals(allScanResults);
+        console.log(`[updateAITradeBreakdown] Collected ${allSignals.length} signals`);
         
-        const reasons = [];
-        if (breakdown.htfAlignment.score >= 25) reasons.push('HTF trend alignment');
-        if (breakdown.structureLiquidity.score >= 15) reasons.push('clean structure & liquidity');
-        if (breakdown.fvgContext.score >= 7) reasons.push('FVG context');
-        if (breakdown.divergences.score >= 10) reasons.push('divergence confirmation');
-        if (breakdown.volatility.score >= 10) reasons.push('optimal volatility');
-        if (breakdown.volumeProfile.score >= 10) reasons.push('volume profile position');
+        if (allSignals.length === 0) {
+          bestTradeEl.innerHTML = '<span style="color: #ef4444;">❌ NO TRADE SIGNALS FOUND</span>';
+          breakdownEl.innerHTML = `
+            <div style="margin-bottom: 1rem;">
+              No valid trade signals detected across all symbols. Market conditions may not be favorable for trading right now.
+            </div>
+            <div>
+              Check back when market structure improves or wait for better confluence.
+            </div>
+          `;
+          return;
+        }
         
+        // Rank signals
+        const rankedSignals = rankSignals([...allSignals]);
+        
+        // Analyze with AI
+        const analysis = await analyzeAllTradeSignals(rankedSignals);
+        
+        // Display results
+        if (analysis.bestTrade) {
+          const best = analysis.bestTrade;
+          const direction = best.direction === 'LONG' || best.direction === 'long' ? 'LONG' : 'SHORT';
+          const entryZone = best.entryZone || {};
+          const bestEntry = entryZone.min ? `$${entryZone.min.toLocaleString()}` : 'N/A';
+          
+          bestTradeEl.innerHTML = `🎯 <span style="color: var(--color-yellow-75);">${best.symbol}</span> ${direction} (${best.strategy}) - Readiness: ${best.readinessScore}/100`;
+          
+          breakdownEl.innerHTML = `
+            <div style="margin-bottom: 1rem;">
+              <strong style="color: var(--color-yellow-75);">BEST ENTRY:</strong> ${bestEntry}${entryZone.max ? ` - $${entryZone.max.toLocaleString()}` : ''}
+            </div>
+            <div style="margin-bottom: 1rem; white-space: pre-wrap; line-height: 1.6;">
+              ${analysis.analysis}
+            </div>
+            ${analysis.topSignals.length > 1 ? `
+            <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+              <strong style="color: var(--color-yellow-75);">Other Strong Signals:</strong>
+              <ul style="margin-top: 0.5rem; padding-left: 1.5rem;">
+                ${analysis.topSignals.slice(1).map(s => `
+                  <li style="margin-bottom: 0.5rem;">
+                    ${s.symbol} ${s.direction} (${s.strategy}) - Score: ${s.readinessScore}/100 | Entry: ${s.entryZone?.min ? `$${s.entryZone.min.toLocaleString()}` : 'N/A'}
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+            ` : ''}
+          `;
+        } else {
+          bestTradeEl.innerHTML = '<span style="color: #f59e0b;">⚠️ CONDITIONS ARE MIXED</span>';
+          breakdownEl.innerHTML = `
+            <div style="margin-bottom: 1rem; white-space: pre-wrap;">
+              ${analysis.analysis}
+            </div>
+          `;
+        }
+      } catch (error) {
+        console.error('[updateAITradeBreakdown] Error:', error);
+        bestTradeEl.innerHTML = '<span style="color: #ef4444;">❌ ANALYSIS ERROR</span>';
         breakdownEl.innerHTML = `
           <div style="margin-bottom: 1rem;">
-            <strong style="color: var(--color-yellow-75);">Why this trade:</strong> ${reasons.join(', ')}.
-          </div>
-          <div style="margin-bottom: 1rem;">
-            <strong style="color: var(--color-yellow-75);">Confidence:</strong> ${bestStrategy.confidence}% | 
-            <strong style="color: var(--color-yellow-75);">Readiness Score:</strong> ${score}/100
+            Error analyzing trade signals: ${error.message}
           </div>
           <div>
-            <strong style="color: var(--color-yellow-75);">Mode:</strong> ${playType === 'trend' ? 'Trend Following' : playType === 'reversal' ? 'Reversal Setup' : 'Mixed Conditions'}
+            Please try refreshing the page or check your connection.
           </div>
         `;
-      } else if (score >= 30) {
-        bestTradeEl.innerHTML = `<span style="color: #f59e0b;">⚠️ Conditions are MEH - Be Selective</span>`;
-        breakdownEl.innerHTML = `
-          <div style="margin-bottom: 1rem;">
-            Some signals present but not enough confluence. Wait for better setup or size very small.
+      }
+    }
+    
+    // Chat Functions
+    function getChatContext() {
+      // Build context from current scanResults for AI
+      const allSignals = collectAllTradeSignals(scanResults || {});
+      const rankedSignals = rankSignals([...allSignals]);
+      
+      // Build market state summary
+      const marketState = {
+        totalSignals: allSignals.length,
+        topSignals: rankedSignals.slice(0, 5).map(s => ({
+          symbol: s.symbol,
+          strategy: s.strategy,
+          direction: s.direction,
+          confidence: s.confidence,
+          readinessScore: s.readinessScore,
+          entryZone: s.entryZone,
+          htfBias: s.htfBias
+        })),
+        symbols: Object.keys(scanResults || {}).filter(s => scanResults[s] && !scanResults[s].error),
+        currentMode: aggressiveMode ? 'AGGRESSIVE' : 'STANDARD'
+      };
+      
+      // Ensure we always return a valid object structure
+      return {
+        signals: marketState,
+        marketData: {
+          totalSignals: marketState.totalSignals,
+          topSignals: marketState.topSignals,
+          symbols: marketState.symbols,
+          mode: marketState.currentMode
+        },
+        timestamp: new Date().toISOString()
+      };
+    }
+    
+    function displayChatMessage(role, content) {
+      const messagesContainer = document.getElementById('ai-chat-messages');
+      if (!messagesContainer) return;
+      
+      // Remove placeholder if it exists
+      const placeholder = messagesContainer.querySelector('div[style*="text-align: center"]');
+      if (placeholder) {
+        placeholder.remove();
+      }
+      
+      const messageDiv = document.createElement('div');
+      messageDiv.style.cssText = `
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        border-radius: var(--radius-md);
+        font-family: var(--font-system);
+        font-size: 0.875rem;
+        line-height: 1.6;
+        ${role === 'user' 
+          ? 'background: rgba(230, 233, 224, 0.1); border-left: 3px solid var(--color-yellow-75); color: rgba(255, 255, 255, 0.9);' 
+          : 'background: rgba(0, 0, 0, 0.3); border-left: 3px solid rgba(255, 255, 255, 0.3); color: rgba(255, 255, 255, 0.8);'}
+      `;
+      
+      if (role === 'user') {
+        messageDiv.innerHTML = `
+          <div style="font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.5rem; font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase;">
+            YOU
           </div>
-          <div>
-            <strong>Score:</strong> ${score}/100 | Consider waiting for score > 60 for high-probability trades.
-          </div>
+          <div style="white-space: pre-wrap;">${content}</div>
         `;
       } else {
-        bestTradeEl.innerHTML = `<span style="color: #ef4444;">❌ DON'T BOTHER - No Trade Right Now</span>`;
-        breakdownEl.innerHTML = `
-          <div style="margin-bottom: 1rem;">
-            Conditions are conflicting or unclear. Not worth your focus right now.
+        messageDiv.innerHTML = `
+          <div style="font-weight: bold; color: rgba(255, 255, 255, 0.7); margin-bottom: 0.5rem; font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase;">
+            AI
           </div>
-          <div>
-            <strong>Score:</strong> ${score}/100 | Check back when conditions improve.
-          </div>
+          <div style="white-space: pre-wrap;">${content}</div>
         `;
+      }
+      
+      messagesContainer.appendChild(messageDiv);
+      
+      // Scroll to bottom
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    
+    async function sendChatMessage() {
+      const input = document.getElementById('ai-chat-input');
+      const sendButton = document.getElementById('ai-chat-send');
+      
+      if (!input || !sendButton) return;
+      
+      const message = input.value.trim();
+      if (!message) return;
+      
+      // Clear input
+      input.value = '';
+      
+      // Disable input and button
+      input.disabled = true;
+      sendButton.disabled = true;
+      sendButton.textContent = 'SENDING...';
+      
+      // Display user message
+      displayChatMessage('user', message);
+      
+      // Show loading message
+      const loadingId = 'loading-' + Date.now();
+      const loadingDiv = document.createElement('div');
+      loadingDiv.id = loadingId;
+      loadingDiv.style.cssText = `
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        border-radius: var(--radius-md);
+        background: rgba(0, 0, 0, 0.3);
+        border-left: 3px solid rgba(255, 255, 255, 0.3);
+        color: rgba(255, 255, 255, 0.6);
+        font-family: var(--font-system);
+        font-size: 0.875rem;
+        font-style: italic;
+      `;
+      loadingDiv.textContent = 'AI is thinking...';
+      const messagesContainer = document.getElementById('ai-chat-messages');
+      messagesContainer.appendChild(loadingDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      
+      try {
+        // Get context
+        const context = getChatContext();
+        
+        // Build tradesData with user question prominently included
+        const tradesDataWithQuestion = {
+          userQuestion: message,
+          questionToAnswer: `USER IS ASKING: "${message}" - Please answer this specific question using the market data below.`,
+          ...context
+        };
+        
+        // Build system prompt for chat - Expert trader voice
+        const systemPrompt = `You're an expert crypto trader. The user asked a specific question - ANSWER IT DIRECTLY.
+
+CRITICAL: Look for the "QUESTION TO ANSWER" section in the user's message. That's what they want to know. Answer it specifically using the market data provided.
+
+STYLE:
+- Talk like you're texting a trading buddy - casual but sharp
+- Give quick snapshots, not essays
+- Use trader slang naturally (HTF, LTF, BOS, FVG, etc.)
+- Be direct: "This looks good" or "Skip this, structure's messy"
+- Call out what matters: entry price, why it's strong, what could go wrong
+- Real talk only - if something's mid, say it's mid
+
+WHAT TO DO:
+1. READ the question carefully - it's marked "QUESTION TO ANSWER"
+2. ANSWER that specific question using the market data
+3. Be SPECIFIC: 
+   - If they ask "best trade" → Tell them which symbol/strategy and WHY
+   - If they ask "entry price" → Give them the exact dollar amount
+   - If they ask "market state" → Tell them what's actually happening
+   - If they ask "why is X strong" → Explain using readiness score, HTF alignment, etc.
+4. Use the data: Reference specific signals, scores, entry zones from the market snapshot
+5. Give numbers: Entry prices, confidence scores, readiness scores - be concrete
+
+TONE:
+- Confident but not cocky
+- Helpful but not hand-holdy
+- Fast-paced, like you're watching the charts live
+- Drop the formal analysis language - just tell it like it is
+
+Remember: They asked a specific question. Answer it directly with real trader insight and specific data.`;
+        
+        // Validate data before sending
+        if (!tradesDataWithQuestion || !systemPrompt) {
+          throw new Error('Failed to prepare request data');
+        }
+        
+        const requestBody = {
+          tradesData: tradesDataWithQuestion,
+          systemPrompt: systemPrompt
+        };
+        
+        console.log('[sendChatMessage] Sending request:', {
+          hasTradesData: !!requestBody.tradesData,
+          hasSystemPrompt: !!requestBody.systemPrompt,
+          tradesDataKeys: Object.keys(requestBody.tradesData || {}),
+          systemPromptLength: requestBody.systemPrompt?.length
+        });
+        
+        // Call API
+        const response = await fetch('/api/agent-review', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[sendChatMessage] API error response:', errorText);
+          let errorMessage = `API error: ${response.status}`;
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error || errorJson.message || errorMessage;
+          } catch (e) {
+            // Not JSON, use text as-is
+            errorMessage = errorText || errorMessage;
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const data = await response.json();
+        const aiResponse = data.review || data.pulse || 'I apologize, but I could not generate a response. Please try again.';
+        
+        // Remove loading message
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) {
+          loadingEl.remove();
+        }
+        
+        // Display AI response
+        displayChatMessage('assistant', aiResponse);
+        
+      } catch (error) {
+        console.error('[sendChatMessage] Error:', error);
+        
+        // Remove loading message
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) {
+          loadingEl.remove();
+        }
+        
+        // Display error message
+        displayChatMessage('assistant', `Sorry, I encountered an error: ${error.message}. Please try again.`);
+      } finally {
+        // Re-enable input and button
+        input.disabled = false;
+        sendButton.disabled = false;
+        sendButton.textContent = 'SEND';
+        input.focus();
       }
     }
     
