@@ -593,6 +593,25 @@
       overflow: hidden;
     }
     
+    /* Dashboard cards - oversized version */
+    .dashboard-card {
+      padding: 2rem !important;
+      min-height: 200px;
+    }
+    
+    /* Dashboard grid - responsive */
+    @media (min-width: 1024px) {
+      .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+      }
+    }
+    
+    @media (min-width: 1400px) {
+      .dashboard-grid {
+        grid-template-columns: repeat(3, 1fr) !important;
+      }
+    }
+    
     /* iOS specific fix for grid layout */
     @supports (-webkit-touch-callout: none) {
       .tf-grid {
@@ -986,6 +1005,164 @@
           </div>
           </div>
 
+      </div>
+
+      <!-- High Level Dashboard -->
+      <div id="highLevelDashboard" class="hidden" style="padding: 2rem 1rem; margin-top: 2rem;">
+        <div class="card-edittrax rounded-lg" style="border: 2px solid var(--color-yellow-75); padding: 2rem; background: rgba(0, 0, 0, 0.8);">
+          <h2 style="font-family: var(--font-mathias); font-size: 1.5rem; color: var(--color-yellow-75); margin-bottom: 2rem; text-align: center; font-weight: bold;">
+            HIGH LEVEL DASHBOARD
+          </h2>
+          
+          <!-- Dashboard Grid -->
+          <div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
+            
+            <!-- 1. HTF Trend State -->
+            <div class="dashboard-card tf-card" id="htf-trend-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  HTF Trend Alignment
+                </div>
+                <div class="htf-trend-display" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                  <div class="htf-tf" data-tf="1d" style="text-align: center;">
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">1D</div>
+                    <div class="htf-trend-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.25rem;">-</div>
+                    <div class="htf-confidence" style="font-size: 1rem; color: rgba(255, 255, 255, 0.7);">-</div>
+                  </div>
+                  <div class="htf-tf" data-tf="4h" style="text-align: center;">
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">4H</div>
+                    <div class="htf-trend-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.25rem;">-</div>
+                    <div class="htf-confidence" style="font-size: 1rem; color: rgba(255, 255, 255, 0.7);">-</div>
+                  </div>
+                  <div class="htf-tf" data-tf="1h" style="text-align: center;">
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">1H</div>
+                    <div class="htf-trend-value" style="font-size: 2rem; font-weight: bold; margin-bottom: 0.25rem;">-</div>
+                    <div class="htf-confidence" style="font-size: 1rem; color: rgba(255, 255, 255, 0.7);">-</div>
+                  </div>
+                </div>
+                <div id="htf-alignment-status" style="margin-top: 1rem; text-align: center; font-size: 1.25rem; font-weight: bold; font-family: var(--font-mathias);">
+                  <span style="color: rgba(255, 255, 255, 0.4);">WAITING FOR DATA</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 2. Liquidity Map -->
+            <div class="dashboard-card tf-card" id="liquidity-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Liquidity Map
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                  <div>
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">Equal Highs Above</div>
+                    <div id="liquidity-highs" style="display: flex; gap: 0.5rem; flex-wrap: wrap; min-height: 40px;">
+                      <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                    </div>
+                  </div>
+                  <div style="height: 2px; background: rgba(255, 255, 255, 0.1); margin: 0.5rem 0;">
+                    <div id="current-price-marker" style="width: 4px; height: 8px; background: var(--color-yellow-75); margin: -3px auto 0; border-radius: 2px;"></div>
+                  </div>
+                  <div>
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">Equal Lows Below</div>
+                    <div id="liquidity-lows" style="display: flex; gap: 0.5rem; flex-wrap: wrap; min-height: 40px;">
+                      <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                    </div>
+                  </div>
+                </div>
+                <div id="liquidity-bias" style="margin-top: 1rem; text-align: center; font-size: 1.25rem; font-weight: bold; font-family: var(--font-mathias);">
+                  <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. FVG State -->
+            <div class="dashboard-card tf-card" id="fvg-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Fair Value Gaps
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                  <div>
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">Bullish FVGs Below</div>
+                    <div id="fvg-bullish" style="font-size: 2rem; font-weight: bold; color: #10b981;">-</div>
+                    <div id="fvg-bullish-status" style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-top: 0.25rem;">-</div>
+                  </div>
+                  <div>
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">Bearish FVGs Above</div>
+                    <div id="fvg-bearish" style="font-size: 2rem; font-weight: bold; color: #ef4444;">-</div>
+                    <div id="fvg-bearish-status" style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-top: 0.25rem;">-</div>
+                  </div>
+                </div>
+                <div id="fvg-price-status" style="margin-top: 1.5rem; text-align: center; font-size: 1.125rem; font-weight: bold; font-family: var(--font-mathias); padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                  <span style="color: rgba(255, 255, 255, 0.4);">Price Position: -</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. Divergence Alerts -->
+            <div class="dashboard-card tf-card" id="divergence-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Divergence Alerts
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                  <div>
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">1H RSI</div>
+                    <div id="div-rsi" style="font-size: 1.5rem; font-weight: bold;">-</div>
+                    <div id="div-rsi-detail" style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-top: 0.25rem;">-</div>
+                  </div>
+                  <div>
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem;">15m Stoch</div>
+                    <div id="div-stoch" style="font-size: 1.5rem; font-weight: bold;">-</div>
+                    <div id="div-stoch-detail" style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-top: 0.25rem;">-</div>
+                  </div>
+                </div>
+                <div id="divergence-alert" style="margin-top: 1.5rem; text-align: center; font-size: 1.125rem; font-weight: bold; font-family: var(--font-mathias); padding: 0.75rem; background: rgba(255, 255, 255, 0.05); border-radius: 8px;">
+                  <span style="color: rgba(255, 255, 255, 0.4);">No Divergences</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 5. Volatility (ATR State) -->
+            <div class="dashboard-card tf-card" id="volatility-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Volatility State
+                </div>
+                <div style="text-align: center;">
+                  <div id="atr-value" style="font-size: 3rem; font-weight: bold; margin-bottom: 0.5rem;">-</div>
+                  <div id="atr-state" style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">-</div>
+                  <div id="atr-status" style="font-size: 1rem; color: rgba(255, 255, 255, 0.7); font-family: var(--font-mathias);">
+                    <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 6. Volume Profile Bias -->
+            <div class="dashboard-card tf-card" id="volume-profile-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Volume Profile Position
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 1rem;">
+                  <div style="position: relative; height: 120px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 1rem;">
+                    <div style="position: absolute; top: 0; left: 0; right: 0; height: 1px; background: rgba(255, 255, 255, 0.2);" id="vah-line"></div>
+                    <div style="position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: rgba(255, 255, 255, 0.2);" id="val-line"></div>
+                    <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 4px; height: 100%; background: var(--color-yellow-75); border-radius: 2px; opacity: 0.6;" id="price-line"></div>
+                    <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 1.25rem; font-weight: bold; color: var(--color-yellow-75); background: rgba(0, 0, 0, 0.8); padding: 0.25rem 0.5rem; border-radius: 4px;" id="price-label">PRICE</div>
+                    <div style="position: absolute; top: 0.5rem; left: 0.5rem; font-size: 0.75rem; color: rgba(255, 255, 255, 0.5);" id="vah-label">VAH</div>
+                    <div style="position: absolute; bottom: 0.5rem; left: 0.5rem; font-size: 0.75rem; color: rgba(255, 255, 255, 0.5);" id="val-label">VAL</div>
+                  </div>
+                  <div id="vp-bias" style="text-align: center; font-size: 1.5rem; font-weight: bold; font-family: var(--font-mathias);">
+                    <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
       </div>
 
   </main>
@@ -3431,6 +3608,405 @@
       
       // Update mode buttons
       updateModeButtons();
+      
+      // Update high-level dashboard
+      updateHighLevelDashboard();
+    }
+    
+    // Update High-Level Dashboard with BTCUSDT data (primary symbol)
+    function updateHighLevelDashboard() {
+      const dashboard = document.getElementById('highLevelDashboard');
+      if (!dashboard) return;
+      
+      // Use BTCUSDT as primary symbol for dashboard
+      const symbol = 'BTCUSDT';
+      const data = scanResults[symbol];
+      
+      if (!data) {
+        dashboard.classList.add('hidden');
+        return;
+      }
+      
+      // Show dashboard
+      dashboard.classList.remove('hidden');
+      
+      const richSymbol = data?.richSymbol || data;
+      const timeframes = richSymbol?.timeframes || {};
+      const currentPrice = richSymbol?.currentPrice || data?.currentPrice || 0;
+      const htfBias = richSymbol?.htfBias || { direction: 'neutral', confidence: 0, source: 'none' };
+      
+      // 1. HTF Trend State (1D, 4H, 1H)
+      updateHTFTrendState(timeframes, htfBias, currentPrice);
+      
+      // 2. Liquidity Map
+      updateLiquidityMap(timeframes, currentPrice);
+      
+      // 3. FVG State
+      updateFVGState(timeframes, currentPrice);
+      
+      // 4. Divergence Alerts
+      updateDivergenceAlerts(timeframes);
+      
+      // 5. Volatility (ATR State)
+      updateVolatilityState(timeframes);
+      
+      // 6. Volume Profile Bias
+      updateVolumeProfileBias(timeframes, currentPrice);
+    }
+    
+    // Update HTF Trend State
+    function updateHTFTrendState(timeframes, htfBias, currentPrice) {
+      const tf1d = timeframes['1d'];
+      const tf4h = timeframes['4h'];
+      const tf1h = timeframes['1h'];
+      
+      const tfs = [
+        { key: '1d', data: tf1d, el: document.querySelector('.htf-tf[data-tf="1d"]') },
+        { key: '4h', data: tf4h, el: document.querySelector('.htf-tf[data-tf="4h"]') },
+        { key: '1h', data: tf1h, el: document.querySelector('.htf-tf[data-tf="1h"]') }
+      ];
+      
+      let allAligned = true;
+      let alignedDirection = null;
+      let alignedCount = 0;
+      
+      tfs.forEach(({ key, data, el }) => {
+        if (!el) return;
+        
+        const trendValue = el.querySelector('.htf-trend-value');
+        const confidence = el.querySelector('.htf-confidence');
+        
+        if (!data || !data.trend) {
+          if (trendValue) trendValue.textContent = '-';
+          if (trendValue) trendValue.style.color = 'rgba(255, 255, 255, 0.4)';
+          if (confidence) confidence.textContent = '-';
+          allAligned = false;
+          return;
+        }
+        
+        const trend = String(data.trend).toLowerCase();
+        const isUp = trend.includes('up');
+        const isDown = trend.includes('down');
+        const isFlat = !isUp && !isDown;
+        
+        if (isUp) {
+          if (trendValue) {
+            trendValue.textContent = '↑';
+            trendValue.style.color = '#10b981';
+          }
+          alignedDirection = alignedDirection || 'up';
+          if (alignedDirection === 'up') alignedCount++;
+          else allAligned = false;
+        } else if (isDown) {
+          if (trendValue) {
+            trendValue.textContent = '↓';
+            trendValue.style.color = '#ef4444';
+          }
+          alignedDirection = alignedDirection || 'down';
+          if (alignedDirection === 'down') alignedCount++;
+          else allAligned = false;
+        } else {
+          if (trendValue) {
+            trendValue.textContent = '—';
+            trendValue.style.color = 'rgba(255, 255, 255, 0.4)';
+          }
+          allAligned = false;
+        }
+        
+        // Confidence from EMA alignment
+        const ema21 = data.ema21;
+        const ema200 = data.ema200;
+        const price = currentPrice || 0;
+        let conf = 0;
+        if (ema21 && ema200 && price) {
+          if (isUp && price > ema21 && ema21 > ema200) conf = 85;
+          else if (isDown && price < ema21 && ema21 < ema200) conf = 85;
+          else if (isUp && price > ema21) conf = 60;
+          else if (isDown && price < ema21) conf = 60;
+        }
+        if (confidence) confidence.textContent = conf > 0 ? `${conf}%` : '-';
+      });
+      
+      // Update alignment status
+      const statusEl = document.getElementById('htf-alignment-status');
+      const card = document.getElementById('htf-trend-card');
+      
+      if (allAligned && alignedCount === 3) {
+        statusEl.innerHTML = `<span style="color: ${alignedDirection === 'up' ? '#10b981' : '#ef4444'}; text-shadow: 0 0 20px ${alignedDirection === 'up' ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'};">
+          ⚡ ALL ALIGNED - PAY ATTENTION
+        </span>`;
+        card.className = `dashboard-card tf-card ${alignedDirection === 'up' ? 'uptrend' : 'downtrend'}`;
+      } else if (alignedCount >= 2) {
+        statusEl.innerHTML = `<span style="color: rgba(255, 255, 255, 0.7);">
+          ${alignedCount}/3 Aligned
+        </span>`;
+        card.className = `dashboard-card tf-card ${alignedDirection === 'up' ? 'uptrend' : alignedDirection === 'down' ? 'downtrend' : 'flat'}`;
+      } else {
+        statusEl.innerHTML = `<span style="color: rgba(255, 255, 255, 0.4);">
+          No Clear Alignment
+        </span>`;
+        card.className = 'dashboard-card tf-card flat';
+      }
+    }
+    
+    // Update Liquidity Map
+    function updateLiquidityMap(timeframes, currentPrice) {
+      const tf4h = timeframes['4h'];
+      const lz = tf4h?.liquidityZones || [];
+      
+      const equalHighs = lz.filter(z => z.type === 'equal_highs').sort((a, b) => a.price - b.price);
+      const equalLows = lz.filter(z => z.type === 'equal_lows').sort((a, b) => a.price - b.price);
+      
+      const highsEl = document.getElementById('liquidity-highs');
+      const lowsEl = document.getElementById('liquidity-lows');
+      const biasEl = document.getElementById('liquidity-bias');
+      
+      // Display equal highs
+      if (equalHighs.length > 0) {
+        highsEl.innerHTML = equalHighs.slice(0, 5).map(z => {
+          const pct = currentPrice > 0 ? ((z.price - currentPrice) / currentPrice * 100).toFixed(1) : 0;
+          return `<span style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.875rem; color: #ef4444; font-weight: bold;">
+            ${z.price.toLocaleString()} (+${pct}%)
+          </span>`;
+        }).join('');
+      } else {
+        highsEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">None</span>';
+      }
+      
+      // Display equal lows
+      if (equalLows.length > 0) {
+        lowsEl.innerHTML = equalLows.slice(0, 5).map(z => {
+          const pct = currentPrice > 0 ? ((currentPrice - z.price) / currentPrice * 100).toFixed(1) : 0;
+          return `<span style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.875rem; color: #10b981; font-weight: bold;">
+            ${z.price.toLocaleString()} (-${pct}%)
+          </span>`;
+        }).join('');
+      } else {
+        lowsEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">None</span>';
+      }
+      
+      // Determine bias
+      const highStrength = equalHighs.reduce((sum, z) => sum + (z.strength || 0), 0);
+      const lowStrength = equalLows.reduce((sum, z) => sum + (z.strength || 0), 0);
+      
+      if (highStrength > lowStrength * 1.5) {
+        biasEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚠️ More Liquidity Above → Expect Sweep Down</span>';
+      } else if (lowStrength > highStrength * 1.5) {
+        biasEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">⚠️ More Liquidity Below → Expect Sweep Up</span>';
+      } else {
+        biasEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.6);">Balanced Liquidity</span>';
+      }
+    }
+    
+    // Update FVG State
+    function updateFVGState(timeframes, currentPrice) {
+      const tf4h = timeframes['4h'];
+      const tf1h = timeframes['1h'];
+      const fvgs4h = tf4h?.fairValueGaps || [];
+      const fvgs1h = tf1h?.fairValueGaps || [];
+      const allFvgs = [...fvgs4h, ...fvgs1h];
+      
+      const bullishFvgs = allFvgs.filter(f => f.direction === 'bullish' && !f.filled);
+      const bearishFvgs = allFvgs.filter(f => f.direction === 'bearish' && !f.filled);
+      
+      const bullishEl = document.getElementById('fvg-bullish');
+      const bullishStatusEl = document.getElementById('fvg-bullish-status');
+      const bearishEl = document.getElementById('fvg-bearish');
+      const bearishStatusEl = document.getElementById('fvg-bearish-status');
+      const priceStatusEl = document.getElementById('fvg-price-status');
+      const card = document.getElementById('fvg-card');
+      
+      bullishEl.textContent = bullishFvgs.length;
+      bearishEl.textContent = bearishFvgs.length;
+      
+      bullishStatusEl.textContent = bullishFvgs.length > 0 
+        ? `${bullishFvgs.filter(f => currentPrice > f.low && currentPrice < f.high).length} below price`
+        : 'None';
+      bearishStatusEl.textContent = bearishFvgs.length > 0
+        ? `${bearishFvgs.filter(f => currentPrice > f.low && currentPrice < f.high).length} above price`
+        : 'None';
+      
+      // Check if price is inside an FVG
+      const priceInBullishFvg = bullishFvgs.some(f => currentPrice > f.low && currentPrice < f.high);
+      const priceInBearishFvg = bearishFvgs.some(f => currentPrice > f.low && currentPrice < f.high);
+      
+      if (priceInBullishFvg) {
+        priceStatusEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">⚡ Price Inside Bullish FVG → High Probability Move</span>';
+        card.className = 'dashboard-card tf-card uptrend';
+      } else if (priceInBearishFvg) {
+        priceStatusEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚡ Price Inside Bearish FVG → High Probability Move</span>';
+        card.className = 'dashboard-card tf-card downtrend';
+      } else {
+        priceStatusEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.6);">Price Outside FVGs</span>';
+        card.className = 'dashboard-card tf-card flat';
+      }
+    }
+    
+    // Update Divergence Alerts
+    function updateDivergenceAlerts(timeframes) {
+      const tf1h = timeframes['1h'];
+      const tf15m = timeframes['15m'];
+      
+      const divs1h = tf1h?.divergences || [];
+      const divs15m = tf15m?.divergences || [];
+      
+      const rsiDivs = divs1h.filter(d => d.oscillator === 'RSI');
+      const stochDivs = divs15m.filter(d => d.oscillator === 'StochRSI');
+      
+      const rsiEl = document.getElementById('div-rsi');
+      const rsiDetailEl = document.getElementById('div-rsi-detail');
+      const stochEl = document.getElementById('div-stoch');
+      const stochDetailEl = document.getElementById('div-stoch-detail');
+      const alertEl = document.getElementById('divergence-alert');
+      const card = document.getElementById('divergence-card');
+      
+      if (rsiDivs.length > 0) {
+        const bullish = rsiDivs.filter(d => d.side === 'bullish').length;
+        const bearish = rsiDivs.filter(d => d.side === 'bearish').length;
+        rsiEl.textContent = bullish > bearish ? '↑' : bearish > bullish ? '↓' : '—';
+        rsiEl.style.color = bullish > bearish ? '#10b981' : bearish > bullish ? '#ef4444' : 'rgba(255, 255, 255, 0.4)';
+        rsiDetailEl.textContent = `${bullish}B ${bearish}S`;
+      } else {
+        rsiEl.textContent = '—';
+        rsiEl.style.color = 'rgba(255, 255, 255, 0.4)';
+        rsiDetailEl.textContent = 'None';
+      }
+      
+      if (stochDivs.length > 0) {
+        const bullish = stochDivs.filter(d => d.side === 'bullish').length;
+        const bearish = stochDivs.filter(d => d.side === 'bearish').length;
+        stochEl.textContent = bullish > bearish ? '↑' : bearish > bullish ? '↓' : '—';
+        stochEl.style.color = bullish > bearish ? '#10b981' : bearish > bullish ? '#ef4444' : 'rgba(255, 255, 255, 0.4)';
+        stochDetailEl.textContent = `${bullish}B ${bearish}S`;
+      } else {
+        stochEl.textContent = '—';
+        stochEl.style.color = 'rgba(255, 255, 255, 0.4)';
+        stochDetailEl.textContent = 'None';
+      }
+      
+      // Check for significant divergence
+      const allDivs = [...rsiDivs, ...stochDivs];
+      const bullishDivs = allDivs.filter(d => d.side === 'bullish');
+      const bearishDivs = allDivs.filter(d => d.side === 'bearish');
+      
+      if (bullishDivs.length >= 2) {
+        alertEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">⚡ Multiple Bullish Divergences → Reversal Signal</span>';
+        card.className = 'dashboard-card tf-card uptrend';
+      } else if (bearishDivs.length >= 2) {
+        alertEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚡ Multiple Bearish Divergences → Reversal Signal</span>';
+        card.className = 'dashboard-card tf-card downtrend';
+      } else if (allDivs.length > 0) {
+        alertEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.7);">Divergence Detected</span>';
+        card.className = 'dashboard-card tf-card flat';
+      } else {
+        alertEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">No Divergences</span>';
+        card.className = 'dashboard-card tf-card flat';
+      }
+    }
+    
+    // Update Volatility State
+    function updateVolatilityState(timeframes) {
+      const tf4h = timeframes['4h'];
+      const vol = tf4h?.volatility;
+      
+      const atrValueEl = document.getElementById('atr-value');
+      const atrStateEl = document.getElementById('atr-state');
+      const atrStatusEl = document.getElementById('atr-status');
+      const card = document.getElementById('volatility-card');
+      
+      if (!vol || vol.atrPctOfPrice === null || vol.atrPctOfPrice === undefined) {
+        atrValueEl.textContent = '-';
+        atrStateEl.textContent = '-';
+        atrStatusEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">No Data</span>';
+        card.className = 'dashboard-card tf-card flat';
+        return;
+      }
+      
+      const atrPct = vol.atrPctOfPrice;
+      const state = vol.state || 'normal';
+      
+      atrValueEl.textContent = `${atrPct.toFixed(2)}%`;
+      atrStateEl.textContent = state.toUpperCase();
+      
+      // Color code based on state
+      if (state === 'extreme') {
+        atrValueEl.style.color = '#ef4444';
+        atrStateEl.style.color = '#ef4444';
+        atrStatusEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚠️ EXTREME → No Trades / Reduce Risk</span>';
+        card.className = 'dashboard-card tf-card downtrend';
+      } else if (state === 'high') {
+        atrValueEl.style.color = '#f59e0b';
+        atrStateEl.style.color = '#f59e0b';
+        atrStatusEl.innerHTML = '<span style="color: #f59e0b;">High Volatility → Caution</span>';
+        card.className = 'dashboard-card tf-card flat';
+      } else if (state === 'normal') {
+        atrValueEl.style.color = '#10b981';
+        atrStateEl.style.color = '#10b981';
+        atrStatusEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">✓ Normal → Prime Trading Conditions</span>';
+        card.className = 'dashboard-card tf-card uptrend';
+      } else {
+        atrValueEl.style.color = '#6b7280';
+        atrStateEl.style.color = '#6b7280';
+        atrStatusEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.6);">Low Volatility</span>';
+        card.className = 'dashboard-card tf-card flat';
+      }
+    }
+    
+    // Update Volume Profile Bias
+    function updateVolumeProfileBias(timeframes, currentPrice) {
+      const tf4h = timeframes['4h'];
+      const vp = tf4h?.volumeProfile;
+      
+      const vahLabel = document.getElementById('vah-label');
+      const valLabel = document.getElementById('val-label');
+      const priceLabel = document.getElementById('price-label');
+      const vahLine = document.getElementById('vah-line');
+      const valLine = document.getElementById('val-line');
+      const priceLine = document.getElementById('price-line');
+      const biasEl = document.getElementById('vp-bias');
+      const card = document.getElementById('volume-profile-card');
+      
+      if (!vp || !vp.valueAreaHigh || !vp.valueAreaLow || !currentPrice) {
+        vahLabel.textContent = 'VAH: -';
+        valLabel.textContent = 'VAL: -';
+        priceLabel.textContent = 'PRICE';
+        biasEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">No Data</span>';
+        card.className = 'dashboard-card tf-card flat';
+        return;
+      }
+      
+      const vah = vp.valueAreaHigh;
+      const val = vp.valueAreaLow;
+      const range = vah - val;
+      
+      // Calculate position (0 = VAL, 100 = VAH)
+      const position = range > 0 ? ((currentPrice - val) / range) * 100 : 50;
+      const positionPct = Math.max(0, Math.min(100, position));
+      
+      // Update visual position
+      priceLine.style.top = `${100 - positionPct}%`;
+      priceLabel.style.top = `${100 - positionPct}%`;
+      
+      vahLabel.textContent = `VAH: ${vah.toLocaleString()}`;
+      valLabel.textContent = `VAL: ${val.toLocaleString()}`;
+      priceLabel.textContent = currentPrice.toLocaleString();
+      
+      // Determine bias
+      if (currentPrice <= val) {
+        biasEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5); font-size: 1.75rem;">✓ BELOW VAL → Excellent Long R:R</span>';
+        card.className = 'dashboard-card tf-card uptrend';
+      } else if (currentPrice >= vah) {
+        biasEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5); font-size: 1.75rem;">✓ ABOVE VAH → Excellent Short R:R</span>';
+        card.className = 'dashboard-card tf-card downtrend';
+      } else {
+        const mid = (vah + val) / 2;
+        if (currentPrice < mid) {
+          biasEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.7);">In Value Area (Lower Half)</span>';
+        } else {
+          biasEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.7);">In Value Area (Upper Half)</span>';
+        }
+        card.className = 'dashboard-card tf-card flat';
+      }
     }
 
     // Calculate signal readiness (proximity to trade setup)
