@@ -4053,8 +4053,20 @@ export function buildTimeframeSummary(multiTimeframeData) {
         d: stochD, // Clamped to [0, 100]
         state: stochState
       },
-      trendStrength: indicators.trendStrength || null, // NEW: ADX trend strength
-      pullbackState: indicators.analysis?.pullbackState || null, // NEW: Pullback state
+      // Chart-based analysis
+      candlestickPatterns: indicators.candlestickPatterns || null,
+      wickAnalysis: indicators.wickAnalysis || null,
+      trendStrength: indicators.trendStrength || null, // ADX trend strength
+      pullbackState: indicators.analysis?.pullbackState || null, // Pullback state
+      rsi: indicators.rsi || null,
+      // ✅ ADVANCED MODULES - Include all from data object
+      marketStructure: data.marketStructure || null,
+      volatility: data.volatility || null,
+      volume: data.volume || null,
+      volumeProfile: data.volumeProfile || null,
+      liquidityZones: Array.isArray(data.liquidityZones) ? data.liquidityZones : [],
+      fairValueGaps: Array.isArray(data.fairValueGaps) ? data.fairValueGaps : [],
+      divergences: Array.isArray(data.divergences) ? data.divergences : [],
       confluenceScore: indicators.confluence?.overall || null,
       structureSummary: buildStructureSummary(data.structure, indicators),
       notes: buildTimeframeNotes(tf, indicators, data.structure)
