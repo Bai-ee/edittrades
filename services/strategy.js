@@ -370,7 +370,7 @@ function detectStochCurl(stochHistory) {
  * @param {Object} thresholds - AGGRESSIVE thresholds
  * @returns {Object} Trade signal or invalid signal
  */
-function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
+function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds, marketData = null, dflowData = null) {
   const tf4h = analysis['4h'];
   const tf1h = analysis['1h'];
   const tf15m = analysis['15m'];
@@ -427,12 +427,86 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
         const stopLoss = swingLow15m || swingLow1h || (entry * 0.97);
         const R = Math.abs(entry - stopLoss);
         
-        // Targets - ensure they're valid numbers
-        const tp1_raw = entry + R * 1.5;
-        const tp2_raw = entry + R * 3.0;
+        // Targets - enforce minimum 3R for TP1
+        const tp1_raw = entry + R * 3.0; // Minimum 3R
+        const tp2_raw = entry + R * 4.5; // TP2 at 4.5R
         const tp1 = !isNaN(tp1_raw) && isFinite(tp1_raw) ? parseFloat(tp1_raw.toFixed(2)) : null;
         const tp2 = !isNaN(tp2_raw) && isFinite(tp2_raw) ? parseFloat(tp2_raw.toFixed(2)) : null;
         const stopLossFinal = !isNaN(stopLoss) && isFinite(stopLoss) ? parseFloat(stopLoss.toFixed(2)) : null;
+        
+        // Use hierarchical confidence system
+        const confidenceResult = calculateConfidenceWithHierarchy(
+          analysis,
+          'long',
+          'AGGRESSIVE',
+          'SCALP_1H',
+          marketData,
+          dflowData
+        );
+        let confidence = confidenceResult.confidence || 0;
+        let penaltiesApplied = [...confidenceResult.penaltiesApplied];
+        let capsApplied = [...confidenceResult.capsApplied];
+        let confidenceExplanation = confidenceResult.explanation || '';
+        
+        // Apply market context adjustments
+        const marketContextResult = applyMarketContextAdjustments(
+          { confidence, penaltiesApplied, capsApplied, explanation: confidenceExplanation },
+          marketData,
+          dflowData,
+          'long',
+          'AGGRESSIVE',
+          'PULLBACK', // Aggressive scalps use pullback entries
+          htfBias
+        );
+        
+        // If market context invalidates, return NO_TRADE
+        if (marketContextResult.invalidated) {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            confidence: 0,
+            reason: marketContextResult.reason || 'Market context filters invalidated trade',
+            entryZone: { min: null, max: null },
+            stopLoss: null,
+            invalidationLevel: null,
+            targets: [],
+            riskReward: { tp1RR: null, tp2RR: null },
+            validationErrors: []
+          };
+        }
+        
+        confidence = marketContextResult.confidence;
+        penaltiesApplied = marketContextResult.penaltiesApplied;
+        capsApplied = marketContextResult.capsApplied;
+        confidenceExplanation = marketContextResult.explanation;
+        
+        // Validate RR (should already be 3R, but verify)
+        const actualTp1RR = R > 0 ? Math.abs(tp1 - entry) / R : 0;
+        if (actualTp1RR < 3.0) {
+          const rrPenalty = -Math.max(15, Math.min(25, (3.0 - actualTp1RR) * 10));
+          confidence += rrPenalty;
+          penaltiesApplied.push({
+            layer: 'risk_reward',
+            reason: `TP1 RR ${actualTp1RR.toFixed(2)}R below minimum 3R`,
+            multiplier: 1.0 + (rrPenalty / 100)
+          });
+        }
+        
+        // Minimum confidence check for aggressive strategies
+        if (confidence < 50) {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            confidence: Math.round(confidence),
+            reason: `Aggressive scalp confidence ${confidence.toFixed(1)}% below minimum 50%`,
+            entryZone: { min: null, max: null },
+            stopLoss: null,
+            invalidationLevel: null,
+            targets: [],
+            riskReward: { tp1RR: null, tp2RR: null },
+            validationErrors: []
+          };
+        }
         
         return {
           valid: true,
@@ -441,7 +515,7 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
           setupType: 'AGGRO_SCALP_1H',
           selectedStrategy: 'AGGRO_SCALP_1H',
           strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H'],
-          confidence: 55, // 0-100 scale
+          confidence: Math.round(confidence),
           reason_summary: `Aggressive 1H scalp LONG: 1H ${trend1h}, 15m ${dist15m.toFixed(2)}% from EMA21, stoch ${k15m.toFixed(0)}. Counter-trend fade with small size.`,
           entry_zone: { 
             min: parseFloat((entry * 0.997).toFixed(2)), 
@@ -450,7 +524,7 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
           stop_loss: stopLossFinal,
           invalidation_level: stopLossFinal,
           targets: [tp1, tp2],
-          risk_reward: { tp1RR: 1.5, tp2RR: 3.0 },
+          risk_reward: { tp1RR: 3.0, tp2RR: 4.5 },
           risk_amount: 0.005,  // 0.5% (half size)
           invalidation: {
             level: stopLossFinal,
@@ -519,12 +593,86 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
         const stopLoss = swingHigh15m || swingHigh1h || (entry * 1.03);
         const R = Math.abs(entry - stopLoss);
         
-        // Targets - ensure they're valid numbers
-        const tp1_raw = entry - R * 1.5;
-        const tp2_raw = entry - R * 3.0;
+        // Targets - enforce minimum 3R for TP1
+        const tp1_raw = entry - R * 3.0; // Minimum 3R
+        const tp2_raw = entry - R * 4.5; // TP2 at 4.5R
         const tp1 = !isNaN(tp1_raw) && isFinite(tp1_raw) ? parseFloat(tp1_raw.toFixed(2)) : null;
         const tp2 = !isNaN(tp2_raw) && isFinite(tp2_raw) ? parseFloat(tp2_raw.toFixed(2)) : null;
         const stopLossFinal = !isNaN(stopLoss) && isFinite(stopLoss) ? parseFloat(stopLoss.toFixed(2)) : null;
+        
+        // Use hierarchical confidence system
+        const confidenceResult = calculateConfidenceWithHierarchy(
+          analysis,
+          'short',
+          'AGGRESSIVE',
+          'SCALP_1H',
+          marketData,
+          dflowData
+        );
+        let confidence = confidenceResult.confidence || 0;
+        let penaltiesApplied = [...confidenceResult.penaltiesApplied];
+        let capsApplied = [...confidenceResult.capsApplied];
+        let confidenceExplanation = confidenceResult.explanation || '';
+        
+        // Apply market context adjustments
+        const marketContextResult = applyMarketContextAdjustments(
+          { confidence, penaltiesApplied, capsApplied, explanation: confidenceExplanation },
+          marketData,
+          dflowData,
+          'short',
+          'AGGRESSIVE',
+          'PULLBACK', // Aggressive scalps use pullback entries
+          htfBias
+        );
+        
+        // If market context invalidates, return NO_TRADE
+        if (marketContextResult.invalidated) {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            confidence: 0,
+            reason: marketContextResult.reason || 'Market context filters invalidated trade',
+            entryZone: { min: null, max: null },
+            stopLoss: null,
+            invalidationLevel: null,
+            targets: [],
+            riskReward: { tp1RR: null, tp2RR: null },
+            validationErrors: []
+          };
+        }
+        
+        confidence = marketContextResult.confidence;
+        penaltiesApplied = marketContextResult.penaltiesApplied;
+        capsApplied = marketContextResult.capsApplied;
+        confidenceExplanation = marketContextResult.explanation;
+        
+        // Validate RR (should already be 3R, but verify)
+        const actualTp1RR = R > 0 ? Math.abs(tp1 - entry) / R : 0;
+        if (actualTp1RR < 3.0) {
+          const rrPenalty = -Math.max(15, Math.min(25, (3.0 - actualTp1RR) * 10));
+          confidence += rrPenalty;
+          penaltiesApplied.push({
+            layer: 'risk_reward',
+            reason: `TP1 RR ${actualTp1RR.toFixed(2)}R below minimum 3R`,
+            multiplier: 1.0 + (rrPenalty / 100)
+          });
+        }
+        
+        // Minimum confidence check for aggressive strategies
+        if (confidence < 50) {
+          return {
+            valid: false,
+            direction: 'NO_TRADE',
+            confidence: Math.round(confidence),
+            reason: `Aggressive scalp confidence ${confidence.toFixed(1)}% below minimum 50%`,
+            entryZone: { min: null, max: null },
+            stopLoss: null,
+            invalidationLevel: null,
+            targets: [],
+            riskReward: { tp1RR: null, tp2RR: null },
+            validationErrors: []
+          };
+        }
         
         return {
           valid: true,
@@ -533,7 +681,7 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
           setupType: 'AGGRO_SCALP_1H',
           selectedStrategy: 'AGGRO_SCALP_1H',
           strategiesChecked: ['SWING', 'TREND_4H', 'SCALP_1H', 'MICRO_SCALP', 'AGGRO_SCALP_1H'],
-          confidence: 55, // 0-100 scale
+          confidence: Math.round(confidence),
           reason_summary: `Aggressive 1H scalp SHORT: 1H ${trend1h}, 15m ${dist15m.toFixed(2)}% from EMA21, stoch ${k15m.toFixed(0)}. Counter-trend fade with small size.`,
           entry_zone: { 
             min: parseFloat((entry * 0.997).toFixed(2)), 
@@ -542,7 +690,7 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
           stop_loss: stopLossFinal,
           invalidation_level: stopLossFinal,
           targets: [tp1, tp2],
-          risk_reward: { tp1RR: 1.5, tp2RR: 3.0 },
+          risk_reward: { tp1RR: 3.0, tp2RR: 4.5 },
           risk_amount: 0.005,
           invalidation: {
             level: stopLossFinal,
@@ -729,28 +877,53 @@ function calculateBreakoutEntryZone(swingLevel, direction, currentPrice = null, 
 
 /**
  * Check if price is near swing level and momentum supports breakout entry
- * Updated to be more aggressive - triggers when price is near swing levels, not just after breaking
+ * Enhanced with volume confirmation and HTF bias alignment checks
  * @param {number} currentPrice - Current price
  * @param {number} swingLevel - Swing high (longs) or swing low (shorts)
  * @param {string} direction - 'long' or 'short'
  * @param {Object} stochRSI - StochRSI indicator object
  * @param {number} nearThreshold - How close price must be to swing level (default 0.5% = 0.005)
+ * @param {Object} marketData - Optional market data for volume confirmation
+ * @param {Object} htfBias - Optional HTF bias for alignment check
  * @returns {boolean} True if breakout entry should be used
  */
-function isBreakoutConfirmed(currentPrice, swingLevel, direction, stochRSI, nearThreshold = 0.005) {
+function isBreakoutConfirmed(currentPrice, swingLevel, direction, stochRSI, nearThreshold = 0.005, marketData = null, htfBias = null) {
   if (!swingLevel || !stochRSI || isNaN(swingLevel) || isNaN(currentPrice)) return false;
   
-  // Check if price is near swing level (within 0.5% for longs, or at/above for shorts)
+  // Check if price is near swing level (within 0.5-1% for longs, or at/above for shorts)
   const priceNearSwing = direction === 'long'
-    ? currentPrice >= swingLevel * (1 - nearThreshold)  // Price within 0.5% below swing high OR above
-    : currentPrice <= swingLevel * (1 + nearThreshold);  // Price within 0.5% above swing low OR below
+    ? currentPrice >= swingLevel * (1 - nearThreshold)  // Price within threshold below swing high OR above
+    : currentPrice <= swingLevel * (1 + nearThreshold);  // Price within threshold above swing low OR below
+  
+  if (!priceNearSwing) return false;
   
   // Momentum confirmation: More lenient - just need momentum aligned, not strict K thresholds
   const momentumOk = direction === 'long'
     ? (stochRSI.condition === 'BULLISH' || stochRSI.condition === 'OVERSOLD' || (stochRSI.k && stochRSI.k < 50))  // K<50 for longs (more lenient)
     : (stochRSI.condition === 'BEARISH' || stochRSI.condition === 'OVERBOUGHT' || (stochRSI.k && stochRSI.k > 50)); // K>50 for shorts (more lenient)
   
-  return priceNearSwing && momentumOk;
+  if (!momentumOk) return false;
+  
+  // Volume confirmation (if available) - prefer HIGH or MEDIUM volume for breakouts
+  if (marketData && marketData.volumeQuality) {
+    if (marketData.volumeQuality === 'LOW') {
+      // Low volume breakouts are risky - only allow if HTF bias is very strong
+      if (htfBias && htfBias.confidence >= 80 && htfBias.direction === direction) {
+        return true; // Override with strong HTF bias
+      }
+      return false; // Block low volume breakouts
+    }
+  }
+  
+  // HTF bias alignment check (if available) - prefer aligned breakouts
+  if (htfBias && htfBias.direction !== 'neutral') {
+    if (htfBias.direction !== direction && htfBias.confidence >= 70) {
+      // Strong HTF bias opposes direction - be cautious with breakout
+      return false;
+    }
+  }
+  
+  return true;
 }
 
 /**
@@ -885,6 +1058,199 @@ function checkDflowAlignment(dflowData, direction) {
     aligned,
     bonus: aligned ? 5 : -5,  // +5% if aligned, -5% if contradicts
     explanation: `${alignedCount}/${totalMarkets} markets align with ${direction} direction`
+  };
+}
+
+/**
+ * Apply market context adjustments to signal confidence
+ * Enhances volume quality filtering, trade count checks, spread-based filters, and dFlow sentiment
+ * @param {Object} signal - Signal object (with confidence, penaltiesApplied, capsApplied, explanation)
+ * @param {Object} marketData - Market data (volumeQuality, tradeCount24h, spread, recentTrades, orderBook)
+ * @param {Object} dflowData - dFlow prediction market data
+ * @param {string} direction - 'long' or 'short'
+ * @param {string} mode - 'STANDARD' or 'AGGRESSIVE'
+ * @param {string} entryType - 'BREAKOUT' or 'PULLBACK'
+ * @param {Object} htfBias - HTF bias object (for override conditions)
+ * @returns {Object} { confidence, penaltiesApplied, capsApplied, explanation, invalidated, reason }
+ */
+function applyMarketContextAdjustments(signal, marketData, dflowData, direction, mode, entryType = 'PULLBACK', htfBias = null) {
+  let confidence = signal.confidence || 0;
+  const penaltiesApplied = [...(signal.penaltiesApplied || [])];
+  const capsApplied = [...(signal.capsApplied || [])];
+  let explanation = signal.explanation || '';
+  let invalidated = false;
+  let reason = '';
+  
+  // 1. Volume Quality Hard Block for Breakout Entries
+  if (entryType === 'BREAKOUT' && marketData && marketData.volumeQuality === 'LOW') {
+    // Allow override if HTF bias is extremely strong (>= 80%)
+    const allowOverride = htfBias && htfBias.confidence >= 80 && htfBias.direction === direction;
+    
+    if (!allowOverride) {
+      invalidated = true;
+      reason = 'Breakout entry blocked: Low volume quality (requires HIGH or MEDIUM volume for breakout entries)';
+      return {
+        confidence: 0,
+        penaltiesApplied,
+        capsApplied,
+        explanation: reason,
+        invalidated: true,
+        reason
+      };
+    } else {
+      // Apply heavy penalty even with override
+      confidence -= 15;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: 'Breakout entry with LOW volume quality (override: HTF bias >= 80%)',
+        multiplier: 0.85
+      });
+      explanation += ' | LOW volume quality (HTF bias override applied)';
+    }
+  }
+  
+  // 2. Trade Count Threshold Check
+  if (marketData && marketData.tradeCount24h !== null && marketData.tradeCount24h !== undefined) {
+    const minTradeCount = 1000; // Minimum trades in 24h for acceptable liquidity
+    if (marketData.tradeCount24h < minTradeCount) {
+      const penalty = marketData.tradeCount24h < 500 ? -10 : -5;
+      confidence += penalty;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: `Low trade count: ${marketData.tradeCount24h} trades/24h (minimum: ${minTradeCount})`,
+        multiplier: 1.0 + (penalty / 100)
+      });
+      explanation += ` | Low trade count: ${marketData.tradeCount24h}`;
+    }
+  }
+  
+  // 3. Spread-Based Filter
+  if (marketData && marketData.spreadPercent !== null && marketData.spreadPercent !== undefined) {
+    const wideSpreadThreshold = 0.1; // 0.1% = wide spread
+    if (marketData.spreadPercent > wideSpreadThreshold) {
+      const penalty = marketData.spreadPercent > 0.2 ? -8 : -4;
+      confidence += penalty;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: `Wide spread: ${(marketData.spreadPercent * 100).toFixed(3)}% (threshold: ${(wideSpreadThreshold * 100)}%)`,
+        multiplier: 1.0 + (penalty / 100)
+      });
+      explanation += ` | Wide spread: ${(marketData.spreadPercent * 100).toFixed(3)}%`;
+    }
+  }
+  
+  // 4. Recent Trade Flow Contradiction (enhanced from existing logic)
+  if (marketData && marketData.recentTrades) {
+    const { buyPressure, sellPressure, overallFlow } = marketData.recentTrades;
+    
+    if (direction === 'long' && sellPressure > buyPressure && (sellPressure - buyPressure) > 20) {
+      // Strong sell pressure for long trade
+      confidence -= 5;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: `Sell pressure exceeds buy pressure: ${sellPressure}% vs ${buyPressure}%`,
+        multiplier: 0.95
+      });
+      explanation += ` | Sell pressure: ${sellPressure}%`;
+    } else if (direction === 'short' && buyPressure > sellPressure && (buyPressure - sellPressure) > 20) {
+      // Strong buy pressure for short trade
+      confidence -= 5;
+      penaltiesApplied.push({
+        layer: 'market',
+        reason: `Buy pressure exceeds sell pressure: ${buyPressure}% vs ${sellPressure}%`,
+        multiplier: 0.95
+      });
+      explanation += ` | Buy pressure: ${buyPressure}%`;
+    }
+  }
+  
+  // 5. Enhanced dFlow Integration
+  if (dflowData && dflowData.events && Array.isArray(dflowData.events) && dflowData.events.length > 0) {
+    // Extract probability scores from dFlow
+    let pUp = 0;
+    let pDown = 0;
+    let totalConfidence = 0;
+    
+    for (const event of dflowData.events) {
+      if (event.probabilityUp !== null && event.probabilityUp !== undefined) {
+        pUp += event.probabilityUp;
+        pDown += (1 - event.probabilityUp);
+        totalConfidence += (event.confidence || 50);
+      }
+    }
+    
+    if (dflowData.events.length > 0) {
+      pUp = pUp / dflowData.events.length;
+      pDown = pDown / dflowData.events.length;
+      totalConfidence = totalConfidence / dflowData.events.length;
+      
+      // Strong opposition (>70% opposite direction)
+      if (direction === 'long' && pDown > 0.70 && totalConfidence > 60) {
+        // Cap confidence at 60 or invalidate weaker setups
+        if (confidence < 65) {
+          invalidated = true;
+          reason = `dFlow strongly opposes LONG direction: ${(pDown * 100).toFixed(1)}% probability DOWN (confidence: ${totalConfidence.toFixed(1)}%)`;
+          return {
+            confidence: 0,
+            penaltiesApplied,
+            capsApplied,
+            explanation: reason,
+            invalidated: true,
+            reason
+          };
+        } else {
+          capsApplied.push({
+            layer: 'dflow',
+            reason: `dFlow opposes direction: ${(pDown * 100).toFixed(1)}% DOWN`,
+            cap: 60
+          });
+          confidence = Math.min(confidence, 60);
+          explanation += ` | dFlow opposes: ${(pDown * 100).toFixed(1)}% DOWN`;
+        }
+      } else if (direction === 'short' && pUp > 0.70 && totalConfidence > 60) {
+        // Cap confidence at 60 or invalidate weaker setups
+        if (confidence < 65) {
+          invalidated = true;
+          reason = `dFlow strongly opposes SHORT direction: ${(pUp * 100).toFixed(1)}% probability UP (confidence: ${totalConfidence.toFixed(1)}%)`;
+          return {
+            confidence: 0,
+            penaltiesApplied,
+            capsApplied,
+            explanation: reason,
+            invalidated: true,
+            reason
+          };
+        } else {
+          capsApplied.push({
+            layer: 'dflow',
+            reason: `dFlow opposes direction: ${(pUp * 100).toFixed(1)}% UP`,
+            cap: 60
+          });
+          confidence = Math.min(confidence, 60);
+          explanation += ` | dFlow opposes: ${(pUp * 100).toFixed(1)}% UP`;
+        }
+      }
+      
+      // Strong alignment (>60% same direction) - bonus already applied in calculateConfidenceWithHierarchy
+      // Just add note if not already present
+      if (direction === 'long' && pUp > 0.60 && !explanation.includes('dFlow')) {
+        explanation += ` | dFlow aligns: ${(pUp * 100).toFixed(1)}% UP`;
+      } else if (direction === 'short' && pDown > 0.60 && !explanation.includes('dFlow')) {
+        explanation += ` | dFlow aligns: ${(pDown * 100).toFixed(1)}% DOWN`;
+      }
+    }
+  }
+  
+  // Ensure confidence stays in valid range
+  confidence = Math.max(0, Math.min(100, confidence));
+  
+  return {
+    confidence,
+    penaltiesApplied,
+    capsApplied,
+    explanation: explanation.trim(),
+    invalidated,
+    reason: reason || null
   };
 }
 
@@ -1436,6 +1802,10 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
   const tf1d = multiTimeframeData['1d'];
   const tf4h = multiTimeframeData['4h'];
   
+  // Compute HTF Bias early for use in market context adjustments
+  const htfBiasRaw = computeHTFBias(multiTimeframeData);
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+  
   // Guard: Need all required timeframes
   if (!tf3d || !tf1d || !tf4h) {
     return null;
@@ -1632,7 +2002,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     const stoch1dForBreakout = stoch1d;
     
     // Prioritize breakout entry - check if price is near swing level with momentum
-    if (swingLevel && stoch1dForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch1dForBreakout)) {
+    if (swingLevel && stoch1dForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch1dForBreakout, 0.005, marketData, htfBias)) {
       // Use breakout entry zone (closer to price action)
       const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
       if (breakoutZone) {
@@ -1656,7 +2026,7 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
   // Risk (R)
   const R = Math.abs(midEntry - stopLoss);
   
-  // Targets: 3R, 4R, 5R
+  // Targets: 3R, 4R, 5R (already compliant with 3R minimum)
   let tp1, tp2, tp3;
   if (direction === 'long') {
     tp1 = midEntry + (R * 3);
@@ -1666,6 +2036,18 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     tp1 = midEntry - (R * 3);
     tp2 = midEntry - (R * 4);
     tp3 = midEntry - (R * 5);
+  }
+  
+  // Validate RR (SWING already uses 3R minimum, but verify)
+  const actualTp1RR = R > 0 ? Math.abs(tp1 - midEntry) / R : 0;
+  if (actualTp1RR < 3.0) {
+    // This shouldn't happen for SWING, but log if it does
+    console.warn(`[SWING] TP1 RR ${actualTp1RR.toFixed(2)}R < 3R minimum - adjusting`);
+    if (direction === 'long') {
+      tp1 = midEntry + (R * 3);
+    } else {
+      tp1 = midEntry - (R * 3);
+    }
   }
   
   // Use hierarchical confidence system for Swing with strategy name and filters
@@ -1678,13 +2060,43 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     dflowData     // dFlow alignment
   );
   let confidence = confidenceResult.confidence;
-  const penaltiesApplied = confidenceResult.penaltiesApplied;
-  const capsApplied = confidenceResult.capsApplied;
-  const confidenceExplanation = confidenceResult.explanation;
+  let penaltiesApplied = [...confidenceResult.penaltiesApplied];
+  let capsApplied = [...confidenceResult.capsApplied];
+  let confidenceExplanation = confidenceResult.explanation;
   const confidenceBreakdown = confidenceResult.breakdown; // NEW: Get breakdown
   
-  // Apply volume quality soft block for MICRO_SCALP (not applicable to SWING, but keep pattern)
-  // Volume quality penalty already applied in calculateConfidenceWithHierarchy
+  // Apply market context adjustments (volume, trade count, spread, dFlow)
+  const marketContextResult = applyMarketContextAdjustments(
+    { confidence, penaltiesApplied, capsApplied, explanation: confidenceExplanation },
+    marketData,
+    dflowData,
+    direction,
+    mode,
+    entryType, // 'BREAKOUT' or 'PULLBACK'
+    htfBias
+  );
+  
+  // If market context invalidates the trade, return NO_TRADE
+  if (marketContextResult.invalidated) {
+    return {
+      valid: false,
+      direction: 'NO_TRADE',
+      confidence: 0,
+      reason: marketContextResult.reason || 'Market context filters invalidated trade',
+      entryZone: { min: null, max: null },
+      stopLoss: null,
+      invalidationLevel: null,
+      targets: [],
+      riskReward: { tp1RR: null, tp2RR: null },
+      validationErrors: []
+    };
+  }
+  
+  // Update confidence and penalties from market context
+  confidence = marketContextResult.confidence;
+  penaltiesApplied = marketContextResult.penaltiesApplied;
+  capsApplied = marketContextResult.capsApplied;
+  confidenceExplanation = marketContextResult.explanation;
   
   // Swing-specific bonuses (applied after hierarchical calculation)
   // Boost for strong stoch alignment
@@ -1721,10 +2133,6 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
       validationErrors: []
     };
   }
-  
-  // Compute HTF Bias for Swing - use fallback to prevent null reference
-  const htfBiasRaw = computeHTFBias(multiTimeframeData);
-  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
   
   // Build swing signal
   const swingSignal = {
@@ -2024,10 +2432,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     '5m': tf5m?.structure || { swingHigh: null, swingLow: null }
   };
   
-  // Determine R:R targets based on setup type
-  const rrTargets = setupType === 'Swing' ? [3.0, 5.0] : 
-                    setupType === 'Scalp' ? [1.5, 2.5] : 
-                    [1.0, 2.0];
+  // Determine R:R targets based on setup type (enforce minimum 3R for TP1)
+  const rrTargets = setupType === 'Swing' ? [3.0, 4.0, 5.0] : 
+                    setupType === 'Scalp' ? [3.0, 4.5] : 
+                    [3.0, 4.0]; // TREND_4H: minimum 3R for TP1
   
   // Calculate entry zone - AGGRESSIVE mode ALWAYS uses aggressive entries
   let entryZone, entryType = 'pullback';
@@ -2053,7 +2461,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
     const stoch4hForBreakout = tf4h.indicators?.stochRSI;
     
     // Prioritize breakout entry - check if price is near swing level with momentum
-    if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
+    if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout, 0.005, marketData, htfBias)) {
       const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
       if (breakoutZone) {
         entryZone = breakoutZone;
@@ -2082,11 +2490,77 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   );
   let confidence = confidenceResult.confidence;
   let penaltiesApplied = [...confidenceResult.penaltiesApplied];
-  const capsApplied = confidenceResult.capsApplied;
-  const confidenceExplanation = confidenceResult.explanation;
+  let capsApplied = [...confidenceResult.capsApplied];
+  let confidenceExplanation = confidenceResult.explanation;
   const confidenceBreakdown = confidenceResult.breakdown; // NEW: Get breakdown
   const dflowNote = confidenceResult.dflowNote || null;
   const volumeNote = confidenceResult.volumeNote || null;
+  
+  // Apply market context adjustments (volume, trade count, spread, dFlow)
+  const marketContextResult = applyMarketContextAdjustments(
+    { confidence, penaltiesApplied, capsApplied, explanation: confidenceExplanation },
+    marketData,
+    dflowData,
+    direction,
+    mode,
+    entryType, // 'BREAKOUT' or 'PULLBACK'
+    htfBias
+  );
+  
+  // If market context invalidates the trade, return NO_TRADE
+  if (marketContextResult.invalidated) {
+    return normalizeToCanonical({
+      valid: false,
+      direction: 'NO_TRADE',
+      confidence: 0,
+      reason: marketContextResult.reason || 'Market context filters invalidated trade',
+      entryZone: { min: null, max: null },
+      stopLoss: null,
+      invalidationLevel: null,
+      targets: [],
+      riskReward: { tp1RR: null, tp2RR: null },
+      validationErrors: []
+    }, analysis, mode);
+  }
+  
+  // Update confidence and penalties from market context
+  confidence = marketContextResult.confidence;
+  penaltiesApplied = marketContextResult.penaltiesApplied;
+  capsApplied = marketContextResult.capsApplied;
+  confidenceExplanation = marketContextResult.explanation;
+  
+  // Validate and enforce minimum 3R for TP1
+  const risk = Math.abs(entryMid - sltp.stopLoss);
+  const actualTp1RR = risk > 0 ? Math.abs(sltp.targets[0] - entryMid) / risk : 0;
+  
+  // If TP1 RR < 3.0, apply confidence penalty or invalidate
+  if (actualTp1RR < 3.0) {
+    const rrPenalty = -Math.max(15, Math.min(25, (3.0 - actualTp1RR) * 10)); // -15 to -25 penalty
+    confidence += rrPenalty;
+    penaltiesApplied.push({
+      layer: 'risk_reward',
+      reason: `TP1 RR ${actualTp1RR.toFixed(2)}R below minimum 3R (structure constraints)`,
+      multiplier: 1.0 + (rrPenalty / 100)
+    });
+    confidenceExplanation += ` | RR penalty: ${actualTp1RR.toFixed(2)}R < 3R`;
+    
+    // If confidence drops below minimum after penalty, invalidate
+    const minConfidence = mode === 'STANDARD' ? 60 : 50;
+    if (confidence < minConfidence) {
+      return normalizeToCanonical({
+        valid: false,
+        direction: 'NO_TRADE',
+        confidence: Math.round(confidence),
+        reason: `Setup rejected: TP1 RR ${actualTp1RR.toFixed(2)}R < 3R minimum (confidence ${confidence.toFixed(1)}% below ${minConfidence}% after penalty)`,
+        entryZone: { min: null, max: null },
+        stopLoss: null,
+        invalidationLevel: null,
+        targets: [],
+        riskReward: { tp1RR: null, tp2RR: null },
+        validationErrors: []
+      }, analysis, mode);
+    }
+  }
   
   // Apply EMA distance penalty (replaces hard filter)
   const emaDistance = Math.abs(currentPrice - ema21) / currentPrice;
@@ -2224,8 +2698,8 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
       parseFloat(sltp.targets[1].toFixed(2))
     ],
     risk_reward: {
-      tp1RR: rrTargets[0],
-      tp2RR: rrTargets[1]
+      tp1RR: Math.max(3.0, actualTp1RR), // Ensure at least 3R (report actual or 3.0 minimum)
+      tp2RR: risk > 0 ? Math.abs(sltp.targets[1] - entryMid) / risk : (rrTargets[1] || 4.0)
     },
     risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
     confidence: Math.round(confidence), // Already 0-100 scale, just round
@@ -2347,7 +2821,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             const stoch15mForBreakout = tf15m.indicators?.stochRSI;
             
             // Prioritize breakout entry - check if price is near swing level with momentum
-            if (swingLevel && stoch15mForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch15mForBreakout)) {
+            if (swingLevel && stoch15mForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch15mForBreakout, 0.005, marketData, htfBias)) {
               const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
               if (breakoutZone) {
                 entryZone = breakoutZone;
@@ -2371,7 +2845,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             '5m': tf5m?.structure || { swingHigh: null, swingLow: null }
           };
           
-          const rrTargets = [1.5, 3.0]; // Scalp targets
+          const rrTargets = [3.0, 4.5]; // Scalp targets (minimum 3R for TP1)
           const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets);
           
           // Use hierarchical confidence system for Scalp (pass strategy name and filters)
@@ -2384,14 +2858,80 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             dflowData     // dFlow alignment
           );
           let confidence = confidenceResult.confidence;
-          const penaltiesApplied = confidenceResult.penaltiesApplied;
-          const capsApplied = confidenceResult.capsApplied;
-          const confidenceExplanation = confidenceResult.explanation;
+          let penaltiesApplied = [...confidenceResult.penaltiesApplied];
+          let capsApplied = [...confidenceResult.capsApplied];
+          let confidenceExplanation = confidenceResult.explanation;
           const confidenceBreakdown = confidenceResult.breakdown; // NEW: Get breakdown
           
           // Scalp-specific bonus: bias alignment
           const biasBonus = htfBias.direction === direction ? (htfBias.confidence * 0.1) : 0;
           confidence = Math.min(85, Math.round(confidence + biasBonus));
+          
+          // Apply market context adjustments (volume, trade count, spread, dFlow)
+          const marketContextResult = applyMarketContextAdjustments(
+            { confidence, penaltiesApplied, capsApplied, explanation: confidenceExplanation },
+            marketData,
+            dflowData,
+            direction,
+            mode,
+            entryType, // 'BREAKOUT' or 'PULLBACK'
+            htfBias
+          );
+          
+          // If market context invalidates the trade, return NO_TRADE
+          if (marketContextResult.invalidated) {
+            return normalizeToCanonical({
+              valid: false,
+              direction: 'NO_TRADE',
+              confidence: 0,
+              reason: marketContextResult.reason || 'Market context filters invalidated trade',
+              entryZone: { min: null, max: null },
+              stopLoss: null,
+              invalidationLevel: null,
+              targets: [],
+              riskReward: { tp1RR: null, tp2RR: null },
+              validationErrors: []
+            }, analysis, mode);
+          }
+          
+          // Update confidence and penalties from market context
+          confidence = marketContextResult.confidence;
+          penaltiesApplied = marketContextResult.penaltiesApplied;
+          capsApplied = marketContextResult.capsApplied;
+          confidenceExplanation = marketContextResult.explanation;
+          
+          // Validate and enforce minimum 3R for TP1
+          const risk = Math.abs(entryMid - sltp.stopLoss);
+          const actualTp1RR = risk > 0 ? Math.abs(sltp.targets[0] - entryMid) / risk : 0;
+          
+          // If TP1 RR < 3.0, apply confidence penalty or invalidate
+          if (actualTp1RR < 3.0) {
+            const rrPenalty = -Math.max(15, Math.min(25, (3.0 - actualTp1RR) * 10)); // -15 to -25 penalty
+            confidence += rrPenalty;
+            penaltiesApplied.push({
+              layer: 'risk_reward',
+              reason: `TP1 RR ${actualTp1RR.toFixed(2)}R below minimum 3R (structure constraints)`,
+              multiplier: 1.0 + (rrPenalty / 100)
+            });
+            confidenceExplanation += ` | RR penalty: ${actualTp1RR.toFixed(2)}R < 3R`;
+            
+            // If confidence drops below minimum after penalty, invalidate
+            const minConfidence = mode === 'STANDARD' ? 60 : 50;
+            if (confidence < minConfidence) {
+              return normalizeToCanonical({
+                valid: false,
+                direction: 'NO_TRADE',
+                confidence: Math.round(confidence),
+                reason: `Setup rejected: TP1 RR ${actualTp1RR.toFixed(2)}R < 3R minimum (confidence ${confidence.toFixed(1)}% below ${minConfidence}% after penalty)`,
+                entryZone: { min: null, max: null },
+                stopLoss: null,
+                invalidationLevel: null,
+                targets: [],
+                riskReward: { tp1RR: null, tp2RR: null },
+                validationErrors: []
+              }, analysis, mode);
+            }
+          }
           
           // Block counter-trend scalps when HTF bias is strong (>= 70%)
           const strongBiasThreshold = 70;
@@ -2466,14 +3006,14 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             },
             stop_loss: parseFloat(sltp.stopLoss.toFixed(2)),
             invalidation_level: parseFloat(sltp.invalidationLevel.toFixed(2)),
-            targets: [
-              parseFloat(sltp.targets[0].toFixed(2)),
-              parseFloat(sltp.targets[1].toFixed(2))
-            ],
-            risk_reward: {
-              tp1RR: rrTargets[0],
-              tp2RR: rrTargets[1]
-            },
+    targets: [
+      parseFloat(sltp.targets[0].toFixed(2)),
+      parseFloat(sltp.targets[1].toFixed(2))
+    ],
+    risk_reward: {
+      tp1RR: Math.max(3.0, actualTp1RR), // Ensure at least 3R (report actual or 3.0 minimum)
+      tp2RR: risk > 0 ? Math.abs(sltp.targets[1] - entryMid) / risk : (rrTargets[1] || 4.0)
+    },
             risk_amount: parseFloat(sltp.riskAmount.toFixed(2)),
             confidence: Math.round(confidence), // Already 0-100 scale, just round
             reason_summary: confidenceExplanation ? 
@@ -2529,7 +3069,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   
   // PRIORITY 4: If AGGRESSIVE mode, try aggressive variants before giving up
   if (mode === 'AGGRESSIVE') {
-    const aggressiveSignal = tryAggressiveStrategies(symbol, analysis, htfBias, thresholds);
+    const aggressiveSignal = tryAggressiveStrategies(symbol, analysis, htfBias, thresholds, marketData, dflowData);
     if (aggressiveSignal.valid) {
       const rawSignal = {
         ...aggressiveSignal,
@@ -2755,9 +3295,9 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
   // R = |entry - stopLoss|
   const R = Math.abs(entry - stopLoss);
   
-  // Targets: TP1 = 1.0R, TP2 = 1.5R
-  const tp1 = direction === 'long' ? entry + R : entry - R;
-  const tp2 = direction === 'long' ? entry + (R * 1.5) : entry - (R * 1.5);
+  // Targets: TP1 = 3.0R minimum, TP2 = 4.0R
+  const tp1 = direction === 'long' ? entry + (R * 3.0) : entry - (R * 3.0);
+  const tp2 = direction === 'long' ? entry + (R * 4.0) : entry - (R * 4.0);
   
   // Entry zone: ±0.5% around entry
   const entryMin = entry * 0.995;
@@ -2775,6 +3315,10 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
   
   // Base confidence from hierarchy, then apply MicroScalp-specific adjustments
   let confidence = confidenceResult.confidence || 0;
+  let penaltiesApplied = [...confidenceResult.penaltiesApplied];
+  let capsApplied = [...confidenceResult.capsApplied];
+  let confidenceExplanation = confidenceResult.explanation || '';
+  
   const dist15m = Math.abs(pullback15m.distanceFrom21EMA || 0);
   const dist5m = Math.abs(pullback5m.distanceFrom21EMA || 0);
   const avgDist = (dist15m + dist5m) / 2;
@@ -2782,11 +3326,63 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
   const confluenceBonus = avgDist < 0.5 ? 5 : avgDist < 1.0 ? 3 : 0;
   confidence = Math.max(60, Math.min(75, confidence + confluenceBonus));
   
-  // Volume quality soft block for MICRO_SCALP
+  // Compute HTF bias for market context adjustments
+  const htfBiasRaw = computeHTFBias(multiTimeframeData);
+  const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+  
+  // Apply market context adjustments (volume, trade count, spread, dFlow)
+  const marketContextResult = applyMarketContextAdjustments(
+    { confidence, penaltiesApplied, capsApplied, explanation: confidenceExplanation },
+    marketData,
+    dflowData,
+    direction,
+    'STANDARD', // MICRO_SCALP always uses STANDARD mode
+    'PULLBACK', // MICRO_SCALP uses pullback-only entries
+    htfBias
+  );
+  
+  // If market context invalidates the trade, return no signal
+  if (marketContextResult.invalidated) {
+    result.eligible = false;
+    result.signal = null;
+    return result;
+  }
+  
+  // Update confidence and penalties from market context
+  confidence = marketContextResult.confidence;
+  penaltiesApplied = marketContextResult.penaltiesApplied;
+  capsApplied = marketContextResult.capsApplied;
+  confidenceExplanation = marketContextResult.explanation;
+  
+  // Volume quality soft block for MICRO_SCALP (additional check)
   if (marketData && marketData.volumeQuality === 'LOW' && confidence < 60) {
     result.eligible = false;
     result.signal = null;
     return result; // Soft block: return no signal if volume quality too low
+  }
+  
+  // Validate and enforce minimum 3R for TP1
+  const risk = Math.abs(entry - stopLoss);
+  const actualTp1RR = risk > 0 ? Math.abs(tp1 - entry) / risk : 0;
+  
+  // If TP1 RR < 3.0, apply confidence penalty or invalidate
+  if (actualTp1RR < 3.0) {
+    const rrPenalty = -Math.max(15, Math.min(25, (3.0 - actualTp1RR) * 10)); // -15 to -25 penalty
+    confidence += rrPenalty;
+    penaltiesApplied.push({
+      layer: 'risk_reward',
+      reason: `TP1 RR ${actualTp1RR.toFixed(2)}R below minimum 3R (structure constraints)`,
+      multiplier: 1.0 + (rrPenalty / 100)
+    });
+    confidenceExplanation += ` | RR penalty: ${actualTp1RR.toFixed(2)}R < 3R`;
+    
+    // If confidence drops below minimum after penalty, invalidate
+    const minConfidence = 60; // MICRO_SCALP uses STANDARD mode minimum
+    if (confidence < minConfidence) {
+      result.eligible = false;
+      result.signal = null;
+      return result;
+    }
   }
   
   // Build signal - ENSURE ALL FIELDS ARE PRESENT BEFORE SETTING valid=true
@@ -2795,9 +3391,9 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
     direction: direction,
     setupType: 'MicroScalp',
     confidence: Math.round(confidence), // 0-100 scale, round to integer
-    penaltiesApplied: confidenceResult.penaltiesApplied || [],
-    capsApplied: confidenceResult.capsApplied || [],
-    explanation: confidenceResult.explanation || '',
+    penaltiesApplied: penaltiesApplied,
+    capsApplied: capsApplied,
+    explanation: confidenceExplanation,
     confidenceBreakdown: confidenceResult.breakdown || null, // NEW: Detailed confidence breakdown
     entryType: 'pullback', // MICRO_SCALP uses pullback-only entries
     entry: {
@@ -2810,8 +3406,8 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
       tp2: parseFloat(tp2.toFixed(2))
     },
     riskReward: {
-      tp1RR: 1.0,
-      tp2RR: 1.5
+      tp1RR: 3.0,
+      tp2RR: 4.0
     },
     invalidation_level: parseFloat(invalidationLevel.toFixed(2)),
     invalidation_description: direction === 'long' ? 
@@ -3046,7 +3642,7 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     const stoch4hForBreakout = tf4h.indicators?.stochRSI;
     
     // Prioritize breakout entry - check if price is near swing level with momentum
-    if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout)) {
+    if (swingLevel && stoch4hForBreakout && isBreakoutConfirmed(currentPrice, swingLevel, direction, stoch4hForBreakout, 0.005, marketData, htfBias)) {
       const breakoutZone = calculateBreakoutEntryZone(swingLevel, direction, currentPrice);
       if (breakoutZone) {
         entryMin = breakoutZone.min;
@@ -3081,7 +3677,7 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     '5m': swing5m
   };
 
-  const rrTargets = [2.0, 3.5]; // Trend riding, not tiny scalps
+  const rrTargets = [3.0, 4.5]; // Trend riding (minimum 3R for TP1)
 
   const sltp = calculateSLTP(
     entryMid,
@@ -3101,6 +3697,9 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     dflowData        // dFlow alignment
   );
   let confidence = confidenceResult.confidence || 0;
+  let penaltiesApplied = [...confidenceResult.penaltiesApplied];
+  let capsApplied = [...confidenceResult.capsApplied];
+  let confidenceExplanation = confidenceResult.explanation || '';
 
   // Mild bonus if everything is strongly aligned
   let alignmentBonus = 0;
@@ -3114,6 +3713,50 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
   if (Math.abs(abs1hDist) <= 1.5) alignmentBonus += 3; // nice, tight pullback
 
   confidence = Math.min(90, confidence + alignmentBonus);
+  
+  // Apply market context adjustments (volume, trade count, spread, dFlow)
+  const marketContextResult = applyMarketContextAdjustments(
+    { confidence, penaltiesApplied, capsApplied, explanation: confidenceExplanation },
+    marketData,
+    dflowData,
+    direction,
+    mode,
+    entryType, // 'BREAKOUT' or 'PULLBACK'
+    htfBias
+  );
+  
+  // If market context invalidates the trade, return NO_TRADE
+  if (marketContextResult.invalidated) {
+    return invalidNoTrade(marketContextResult.reason || 'Market context filters invalidated trade');
+  }
+  
+  // Update confidence and penalties from market context
+  confidence = marketContextResult.confidence;
+  penaltiesApplied = marketContextResult.penaltiesApplied;
+  capsApplied = marketContextResult.capsApplied;
+  confidenceExplanation = marketContextResult.explanation;
+  
+  // Validate and enforce minimum 3R for TP1
+  const risk = Math.abs(entryMid - sltp.stopLoss);
+  const actualTp1RR = risk > 0 ? Math.abs(sltp.targets[0] - entryMid) / risk : 0;
+  
+  // If TP1 RR < 3.0, apply confidence penalty or invalidate
+  if (actualTp1RR < 3.0) {
+    const rrPenalty = -Math.max(15, Math.min(25, (3.0 - actualTp1RR) * 10)); // -15 to -25 penalty
+    confidence += rrPenalty;
+    penaltiesApplied.push({
+      layer: 'risk_reward',
+      reason: `TP1 RR ${actualTp1RR.toFixed(2)}R below minimum 3R (structure constraints)`,
+      multiplier: 1.0 + (rrPenalty / 100)
+    });
+    confidenceExplanation += ` | RR penalty: ${actualTp1RR.toFixed(2)}R < 3R`;
+    
+    // If confidence drops below minimum after penalty, invalidate
+    const minConfidence = mode === 'STANDARD' ? 60 : 50;
+    if (confidence < minConfidence) {
+      return invalidNoTrade(`TP1 RR ${actualTp1RR.toFixed(2)}R < 3R minimum (confidence ${confidence.toFixed(1)}% below ${minConfidence}% after penalty)`);
+    }
+  }
 
   // Global minimum confidence threshold
   const minConfidenceSafe = 60;
@@ -3133,12 +3776,12 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     strategiesChecked: ['TREND_RIDER'],
     confidence: Math.round(confidence),
     reason,
-    reason_summary: confidenceResult.explanation
-      ? `${reason} [${confidenceResult.explanation}]`
+    reason_summary: confidenceExplanation
+      ? `${reason} [${confidenceExplanation}]`
       : reason,
-    penaltiesApplied: confidenceResult.penaltiesApplied || [],
-    capsApplied: confidenceResult.capsApplied || [],
-    explanation: confidenceResult.explanation || '',
+    penaltiesApplied: penaltiesApplied,
+    capsApplied: capsApplied,
+    explanation: confidenceExplanation,
     confidenceBreakdown: confidenceResult.breakdown || null, // NEW: Detailed confidence breakdown
     entryType: entryType, // 'pullback' or 'breakout'
 
@@ -3150,8 +3793,8 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     invalidationLevel: parseFloat(sltp.invalidationLevel.toFixed(2)),
     targets: (sltp.targets || []).map(t => parseFloat(t.toFixed(2))),
     riskReward: {
-      tp1RR: sltp.rrTargets?.[0] ?? rrTargets[0],
-      tp2RR: sltp.rrTargets?.[1] ?? rrTargets[1]
+      tp1RR: Math.max(3.0, actualTp1RR), // Ensure at least 3R (report actual or 3.0 minimum)
+      tp2RR: risk > 0 ? Math.abs(sltp.targets[1] - entryMid) / risk : (rrTargets[1] || 4.5)
     },
     riskAmount: parseFloat((sltp.riskAmount ?? 0).toFixed(2)),
 
