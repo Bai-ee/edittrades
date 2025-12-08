@@ -6597,19 +6597,45 @@ Remember: They asked a specific question. Answer it directly with real trader in
           invalidation: invalidationLevel,
           entryMin: entryMin,
           entryMax: entryMax
+        },
+        // Initialize hit tracking for TP/SL detection
+        hitTracking: {
+          firstHit: null,
+          hitTime: null,
+          hitPrice: null,
+          hitTarget: null,
+          slHit: false,
+          tp1Hit: false,
+          tp2Hit: false
         }
       };
       
       // Store in localStorage for tracker to pick up
-      const tradeJSON = JSON.stringify(trackedTrade);
-      localStorage.setItem('pendingTradeToTrack', tradeJSON);
-      
-      console.log('📊 Unified trade object (trade + snapshot):', trackedTrade);
-      console.log('💾 Stored in localStorage');
-      
-      // Redirect to tracker
-      console.log('🔀 Redirecting to tracker with autoTrack=true');
-      window.location.href = '/tracker.html?autoTrack=true';
+      try {
+        const tradeJSON = JSON.stringify(trackedTrade);
+        const dataSize = new Blob([tradeJSON]).size;
+        console.log(`💾 Trade data size: ${(dataSize / 1024).toFixed(2)} KB`);
+        
+        if (dataSize > 500 * 1024) { // 500KB warning
+          console.warn('⚠️ Trade data is large, signal snapshot may be big');
+        }
+        
+        localStorage.setItem('pendingTradeToTrack', tradeJSON);
+        console.log('📊 Unified trade object (trade + snapshot):', trackedTrade);
+        console.log('💾 Stored in localStorage');
+        
+        // Redirect to tracker
+        console.log('🔀 Redirecting to tracker with autoTrack=true');
+        window.location.href = '/tracker.html?autoTrack=true';
+      } catch (error) {
+        if (error.name === 'QuotaExceededError') {
+          console.error('❌ localStorage quota exceeded when tracking trade');
+          alert('⚠️ Storage quota exceeded. Please clean up old trades in the tracker, then try again.');
+        } else {
+          console.error('❌ Error storing trade:', error);
+          alert(`Error tracking trade: ${error.message}. Please try again.`);
+        }
+      }
     }
 
     // Copy to clipboard - synchronous for mobile compatibility

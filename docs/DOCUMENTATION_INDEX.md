@@ -26,6 +26,7 @@
 ### 📊 Data Reference
 - **[COMPLETE_DATA_REFERENCE.md](./COMPLETE_DATA_REFERENCE.md)** - Complete data structure, usage patterns, guarantees
 - **[STRATEGY_IMPLEMENTATION_GUIDE.md](./STRATEGY_IMPLEMENTATION_GUIDE.md)** - Strategy implementation details
+- **[SIGNAL_GENERATION_SPECIFICATION.md](./SIGNAL_GENERATION_SPECIFICATION.md)** - Complete technical specification of signal generation logic
 
 ### 🤖 AI System
 - **[AI_SYSTEM_DOCUMENTATION.md](./AI_SYSTEM_DOCUMENTATION.md)** - AI analysis components and integration

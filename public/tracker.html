@@ -563,7 +563,16 @@
           <h2 style="font-family: var(--font-mathias); font-size: 1.25rem; font-weight: bold; color: var(--color-yellow-75); text-transform: uppercase; margin: 0;">
             Trade Analytics
           </h2>
-          <span id="statsToggleIcon" style="color: var(--color-yellow-75); font-size: 1.5rem;">▶</span>
+          <div style="display: flex; gap: 1rem; align-items: center;">
+            <button 
+              onclick="cleanupOldTrades()"
+              style="background-color: rgba(239, 68, 68, 0.2); border: 2px solid #ef4444; color: #ef4444; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-family: var(--font-mathias); font-weight: bold; font-size: 0.75rem; cursor: pointer; text-transform: uppercase;"
+              title="Remove old closed trades to free up storage"
+            >
+              CLEANUP OLD
+            </button>
+            <span id="statsToggleIcon" style="color: var(--color-yellow-75); font-size: 1.5rem; cursor: pointer;">▶</span>
+          </div>
         </div>
         <div id="statsContent" style="display: none;">
           <div id="statsDisplay" style="font-family: var(--font-system); font-size: 0.875rem; color: var(--text-secondary);">
@@ -1091,6 +1100,19 @@
               tradeToAdd.playbook = `${tradeToAdd.strategy} ${tradeToAdd.direction}`;
             }
             
+            // Ensure hit tracking exists
+            if (!tradeToAdd.hitTracking) {
+              tradeToAdd.hitTracking = {
+                firstHit: null,
+                hitTime: null,
+                hitPrice: null,
+                hitTarget: null,
+                slHit: false,
+                tp1Hit: false,
+                tp2Hit: false
+              };
+            }
+            
             // Add to trades array
             trades.push(tradeToAdd);
             console.log('🔍 Current trades array length after add:', trades.length);
@@ -1285,6 +1307,16 @@
           whatWentWrong: '',
           performanceSummary: ''
         },
+        // Initialize hit tracking for TP/SL detection
+        hitTracking: {
+          firstHit: null,
+          hitTime: null,
+          hitPrice: null,
+          hitTarget: null,
+          slHit: false,
+          tp1Hit: false,
+          tp2Hit: false
+        },
         timestamp: firebase.firestore && firebase.firestore.FieldValue ? firebase.firestore.FieldValue.serverTimestamp() : new Date()
       };
       
@@ -1311,26 +1343,134 @@
       alert(`✅ ${trade.direction} trade added for ${trade.symbol.replace('USDT', '')}!`);
     });
     
+    // Create lightweight version of trade for localStorage (reduces size by ~90%)
+    function createLightweightTrade(trade) {
+      return {
+        id: trade.id,
+        symbol: trade.symbol,
+        direction: trade.direction,
+        entry: trade.entry,
+        entryZone: trade.entryZone,
+        stopLoss: trade.stopLoss,
+        target1: trade.target1,
+        target2: trade.target2,
+        strategy: trade.strategy,
+        playbook: trade.playbook,
+        status: trade.status,
+        exitPrice: trade.exitPrice,
+        exitTime: trade.exitTime,
+        outcome: trade.outcome,
+        trackedAt: trade.trackedAt,
+        entryTime: trade.entryTime,
+        confidence: trade.confidence,
+        notes: trade.notes,
+        hitTracking: trade.hitTracking,
+        // Store minimal signal snapshot (just essential data, not full timeframes)
+        signalSnapshot: trade.signalSnapshot ? {
+          symbol: trade.signalSnapshot.symbol,
+          currentPrice: trade.signalSnapshot.currentPrice,
+          mode: trade.signalSnapshot.mode,
+          bestSignal: trade.signalSnapshot.bestSignal,
+          htfBias: trade.signalSnapshot.htfBias,
+          // Only store strategy that was used, not all strategies
+          strategies: trade.signalSnapshot.strategies ? {
+            [trade.strategyName || trade.strategy]: trade.signalSnapshot.strategies[trade.strategyName || trade.strategy]
+          } : {}
+        } : null
+      };
+    }
+    
     // Save trades to Firebase or localStorage
     async function saveTrades() {
       if (db) {
         try {
-          // Save each trade to Firestore
+          // Save each trade to Firestore (full data)
           for (const trade of trades) {
             if (trade.id) {
               await db.collection('trades').doc(String(trade.id)).set(trade);
             }
           }
           console.log('💾 Saved trades to Firebase:', trades.length, 'trades');
+          
+          // Also save lightweight version to localStorage as backup (only if Firebase works)
+          try {
+            const lightweightTrades = trades.map(t => createLightweightTrade(t));
+            const dataSize = new Blob([JSON.stringify(lightweightTrades)]).size;
+            console.log(`💾 localStorage backup size: ${(dataSize / 1024).toFixed(2)} KB`);
+            
+            if (dataSize > 4 * 1024 * 1024) { // 4MB warning
+              console.warn('⚠️ localStorage backup is large, consider cleaning old trades');
+            }
+            
+            localStorage.setItem('trackedTrades', JSON.stringify(lightweightTrades));
+            console.log('💾 Saved lightweight backup to localStorage');
+          } catch (localError) {
+            if (localError.name === 'QuotaExceededError') {
+              console.warn('⚠️ localStorage quota exceeded - using Firebase only. Consider cleaning old trades.');
+              // Try to save just IDs as reference
+              try {
+                const tradeIds = trades.map(t => ({ id: t.id, symbol: t.symbol, status: t.status }));
+                localStorage.setItem('trackedTradesIds', JSON.stringify(tradeIds));
+              } catch (e) {
+                console.warn('⚠️ Could not save even trade IDs to localStorage');
+              }
+            } else {
+              console.warn('⚠️ localStorage save failed:', localError);
+            }
+          }
         } catch (error) {
           console.error('❌ Error saving to Firebase:', error);
-          // Fallback to localStorage
-          localStorage.setItem('trackedTrades', JSON.stringify(trades));
+          // Fallback to localStorage (lightweight version)
+          try {
+            const lightweightTrades = trades.map(t => createLightweightTrade(t));
+            localStorage.setItem('trackedTrades', JSON.stringify(lightweightTrades));
+            console.log('💾 Saved lightweight trades to localStorage (Firebase unavailable)');
+          } catch (localError) {
+            if (localError.name === 'QuotaExceededError') {
+              console.error('❌ localStorage quota exceeded! Please clean old trades or use Firebase.');
+              alert('⚠️ Storage quota exceeded. Please delete old trades or ensure Firebase is configured.');
+            } else {
+              console.error('❌ localStorage save failed:', localError);
+              alert(`Error saving trades: ${localError.message}`);
+            }
+          }
         }
       } else {
-        // Fallback to localStorage
-        localStorage.setItem('trackedTrades', JSON.stringify(trades));
-        console.log('💾 Saved trades to localStorage:', trades.length, 'trades');
+        // No Firebase - use localStorage only (lightweight version)
+        try {
+          const lightweightTrades = trades.map(t => createLightweightTrade(t));
+          const dataSize = new Blob([JSON.stringify(lightweightTrades)]).size;
+          console.log(`💾 Saving to localStorage: ${(dataSize / 1024).toFixed(2)} KB`);
+          
+          if (dataSize > 4 * 1024 * 1024) {
+            console.warn('⚠️ localStorage is getting large, consider cleaning old trades');
+          }
+          
+          localStorage.setItem('trackedTrades', JSON.stringify(lightweightTrades));
+          console.log('💾 Saved lightweight trades to localStorage:', trades.length, 'trades');
+        } catch (error) {
+          if (error.name === 'QuotaExceededError') {
+            console.error('❌ localStorage quota exceeded!');
+            // Try to clean old closed trades and retry
+            const activeTrades = trades.filter(t => t.status === 'ACTIVE' || t.status === 'PENDING');
+            if (activeTrades.length < trades.length) {
+              console.log('🧹 Attempting to clean old closed trades...');
+              try {
+                const lightweightActive = activeTrades.map(t => createLightweightTrade(t));
+                localStorage.setItem('trackedTrades', JSON.stringify(lightweightActive));
+                console.log('✅ Saved active trades only after cleanup');
+                alert('⚠️ Storage was full. Removed old closed trades. Active trades saved.');
+                return;
+              } catch (retryError) {
+                console.error('❌ Still exceeded after cleanup');
+              }
+            }
+            alert('❌ Storage quota exceeded! Please delete old trades or configure Firebase for unlimited storage.');
+          } else {
+            console.error('❌ localStorage save failed:', error);
+            alert(`Error saving trades: ${error.message}`);
+          }
+        }
       }
     }
     
@@ -1425,12 +1565,37 @@
       } else {
         console.log('⚠️ NO FIREBASE DB - Using localStorage');
         // Fallback to localStorage
-        const storedTrades = localStorage.getItem('trackedTrades');
-        console.log('🔍 localStorage "trackedTrades":', storedTrades);
-        trades = JSON.parse(storedTrades || '[]');
-        console.log('📦 Loaded', trades.length, 'trades from localStorage');
-        console.log('📋 Full trades array:', trades);
-        return trades;
+        try {
+          const storedTrades = localStorage.getItem('trackedTrades');
+          console.log('🔍 localStorage "trackedTrades":', storedTrades ? `${storedTrades.length} chars` : 'null');
+          trades = JSON.parse(storedTrades || '[]');
+          
+          // Ensure hit tracking exists for loaded trades
+          trades.forEach(trade => {
+            if (!trade.hitTracking) {
+              trade.hitTracking = {
+                firstHit: null,
+                hitTime: null,
+                hitPrice: null,
+                hitTarget: null,
+                slHit: false,
+                tp1Hit: false,
+                tp2Hit: false
+              };
+            }
+          });
+          
+          console.log('📦 Loaded', trades.length, 'trades from localStorage');
+          console.log('📋 Full trades array:', trades);
+          return trades;
+        } catch (error) {
+          console.error('❌ Error loading from localStorage:', error);
+          if (error.name === 'QuotaExceededError' || error.message.includes('quota')) {
+            alert('⚠️ localStorage is full. Please clear old trades or configure Firebase.');
+          }
+          trades = [];
+          return trades;
+        }
       }
     }
     
@@ -1479,7 +1644,8 @@
     
     // Start price updates
     async function startPriceUpdates() {
-      // Monitor PENDING trades (every 30 seconds) - optimized to fetch each unique symbol only once
+      // Monitor PENDING trades (every 2 minutes) - optimized for free tier
+      // Kraken allows ~1 req/sec, so 2 min = 30 req/min max (well under limit)
       setInterval(async () => {
         const pendingTrades = trades.filter(t => t.status === 'PENDING');
         if (pendingTrades.length === 0) return;
@@ -1488,8 +1654,12 @@
         const uniqueSymbols = [...new Set(pendingTrades.map(t => t.symbol))];
         console.log(`🔄 Checking ${pendingTrades.length} pending trades (${uniqueSymbols.length} unique symbols)`);
         
-        // Fetch prices for each unique symbol once
-        for (const symbol of uniqueSymbols) {
+        // Fetch prices for each unique symbol once (with delay to respect rate limits)
+        for (let i = 0; i < uniqueSymbols.length; i++) {
+          const symbol = uniqueSymbols[i];
+          // Add 1 second delay between requests to respect Kraken rate limits
+          if (i > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+          
           const currentPrice = await fetchPrice(symbol);
           if (currentPrice > 0) {
             priceCache[symbol] = currentPrice;
@@ -1502,23 +1672,28 @@
         
         // Re-render if any pending trades changed status
         renderTrades();
-      }, 30000); // Check PENDING trades every 30 seconds (reduced from 10s to save API calls)
+      }, 120000); // Check PENDING trades every 2 minutes (free tier friendly)
       
-      // Monitor ACTIVE trades (every 60 seconds) - optimized to fetch each unique symbol only once
+      // Monitor ACTIVE trades (every 5 minutes) - optimized for free tier
+      // This is the important check - detects TP/SL hits
       setInterval(async () => {
         const activeTrades = trades.filter(t => t.status === 'ACTIVE');
         if (activeTrades.length === 0) return;
         
         // Get unique symbols to avoid duplicate API calls
         const uniqueSymbols = [...new Set(activeTrades.map(t => t.symbol))];
-        console.log(`🔄 Checking ${activeTrades.length} active trades (${uniqueSymbols.length} unique symbols)`);
+        console.log(`🔄 Checking ${activeTrades.length} active trades for TP/SL hits (${uniqueSymbols.length} unique symbols)`);
         
-        // Fetch prices for each unique symbol once
-        for (const symbol of uniqueSymbols) {
+        // Fetch prices for each unique symbol once (with delay to respect rate limits)
+        for (let i = 0; i < uniqueSymbols.length; i++) {
+          const symbol = uniqueSymbols[i];
+          // Add 1 second delay between requests to respect Kraken rate limits
+          if (i > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+          
           const currentPrice = await fetchPrice(symbol);
           if (currentPrice > 0) {
             priceCache[symbol] = currentPrice;
-            // Check all trades for this symbol
+            // Check all trades for this symbol - THIS IS WHERE TP/SL DETECTION HAPPENS
             activeTrades.filter(t => t.symbol === symbol).forEach(trade => {
               checkTradeStatus(trade, currentPrice);
             });
@@ -1526,7 +1701,7 @@
         }
         
         renderTrades();
-      }, 60000); // Check ACTIVE trades every 60 seconds (reduced from 30s to save API calls)
+      }, 300000); // Check ACTIVE trades every 5 minutes (free tier friendly, still catches TP/SL quickly)
     }
     
     // Check if trade hit stop or target, or if pending trade hit entry
@@ -1543,6 +1718,18 @@
           trade.status = 'ACTIVE';
           trade.actualEntry = currentPrice;
           trade.activationTime = new Date().toISOString();
+          // Initialize hit tracking
+          if (!trade.hitTracking) {
+            trade.hitTracking = {
+              firstHit: null,
+              hitTime: null,
+              hitPrice: null,
+              hitTarget: null,
+              slHit: false,
+              tp1Hit: false,
+              tp2Hit: false
+            };
+          }
           saveTrades();
           return;
         }
@@ -1554,6 +1741,13 @@
           trade.exitPrice = currentPrice;
           trade.exitTime = new Date().toISOString();
           trade.outcome = 'MISSED';
+          // Track that SL was hit first
+          if (!trade.hitTracking) trade.hitTracking = {};
+          trade.hitTracking.firstHit = 'SL';
+          trade.hitTracking.hitTime = new Date().toISOString();
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'STOP_LOSS';
+          trade.hitTracking.slHit = true;
           saveTrades();
           return;
         }
@@ -1564,6 +1758,13 @@
           trade.exitPrice = currentPrice;
           trade.exitTime = new Date().toISOString();
           trade.outcome = 'MISSED';
+          // Track that SL was hit first
+          if (!trade.hitTracking) trade.hitTracking = {};
+          trade.hitTracking.firstHit = 'SL';
+          trade.hitTracking.hitTime = new Date().toISOString();
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'STOP_LOSS';
+          trade.hitTracking.slHit = true;
           saveTrades();
           return;
         }
@@ -1571,59 +1772,119 @@
         return; // Still pending, no action needed
       }
       
-      // ACTIVE: Monitor for stop loss or targets
+      // ACTIVE: Monitor for stop loss or targets - TRACK WHICH WAS HIT FIRST
       if (trade.status !== 'ACTIVE') return;
       
+      // Initialize hit tracking if not exists
+      if (!trade.hitTracking) {
+        trade.hitTracking = {
+          firstHit: null,
+          hitTime: null,
+          hitPrice: null,
+          hitTarget: null,
+          slHit: false,
+          tp1Hit: false,
+          tp2Hit: false
+        };
+      }
+      
+      // Only process if we haven't already determined first hit
+      if (trade.hitTracking.firstHit) {
+        return; // Already determined, no need to check again
+      }
+      
+      const now = new Date().toISOString();
+      
       if (trade.direction === 'LONG') {
-        // Check stop loss
+        // Check stop loss FIRST (most important - if hit, trade is done)
         if (currentPrice <= trade.stopLoss) {
+          console.log(`🛑 ${trade.symbol} LONG hit STOP LOSS first at $${currentPrice.toLocaleString()}`);
           trade.status = 'CLOSED';
           trade.outcome = 'LOSS';
-          trade.exitPrice = trade.stopLoss;
-          trade.exitTime = new Date().toISOString();
+          trade.exitPrice = currentPrice;
+          trade.exitTime = now;
+          trade.hitTracking.firstHit = 'SL';
+          trade.hitTracking.hitTime = now;
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'STOP_LOSS';
+          trade.hitTracking.slHit = true;
           saveTrades();
           return;
         }
-        // Check targets
+        // Check TP2 (higher target)
         if (trade.target2 && currentPrice >= trade.target2) {
+          console.log(`🎯 ${trade.symbol} LONG hit TP2 first at $${currentPrice.toLocaleString()}`);
           trade.status = 'CLOSED';
           trade.outcome = 'WIN';
-          trade.exitPrice = trade.target2;
-          trade.exitTime = new Date().toISOString();
+          trade.exitPrice = currentPrice;
+          trade.exitTime = now;
+          trade.hitTracking.firstHit = 'TP2';
+          trade.hitTracking.hitTime = now;
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'TP2';
+          trade.hitTracking.tp2Hit = true;
           saveTrades();
           return;
         }
-        if (currentPrice >= trade.target1) {
+        // Check TP1 (first target)
+        if (trade.target1 && currentPrice >= trade.target1) {
+          console.log(`🎯 ${trade.symbol} LONG hit TP1 first at $${currentPrice.toLocaleString()}`);
           trade.status = 'CLOSED';
           trade.outcome = 'WIN';
-          trade.exitPrice = trade.target1;
-          trade.exitTime = new Date().toISOString();
+          trade.exitPrice = currentPrice;
+          trade.exitTime = now;
+          trade.hitTracking.firstHit = 'TP1';
+          trade.hitTracking.hitTime = now;
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'TP1';
+          trade.hitTracking.tp1Hit = true;
           saveTrades();
           return;
         }
       } else {
         // SHORT
+        // Check stop loss FIRST
         if (currentPrice >= trade.stopLoss) {
+          console.log(`🛑 ${trade.symbol} SHORT hit STOP LOSS first at $${currentPrice.toLocaleString()}`);
           trade.status = 'CLOSED';
           trade.outcome = 'LOSS';
-          trade.exitPrice = trade.stopLoss;
-          trade.exitTime = new Date().toISOString();
+          trade.exitPrice = currentPrice;
+          trade.exitTime = now;
+          trade.hitTracking.firstHit = 'SL';
+          trade.hitTracking.hitTime = now;
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'STOP_LOSS';
+          trade.hitTracking.slHit = true;
           saveTrades();
           return;
         }
+        // Check TP2 (lower target for shorts)
         if (trade.target2 && currentPrice <= trade.target2) {
+          console.log(`🎯 ${trade.symbol} SHORT hit TP2 first at $${currentPrice.toLocaleString()}`);
           trade.status = 'CLOSED';
           trade.outcome = 'WIN';
-          trade.exitPrice = trade.target2;
-          trade.exitTime = new Date().toISOString();
+          trade.exitPrice = currentPrice;
+          trade.exitTime = now;
+          trade.hitTracking.firstHit = 'TP2';
+          trade.hitTracking.hitTime = now;
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'TP2';
+          trade.hitTracking.tp2Hit = true;
           saveTrades();
           return;
         }
-        if (currentPrice <= trade.target1) {
+        // Check TP1 (first target)
+        if (trade.target1 && currentPrice <= trade.target1) {
+          console.log(`🎯 ${trade.symbol} SHORT hit TP1 first at $${currentPrice.toLocaleString()}`);
           trade.status = 'CLOSED';
           trade.outcome = 'WIN';
-          trade.exitPrice = trade.target1;
-          trade.exitTime = new Date().toISOString();
+          trade.exitPrice = currentPrice;
+          trade.exitTime = now;
+          trade.hitTracking.firstHit = 'TP1';
+          trade.hitTracking.hitTime = now;
+          trade.hitTracking.hitPrice = currentPrice;
+          trade.hitTracking.hitTarget = 'TP1';
+          trade.hitTracking.tp1Hit = true;
           saveTrades();
           return;
         }
@@ -1881,9 +2142,32 @@
         </td>
         
         <td class="px-2" data-label="Status:" style="padding-top: 1.65rem; padding-bottom: 1.65rem; padding-left: 1rem; min-width: 250px;">
-          <div style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.75rem; color: ${signalColor}; text-align: left; line-height: 1.3;">
-            ${trade.status === 'PENDING' || trade.status === 'INVALIDATED' ? signal : (hasValidPrice ? signal : '--')}
-          </div>
+          ${trade.status === 'CLOSED' && trade.hitTracking && trade.hitTracking.firstHit ? `
+            <div style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.9rem; text-align: left; line-height: 1.3;">
+              ${trade.hitTracking.firstHit === 'SL' ? `
+                <div style="color: #ef4444; background: rgba(239, 68, 68, 0.15); padding: 0.5rem; border-radius: 0.25rem; border: 2px solid #ef4444;">
+                  🛑 STOP LOSS HIT FIRST
+                </div>
+              ` : trade.hitTracking.firstHit === 'TP1' ? `
+                <div style="color: #22c55e; background: rgba(34, 197, 94, 0.15); padding: 0.5rem; border-radius: 0.25rem; border: 2px solid #22c55e;">
+                  ✅ TP1 HIT FIRST
+                </div>
+              ` : trade.hitTracking.firstHit === 'TP2' ? `
+                <div style="color: #22c55e; background: rgba(34, 197, 94, 0.15); padding: 0.5rem; border-radius: 0.25rem; border: 2px solid #22c55e;">
+                  🎯 TP2 HIT FIRST
+                </div>
+              ` : ''}
+              ${trade.hitTracking.hitTime ? `
+                <div style="color: var(--color-yellow-75); font-size: 0.7rem; margin-top: 0.25rem;">
+                  At $${trade.hitTracking.hitPrice?.toLocaleString() || trade.exitPrice?.toLocaleString() || 'N/A'}
+                </div>
+              ` : ''}
+            </div>
+          ` : `
+            <div style="font-family: var(--font-mathias); font-weight: bold; font-size: 0.75rem; color: ${signalColor}; text-align: left; line-height: 1.3;">
+              ${trade.status === 'PENDING' || trade.status === 'INVALIDATED' ? signal : (hasValidPrice ? signal : '--')}
+            </div>
+          `}
         </td>
         
         <td class="px-2 time-cell" data-label="Time:" style="padding-top: 1.65rem; padding-bottom: 1.65rem; width: 90px; min-width: 90px; max-width: 90px; padding-left: 1rem;">
@@ -2474,6 +2758,48 @@
         </div>
       `;
       
+      // Add TP vs SL Hit Rate Summary
+      const closedTrades = trades.filter(t => t.status === 'CLOSED');
+      const tradesWithHits = closedTrades.filter(t => t.hitTracking && t.hitTracking.firstHit);
+      const slHits = tradesWithHits.filter(t => t.hitTracking.firstHit === 'SL').length;
+      const tp1Hits = tradesWithHits.filter(t => t.hitTracking.firstHit === 'TP1').length;
+      const tp2Hits = tradesWithHits.filter(t => t.hitTracking.firstHit === 'TP2').length;
+      const totalHits = slHits + tp1Hits + tp2Hits;
+      
+      if (totalHits > 0) {
+        const tpHitRate = ((tp1Hits + tp2Hits) / totalHits * 100).toFixed(1);
+        const slHitRate = (slHits / totalHits * 100).toFixed(1);
+        
+        html += `
+          <div style="margin-top: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.4); border-radius: 0.5rem; border: 2px solid var(--color-yellow-75);">
+            <h3 style="font-family: var(--font-mathias); font-size: 1rem; font-weight: bold; color: var(--color-yellow-75); margin-bottom: 1rem; text-transform: uppercase;">TP vs SL Hit Rate</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+              <div>
+                <div style="color: #22c55e; font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Take Profit Hits</div>
+                <div style="color: #22c55e; font-size: 2rem; font-weight: bold;">${tpHitRate}%</div>
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.875rem; margin-top: 0.25rem;">
+                  TP1: ${tp1Hits} | TP2: ${tp2Hits}
+                </div>
+              </div>
+              <div>
+                <div style="color: #ef4444; font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Stop Loss Hits</div>
+                <div style="color: #ef4444; font-size: 2rem; font-weight: bold;">${slHitRate}%</div>
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.875rem; margin-top: 0.25rem;">
+                  ${slHits} trades stopped out
+                </div>
+              </div>
+              <div>
+                <div style="color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; margin-bottom: 0.5rem; text-transform: uppercase;">Total Tracked</div>
+                <div style="color: var(--color-yellow-75); font-size: 2rem; font-weight: bold;">${totalHits}</div>
+                <div style="color: rgba(255, 255, 255, 0.7); font-size: 0.875rem; margin-top: 0.25rem;">
+                  Closed trades with hit data
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      
       if (Object.keys(stats.byStrategy).length > 0) {
         html += `
           <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
@@ -2715,6 +3041,7 @@
               <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Entry</th>
               <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Exit</th>
               <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">P&L</th>
+              <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">First Hit</th>
               <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Outcome</th>
               <th style="padding: 0.75rem; text-align: left; color: var(--color-yellow-75); font-family: var(--font-mathias); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Details</th>
             </tr>
@@ -2740,6 +3067,21 @@
         };
         const coinName = coinNames[trade.symbol] || trade.symbol.replace('USDT', '');
         
+        // Determine first hit display
+        const hitTracking = trade.hitTracking || {};
+        let firstHitDisplay = 'N/A';
+        let firstHitColor = 'var(--color-yellow-75)';
+        if (hitTracking.firstHit === 'SL') {
+          firstHitDisplay = '🛑 STOP LOSS';
+          firstHitColor = '#ef4444';
+        } else if (hitTracking.firstHit === 'TP1') {
+          firstHitDisplay = '✅ TP1';
+          firstHitColor = '#22c55e';
+        } else if (hitTracking.firstHit === 'TP2') {
+          firstHitDisplay = '🎯 TP2';
+          firstHitColor = '#22c55e';
+        }
+        
         html += `
           <tr id="closed-trade-row-${trade.id}" style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer;" onclick="toggleClosedTradeDetails(${trade.id})">
             <td style="padding: 0.75rem; color: var(--color-yellow-75); font-weight: bold;">${coinName}</td>
@@ -2748,6 +3090,10 @@
             <td style="padding: 0.75rem; color: var(--color-yellow-75);">$${exitPrice.toLocaleString()}</td>
             <td style="padding: 0.75rem; color: ${rMultiple >= 0 ? '#22c55e' : '#ef4444'}; font-weight: bold;">
               ${rMultiple >= 0 ? '+' : ''}${rMultiple.toFixed(2)}R (${pnlPercent >= 0 ? '+' : ''}${pnlPercent.toFixed(2)}%)
+            </td>
+            <td style="padding: 0.75rem; color: ${firstHitColor}; font-weight: bold; font-size: 0.9rem;">
+              ${firstHitDisplay}
+              ${hitTracking.hitPrice ? `<div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.7); margin-top: 0.25rem;">$${hitTracking.hitPrice.toLocaleString()}</div>` : ''}
             </td>
             <td style="padding: 0.75rem; color: ${outcomeColor}; font-weight: bold;">${trade.outcome || 'CLOSED'}</td>
             <td style="padding: 0.75rem;">
@@ -2758,7 +3104,7 @@
             </td>
           </tr>
           <tr id="closed-trade-details-${trade.id}" class="closed-trade-details-row" style="display: ${expandedTradeIds.has(trade.id) ? 'table-row' : 'none'};">
-            <td colspan="7" style="padding: 1.5rem; background-color: rgba(0, 0, 0, 0.4);">
+            <td colspan="8" style="padding: 1.5rem; background-color: rgba(0, 0, 0, 0.4);">
               ${createClosedTradeDetails(trade)}
             </td>
           </tr>
@@ -2839,6 +3185,19 @@
               <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
                 ${trade.symbol.replace('USDT', '')} - ${trade.direction} (${setupType}) - CLOSED
               </h2>
+              
+              ${trade.hitTracking && trade.hitTracking.firstHit ? `
+              <!-- FIRST HIT STATUS - PRIORITIZED -->
+              <div style="margin-bottom: 1.5rem; padding: 1rem; border-radius: 0.5rem; border: 3px solid ${trade.hitTracking.firstHit === 'SL' ? '#ef4444' : '#22c55e'}; background: ${trade.hitTracking.firstHit === 'SL' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(34, 197, 94, 0.15)'};">
+                <div style="font-family: var(--font-mathias); font-weight: bold; font-size: 1.25rem; color: ${trade.hitTracking.firstHit === 'SL' ? '#ef4444' : '#22c55e'}; margin-bottom: 0.5rem; text-align: center;">
+                  ${trade.hitTracking.firstHit === 'SL' ? '🛑 STOP LOSS HIT FIRST' : trade.hitTracking.firstHit === 'TP1' ? '✅ TP1 HIT FIRST' : '🎯 TP2 HIT FIRST'}
+                </div>
+                <div style="text-align: center; color: var(--color-yellow-75); font-size: 0.875rem; font-family: var(--font-system);">
+                  Hit at: $${(trade.hitTracking.hitPrice || trade.exitPrice || trade.entry).toLocaleString()}
+                  ${trade.hitTracking.hitTime ? ` | ${new Date(trade.hitTracking.hitTime).toLocaleString()}` : ''}
+                </div>
+              </div>
+              ` : ''}
               
               <!-- Key Metrics Grid -->
               <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin-top: 1rem;">
@@ -3274,6 +3633,59 @@
         button.textContent = originalText;
         button.disabled = false;
       }
+    };
+    
+    // Cleanup old closed trades to free up storage
+    window.cleanupOldTrades = async function() {
+      const closedTrades = trades.filter(t => t.status === 'CLOSED');
+      if (closedTrades.length === 0) {
+        alert('No closed trades to clean up.');
+        return;
+      }
+      
+      const keepDays = 30; // Keep closed trades from last 30 days
+      const cutoffTime = Date.now() - (keepDays * 24 * 60 * 60 * 1000);
+      
+      const oldClosedTrades = closedTrades.filter(t => {
+        const tradeTime = t.exitTime ? new Date(t.exitTime).getTime() : (t.trackedAt || t.id || 0);
+        return tradeTime < cutoffTime;
+      });
+      
+      if (oldClosedTrades.length === 0) {
+        alert(`No closed trades older than ${keepDays} days to clean up.`);
+        return;
+      }
+      
+      if (!confirm(`Delete ${oldClosedTrades.length} closed trades older than ${keepDays} days? This will free up storage space.`)) {
+        return;
+      }
+      
+      console.log(`🧹 Cleaning up ${oldClosedTrades.length} old closed trades...`);
+      
+      // Delete from Firebase
+      if (db) {
+        for (const trade of oldClosedTrades) {
+          try {
+            await db.collection('trades').doc(String(trade.id)).delete();
+            console.log(`🗑️ Deleted ${trade.symbol} from Firebase`);
+          } catch (error) {
+            console.error(`❌ Error deleting ${trade.id} from Firebase:`, error);
+          }
+        }
+      }
+      
+      // Remove from trades array
+      const oldIds = new Set(oldClosedTrades.map(t => t.id));
+      trades = trades.filter(t => !oldIds.has(t.id));
+      
+      // Remove from expanded state
+      oldIds.forEach(id => expandedTradeIds.delete(id));
+      
+      // Save updated trades
+      await saveTrades();
+      await renderTrades();
+      
+      alert(`✅ Cleaned up ${oldClosedTrades.length} old closed trades. Storage freed!`);
     };
     
     // Delete trade
