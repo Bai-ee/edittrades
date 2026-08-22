@@ -65,12 +65,26 @@ export const CACHE_TTL = {
  * whole batch) we retry with `core` rather than losing the feature entirely.
  */
 const COINMETRICS_METRICS = {
-  core: ['PriceUSD', 'CapRealUSD', 'SplyCur', 'HashRate', 'IssTotNtv'],
-  // Only IssTotUSD is added: it gives Puell an exact issuance value rather than
-  // the issuance x price reconstruction. Nothing else is requested, because an
-  // unused metric that gets renamed or ungranted would reject the whole batch
-  // for no benefit.
-  extended: ['PriceUSD', 'CapRealUSD', 'SplyCur', 'HashRate', 'IssTotNtv', 'IssTotUSD']
+  // CapMVRVCur and CapMrktCurUSD are requested alongside CapRealUSD on purpose.
+  // Coin Metrics' published community dataset carries MVRV and market cap but
+  // NOT realized cap, so a tier that withholds CapRealUSD would otherwise cost
+  // us the heaviest-weighted anchor. Realized cap is recoverable exactly from
+  // the other two (see deriveRealizedCap), so the core set can survive either
+  // shape.
+  core: ['PriceUSD', 'SplyCur', 'HashRate', 'IssTotNtv', 'CapMVRVCur', 'CapMrktCurUSD'],
+  // IssTotUSD gives Puell an exact issuance value rather than the
+  // issuance x price reconstruction; CapRealUSD is the direct measurement,
+  // preferred over the derivation when the tier provides it.
+  extended: [
+    'PriceUSD',
+    'SplyCur',
+    'HashRate',
+    'IssTotNtv',
+    'CapMVRVCur',
+    'CapMrktCurUSD',
+    'CapRealUSD',
+    'IssTotUSD'
+  ]
 };
 
 /* ========================================================================
@@ -154,23 +168,54 @@ async function fetchCoinMetrics(metrics, { startTime = HISTORY_START, timeout = 
  *    estimateMinerProductionCost() expects. No conversion is applied.
  *  - IssTotNtv is native units (BTC) issued that day.
  */
+/**
+ * Realized cap, direct if published, otherwise derived.
+ *
+ * MVRV is *defined* as market cap / realized cap, so
+ *
+ *     realizedCap = CapMrktCurUSD / CapMVRVCur
+ *
+ * is exact algebra rather than an approximation — the same identity the UI
+ * relies on when it reports MVRV as `price / realizedPrice`. The direct
+ * measurement is always preferred; this only fills in when a tier does not
+ * publish CapRealUSD.
+ *
+ * @returns {{ value: number, derived: boolean }|{ value: null, derived: false }}
+ */
+function deriveRealizedCap(row) {
+  const direct = toNumber(row.CapRealUSD);
+  if (direct !== null && direct > 0) return { value: direct, derived: false };
+
+  const marketCap = toNumber(row.CapMrktCurUSD);
+  const mvrv = toNumber(row.CapMVRVCur);
+  if (marketCap !== null && marketCap > 0 && mvrv !== null && mvrv > 0) {
+    return { value: marketCap / mvrv, derived: true };
+  }
+  return { value: null, derived: false };
+}
+
 function normalizeCoinMetricsRows(rows) {
   const out = [];
+  let derivedCount = 0;
+
   for (const row of rows) {
     if (!row || typeof row.time !== 'string') continue;
     const date = row.time.slice(0, 10);
+    const realized = deriveRealizedCap(row);
+    if (realized.derived) derivedCount++;
 
     out.push({
       date,
       price: toNumber(row.PriceUSD),
-      realizedCap: toNumber(row.CapRealUSD),
+      realizedCap: realized.value,
       supply: toNumber(row.SplyCur),
       hashRate: toNumber(row.HashRate),
       issuanceNtv: toNumber(row.IssTotNtv),
       issuanceUsd: toNumber(row.IssTotUSD)
     });
   }
-  return out;
+
+  return { rows: out, realizedCapDerivedRows: derivedCount };
 }
 
 /* ========================================================================
@@ -294,7 +339,8 @@ export async function getBitcoinEconomicSeries(options = {}) {
       raw = await fetchCoinMetrics(COINMETRICS_METRICS.core);
     }
 
-    rows = normalizeCoinMetricsRows(raw);
+    const normalized = normalizeCoinMetricsRows(raw);
+    rows = normalized.rows;
     if (rows.length === 0) throw new Error('Coin Metrics returned zero rows');
 
     sources.coinmetrics = {
@@ -303,7 +349,16 @@ export async function getBitcoinEconomicSeries(options = {}) {
       rows: rows.length,
       firstDate: rows[0].date,
       lastDate: rows[rows.length - 1].date,
-      url: COINMETRICS_BASE
+      url: COINMETRICS_BASE,
+      // Surfaced so the page can say whether realized cap was measured
+      // directly or recovered from MVRV x market cap.
+      realizedCapDerivedRows: normalized.realizedCapDerivedRows,
+      realizedCapSource:
+        normalized.realizedCapDerivedRows === 0
+          ? 'CapRealUSD (direct)'
+          : normalized.realizedCapDerivedRows === rows.length
+            ? 'derived from CapMrktCurUSD / CapMVRVCur'
+            : 'mixed: CapRealUSD where published, otherwise derived from MVRV'
     };
   } catch (error) {
     console.error('[BitcoinData] Coin Metrics unavailable:', error.message);

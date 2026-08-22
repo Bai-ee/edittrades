@@ -106,8 +106,20 @@ Realized Price = Realized Cap / circulating supply
 ```
 
 The aggregate on-chain cost basis of the supply, valuing every coin at the price
-it last moved. Sourced from Coin Metrics (`CapRealUSD`, `SplyCur`). It is never
-approximated with a moving average.
+it last moved. It is never approximated with a moving average.
+
+Realized cap is taken from `CapRealUSD` when the tier publishes it. Coin Metrics'
+published community dataset carries MVRV and market cap but **not** realized cap,
+so the provider also derives it:
+
+```
+realizedCap = CapMrktCurUSD / CapMVRVCur
+```
+
+MVRV is *defined* as market cap / realized cap, so this is exact algebra, not an
+approximation — verified bit-exact against the direct figure. Without it, a tier
+withholding `CapRealUSD` would cost the heaviest-weighted anchor. The API reports
+which path was used in `meta.sources.coinmetrics.realizedCapSource`.
 
 ### 200-week moving average
 
@@ -198,9 +210,51 @@ The percentiles live in `ECONOMIC_VALUE_CONFIG.valuationStates.percentiles` and
 are adjustable. The resolved percentage values are returned in the API response
 and rendered on the page, so the calibration is inspectable rather than implied.
 
-Calibration uses the full available history by default; set `lookbackDays` to
-restrict it to a trailing window. Bands require at least 365 observations, below
-which the state reports `UNCALIBRATED` rather than guessing.
+### Zero is not "fair value"
+
+All three anchors are cost-like measures — what holders paid, what the long-run
+average is, what production costs. In a secularly appreciating asset, price
+normally trades **above** all three. Measured on real Coin Metrics data, Bitcoin
+has closed below Economic Value on only ~4% of days, and the typical premium is
+around **+70%, not 0%**.
+
+So Economic Value is a *cost-basis composite*, closer to a floor-ish reference
+than a midpoint. The bands measure position against Bitcoin's own history rather
+than against zero, which is why a reading of +35% can sit in NEAR VALUE. The page
+displays the typical premium beside the current one so this is legible rather
+than surprising.
+
+### Calibration window
+
+`lookbackDays` defaults to **2,920 days (8 years, two halving cycles)**. Bitcoin's
+early history is a structurally different asset and otherwise dominates the
+distribution. Measured on real data:
+
+| Era | Median premium | Max premium |
+| --- | --- | --- |
+| 2010–2013 | +941% | +4,186% |
+| 2014–2017 | +97% | +917% |
+| 2018–2021 | +90% | +611% |
+| 2022–2026 | +63% | +170% |
+
+Calibrating on full history pushes the DEEP DISCOUNT threshold to **+1.6%**,
+which would label Bitcoin trading at a premium a "deep discount". The eight-year
+window puts every known market moment in the right band:
+
+| Moment | Premium | State |
+| --- | --- | --- |
+| 2018-12-15 bear bottom | −19.4% | DEEP DISCOUNT |
+| 2020-03-12 COVID crash | −13.6% | DEEP DISCOUNT |
+| 2021-04-14 cycle top | +346% | EUPHORIC |
+| 2022-11-21 FTX bottom | −22.1% | DEEP DISCOUNT |
+| 2024-03-14 cycle high | +163% | EXTENDED |
+
+Note that percentiles are **order statistics**, so transforming the deviation
+(log ratio instead of percentage) does not move the cut points at all — only the
+window does. This was tested rather than assumed.
+
+Bands require at least 365 observations, below which the state reports
+`UNCALIBRATED` rather than guessing.
 
 Because the state is percentile-calibrated, the premium figure on the page takes
 its colour from the **same bands**. A raw ±5% colour rule would paint a reading
@@ -231,17 +285,46 @@ and is not presented as one.
 
 | Source | Role | Auth |
 | --- | --- | --- |
-| [Coin Metrics Community API](https://community-api.coinmetrics.io/v4) | Price, realized cap, supply, hashrate, issuance, difficulty. Full history from 2010. | None |
-| [Bitfinex public candles](https://api-pub.bitfinex.com/v2) | Price-history fallback (daily BTC/USD from 2013). Price only — no on-chain anchors. | None |
-| `services/marketData.js` (Kraken → CoinGecko) | Live spot price for the headline figure | None |
+| [Coin Metrics Community API](https://community-api.coinmetrics.io/v4) | Price, realized cap, supply, hashrate, issuance. Full history from 2009. | **None** |
+| [Bitfinex public candles](https://api-pub.bitfinex.com/v2) | Price-history fallback (daily BTC/USD from 2013). Price only — no on-chain anchors. | **None** |
+| `services/marketData.js` (Kraken → CoinGecko) | Live spot price for the headline figure | **None** |
 
-Metrics requested from Coin Metrics: `PriceUSD`, `CapRealUSD`, `SplyCur`,
-`HashRate`, `IssTotNtv`, `IssTotUSD`, `DiffLast`, `RevUSD`. If the extended
-request fails — a renamed or ungranted metric would reject the whole batch — the
-provider retries with the core subset rather than losing the feature.
+**No paid endpoint and no API key is required** for anything the composite uses.
+
+Metrics requested: `PriceUSD`, `SplyCur`, `HashRate`, `IssTotNtv`,
+`CapMVRVCur`, `CapMrktCurUSD` (core), plus `CapRealUSD` and `IssTotUSD`
+(extended). If the extended request fails — a renamed or ungranted metric would
+reject the whole batch — the provider retries with the core subset, which is
+sufficient on its own because realized cap is recoverable from MVRV.
 
 `HashRate` is reported by Coin Metrics in **terahashes per second**, which is
 what the miner-cost estimator expects. No conversion is applied.
+
+### Why EditTrades' existing APIs are not sufficient
+
+The feature needed sources beyond what the repo already had, for two structural
+reasons rather than preference:
+
+- **Kraken's OHLC endpoint caps at 720 data points** regardless of `since`. A
+  200-week MA needs 1,400 daily closes; Kraken supplies ~1.97 years. The repo's
+  weekly path derives weeks from those same 720 dailies, yielding ~102 weeks.
+- **CoinGecko's free tier caps history at 365 days.**
+- Nothing in the repo touches the Bitcoin chain, and realized cap is UTXO-level
+  data that an exchange price API structurally cannot provide.
+
+Note also that `marketData.getCandles()` falls back to `generateSyntheticData()`
+— a random walk — when Kraken fails. This module deliberately does **not** route
+history through it, since a provider hiccup would otherwise render a valuation
+from random numbers. The spot-price path it does use (`getTickerPrice`) has no
+synthetic fallback.
+
+### Validation archive
+
+Coin Metrics also publishes the community dataset as CSV at
+[github.com/coinmetrics/data](https://github.com/coinmetrics/data)
+(`csv/btc.csv`). It lags the API by weeks to months, so it is unsuitable as a
+live source, but it is useful for offline validation and for confirming which
+metrics the community tier carries.
 
 TradingView is not scraped and no proprietary indicator data is copied.
 

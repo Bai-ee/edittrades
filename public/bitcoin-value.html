@@ -413,6 +413,10 @@
           <div>
             <div class="eco-label" id="figDeviationLabel">Premium / Discount</div>
             <span class="eco-value eco-tone-neutral" id="figDeviation">&mdash;</span>
+            <!-- Economic Value is built from cost-basis anchors, so price
+                 normally sits above it. Without the typical figure alongside,
+                 a state like NEAR VALUE at +35% reads as a contradiction. -->
+            <div class="eco-label" id="figTypical" style="margin-top: 0.4rem;"></div>
           </div>
           <div>
             <div class="eco-state eco-tone-neutral" id="figState">&mdash;</div>
@@ -861,6 +865,28 @@
         y: Number.isFinite(row.premiumDiscount) ? row.premiumDiscount : null
       }));
 
+      /* Scale to the bulk of the distribution, not its extremes.
+         Bitcoin's 2011-13 deviations reach +3000%+, which on a linear axis
+         flattens every subsequent cycle into the zero line and defeats the
+         point of this panel. Bounds come from the 1st/99th percentile of what
+         is on screen; the handful of readings beyond simply run off the top,
+         which reads honestly as off-scale rather than hiding anything.
+         Zero is always kept in view since it is the reference. */
+      const values = data.map((point) => point.y).filter(Number.isFinite).sort((a, b) => a - b);
+      let bounds = null;
+      if (values.length > 2) {
+        const at = (p) => values[Math.min(values.length - 1, Math.floor((p / 100) * (values.length - 1)))];
+        const low = Math.min(0, at(2));
+        const high = Math.max(0, at(98));
+
+        // Round outward to a round number so the axis reads 2000% rather than
+        // the raw percentile, e.g. 1711.317%.
+        const rough = (high - low) / 4;
+        const magnitude = 10 ** Math.floor(Math.log10(Math.max(rough, 1)));
+        const step = [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((s) => s >= rough) || magnitude * 10;
+        bounds = { min: Math.floor(low / step) * step, max: Math.ceil(high / step) * step };
+      }
+
       if (deviationChart) deviationChart.destroy();
 
       deviationChart = new Chart(canvas.getContext('2d'), {
@@ -896,6 +922,7 @@
             x: Object.assign(timeAxisOptions(), { ticks: { display: false }, grid: { display: false } }),
             y: Object.assign(baseScaleOptions(), {
               position: 'right',
+              ...(bounds || {}),
               // Emphasise the zero line: it is the whole point of this strip.
               grid: {
                 color: (ctx) => (ctx.tick.value === 0
@@ -1009,6 +1036,12 @@
       document.getElementById('figDeviationLabel').textContent =
         current.direction === 'DISCOUNT' ? 'Discount to Value' : 'Premium to Value';
 
+      const distribution = state.payload.distribution;
+      document.getElementById('figTypical').textContent =
+        distribution && distribution.available
+          ? 'Typical ' + formatPercent(distribution.median, 0)
+          : '';
+
       const stateEl = document.getElementById('figState');
       stateEl.textContent = current.state;
       stateEl.className = 'eco-state ' + toneClass(current.stateTone);
@@ -1117,6 +1150,20 @@
         premium/discount distribution</strong>, not chosen percentages. They describe how
         far Bitcoin has actually traded from its economic anchors across
         ${distribution.observations.toLocaleString()} daily observations.</p>
+        <p style="margin-top:0.75rem;">All three anchors are cost-like measures — what
+        holders paid, what the long-run average is, what production costs — so in a
+        secularly appreciating asset <strong>price normally trades above Economic
+        Value</strong>. The typical premium is
+        <strong>${formatPercent(distribution.median, 0)}</strong>, not zero. That is why a
+        reading of, say, +35% can sit in the NEAR VALUE band: the bands measure position
+        against Bitcoin's own history, not against zero. Zero is not "fair value" for this
+        composite, and the page does not treat it as such.</p>
+        <p style="margin-top:0.75rem;">Calibration uses a trailing
+        ${methodology.valuationStates.lookbackDays
+          ? Math.round(methodology.valuationStates.lookbackDays / 365) + '-year window'
+          : 'full history'}. Bitcoin's pre-2014 deviations (median premium above +900%)
+        come from a structurally different asset — no ASIC mining, negligible market cap —
+        and calibrating on them would push the DEEP DISCOUNT threshold above zero.</p>
         <ul style="margin:0.75rem 0 0 1.1rem; list-style: disc;">
           <li><strong>DEEP DISCOUNT</strong> — below ${formatPercent(thresholds.deepDiscount)} (p${methodology.valuationStates.percentiles.deepDiscount})</li>
           <li><strong>DISCOUNT</strong> — up to ${formatPercent(thresholds.discount)} (p${methodology.valuationStates.percentiles.discount})</li>

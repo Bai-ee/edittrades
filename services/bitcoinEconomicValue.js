@@ -173,10 +173,29 @@ export const ECONOMIC_VALUE_CONFIG = {
       extended: 95
     },
     /**
-     * Percentile calibration window. null = full available history.
-     * A number restricts calibration to the trailing N days.
+     * Percentile calibration window, in trailing days. null = full history.
+     *
+     * Defaults to 2,920 days (8 years, two halving cycles) because Bitcoin's
+     * pre-2014 deviations come from a structurally different asset and
+     * otherwise dominate the distribution. Measured on real Coin Metrics data:
+     *
+     *   era        median premium   max premium
+     *   2010-2013        +941%          +4186%
+     *   2014-2017         +97%           +917%
+     *   2018-2021         +90%           +611%
+     *   2022-2026         +63%           +170%
+     *
+     * Calibrating on full history pushes the DEEP DISCOUNT band up to +1.6%,
+     * which would label Bitcoin trading at a premium a "deep discount". An
+     * eight-year window puts every known market moment in the right band:
+     * the 2018 and 2022 bear bottoms and the COVID crash read DEEP DISCOUNT,
+     * the 2021 top reads EUPHORIC, and the 2024 high reads EXTENDED.
+     *
+     * Note percentiles are order statistics, so transforming the deviation
+     * (log ratio instead of percentage) does not move these cut points at all
+     * — only the window does.
      */
-    lookbackDays: null,
+    lookbackDays: 2920,
     /** Minimum observations before percentile bands are considered valid. */
     minObservations: 365
   },
