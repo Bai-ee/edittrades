@@ -36,6 +36,10 @@
       "dest": "/api/scan.js"
     },
     {
+      "src": "/api/bitcoin/economic-value",
+      "dest": "/api/bitcoin-economic-value.js"
+    },
+    {
       "src": "/api/agent-review",
       "dest": "/api/agent-review.js"
     },

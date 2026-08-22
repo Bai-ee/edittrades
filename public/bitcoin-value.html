@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitcoin Economic Value - EditTrades</title>
+
+  <meta property="og:title" content="Bitcoin Economic Value">
+  <meta property="og:description" content="Bitcoin market price against its long-duration economic anchors.">
+  <meta property="og:image" content="/logos/og_img.jpg">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/edittrax-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+  <style>
+    html {
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+
+    body {
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100%;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    #particles-js {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+      z-index: -1;
+      background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+    }
+
+    main {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    /* ----------------------------------------------------------------
+     * HEADLINE
+     * The valuation relationship is the page. It gets the largest type
+     * and the most space; everything below is support.
+     * ------------------------------------------------------------- */
+    .eco-headline {
+      padding: 2.5rem 0 2rem;
+      border-bottom: 1px solid rgba(230, 233, 224, 0.12);
+      margin-bottom: 1.75rem;
+    }
+
+    .eco-title {
+      font-family: var(--font-mathias);
+      font-size: clamp(1.5rem, 5vw, 2.25rem);
+      line-height: 0.95;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75);
+      margin: 0 0 0.5rem;
+    }
+
+    .eco-standfirst {
+      max-width: 46ch;
+      font-size: 0.8125rem;
+      line-height: 1.55;
+      color: var(--accent-neutral);
+      margin: 0 0 2rem;
+    }
+
+    /* Deliberately asymmetric: the price/value pair reads first, the
+       deviation sits apart from it. Not a row of identical KPI boxes. */
+    .eco-figures {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1.5rem;
+      align-items: end;
+    }
+
+    .eco-figure-primary .eco-value { font-size: clamp(1.75rem, 6.5vw, 3rem); }
+    .eco-figure-primary .eco-label { margin-bottom: 0.5rem; }
+
+    .eco-figure-deviation {
+      text-align: right;
+      border-left: 1px solid rgba(230, 233, 224, 0.12);
+      padding-left: 1.5rem;
+    }
+
+    .eco-figure-deviation .eco-value { font-size: clamp(1.5rem, 5.5vw, 2.5rem); }
+
+    .eco-state {
+      font-family: var(--font-mathias);
+      font-size: 0.75rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      margin-top: 0.5rem;
+    }
+
+    .eco-legend-swatch {
+      display: inline-block;
+      width: 14px;
+      height: 2px;
+      vertical-align: middle;
+      margin-right: 0.5rem;
+    }
+
+    /* ----------------------------------------------------------------
+     * CHART
+     * ------------------------------------------------------------- */
+    .eco-panel {
+      background-color: rgba(0, 0, 0, 0.55);
+      border: 1px solid rgba(230, 233, 224, 0.12);
+      border-radius: var(--radius-10);
+      overflow: hidden;
+    }
+
+    .eco-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.875rem 1rem;
+      border-bottom: 1px solid rgba(230, 233, 224, 0.12);
+    }
+
+    .eco-control-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.375rem;
+      min-width: 0;
+    }
+
+    .eco-chip {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.375rem 0.625rem;
+      border-radius: var(--radius-5);
+      border: 1px solid rgba(230, 233, 224, 0.22);
+      background-color: transparent;
+      color: var(--accent-neutral);
+      cursor: pointer;
+      transition: color var(--transition-base), border-color var(--transition-base), background-color var(--transition-base);
+      white-space: nowrap;
+    }
+
+    .eco-chip:hover:not(:disabled) {
+      color: var(--color-yellow-75);
+      border-color: rgba(230, 233, 224, 0.45);
+    }
+
+    .eco-chip[aria-pressed="true"] {
+      background-color: var(--color-yellow-75);
+      border-color: var(--color-yellow-75);
+      color: var(--color-black);
+    }
+
+    .eco-chip:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* Overlay chips carry their series colour as a left rule so the toggle
+       and the line on the chart are unmistakably the same thing. */
+    .eco-chip-overlay {
+      border-left-width: 3px;
+      border-left-style: solid;
+    }
+
+    .eco-chart-shell {
+      position: relative;
+      width: 100%;
+      padding: 0.75rem 0.5rem 0.25rem;
+    }
+
+    .eco-chart-main { height: clamp(320px, 52vh, 520px); }
+    .eco-chart-deviation { height: clamp(120px, 18vh, 170px); }
+
+    /* ----------------------------------------------------------------
+     * INSPECTOR
+     * Chart readings land in a fixed strip rather than a floating tooltip.
+     * It works identically for mouse and touch, and never covers the data.
+     * ------------------------------------------------------------- */
+    .eco-inspector {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem 1.75rem;
+      align-items: baseline;
+      padding: 0.875rem 1rem;
+      border-top: 1px solid rgba(230, 233, 224, 0.12);
+      min-height: 62px;
+    }
+
+    .eco-inspector-item { min-width: 0; }
+
+    .eco-inspector-item .eco-label { font-size: 0.625rem; }
+
+    .eco-inspector-item .eco-value {
+      font-size: 0.9375rem;
+      margin-top: 0.25rem;
+      display: block;
+    }
+
+    .eco-inspector-hint {
+      margin-left: auto;
+      font-size: 0.625rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(230, 233, 224, 0.3);
+      font-family: var(--font-mathias);
+      align-self: center;
+    }
+
+    /* ----------------------------------------------------------------
+     * SUPPORTING METRICS
+     * A quiet measurement table, not a second grid of cards competing
+     * with the chart for attention.
+     * ------------------------------------------------------------- */
+    .eco-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1px;
+      background-color: rgba(230, 233, 224, 0.10);
+      border: 1px solid rgba(230, 233, 224, 0.10);
+      border-radius: var(--radius-10);
+      overflow: hidden;
+    }
+
+    .eco-metric {
+      background-color: #000000;
+      padding: 1rem;
+    }
+
+    .eco-metric .eco-value {
+      font-size: 1.125rem;
+      margin-top: 0.4rem;
+      display: block;
+    }
+
+    .eco-metric-note {
+      font-size: 0.625rem;
+      color: rgba(230, 233, 224, 0.32);
+      margin-top: 0.4rem;
+      line-height: 1.4;
+    }
+
+    .eco-metric.is-unavailable .eco-value { color: rgba(230, 233, 224, 0.28); }
+
+    /* ----------------------------------------------------------------
+     * METHODOLOGY
+     * ------------------------------------------------------------- */
+    .eco-section-heading {
+      font-family: var(--font-mathias);
+      font-size: 0.75rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-neutral);
+      margin: 2.5rem 0 0.875rem;
+    }
+
+    .eco-prose {
+      font-size: 0.8125rem;
+      line-height: 1.65;
+      color: rgba(230, 233, 224, 0.62);
+    }
+
+    .eco-prose strong { color: var(--color-yellow-75); font-weight: 600; }
+    .eco-prose code {
+      font-size: 0.75rem;
+      color: var(--accent-economic);
+      background: rgba(110, 110, 158, 0.10);
+      padding: 0.1rem 0.3rem;
+      border-radius: 3px;
+    }
+
+    .eco-details {
+      border-top: 1px solid rgba(230, 233, 224, 0.12);
+      padding: 1rem 0;
+    }
+
+    .eco-details summary {
+      cursor: pointer;
+      font-family: var(--font-mathias);
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75);
+      list-style: none;
+    }
+
+    .eco-details summary::-webkit-details-marker { display: none; }
+    .eco-details summary::after { content: ' +'; color: var(--accent-neutral); }
+    .eco-details[open] summary::after { content: ' \2212'; }
+    .eco-details > *:not(summary) { margin-top: 0.875rem; }
+
+    .eco-source-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(230, 233, 224, 0.07);
+      font-size: 0.75rem;
+    }
+
+    .eco-notice {
+      border-left: 2px solid var(--accent-short);
+      padding: 0.625rem 0.875rem;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: rgba(230, 233, 224, 0.7);
+      background: rgba(239, 68, 68, 0.06);
+      border-radius: 0 var(--radius-5) var(--radius-5) 0;
+      margin-bottom: 1.25rem;
+    }
+
+    /* ----------------------------------------------------------------
+     * RESPONSIVE
+     * Mobile keeps the price/value relationship at the top of the page
+     * and stacks everything else. No horizontal scrolling anywhere.
+     * ------------------------------------------------------------- */
+    @media (max-width: 720px) {
+      .eco-headline { padding: 1.5rem 0 1.25rem; }
+
+      .eco-figures {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1.25rem 1rem;
+      }
+
+      .eco-figure-deviation {
+        grid-column: 1 / -1;
+        text-align: left;
+        border-left: none;
+        border-top: 1px solid rgba(230, 233, 224, 0.12);
+        padding-left: 0;
+        padding-top: 1rem;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .eco-controls { justify-content: flex-start; }
+      .eco-inspector { gap: 0.875rem 1.25rem; }
+      .eco-inspector-hint { margin-left: 0; width: 100%; }
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <div id="particles-js"></div>
+
+  <header class="header-edittrax">
+    <div class="max-w-6xl mx-auto px-4 py-3">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="logo-container flex flex-col items-center gap-2">
+          <img src="/logos/load.gif" alt="Loading Animation" style="width: 140px; height: auto;">
+          <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
+        </div>
+        <div class="flex items-center gap-2">
+          <a href="/" class="btn-base btn-secondary px-3 py-2 text-sm rounded">Home</a>
+          <button id="refreshBtn" class="btn-base btn-secondary px-3 py-2 text-sm rounded">Refresh</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 pb-16">
+
+    <!-- Provider / staleness notices -->
+    <div id="ecoNotice" class="eco-notice" hidden></div>
+
+    <!-- HEADLINE ------------------------------------------------------->
+    <section class="eco-headline">
+      <h1 class="eco-title">Bitcoin Economic Value</h1>
+      <p class="eco-standfirst">
+        Bitcoin&rsquo;s market price against a composite of long-duration economic
+        anchors &mdash; aggregate holder cost basis, long-term market structure and
+        estimated production cost. A reference for how expensive or cheap Bitcoin
+        is, not a claim about what it is worth.
+      </p>
+
+      <div class="eco-figures">
+        <div class="eco-figure-primary">
+          <div class="eco-label">
+            <span class="eco-legend-swatch" style="background-color: var(--color-yellow-75);"></span>BTC
+          </div>
+          <span class="eco-value" id="figPrice">&mdash;</span>
+        </div>
+
+        <div class="eco-figure-primary">
+          <div class="eco-label">
+            <span class="eco-legend-swatch" style="background-color: var(--accent-economic);"></span>Economic Value
+          </div>
+          <span class="eco-value" id="figValue" style="color: var(--accent-economic);">&mdash;</span>
+        </div>
+
+        <div class="eco-figure-deviation">
+          <div>
+            <div class="eco-label" id="figDeviationLabel">Premium / Discount</div>
+            <span class="eco-value eco-tone-neutral" id="figDeviation">&mdash;</span>
+          </div>
+          <div>
+            <div class="eco-state eco-tone-neutral" id="figState">&mdash;</div>
+            <div class="eco-label" id="figConvergence" style="margin-top: 0.35rem;"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MAIN CHART ----------------------------------------------------->
+    <section class="eco-panel" aria-label="Bitcoin price against Economic Value">
+      <div class="eco-controls">
+        <div class="eco-control-group" id="rangeControls" role="group" aria-label="Time range"></div>
+        <div class="eco-control-group" id="overlayControls" role="group" aria-label="Chart overlays"></div>
+      </div>
+
+      <div class="eco-chart-shell eco-chart-main">
+        <canvas id="mainChart"></canvas>
+      </div>
+
+      <div class="eco-inspector" id="inspector">
+        <div class="eco-inspector-item">
+          <div class="eco-label">Date</div>
+          <span class="eco-value" id="inspDate">&mdash;</span>
+        </div>
+        <div class="eco-inspector-item">
+          <div class="eco-label">BTC</div>
+          <span class="eco-value" id="inspPrice">&mdash;</span>
+        </div>
+        <div class="eco-inspector-item">
+          <div class="eco-label">Economic Value</div>
+          <span class="eco-value" id="inspValue" style="color: var(--accent-economic);">&mdash;</span>
+        </div>
+        <div class="eco-inspector-item">
+          <div class="eco-label">Premium / Discount</div>
+          <span class="eco-value" id="inspDeviation">&mdash;</span>
+        </div>
+        <div class="eco-inspector-item" id="inspAnchorsWrap" hidden>
+          <div class="eco-label">Anchors</div>
+          <span class="eco-value" id="inspAnchors" style="font-size: 0.8125rem;">&mdash;</span>
+        </div>
+        <div class="eco-inspector-hint" id="inspHint">Hover or tap the chart</div>
+      </div>
+    </section>
+
+    <!-- PREMIUM / DISCOUNT ---------------------------------------------->
+    <h2 class="eco-section-heading">Premium / Discount History</h2>
+    <section class="eco-panel" aria-label="Historical premium and discount">
+      <div class="eco-chart-shell eco-chart-deviation">
+        <canvas id="deviationChart"></canvas>
+      </div>
+    </section>
+    <p class="eco-prose" style="margin-top: 0.75rem;">
+      Zero is BTC trading exactly at Economic Value. Above the line Bitcoin carries a
+      premium to its economic anchors; below it, a discount.
+    </p>
+
+    <!-- SUPPORTING METRICS ---------------------------------------------->
+    <h2 class="eco-section-heading">Underlying Measurements</h2>
+    <section class="eco-metrics" id="metricsGrid"></section>
+
+    <!-- METHODOLOGY ------------------------------------------------------>
+    <h2 class="eco-section-heading">Methodology &amp; Sources</h2>
+
+    <details class="eco-details">
+      <summary>How Economic Value is calculated</summary>
+      <div class="eco-prose" id="methodologyBody"></div>
+    </details>
+
+    <details class="eco-details">
+      <summary>Valuation state thresholds</summary>
+      <div class="eco-prose" id="thresholdBody"></div>
+    </details>
+
+    <details class="eco-details">
+      <summary>Miner cost assumptions</summary>
+      <div class="eco-prose" id="minerBody"></div>
+    </details>
+
+    <details class="eco-details">
+      <summary>Data sources</summary>
+      <div id="sourceBody"></div>
+    </details>
+
+    <p class="eco-prose" style="margin-top: 2rem; font-size: 0.75rem; color: rgba(230,233,224,0.35);">
+      Economic Value is a derived reference built from public data. It is not a
+      floor, a guarantee, or a price target, and it is not a trade signal.
+    </p>
+
+  </main>
+
+  <script>
+    particlesJS('particles-js', {
+      particles: {
+        number: { value: 500 },
+        color: { value: '#ffffff' },
+        shape: { type: 'circle' },
+        opacity: { value: 0.5, random: true, anim: { enable: true, speed: 1, opacity_min: 0.1 } },
+        size: { value: 2, random: true },
+        line_linked: { enable: false },
+        move: { enable: true, speed: 0.5, direction: 'none', random: true, out_mode: 'out' }
+      },
+      interactivity: {
+        detect_on: 'canvas',
+        events: { onhover: { enable: true, mode: 'grab' } },
+        modes: { grab: { distance: 140, line_linked: { opacity: 0.3 } } }
+      }
+    });
+
+    /* =================================================================
+     * SERIES DEFINITIONS
+     * The two primary lines carry the page. Anchor overlays are dashed,
+     * dimmer and thinner so revealing one never buries the comparison
+     * the page exists to show.
+     * ============================================================== */
+    const PRIMARY_SERIES = [
+      { key: 'price', label: 'BTC', color: '#E6E9E0', width: 1.5, dash: [] },
+      { key: 'economicValue', label: 'ECONOMIC VALUE', color: '#6E6E9E', width: 2.5, dash: [] }
+    ];
+
+    const OVERLAY_SERIES = [
+      { key: 'ma200w', label: '200W', color: 'rgba(230, 233, 224, 0.42)', width: 1, dash: [6, 4] },
+      { key: 'realizedPrice', label: 'REALIZED', color: 'rgba(166, 117, 43, 0.85)', width: 1, dash: [2, 3] },
+      { key: 'sthRealizedPrice', label: 'STH', color: 'rgba(230, 233, 224, 0.28)', width: 1, dash: [1, 3] },
+      { key: 'lthRealizedPrice', label: 'LTH', color: 'rgba(166, 117, 43, 0.45)', width: 1, dash: [8, 3] },
+      { key: 'minerCost', label: 'MINER', color: 'rgba(110, 110, 158, 0.62)', width: 1, dash: [10, 4] }
+    ];
+
+    const ALL_SERIES = [...PRIMARY_SERIES, ...OVERLAY_SERIES];
+
+    const RANGE_KEYS = ['1y', '2y', '5y', 'all'];
+
+    /* Long ranges default to a log axis: across 13 years BTC spans three
+       orders of magnitude, and a linear axis flattens every early cycle into
+       the baseline. Short ranges read better linear. */
+    const DEFAULT_LOG_BY_RANGE = { '1y': false, '2y': false, '5y': true, all: true };
+
+    const state = {
+      range: 'all',
+      logScale: true,
+      visible: new Set(['price', 'economicValue']),
+      payload: null,
+      loading: false
+    };
+
+    /* =================================================================
+     * FORMATTING
+     * ============================================================== */
+    function formatUsd(value, compact) {
+      if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+      if (compact) {
+        const abs = Math.abs(value);
+        if (abs >= 1e9) return '$' + (value / 1e9).toFixed(2) + 'B';
+        if (abs >= 1e6) return '$' + (value / 1e6).toFixed(2) + 'M';
+        if (abs >= 1000) return '$' + (value / 1000).toFixed(abs >= 10000 ? 1 : 2) + 'K';
+      }
+      return '$' + value.toLocaleString('en-US', {
+        minimumFractionDigits: Math.abs(value) < 10 ? 2 : 0,
+        maximumFractionDigits: Math.abs(value) < 10 ? 2 : 0
+      });
+    }
+
+    function formatPercent(value, decimals) {
+      if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+      const d = decimals === undefined ? 1 : decimals;
+      return (value >= 0 ? '+' : '') + value.toFixed(d) + '%';
+    }
+
+    function formatNumber(value, decimals) {
+      if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+      return value.toFixed(decimals === undefined ? 2 : decimals);
+    }
+
+    function formatDate(timestamp) {
+      if (!Number.isFinite(timestamp)) return '—';
+      return new Date(timestamp).toLocaleDateString('en-US', {
+        year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC'
+      });
+    }
+
+    function toneClass(tone) {
+      if (tone === 'long') return 'eco-tone-long';
+      if (tone === 'short') return 'eco-tone-short';
+      return 'eco-tone-neutral';
+    }
+
+    /* A premium and a discount are opposite positions, not good and bad news.
+       Colour follows the same long/short language the rest of the app uses so
+       direction is legible at a glance, and no copy ever calls it a trade.
+
+       Crucially this uses the SAME percentile-calibrated bands as the state
+       label, so a reading never appears in alarming red beside a state that
+       calls it ordinary. A raw +/-5% rule would do exactly that: history says
+       +30% above the anchors is an unremarkable place for Bitcoin to sit. */
+    function deviationToneClass(premium) {
+      if (!Number.isFinite(premium)) return 'eco-tone-neutral';
+
+      const distribution = state.payload && state.payload.distribution;
+      if (!distribution || !distribution.available) return 'eco-tone-neutral';
+
+      const t = distribution.thresholds;
+      if (premium <= t.discount) return 'eco-tone-long';
+      if (premium > t.premium) return 'eco-tone-short';
+      return 'eco-tone-neutral';
+    }
+
+    /* =================================================================
+     * CONTROLS
+     * ============================================================== */
+    function renderRangeControls() {
+      const host = document.getElementById('rangeControls');
+      const available = state.payload && state.payload.availableRanges
+        ? new Map(state.payload.availableRanges.map((r) => [r.key, r]))
+        : new Map();
+
+      host.innerHTML = '';
+
+      RANGE_KEYS.forEach((key) => {
+        const info = available.get(key);
+        const button = document.createElement('button');
+        button.className = 'eco-chip';
+        button.textContent = key.toUpperCase();
+        button.setAttribute('aria-pressed', String(state.range === key));
+        // A range with no Economic Value in it has nothing to compare.
+        button.disabled = Boolean(info && info.withEconomicValue === 0);
+        button.addEventListener('click', () => {
+          if (state.range === key) return;
+          state.range = key;
+          state.logScale = DEFAULT_LOG_BY_RANGE[key];
+          load();
+        });
+        host.appendChild(button);
+      });
+
+      // A fixed label with a pressed state, rather than a label that swaps
+      // between LOG and LINEAR — swapping leaves it ambiguous whether the
+      // word names the current mode or the one you would switch to.
+      const scale = document.createElement('button');
+      scale.className = 'eco-chip';
+      scale.style.marginLeft = '0.5rem';
+      scale.textContent = 'LOG';
+      scale.setAttribute('aria-pressed', String(state.logScale));
+      scale.title = state.logScale
+        ? 'Logarithmic price axis — click for linear'
+        : 'Linear price axis — click for logarithmic';
+      scale.addEventListener('click', () => {
+        state.logScale = !state.logScale;
+        renderRangeControls();
+        renderMainChart();
+      });
+      host.appendChild(scale);
+    }
+
+    function renderOverlayControls() {
+      const host = document.getElementById('overlayControls');
+      const status = (state.payload && state.payload.meta && state.payload.meta.anchorStatus) || {};
+      host.innerHTML = '';
+
+      OVERLAY_SERIES.forEach((series) => {
+        const info = status[series.key];
+        const unavailable = !info || !info.available;
+
+        const button = document.createElement('button');
+        button.className = 'eco-chip eco-chip-overlay';
+        button.style.borderLeftColor = series.color;
+        button.textContent = series.label;
+        button.setAttribute('aria-pressed', String(state.visible.has(series.key)));
+        button.disabled = unavailable;
+        button.title = unavailable
+          ? series.label + ' is unavailable from the configured data sources'
+          : 'Show ' + series.label + ' on the chart';
+
+        button.addEventListener('click', () => {
+          if (state.visible.has(series.key)) state.visible.delete(series.key);
+          else state.visible.add(series.key);
+          renderOverlayControls();
+          renderMainChart();
+          updateInspector(null);
+        });
+
+        host.appendChild(button);
+      });
+    }
+
+    /* =================================================================
+     * CHARTS
+     * ============================================================== */
+    let mainChart = null;
+    let deviationChart = null;
+
+    /* Thin vertical rule at the inspected point. Replaces the floating
+       tooltip box, which on a touch screen lands under the finger. */
+    const crosshairPlugin = {
+      id: 'ecoCrosshair',
+      afterDatasetsDraw(chart) {
+        const active = chart.tooltip && chart.tooltip.getActiveElements
+          ? chart.tooltip.getActiveElements()
+          : [];
+        if (!active.length) return;
+
+        const x = active[0].element.x;
+        const { top, bottom } = chart.chartArea;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(x, top);
+        ctx.lineTo(x, bottom);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'rgba(230, 233, 224, 0.35)';
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+
+    function seriesData(key) {
+      return state.payload.history.map((row) => ({
+        x: row.timestamp,
+        y: Number.isFinite(row[key]) ? row[key] : null
+      }));
+    }
+
+    function baseScaleOptions() {
+      return {
+        grid: { color: 'rgba(230, 233, 224, 0.07)', drawTicks: false },
+        border: { display: false },
+        ticks: {
+          color: 'rgba(230, 233, 224, 0.45)',
+          font: { family: 'Mathias, sans-serif', size: 10 },
+          padding: 8
+        }
+      };
+    }
+
+    function timeAxisOptions() {
+      const options = baseScaleOptions();
+      options.type = 'linear';
+
+      // Pin the axis to the data it actually contains. Left to its own
+      // devices Chart.js rounds the bounds outward and labels years the
+      // series has no data for.
+      const history = state.payload.history;
+      if (history.length) {
+        options.min = history[0].timestamp;
+        options.max = history[history.length - 1].timestamp;
+      }
+
+      options.ticks = Object.assign({}, options.ticks, {
+        maxTicksLimit: 7,
+        autoSkip: true,
+        callback: (value) => {
+          const date = new Date(value);
+          // Multi-year views only need the year; short views need the month.
+          return state.range === 'all' || state.range === '5y'
+            ? date.getUTCFullYear()
+            : date.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+        }
+      });
+      options.grid = { display: false };
+      return options;
+    }
+
+    function renderMainChart() {
+      const canvas = document.getElementById('mainChart');
+      if (!state.payload || !state.payload.history) return;
+
+      const datasets = ALL_SERIES
+        .filter((series) => state.visible.has(series.key))
+        .map((series) => ({
+          label: series.label,
+          data: seriesData(series.key),
+          borderColor: series.color,
+          borderWidth: series.width,
+          borderDash: series.dash,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          // Leave real gaps as gaps: a straight line across a provider
+          // outage would be an invented price.
+          spanGaps: false,
+          tension: 0,
+          fill: false,
+          // Primary lines draw on top of the dimmer anchor overlays.
+          order: series.key === 'price' ? 0 : series.key === 'economicValue' ? 1 : 5
+        }));
+
+      if (mainChart) mainChart.destroy();
+
+      mainChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { datasets },
+        plugins: [crosshairPlugin],
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          normalized: true,
+          parsing: false,
+          interaction: { mode: 'index', intersect: false, axis: 'x' },
+          // touchstart/touchmove make tap inspection work on mobile, where
+          // there is no hover at all.
+          events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
+          layout: { padding: { top: 4, right: 4, bottom: 0, left: 0 } },
+          scales: {
+            x: timeAxisOptions(),
+            y: Object.assign(baseScaleOptions(), {
+              type: state.logScale ? 'logarithmic' : 'linear',
+              position: 'right',
+              ticks: Object.assign(baseScaleOptions().ticks, {
+                maxTicksLimit: 7,
+                callback: (value) => formatUsd(value, true)
+              })
+            })
+          },
+          plugins: {
+            legend: { display: false },
+            // Suppressed in favour of the fixed inspector strip below.
+            tooltip: {
+              enabled: false,
+              external: (context) => {
+                const points = context.tooltip && context.tooltip.dataPoints;
+                if (!points || !points.length) return;
+                updateInspector(points[0].parsed.x);
+              }
+            },
+            decimation: { enabled: false }
+          },
+          onHover: (event, elements, chart) => {
+            if (!elements.length) return;
+            const index = elements[0].index;
+            const point = chart.data.datasets[elements[0].datasetIndex].data[index];
+            if (point) updateInspector(point.x);
+          }
+        }
+      });
+
+      // Leaving the chart returns the readout to today's values rather than
+      // freezing on wherever the pointer happened to exit.
+      canvas.onmouseleave = () => updateInspector(null);
+    }
+
+    function renderDeviationChart() {
+      const canvas = document.getElementById('deviationChart');
+      if (!state.payload || !state.payload.history) return;
+
+      const data = state.payload.history.map((row) => ({
+        x: row.timestamp,
+        y: Number.isFinite(row.premiumDiscount) ? row.premiumDiscount : null
+      }));
+
+      if (deviationChart) deviationChart.destroy();
+
+      deviationChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          datasets: [{
+            data,
+            borderColor: 'rgba(230, 233, 224, 0.75)',
+            borderWidth: 1,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            spanGaps: false,
+            tension: 0,
+            fill: {
+              target: { value: 0 },
+              // Same long/short language as the state labels: below Economic
+              // Value shades green, above shades red. Kept faint so the strip
+              // stays a reference, not a second headline chart.
+              above: 'rgba(239, 68, 68, 0.10)',
+              below: 'rgba(16, 185, 129, 0.10)'
+            }
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          normalized: true,
+          parsing: false,
+          interaction: { mode: 'index', intersect: false, axis: 'x' },
+          events: ['mousemove', 'mouseout', 'click', 'touchstart', 'touchmove'],
+          scales: {
+            x: Object.assign(timeAxisOptions(), { ticks: { display: false }, grid: { display: false } }),
+            y: Object.assign(baseScaleOptions(), {
+              position: 'right',
+              // Emphasise the zero line: it is the whole point of this strip.
+              grid: {
+                color: (ctx) => (ctx.tick.value === 0
+                  ? 'rgba(230, 233, 224, 0.35)'
+                  : 'rgba(230, 233, 224, 0.06)'),
+                drawTicks: false
+              },
+              ticks: Object.assign(baseScaleOptions().ticks, {
+                maxTicksLimit: 5,
+                callback: (value) => value + '%'
+              })
+            })
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              enabled: false,
+              external: (context) => {
+                const points = context.tooltip && context.tooltip.dataPoints;
+                if (points && points.length) updateInspector(points[0].parsed.x);
+              }
+            }
+          }
+        },
+        plugins: [crosshairPlugin]
+      });
+
+      canvas.onmouseleave = () => updateInspector(null);
+    }
+
+    /* =================================================================
+     * INSPECTOR
+     * `timestamp === null` resets to the current reading.
+     * ============================================================== */
+    let rowByTimestamp = new Map();
+
+    function updateInspector(timestamp) {
+      const hint = document.getElementById('inspHint');
+
+      if (timestamp === null || timestamp === undefined) {
+        const current = state.payload && state.payload.current;
+        if (!current) return;
+        setInspector({
+          date: current.timestamp,
+          price: current.price,
+          economicValue: current.economicValue,
+          premiumDiscount: current.premiumDiscount,
+          anchors: current.anchors
+        });
+        hint.textContent = 'Latest — hover or tap the chart';
+        return;
+      }
+
+      const row = rowByTimestamp.get(timestamp);
+      if (!row) return;
+
+      setInspector({
+        date: row.timestamp,
+        price: row.price,
+        economicValue: row.economicValue,
+        premiumDiscount: row.premiumDiscount,
+        anchors: {
+          ma200w: row.ma200w,
+          realizedPrice: row.realizedPrice,
+          minerCost: row.minerCost,
+          sthRealizedPrice: row.sthRealizedPrice,
+          lthRealizedPrice: row.lthRealizedPrice
+        }
+      });
+      hint.textContent = 'Inspecting';
+    }
+
+    function setInspector(reading) {
+      document.getElementById('inspDate').textContent = formatDate(reading.date);
+      document.getElementById('inspPrice').textContent = formatUsd(reading.price);
+      document.getElementById('inspValue').textContent = formatUsd(reading.economicValue);
+
+      const deviation = document.getElementById('inspDeviation');
+      deviation.textContent = formatPercent(reading.premiumDiscount);
+      deviation.className = 'eco-value ' + deviationToneClass(reading.premiumDiscount);
+
+      // Only report anchors the user has actually revealed on the chart.
+      const revealed = OVERLAY_SERIES.filter((series) => state.visible.has(series.key));
+      const wrap = document.getElementById('inspAnchorsWrap');
+
+      if (!revealed.length) {
+        wrap.hidden = true;
+        return;
+      }
+
+      wrap.hidden = false;
+      document.getElementById('inspAnchors').textContent = revealed
+        .map((series) => series.label + ' ' + formatUsd(reading.anchors ? reading.anchors[series.key] : null, true))
+        .join('   ');
+    }
+
+    /* =================================================================
+     * HEADLINE / METRICS / METHODOLOGY
+     * ============================================================== */
+    function renderHeadline() {
+      const current = state.payload.current;
+      if (!current) return;
+
+      document.getElementById('figPrice').textContent = formatUsd(current.price);
+      document.getElementById('figValue').textContent = formatUsd(current.economicValue);
+
+      const deviation = document.getElementById('figDeviation');
+      deviation.textContent = formatPercent(current.premiumDiscount);
+      deviation.className = 'eco-value ' + deviationToneClass(current.premiumDiscount);
+
+      document.getElementById('figDeviationLabel').textContent =
+        current.direction === 'DISCOUNT' ? 'Discount to Value' : 'Premium to Value';
+
+      const stateEl = document.getElementById('figState');
+      stateEl.textContent = current.state;
+      stateEl.className = 'eco-state ' + toneClass(current.stateTone);
+
+      const convergence = current.convergence;
+      document.getElementById('figConvergence').textContent =
+        convergence && convergence.available
+          ? convergence.within + '/' + convergence.total + ' anchors agree · ' + convergence.agreement
+          : '';
+    }
+
+    function renderMetrics() {
+      const current = state.payload.current;
+      const status = state.payload.meta.anchorStatus || {};
+      const host = document.getElementById('metricsGrid');
+
+      const metrics = [
+        {
+          label: 'Realized Price',
+          value: formatUsd(current.anchors.realizedPrice),
+          available: status.realizedPrice && status.realizedPrice.available,
+          note: 'Realized cap / supply. Aggregate on-chain cost basis.'
+        },
+        {
+          label: '200W MA',
+          value: formatUsd(current.anchors.ma200w),
+          available: status.ma200w && status.ma200w.available,
+          note: '200 completed weekly closes.'
+        },
+        {
+          label: 'STH Cost Basis',
+          value: formatUsd(current.anchors.sthRealizedPrice),
+          available: status.sthRealizedPrice && status.sthRealizedPrice.available,
+          note: 'Requires an age-banded on-chain provider.'
+        },
+        {
+          label: 'LTH Cost Basis',
+          value: formatUsd(current.anchors.lthRealizedPrice),
+          available: status.lthRealizedPrice && status.lthRealizedPrice.available,
+          note: 'Requires an age-banded on-chain provider.'
+        },
+        {
+          label: 'Est. Miner Cost',
+          value: formatUsd(current.anchors.minerCost),
+          available: status.minerCost && status.minerCost.available,
+          note: 'Estimate from hashrate, fleet efficiency and power price. Not a floor.'
+        },
+        {
+          label: 'MVRV',
+          value: formatNumber(current.context.mvrv),
+          available: Number.isFinite(current.context.mvrv),
+          note: 'Price / realized price. Context only — excluded from the composite.'
+        },
+        {
+          label: 'Puell Multiple',
+          value: formatNumber(current.context.puell),
+          available: Number.isFinite(current.context.puell),
+          note: 'Daily issuance value vs its 365-day average. Miner revenue condition.'
+        }
+      ];
+
+      host.innerHTML = metrics.map((metric) => `
+        <div class="eco-metric${metric.available ? '' : ' is-unavailable'}">
+          <div class="eco-label">${metric.label}</div>
+          <span class="eco-value">${metric.available ? metric.value : 'UNAVAILABLE'}</span>
+          <div class="eco-metric-note">${metric.note}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderMethodology() {
+      const methodology = state.payload.methodology;
+      const distribution = state.payload.distribution;
+      const current = state.payload.current;
+      const weights = (current && current.weightsApplied) || methodology.weights;
+
+      const weightRows = Object.entries(weights)
+        .filter(([, weight]) => weight > 0)
+        .map(([key, weight]) => `<li><strong>${key}</strong> — ${(weight * 100).toFixed(1)}%</li>`)
+        .join('');
+
+      document.getElementById('methodologyBody').innerHTML = `
+        <p>Economic Value is a <strong>weighted geometric mean</strong> of long-duration
+        economic anchors, taken in log space because these are price levels compared as
+        ratios. Weights are renormalised over whichever anchors exist on a given date,
+        so early history is usable without back-filling anchors that did not yet exist.</p>
+        <p style="margin-top:0.75rem;">Weights applied to the latest reading:</p>
+        <ul style="margin:0.5rem 0 0 1.1rem; list-style: disc;">${weightRows}</ul>
+        <p style="margin-top:0.75rem;">The composite draws on three structurally
+        independent families: on-chain aggregate cost basis, long-term market structure,
+        and production economics. Anchors derived from one another are never both
+        weighted — <code>MVRV</code> is a transform of realized price, and
+        <code>Puell</code> is a revenue condition rather than a price level, so both are
+        reported as context only.</p>
+        <p style="margin-top:0.75rem;">Miner cost is smoothed with a trailing
+        ${methodology.smoothing.minerCostDays}-day average to remove difficulty-retarget
+        and halving steps; the composite takes a final trailing
+        ${methodology.smoothing.compositeDays}-day pass. Both are trailing only, so no
+        future information enters a historical value. Methodology version
+        <code>${methodology.version}</code>.</p>
+      `;
+
+      const thresholds = distribution && distribution.available ? distribution.thresholds : null;
+      document.getElementById('thresholdBody').innerHTML = thresholds ? `
+        <p>State bands are <strong>percentile cut points of Bitcoin's own historical
+        premium/discount distribution</strong>, not chosen percentages. They describe how
+        far Bitcoin has actually traded from its economic anchors across
+        ${distribution.observations.toLocaleString()} daily observations.</p>
+        <ul style="margin:0.75rem 0 0 1.1rem; list-style: disc;">
+          <li><strong>DEEP DISCOUNT</strong> — below ${formatPercent(thresholds.deepDiscount)} (p${methodology.valuationStates.percentiles.deepDiscount})</li>
+          <li><strong>DISCOUNT</strong> — up to ${formatPercent(thresholds.discount)} (p${methodology.valuationStates.percentiles.discount})</li>
+          <li><strong>NEAR VALUE</strong> — up to ${formatPercent(thresholds.nearValue)} (p${methodology.valuationStates.percentiles.nearValue})</li>
+          <li><strong>PREMIUM</strong> — up to ${formatPercent(thresholds.premium)} (p${methodology.valuationStates.percentiles.premium})</li>
+          <li><strong>EXTENDED</strong> — up to ${formatPercent(thresholds.extended)} (p${methodology.valuationStates.percentiles.extended})</li>
+          <li><strong>EUPHORIC</strong> — above ${formatPercent(thresholds.extended)}</li>
+        </ul>
+        <p style="margin-top:0.75rem;">Historical median deviation:
+        <strong>${formatPercent(distribution.median)}</strong>. Observed range
+        ${formatPercent(distribution.range.min)} to ${formatPercent(distribution.range.max)}.</p>
+      ` : '<p>Not enough history to calibrate state bands.</p>';
+
+      const assumptions = current && current.minerAssumptions;
+      document.getElementById('minerBody').innerHTML = assumptions ? `
+        <p>Estimated Miner Production Cost is an <strong>estimate of marginal cash cost</strong>,
+        not a floor. Miners routinely produce below cost, and hashrate leaves the network
+        when they do.</p>
+        <ul style="margin:0.75rem 0 0 1.1rem; list-style: disc;">
+          <li>Network fleet efficiency — <strong>${assumptions.efficiencyJPerTh} J/TH</strong>
+              (fleet average, not best-in-class)</li>
+          <li>Electricity — <strong>$${assumptions.electricityUsdPerKwh}/kWh</strong></li>
+          <li>Non-energy overhead multiplier — <strong>${assumptions.overheadMultiplier}&times;</strong>
+              (hardware amortisation, hosting, pool fees)</li>
+          <li>Implied network draw — <strong>${Number(assumptions.estimatedNetworkKwhPerDay).toLocaleString()} kWh/day</strong></li>
+        </ul>
+        <p style="margin-top:0.75rem;">Efficiency and power price are dated curves interpolated
+        in log space, so a 2015 estimate uses 2015-era hardware rather than today's. Transaction
+        fees are excluded from the denominator: issuance alone backs out cost per coin. No cost
+        is emitted before ${methodology.minerCost.startDate}, when mining became industrial.</p>
+      ` : '<p>Miner cost is unavailable — network hashrate or issuance data is missing.</p>';
+
+      const sources = state.payload.meta.sources || {};
+      document.getElementById('sourceBody').innerHTML = Object.entries(sources).map(([name, info]) => {
+        const detail = info.status === 'ok'
+          ? `${info.rows ? info.rows.toLocaleString() + ' rows · ' : ''}${info.firstDate || ''}${info.lastDate ? ' → ' + info.lastDate : ''}`
+          : info.reason || info.error || info.note || '';
+        const tone = info.status === 'ok' ? 'eco-tone-long' : 'eco-tone-neutral';
+        return `
+          <div class="eco-source-row">
+            <span style="color: var(--color-yellow-75); font-family: var(--font-mathias); text-transform: uppercase; letter-spacing: 0.08em;">${name}</span>
+            <span style="color: rgba(230,233,224,0.5); text-align: right; flex: 1;">${detail}</span>
+            <span class="${tone}" style="font-family: var(--font-mathias); text-transform: uppercase; font-size: 0.6875rem;">${info.status}</span>
+          </div>`;
+      }).join('') + `
+        <p class="eco-prose" style="margin-top:0.875rem; font-size:0.75rem;">
+          Data updated ${state.payload.meta.dataFetchedAt ? formatDate(Date.parse(state.payload.meta.dataFetchedAt)) : '—'}.
+          Short provider outages are carried forward for up to
+          ${methodology.maxForwardFillDays} days; longer gaps are left empty rather than interpolated.
+        </p>`;
+    }
+
+    function renderNotice() {
+      const notice = document.getElementById('ecoNotice');
+      const meta = state.payload.meta;
+      const problems = [];
+
+      Object.entries(meta.sources || {}).forEach(([name, info]) => {
+        if (info.status === 'failed') {
+          problems.push(`<strong>${name}</strong> is unreachable (${info.error}). Anchors it supplies are shown as unavailable rather than estimated.`);
+        }
+      });
+
+      if (meta.stale) {
+        problems.push('Serving a cached copy — the data providers could not be reached on this request.');
+      }
+
+      const current = state.payload.current;
+      if (current && current.dataAgeDays > 3) {
+        problems.push(`The on-chain feed is ${current.dataAgeDays} days behind the price feed.`);
+      }
+
+      if (!problems.length) {
+        notice.hidden = true;
+        return;
+      }
+      notice.hidden = false;
+      notice.innerHTML = problems.join('<br>');
+    }
+
+    /* =================================================================
+     * LOAD
+     * ============================================================== */
+    async function load(forceRefresh) {
+      if (state.loading) return;
+      state.loading = true;
+
+      const button = document.getElementById('refreshBtn');
+      button.textContent = 'Loading';
+      button.disabled = true;
+
+      try {
+        const params = new URLSearchParams({ range: state.range });
+        if (forceRefresh) params.set('refresh', 'true');
+
+        const response = await fetch('/api/bitcoin/economic-value?' + params.toString());
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.message || body.error || ('Request failed: ' + response.status));
+        }
+
+        state.payload = await response.json();
+        rowByTimestamp = new Map(state.payload.history.map((row) => [row.timestamp, row]));
+
+        renderNotice();
+        renderHeadline();
+        renderRangeControls();
+        renderOverlayControls();
+        renderMainChart();
+        renderDeviationChart();
+        renderMetrics();
+        renderMethodology();
+        updateInspector(null);
+      } catch (error) {
+        console.error('[BitcoinValue]', error);
+        const notice = document.getElementById('ecoNotice');
+        notice.hidden = false;
+        notice.innerHTML = '<strong>Could not load Bitcoin economic data.</strong><br>' + error.message;
+      } finally {
+        state.loading = false;
+        button.textContent = 'Refresh';
+        button.disabled = false;
+      }
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', () => load(true));
+
+    window.addEventListener('DOMContentLoaded', () => {
+      state.logScale = DEFAULT_LOG_BY_RANGE[state.range];
+      renderRangeControls();
+      renderOverlayControls();
+      load();
+    });
+  </script>
+
+</body>
+</html>

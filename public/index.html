@@ -797,6 +797,88 @@
     .tf-card.downtrend > div:first-child > span {
       text-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
     }
+
+    /* ----------------------------------------------------------------
+     * BITCOIN ECONOMIC VALUE — quick reference
+     * A one-glance readout, deliberately the same visual weight as the
+     * market-review marquee it sits beside. The full experience lives on
+     * /bitcoin-value.html; the whole card is the way in, so it carries no
+     * separate call-to-action button.
+     * ------------------------------------------------------------- */
+    #btcValueCard {
+      display: block;
+      text-decoration: none;
+      background-color: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(230, 233, 224, 0.14);
+      border-radius: 5px;
+      padding: 0.75rem 1rem;
+      margin: 0 0 1rem 0;
+      transition: border-color 0.3s ease;
+    }
+
+    #btcValueCard:hover {
+      border-color: rgba(230, 233, 224, 0.4);
+    }
+
+    .eco-home-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .eco-home-title {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75);
+    }
+
+    .eco-home-state {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .eco-home-figures {
+      display: flex;
+      align-items: baseline;
+      gap: 1.75rem;
+      flex-wrap: wrap;
+    }
+
+    .eco-home-figure {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    .eco-home-figure .eco-label {
+      font-size: 0.625rem;
+      letter-spacing: 0.12em;
+    }
+
+    .eco-home-figure .eco-value {
+      font-size: 1rem;
+    }
+
+    /* The deviation is the reason to look at this card, so it sits apart
+       from the two price figures rather than in line with them. */
+    .eco-home-deviation {
+      margin-left: auto;
+      font-family: var(--font-mathias);
+      font-size: 1rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 640px) {
+      .eco-home-figures { gap: 1rem; }
+      .eco-home-deviation { margin-left: auto; }
+    }
   </style>
 </head>
 <body class="min-h-screen">
@@ -903,6 +985,25 @@
       </div>
     </div>
 
+    <!-- Bitcoin Economic Value — quick reference. Entire card links through. -->
+    <a href="/bitcoin-value.html" id="btcValueCard" aria-label="Bitcoin Economic Value — open the full valuation page">
+      <div class="eco-home-head">
+        <span class="eco-home-title">BTC Economic Value</span>
+        <span class="eco-home-state eco-tone-neutral" id="ecoHomeState">&mdash;</span>
+      </div>
+      <div class="eco-home-figures">
+        <div class="eco-home-figure">
+          <span class="eco-label">BTC</span>
+          <span class="eco-value" id="ecoHomePrice">&mdash;</span>
+        </div>
+        <div class="eco-home-figure">
+          <span class="eco-label">Value</span>
+          <span class="eco-value" id="ecoHomeValue" style="color: var(--accent-economic);">&mdash;</span>
+        </div>
+        <span class="eco-home-deviation eco-tone-neutral" id="ecoHomeDeviation">&mdash;</span>
+      </div>
+    </a>
+
     <!-- Loading State -->
     <div id="loadingState" class="text-center py-12">
       <div class="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mb-4" style="border-color: var(--text-primary); border-top-color: transparent;"></div>
@@ -971,7 +1072,20 @@
               </svg>
             </a>
             
-            <a 
+            <a
+              href="/bitcoin-value.html"
+              style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem; text-decoration: none;"
+              title="Bitcoin Economic Value"
+            >
+              <span style="font-weight: bold;">BITCOIN ECONOMIC VALUE</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+            </a>
+
+            <a
               href="/tracker.html"
               style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem; text-decoration: none;"
               title="Trade Tracker"
@@ -2325,7 +2439,27 @@
           SAFE_MODE: {},
           AGGRESSIVE_MODE: {}
         };
-        
+
+        // Pre-computed Bitcoin valuation context. Every figure here is
+        // already derived deterministically server-side; the AI interprets
+        // it and never recalculates or fills in a missing anchor.
+        if (bitcoinEconomicValue) {
+          allTradesData.BITCOIN_ECONOMIC_VALUE = {
+            asOf: bitcoinEconomicValue.date,
+            price: bitcoinEconomicValue.price,
+            economicValue: bitcoinEconomicValue.economicValue,
+            premiumDiscountPercent: bitcoinEconomicValue.premiumDiscount,
+            state: bitcoinEconomicValue.state,
+            anchors: bitcoinEconomicValue.anchors,
+            mvrv: bitcoinEconomicValue.context ? bitcoinEconomicValue.context.mvrv : null,
+            puell: bitcoinEconomicValue.context ? bitcoinEconomicValue.context.puell : null,
+            convergence: bitcoinEconomicValue.convergence
+              ? `${bitcoinEconomicValue.convergence.within}/${bitcoinEconomicValue.convergence.total} anchors agree (${bitcoinEconomicValue.convergence.agreement})`
+              : null,
+            note: 'Pre-computed valuation reference. Not a trade signal. A premium is not bearish and a discount is not bullish on its own.'
+          };
+        }
+
         const strategyKeys = ['4h', 'Swing', 'Scalp', 'MicroScalp'];
         const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
         
@@ -2472,7 +2606,7 @@
           },
           body: JSON.stringify({
             tradesData: allTradesData,
-            systemPrompt: `When analyzing trade JSON, respond with direct, concise market insight. Avoid technical jargon unless necessary. Focus on what the market is behaving like rather than what indicators say. Identify whether assets influence each other and call out any shared momentum or correlation. If no trades appear, state why the structure isn't clean. ${toneGuidance} Tone should be confident, observational, and actionable—similar to a seasoned trader explaining what they see without fluff. Always keep responses tight, honest, and rooted in the bigger picture sentiment behind the data, not just the numbers. Keep your response to 1-2 sentences maximum.`
+            systemPrompt: `When analyzing trade JSON, respond with direct, concise market insight. Avoid technical jargon unless necessary. Focus on what the market is behaving like rather than what indicators say. Identify whether assets influence each other and call out any shared momentum or correlation. If no trades appear, state why the structure isn't clean. ${toneGuidance} Tone should be confident, observational, and actionable—similar to a seasoned trader explaining what they see without fluff. Always keep responses tight, honest, and rooted in the bigger picture sentiment behind the data, not just the numbers. If BITCOIN_ECONOMIC_VALUE is present you may interpret it as longer-term valuation context, but you must never recalculate it, estimate any anchor that is null, or treat a premium or discount as a buy or sell signal. Keep your response to 1-2 sentences maximum.`
           })
         });
         
@@ -3158,11 +3292,68 @@
       }, 300000);
     }
 
+    /* ==================================================================
+     * BITCOIN ECONOMIC VALUE — quick reference
+     * Summary view only: the full chart experience lives on its own page.
+     * The reading is also handed to the AI market review as pre-computed
+     * context (see getAIMarketReview).
+     * =============================================================== */
+    let bitcoinEconomicValue = null;
+
+    // Same long / short / neutral language the rest of the app uses, driven by
+    // the server's percentile-calibrated valuation state so the number and the
+    // state label never contradict each other. Never labelled BUY or SELL: a
+    // premium is not automatically bad, and a discount is not automatically a
+    // trade.
+    function ecoHomeToneClass(stateTone) {
+      if (stateTone === 'long') return 'eco-tone-long';
+      if (stateTone === 'short') return 'eco-tone-short';
+      return 'eco-tone-neutral';
+    }
+
+    function formatEcoUsd(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+      return Math.abs(value) >= 1000
+        ? '$' + (value / 1000).toFixed(1) + 'K'
+        : '$' + value.toFixed(0);
+    }
+
+    async function loadBitcoinEconomicValue() {
+      try {
+        const response = await fetch('/api/bitcoin/economic-value?view=summary');
+        if (!response.ok) throw new Error('Request failed: ' + response.status);
+
+        const payload = await response.json();
+        const current = payload.current;
+        if (!current) throw new Error('No current reading');
+
+        bitcoinEconomicValue = current;
+
+        document.getElementById('ecoHomePrice').textContent = formatEcoUsd(current.price);
+        document.getElementById('ecoHomeValue').textContent = formatEcoUsd(current.economicValue);
+
+        const deviation = document.getElementById('ecoHomeDeviation');
+        const premium = current.premiumDiscount;
+        deviation.textContent = Number.isFinite(premium)
+          ? (premium >= 0 ? '+' : '') + premium.toFixed(1) + '%'
+          : '—';
+        deviation.className = 'eco-home-deviation ' + ecoHomeToneClass(current.stateTone);
+
+        const stateEl = document.getElementById('ecoHomeState');
+        stateEl.textContent = current.state || '—';
+        stateEl.className = 'eco-home-state ' + ecoHomeToneClass(current.stateTone);
+      } catch (error) {
+        console.warn('[EconomicValue] Quick reference unavailable:', error.message);
+        document.getElementById('ecoHomeState').textContent = 'UNAVAILABLE';
+      }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       initializeAggressiveMode();
       startCandleTimers();
       startMarketReview(); // AI market review enabled
       scanMajorCoins();
+      loadBitcoinEconomicValue();
     });
 
     // Main scan function

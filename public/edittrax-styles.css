@@ -405,6 +405,56 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ========================================
+ * ECONOMIC VALUE
+ * Shared by the home-page quick reference and /bitcoin-value.html.
+ *
+ * One new accent is introduced here. The Economic Value series needs a second
+ * primary chart colour, and --accent-long / --accent-short are reserved for
+ * trade direction: using them for a valuation line would read as a buy or sell
+ * call. This accent is the existing blue family (--color-blue-820) raised in
+ * value so it holds up as a line on a black surface.
+ * ======================================== */
+:root {
+  --accent-economic: #6E6E9E;
+  --accent-economic-dim: rgba(110, 110, 158, 0.35);
+  --eco-anchor-line: rgba(230, 233, 224, 0.38);
+  --eco-grid: rgba(230, 233, 224, 0.07);
+  --eco-axis: rgba(230, 233, 224, 0.45);
+}
+
+/* Valuation state tone.
+   Discount and premium borrow the long/short language the app already uses,
+   because they describe position relative to an economic anchor. They are
+   never labelled BUY or SELL: a premium is not automatically bad, and a
+   discount is not automatically a trade. */
+.eco-tone-long {
+  color: var(--accent-long);
+}
+
+.eco-tone-neutral {
+  color: var(--color-yellow-75);
+}
+
+.eco-tone-short {
+  color: var(--accent-short);
+}
+
+.eco-label {
+  font-family: var(--font-mathias);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-neutral);
+}
+
+.eco-value {
+  font-family: var(--font-mathias);
+  color: var(--color-yellow-75);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ========================================
  * RESPONSIVE
  * ======================================== */
 @media (max-width: 640px) {

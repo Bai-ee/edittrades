@@ -598,6 +598,16 @@ app.get('/api/analyze-full', async (req, res) => {
 });
 
 /**
+ * GET /api/bitcoin/economic-value
+ * Bitcoin market price vs derived Economic Value, plus supporting anchors.
+ * Query: range=1y|2y|5y|all, view=full|summary, refresh=true
+ */
+app.get('/api/bitcoin/economic-value', async (req, res) => {
+  const { default: economicValueHandler } = await import('./api/bitcoin-economic-value.js');
+  return economicValueHandler(req, res);
+});
+
+/**
  * GET /api/scan
  * Scan all supported coins and return trading opportunities
  * Query params:
@@ -1074,6 +1084,7 @@ app.listen(PORT, () => {
   console.log(`   GET /api/multi/:symbol`);
   console.log(`   GET /api/analyze/:symbol ⭐ (4H Strategy)`);
   console.log(`   GET /api/scan 🔍 (Market Scanner)`);
+  console.log(`   GET /api/bitcoin/economic-value ₿ (Bitcoin Economic Value)`);
   console.log(`   POST /api/execute-trade 💰 (Jupiter Swap)`);
   console.log(`   GET /api/trade-status/:signature 📊 (Transaction Status)`);
 
