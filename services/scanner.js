@@ -159,27 +159,36 @@ export async function scanAllCoins(options = {}) {
     );
     
     // Process results
-    for (const signal of batchResults) {
+    // `scanSymbol` returns the canonical shape { symbol, price, htfBias,
+    // timeframes, signal, meta } — so the decision fields live under
+    // `result.signal.*`. This loop read `result.valid` and `result.confidence`
+    // directly, which were always `undefined`: `!undefined` is true, so EVERY
+    // symbol was counted as noSetup and `opportunities` could never be
+    // non-empty. The scanner reported a clean 200 with a plausible summary
+    // while being structurally incapable of finding anything.
+    for (const result of batchResults) {
       results.scanned++;
-      
-      if (signal.error) {
+
+      if (result.error) {
         results.errors++;
         continue;
       }
-      
-      if (!signal.valid) {
+
+      const signal = result.signal;
+      if (!signal || !signal.valid) {
         results.noSetup++;
         continue;
       }
-      
-      if (signal.confidence < minConfidence) {
+
+      if (!Number.isFinite(signal.confidence) || signal.confidence < minConfidence) {
         results.lowConfidence++;
         continue;
       }
-      
-      // Valid opportunity found!
-      results.opportunities.push(signal);
-      console.log(`✅ ${signal.symbol}: ${signal.direction.toUpperCase()} @ ${signal.confidence.toFixed(2)} confidence`);
+
+      results.opportunities.push(result);
+      console.log(
+        `✅ ${result.symbol}: ${String(signal.direction).toUpperCase()} @ ${signal.confidence.toFixed(2)} confidence`
+      );
     }
     
     // Progress indicator
@@ -193,7 +202,8 @@ export async function scanAllCoins(options = {}) {
   }
   
   // Sort opportunities by confidence (highest first)
-  results.opportunities.sort((a, b) => b.confidence - a.confidence);
+  // Canonical shape: confidence lives on `.signal`, not the root.
+  results.opportunities.sort((a, b) => (b.signal?.confidence ?? 0) - (a.signal?.confidence ?? 0));
   
   // Limit results
   if (results.opportunities.length > maxResults) {
@@ -244,14 +254,14 @@ export function filterOpportunities(opportunities, filters = {}) {
   // Filter by direction
   if (filters.direction) {
     filtered = filtered.filter(opp => 
-      opp.direction === filters.direction.toLowerCase()
+      opp.signal?.direction?.toLowerCase() === filters.direction.toLowerCase()
     );
   }
   
   // Filter by minimum confidence
   if (filters.minConfidence) {
     filtered = filtered.filter(opp => 
-      opp.confidence >= filters.minConfidence
+      (opp.signal?.confidence ?? 0) >= filters.minConfidence
     );
   }
   
@@ -265,13 +275,13 @@ export function filterOpportunities(opportunities, filters = {}) {
   // Filter by price range
   if (filters.minPrice) {
     filtered = filtered.filter(opp => 
-      opp.currentPrice >= filters.minPrice
+      (opp.price ?? opp.currentPrice) >= filters.minPrice
     );
   }
   
   if (filters.maxPrice) {
     filtered = filtered.filter(opp => 
-      opp.currentPrice <= filters.maxPrice
+      (opp.price ?? opp.currentPrice) <= filters.maxPrice
     );
   }
   

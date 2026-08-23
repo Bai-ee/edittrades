@@ -16,9 +16,50 @@ import * as strategyService from './services/strategy.js';
 import * as marketData from './services/marketData.js';
 import * as scannerService from './services/scanner.js';
 
-// Use CoinGecko as fallback if Binance is geo-restricted (for old endpoints)
-let dataService = binanceService;
-let usingFallback = false;
+/**
+ * Legacy provider selection for the pre-marketData endpoints.
+ *
+ * This was a pair of module-scope mutable variables (`dataService`,
+ * `usingFallback`) flipped in place on the first failure. Three problems, all
+ * fixed by making the choice per-request: the flip was PROCESS-GLOBAL, so one
+ * visitor's failed request degraded every later request from everyone; it was
+ * ONE-WAY, since nothing ever set `usingFallback` back to false, so a single
+ * transient blip pinned the process to the fallback until restart; and a
+ * failure on the *ticker* route silently switched the *candle* provider too.
+ * No response said which provider had served it.
+ */
+function providerChain() {
+  return [
+    { name: 'binance', service: binanceService },
+    { name: 'coingecko', service: coingeckoService }
+  ];
+}
+
+/**
+ * Try each provider in turn, returning the result plus which one produced it.
+ * Nothing is remembered between requests.
+ */
+async function withProviderFallback(operation, run) {
+  const failures = [];
+  for (const { name, service } of providerChain()) {
+    try {
+      const value = await run(service);
+      if (failures.length > 0) {
+        console.warn(`[Server] provider_transition ${JSON.stringify({
+          event: 'provider_transition', operation, used: name,
+          failed: failures.map((f) => f.provider)
+        })}`);
+      }
+      return { value, provider: name, providerFailures: failures };
+    } catch (error) {
+      failures.push({ provider: name, error: error.message });
+      console.warn(`[Server] ${name} failed for ${operation}: ${error.message}`);
+    }
+  }
+  const err = new Error(`All providers failed for ${operation}`);
+  err.providerFailures = failures;
+  throw err;
+}
 
 // ES Module dirname workaround
 const __filename = fileURLToPath(import.meta.url);
@@ -61,19 +102,10 @@ app.get('/api/data/:symbol/:interval', async (req, res) => {
 
     // Fetch data from primary service (with fallback)
     console.log(`Fetching ${symbol} ${interval} data...`);
-    let candles;
-    try {
-      candles = await dataService.fetchKlines(symbol, interval, limit);
-    } catch (error) {
-      if (!usingFallback && error.message.includes('451')) {
-        console.log('⚠️  Binance geo-restricted, switching to CoinGecko...');
-        dataService = coingeckoService;
-        usingFallback = true;
-        candles = await dataService.fetchKlines(symbol, interval, limit);
-      } else {
-        throw error;
-      }
-    }
+    const klinesResult = await withProviderFallback(`klines:${symbol}:${interval}`, (svc) =>
+      svc.fetchKlines(symbol, interval, limit)
+    );
+    const candles = klinesResult.value;
 
     // Calculate indicators
     console.log(`Calculating indicators for ${symbol} ${interval}...`);
@@ -117,19 +149,10 @@ app.get('/api/data/:symbol/:interval', async (req, res) => {
 app.get('/api/ticker/:symbol', async (req, res) => {
   try {
     const { symbol } = req.params;
-    let ticker;
-    try {
-      ticker = await dataService.fetchTickerPrice(symbol);
-    } catch (error) {
-      if (!usingFallback) {
-        console.log('⚠️  Switching to CoinGecko for ticker...');
-        dataService = coingeckoService;
-        usingFallback = true;
-        ticker = await dataService.fetchTickerPrice(symbol);
-      } else {
-        throw error;
-      }
-    }
+    const tickerResult = await withProviderFallback(`ticker:${symbol}`, (svc) =>
+      svc.fetchTickerPrice(symbol)
+    );
+    const ticker = tickerResult.value;
     res.json(ticker);
   } catch (error) {
     console.error('Error in /api/ticker:', error.message);
@@ -152,19 +175,10 @@ app.get('/api/multi/:symbol', async (req, res) => {
     console.log(`Fetching multi-timeframe data for ${symbol}:`, intervals);
 
     // Fetch all timeframes in parallel
-    let multiData;
-    try {
-      multiData = await dataService.fetchMultiTimeframe(symbol, intervals);
-    } catch (error) {
-      if (!usingFallback) {
-        console.log('⚠️  Switching to CoinGecko for multi-timeframe data...');
-        dataService = coingeckoService;
-        usingFallback = true;
-        multiData = await dataService.fetchMultiTimeframe(symbol, intervals);
-      } else {
-        throw error;
-      }
-    }
+    const multiResult = await withProviderFallback(`multi:${symbol}`, (svc) =>
+      svc.fetchMultiTimeframe(symbol, intervals)
+    );
+    const multiData = multiResult.value;
 
     // Calculate indicators for each timeframe
     const analysis = {};
@@ -189,13 +203,20 @@ app.get('/api/multi/:symbol', async (req, res) => {
     }
 
     // Get current price
-    const ticker = await dataService.fetchTickerPrice(symbol);
+    const priceResult = await withProviderFallback(`ticker:${symbol}`, (svc) =>
+      svc.fetchTickerPrice(symbol)
+    );
+    const ticker = priceResult.value;
 
     res.json({
       symbol,
       currentPrice: ticker.price,
       priceChange24h: ticker.priceChangePercent,
       analysis,
+      dataSources: {
+        candles: multiResult.provider,
+        ticker: priceResult.provider
+      },
       timestamp: new Date().toISOString()
     });
 
@@ -423,7 +444,10 @@ app.get('/api/analyze-full', async (req, res) => {
     // Fetch additional market data (spread, bid/ask, order book, recent trades)
     let marketDataInfo = null;
     try {
-      const krakenSymbol = marketData.SYMBOL_MAP?.[symbol]?.kraken || 'XBTUSD';
+      // `marketData.SYMBOL_MAP` was never exported, so this optional chain
+      // always collapsed to 'XBTUSD' — every symbol, including BTCUSDT itself,
+      // was served Bitcoin's microstructure. resolveKrakenPair throws instead.
+      const krakenSymbol = marketData.resolveKrakenPair(symbol);
       const tickerResponse = await axios.get('https://api.kraken.com/0/public/Ticker', {
         params: { pair: krakenSymbol },
         timeout: 5000

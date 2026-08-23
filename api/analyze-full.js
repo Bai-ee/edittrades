@@ -179,16 +179,13 @@ export default async function handler(req, res) {
     // Fetch additional market data (spread, bid/ask, order book, recent trades)
     let marketDataInfo = null;
     try {
-      // Get ticker data which includes bid/ask
-      // Use SYMBOL_MAP from marketData service
-      const { default: marketDataModule } = await import('../services/marketData.js');
-      const SYMBOL_MAP = {
-        'BTCUSDT': { kraken: 'XBTUSD' },
-        'ETHUSDT': { kraken: 'ETHUSD' },
-        'SOLUSDT': { kraken: 'SOLUSD' }
-      };
-      const krakenSymbol = SYMBOL_MAP[symbol]?.kraken || 'XBTUSD';
-      
+      // Resolve through the one shared resolver, which throws on an unknown
+      // symbol. A local three-entry map used to shadow the real one here, so
+      // every asset outside BTC/ETH/SOL was served Bitcoin's spread, order book
+      // and trade flow under its own ticker — and that microstructure feeds the
+      // strategy engine's confidence filter, not just the display.
+      const krakenSymbol = marketData.resolveKrakenPair(symbol);
+
       const tickerResponse = await axios.get('https://api.kraken.com/0/public/Ticker', {
         params: { pair: krakenSymbol },
         timeout: 10000
@@ -324,33 +321,47 @@ export default async function handler(req, res) {
       } else {
         console.warn(`[Analyze-Full] Ticker response error for ${symbol} - API FAILED, using fallback values`);
         // Set default values instead of null
+        // Unavailable, not neutral. `volumeQuality: 'MEDIUM'` was a fabricated
+        // PASSING grade: strategy.js penalises 'LOW', and 'MEDIUM' both dodges
+        // that penalty and satisfies the precondition for the 95%-confidence
+        // AGGRESSIVE ceiling and the MICRO_SCALP gate. A zero spread with
+        // bid == ask == price is likewise a false measurement of a costless
+        // market. Null lets the strategy engine treat microstructure as absent.
         marketDataInfo = {
-          spread: 0,
-          spreadPercent: 0,
-          bid: currentPrice,
-          ask: currentPrice,
-          bidAskImbalance: 0,
-          volumeQuality: 'MEDIUM', // Use MEDIUM as neutral fallback instead of 'N/A'
-          tradeCount24h: 0,
+          available: false,
+          reason: 'Kraken ticker unavailable',
+          spread: null,
+          spreadPercent: null,
+          bid: null,
+          ask: null,
+          bidAskImbalance: null,
+          volumeQuality: null,
+          tradeCount24h: null,
           orderBook: { bidLiquidity: null, askLiquidity: null, imbalance: null },
-          recentTrades: { overallFlow: 'N/A', buyPressure: null, sellPressure: null, volumeImbalance: null },
-          apiWorking: false // Flag to indicate API failure
+          recentTrades: { overallFlow: null, buyPressure: null, sellPressure: null, volumeImbalance: null }
         };
       }
     } catch (error) {
       console.warn(`[Analyze-Full] Market data unavailable for ${symbol}:`, error.message, '- API FAILED, using fallback values');
       // Set default values instead of null so UI always shows the section
+      // Unavailable, not neutral. `volumeQuality: 'MEDIUM'` was a fabricated
+      // PASSING grade: strategy.js penalises 'LOW', and 'MEDIUM' both dodges
+      // that penalty and satisfies the precondition for the 95%-confidence
+      // AGGRESSIVE ceiling and the MICRO_SCALP gate. A zero spread with
+      // bid == ask == price is likewise a false measurement of a costless
+      // market. Null lets the strategy engine treat microstructure as absent.
       marketDataInfo = {
-        spread: 0,
-        spreadPercent: 0,
-        bid: currentPrice,
-        ask: currentPrice,
-        bidAskImbalance: 0,
-        volumeQuality: 'MEDIUM', // Use MEDIUM as neutral fallback instead of 'N/A'
-        tradeCount24h: 0,
+        available: false,
+        reason: 'Kraken ticker unavailable',
+        spread: null,
+        spreadPercent: null,
+        bid: null,
+        ask: null,
+        bidAskImbalance: null,
+        volumeQuality: null,
+        tradeCount24h: null,
         orderBook: { bidLiquidity: null, askLiquidity: null, imbalance: null },
-        recentTrades: { overallFlow: 'N/A', buyPressure: null, sellPressure: null, volumeImbalance: null },
-        apiWorking: false // Flag to indicate API failure
+        recentTrades: { overallFlow: null, buyPressure: null, sellPressure: null, volumeImbalance: null }
       };
     }
 

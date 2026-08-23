@@ -7,6 +7,11 @@
 
 import * as scannerService from '../services/scanner.js';
 
+/** Round for display without turning a missing value into a number. */
+function round2(value) {
+  return Number.isFinite(value) ? parseFloat(value.toFixed(2)) : null;
+}
+
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -57,25 +62,32 @@ export default async function handler(req, res) {
         ...scanResults.summary,
         filteredCount: opportunities.length
       },
-      opportunities: opportunities.map(opp => ({
-        symbol: opp.symbol,
-        direction: opp.direction.toUpperCase(),
-        confidence: parseFloat(opp.confidence.toFixed(2)),
-        entryZone: {
-          min: parseFloat(opp.entry_zone.min.toFixed(2)),
-          max: parseFloat(opp.entry_zone.max.toFixed(2))
-        },
-        stopLoss: parseFloat(opp.stop_loss.toFixed(2)),
-        targets: {
-          tp1: parseFloat(opp.targets[0].toFixed(2)),
-          tp2: parseFloat(opp.targets[1].toFixed(2))
-        },
-        currentPrice: parseFloat(opp.currentPrice.toFixed(2)),
-        priceChange24h: parseFloat(opp.priceChange24h.toFixed(2)),
-        reason: opp.reason_summary,
-        trend: opp.trend,
-        timestamp: opp.scanTime
-      }))
+      // Read the canonical shape { symbol, price, signal, meta }. This mapper
+      // previously read snake_case fields — `entry_zone`, `stop_loss`,
+      // `reason_summary` — that the scanner has never produced, so any
+      // opportunity reaching here would have thrown a TypeError. It never did,
+      // only because the scanner's filter was also broken and the list was
+      // always empty. Both halves had to be wrong for the endpoint to look fine.
+      opportunities: opportunities.map((opp) => {
+        const signal = opp.signal || {};
+        const targets = Array.isArray(signal.targets) ? signal.targets : [];
+        return {
+          symbol: opp.symbol,
+          direction: String(signal.direction || 'NO_TRADE').toUpperCase(),
+          confidence: round2(signal.confidence),
+          entryZone: {
+            min: round2(signal.entryZone?.min),
+            max: round2(signal.entryZone?.max)
+          },
+          stopLoss: round2(signal.stopLoss),
+          targets: { tp1: round2(targets[0]), tp2: round2(targets[1]) },
+          currentPrice: round2(opp.price ?? opp.currentPrice),
+          priceChange24h: round2(opp.priceChange24h),
+          reason: signal.reason ?? null,
+          strategy: signal.selectedStrategy ?? null,
+          timestamp: opp.meta?.scanTime ?? null
+        };
+      })
     };
 
     console.log(`[Scan] Complete: ${opportunities.length} opportunities found`);

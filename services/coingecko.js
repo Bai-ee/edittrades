@@ -21,59 +21,69 @@ const SYMBOL_MAP = {
   'LINKUSDT': 'chainlink'
 };
 
-// Interval mapping (CoinGecko doesn't have all intervals)
-const INTERVAL_TO_DAYS = {
-  '1m': 1,
-  '3m': 1,
-  '5m': 1,
-  '15m': 1,
-  '1h': 7,
-  '4h': 30,
-  '1d': 90
+/**
+ * CoinGecko's /ohlc granularity is chosen by the API from the `days` window —
+ * the caller cannot request a timeframe. This table records what each window
+ * actually returns, so an interval the API cannot serve is refused instead of
+ * being answered with a differently-sized candle wearing the requested label.
+ *
+ * The previous map claimed 1m, 3m, 5m and 15m were all available at days=1
+ * (which returns 30-minute candles) and that 1h came from days=7 and 4h from
+ * days=30 (both return 4-hour candles). Every one of those requests got a
+ * candle of the wrong duration, labelled with the interval the caller asked
+ * for. A "5m EMA21" computed on that series was a 21-period EMA of 30-minute
+ * bars — a number roughly six times slower than the one the UI claimed.
+ */
+const COINGECKO_OHLC_WINDOWS = {
+  '30m': { days: 1, granularity: '30m' },
+  '4h': { days: 30, granularity: '4h' }
 };
 
 /**
- * Get coin ID from symbol
+ * Get coin ID from symbol, or throw.
+ * The old `|| symbol.toLowerCase().replace('usdt','')` guess produced a plausible
+ * id for anything ('foousdt' -> 'foo') and let CoinGecko decide what that meant.
  */
 function getCoinId(symbol) {
-  return SYMBOL_MAP[symbol.toUpperCase()] || symbol.toLowerCase().replace('usdt', '');
+  const id = SYMBOL_MAP[symbol.toUpperCase()];
+  if (!id) throw new Error(`CoinGecko: unsupported symbol ${symbol}`);
+  return id;
 }
 
 /**
- * Fetch OHLC data from CoinGecko
- * Note: CoinGecko's OHLC is limited to daily candles on free tier
+ * Fetch OHLC candles from CoinGecko.
+ * Only intervals CoinGecko genuinely serves are accepted; anything else throws.
  */
 export async function fetchKlines(symbol, interval, limit = 500) {
-  try {
-    const coinId = getCoinId(symbol);
-    const days = INTERVAL_TO_DAYS[interval] || 30;
-
-    // CoinGecko OHLC endpoint (returns daily data)
-    const response = await axios.get(`${COINGECKO_API_BASE}/coins/${coinId}/ohlc`, {
-      params: { 
-        vs_currency: 'usd',
-        days: Math.min(days, 365)
-      },
-      timeout: 10000
-    });
-
-    // Transform to our format
-    // CoinGecko returns: [timestamp, open, high, low, close]
-    const candles = response.data.slice(-limit).map(candle => ({
-      timestamp: candle[0],
-      open: candle[1],
-      high: candle[2],
-      low: candle[3],
-      close: candle[4],
-      volume: 0, // CoinGecko OHLC doesn't include volume
-      closeTime: candle[0] + (24 * 60 * 60 * 1000) // Add 1 day
-    }));
-
-    return candles;
-  } catch (error) {
-    console.error(`Error fetching ${symbol} from CoinGecko:`, error.message);
-    throw new Error(`Failed to fetch data from CoinGecko: ${error.message}`);
+  const coinId = getCoinId(symbol);
+  const window = COINGECKO_OHLC_WINDOWS[interval];
+  if (!window) {
+    throw new Error(
+      `CoinGecko cannot serve ${interval} candles. Supported: ${Object.keys(COINGECKO_OHLC_WINDOWS).join(', ')}.`
+    );
   }
+
+  const response = await axios.get(`${COINGECKO_API_BASE}/coins/${coinId}/ohlc`, {
+    params: { vs_currency: 'usd', days: window.days },
+    timeout: 10000
+  });
+
+  if (!Array.isArray(response.data)) {
+    throw new Error('CoinGecko returned an unexpected OHLC payload shape');
+  }
+
+  // CoinGecko returns [timestamp, open, high, low, close] — no volume field.
+  return response.data.slice(-limit).map((candle) => ({
+    timestamp: candle[0],
+    open: candle[1],
+    high: candle[2],
+    low: candle[3],
+    close: candle[4],
+    // null, not 0. Zero is a claim that no trading occurred; null says the
+    // provider does not report it. Volume analysis treats 0 as a measurement.
+    volume: null,
+    closeTime: candle[0] + 30 * 60 * 1000 * (window.granularity === '4h' ? 8 : 1)
+  }));
 }
 
 /**
@@ -99,14 +109,29 @@ export async function fetchTickerPrice(symbol) {
       throw new Error(`Symbol ${symbol} not found on CoinGecko`);
     }
 
+    const price = Number(data.usd);
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error(`CoinGecko returned no usable price for ${symbol}`);
+    }
+
+    const changePct = Number.isFinite(Number(data.usd_24h_change))
+      ? Number(data.usd_24h_change)
+      : null;
+
     return {
       symbol: symbol.toUpperCase(),
-      price: data.usd,
-      priceChange: data.usd_24h_change || 0,
-      priceChangePercent: data.usd_24h_change || 0,
-      high24h: data.usd * 1.02, // Estimated (CoinGecko simple API doesn't provide)
-      low24h: data.usd * 0.98,  // Estimated
-      volume24h: data.usd_24h_vol || 0
+      price,
+      // priceChange is an absolute currency amount everywhere else in this
+      // repo; it used to be assigned the *percentage*, so the two fields were
+      // identical and one of them was wrong by roughly the price of the asset.
+      priceChange: changePct === null ? null : price - price / (1 + changePct / 100),
+      priceChangePercent: changePct,
+      // The simple/price endpoint does not publish a 24h high or low. These
+      // were `price * 1.02` and `price * 0.98` — a fixed, fabricated 4% band
+      // returned in the same field names as Kraken's measured values.
+      high24h: null,
+      low24h: null,
+      volume24h: Number.isFinite(Number(data.usd_24h_vol)) ? Number(data.usd_24h_vol) : null
     };
   } catch (error) {
     console.error(`Error fetching ticker from CoinGecko:`, error.message);
@@ -115,53 +140,25 @@ export async function fetchTickerPrice(symbol) {
 }
 
 /**
- * Fetch multi-timeframe data
- * Note: CoinGecko free tier has limitations, so we'll return same data for all intervals
+ * Multi-timeframe from CoinGecko is not supported, and cannot be made honest.
+ *
+ * This function used to fetch ONE 30-day daily series and return that same
+ * array for every requested interval, after synthesising each bar's high and
+ * low as ±1% of the close and setting open === close. So: `4h`, `1h`, `15m`
+ * and `5m` were the identical ~30-element daily array; every candle was a doji
+ * by construction; and every wick was invented. An indicator computed on the
+ * "5m" series was operating on daily data with fabricated ranges.
+ *
+ * There is no version of this that free-tier CoinGecko can actually serve, so
+ * it throws rather than pretending. Callers should fall through to a provider
+ * that publishes real intraday OHLCV.
  */
-export async function fetchMultiTimeframe(symbol, intervals = ['4h', '1h', '15m', '5m']) {
-  try {
-    const coinId = getCoinId(symbol);
-    
-    // Fetch market chart (more granular than OHLC)
-    const response = await axios.get(`${COINGECKO_API_BASE}/coins/${coinId}/market_chart`, {
-      params: { 
-        vs_currency: 'usd',
-        days: 30,
-        interval: 'daily'
-      },
-      timeout: 10000
-    });
-
-    // Convert price data to OHLCV format (simplified)
-    const prices = response.data.prices;
-    const candles = [];
-    
-    for (let i = 0; i < prices.length; i++) {
-      const timestamp = prices[i][0];
-      const price = prices[i][1];
-      
-      candles.push({
-        timestamp,
-        open: price,
-        high: price * 1.01,
-        low: price * 0.99,
-        close: price,
-        volume: 0,
-        closeTime: timestamp + (24 * 60 * 60 * 1000)
-      });
-    }
-
-    // Return same data for all intervals (limitation of free tier)
-    const multiData = {};
-    intervals.forEach(interval => {
-      multiData[interval] = candles;
-    });
-
-    return multiData;
-  } catch (error) {
-    console.error(`Error fetching multi-timeframe from CoinGecko:`, error.message);
-    throw error;
-  }
+export async function fetchMultiTimeframe(symbol, intervals = []) {
+  throw new Error(
+    `CoinGecko cannot serve multi-timeframe OHLCV (requested: ${intervals.join(', ') || 'none'}). ` +
+      'Its free tier returns a single daily series with no volume and no intraday granularity. ' +
+      'Use services/marketData.js (Kraken -> Bitfinex) for candle data.'
+  );
 }
 
 export default {
