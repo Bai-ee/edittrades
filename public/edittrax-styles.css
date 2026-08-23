@@ -522,6 +522,83 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ========================================
+ * RISK LEVEL RAIL — COMPACT
+ *
+ * Added for the home-page Risk widget. The full rail lives on /risk.html;
+ * this is the reduced form: the same -2..5 ladder with the current level
+ * boxed, sized to sit inside a summary card without competing with it.
+ *
+ * Purely additive — no existing token or component is changed.
+ * ======================================== */
+.risk-rail-mini {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  margin: 0.5rem 0 0.4rem;
+}
+
+.risk-rail-mini-node {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+  border: 1px solid var(--color-yellow-75-faint);
+  background-color: rgba(0, 0, 0, 0.4);
+  font-family: var(--font-mathias);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.5625rem;
+  line-height: 1;
+  color: var(--color-yellow-75-faint);
+}
+
+.risk-rail-mini-node.is-passed,
+.risk-rail-mini-node.is-reached {
+  color: var(--color-yellow-75-dim);
+  border-color: rgba(230, 233, 224, 0.24);
+}
+
+.risk-rail-mini-node.is-defensive {
+  color: rgba(239, 68, 68, 0.5);
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+/* The only marked node. "You are here", with no other emphasis needed. */
+.risk-rail-mini-node.is-current {
+  border: 1px solid var(--color-yellow-75);
+  color: var(--color-yellow-75);
+  background-color: rgba(230, 233, 224, 0.1);
+}
+
+.risk-rail-mini-node.is-current.is-defensive {
+  border-color: var(--accent-short);
+  color: var(--accent-short);
+  background-color: rgba(239, 68, 68, 0.12);
+}
+
+.risk-progress-mini {
+  height: 4px;
+  width: 100%;
+  background-color: rgba(230, 233, 224, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.risk-progress-mini-bar {
+  height: 100%;
+  width: 0;
+  background-color: var(--color-yellow-75);
+  border-radius: 2px;
+  transition: width var(--transition-base);
+}
+
+.risk-progress-mini-bar.is-defensive {
+  background-color: var(--accent-short);
+}
+
+/* ========================================
  * RESPONSIVE
  * ======================================== */
 @media (max-width: 640px) {

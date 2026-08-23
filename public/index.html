@@ -1048,13 +1048,19 @@
       </div>
     </a>
 
-    <!-- Risk quick reference. Entire card links through to the Risk Manager. -->
+    <!-- Risk quick reference. Entire card links through to the Risk Manager.
+         The headline here is the LEVEL, because that is what the Risk Manager
+         is actually about: what this account has earned the right to risk. -->
     <a href="/risk.html" id="riskCard" aria-label="Risk — open the Risk Manager">
       <div class="eco-home-head">
         <span class="eco-home-title">Risk</span>
         <span class="risk-home-status eco-tone-neutral" id="riskHomeStatus">&mdash;</span>
       </div>
-      <div class="eco-home-figures">
+      <div class="risk-rail-mini" id="riskHomeRail" role="img" aria-label="Risk level rail"></div>
+      <div class="risk-progress-mini">
+        <div class="risk-progress-mini-bar" id="riskHomeProgress"></div>
+      </div>
+      <div class="eco-home-figures" style="margin-top: 0.5rem;">
         <div class="risk-home-figure">
           <span class="eco-label">Wallet</span>
           <span class="eco-value" id="riskHomeWallet">&mdash;</span>
@@ -1064,7 +1070,7 @@
           <span class="eco-value" id="riskHomeOpenRisk">&mdash;</span>
         </div>
         <div class="risk-home-figure">
-          <span class="eco-label">Margin</span>
+          <span class="eco-label">Drawdown</span>
           <span class="eco-value" id="riskHomeExposure">&mdash;</span>
         </div>
         <span class="risk-home-status" id="riskHomePositions" style="color: rgba(230,233,224,0.5);"></span>
@@ -6342,8 +6348,8 @@
    * page derives no risk numbers of its own.
    * =============================================================== -->
   <script type="module">
-    import { summarizeAccount, DEFAULT_RISK_POLICY, RISK_STATUS } from '/js/riskManager.js';
-    import { loadRiskProfile, loadLivePositions, stageSetupForRiskCheck } from '/js/riskStore.js';
+    import { LEVELS } from '/js/adaptiveRisk.js';
+    import { loadLevelDisplay, loadWalletAddress, stageSetupForRiskCheck } from '/js/riskStore.js';
 
     function usdCompact(value) {
       if (!Number.isFinite(value)) return '—';
@@ -6352,43 +6358,69 @@
         : '$' + value.toFixed(0);
     }
 
-    function toneClass(status) {
-      if (status === RISK_STATUS.WITHIN_PLAN) return 'eco-tone-long';
-      if (status === RISK_STATUS.ABOVE_PLAN) return 'eco-tone-short';
-      return 'eco-tone-neutral';
+    /**
+     * The mini rail. Same -2..5 ladder as the Risk Manager, current level boxed.
+     */
+    function renderRail(level, peakLevel, defensive) {
+      return LEVELS.map((definition) => {
+        const value = definition.level;
+        let cls = 'risk-rail-mini-node';
+        if (value < 0) cls += ' is-defensive';
+        if (value === level) cls += defensive ? ' is-current is-defensive' : ' is-current';
+        else if (value < level) cls += ' is-passed';
+        else if (Number.isFinite(peakLevel) && value <= peakLevel) cls += ' is-reached';
+        return `<span class="${cls}">${value}</span>`;
+      }).join('');
     }
 
+    /**
+     * Reads the LAST EVALUATION recorded by /risk.html.
+     *
+     * It deliberately does not recompute a level here. This page has no trade
+     * history loaded, and running the engine against an empty history would
+     * report level 0 for an account that has earned more — a wrong number is
+     * worse than a slightly old one. Nothing is fetched either: the home page
+     * must not wait on a wallet RPC.
+     */
     function renderRiskCard() {
-      const profile = loadRiskProfile();
       const statusEl = document.getElementById('riskHomeStatus');
+      const railEl = document.getElementById('riskHomeRail');
+      const barEl = document.getElementById('riskHomeProgress');
+      const display = loadLevelDisplay();
+      const address = loadWalletAddress();
 
-      // No wallet set yet: invite setup rather than showing zeroes that
-      // look like a configured account with nothing at risk.
-      if (!Number.isFinite(profile.walletBalance) || profile.walletBalance <= 0) {
-        document.getElementById('riskHomeWallet').textContent = 'Not set';
+      if (!display || !address) {
+        document.getElementById('riskHomeWallet').textContent = address ? 'No reading' : 'Not set';
         document.getElementById('riskHomeOpenRisk').textContent = '—';
         document.getElementById('riskHomeExposure').textContent = '—';
-        statusEl.textContent = 'SET UP';
+        railEl.innerHTML = renderRail(0, 0, false);
+        barEl.style.width = '0%';
+        statusEl.textContent = address ? 'OPEN' : 'SET UP';
         statusEl.className = 'risk-home-status eco-tone-neutral';
         return;
       }
 
-      const summary = summarizeAccount({
-        walletBalance: profile.walletBalance,
-        positions: loadLivePositions(),
-        policy: { ...DEFAULT_RISK_POLICY, ...(profile.policy || {}) }
-      });
+      const defensive = display.posture === 'DEFENSIVE';
+      railEl.innerHTML = renderRail(display.level, display.peakLevel, defensive);
 
-      document.getElementById('riskHomeWallet').textContent = usdCompact(summary.walletBalance);
+      const progress = Number.isFinite(display.progressPct) ? Math.max(0, Math.min(100, display.progressPct)) : 0;
+      barEl.style.width = progress + '%';
+      barEl.className = 'risk-progress-mini-bar' + (defensive ? ' is-defensive' : '');
+
+      statusEl.textContent = defensive
+        ? `LEVEL ${display.level} · RISK REDUCED`
+        : display.atCap
+          ? `LEVEL ${display.level} · MAXIMUM`
+          : `LEVEL ${display.level} · ${Math.round(progress)}%`;
+      statusEl.className = 'risk-home-status ' + (defensive ? 'eco-tone-short' : 'eco-tone-neutral');
+
+      document.getElementById('riskHomeWallet').textContent = usdCompact(display.walletValue);
       document.getElementById('riskHomeOpenRisk').textContent =
-        Number.isFinite(summary.openRiskPct) ? summary.openRiskPct.toFixed(2) + '%' : '0.00%';
+        Number.isFinite(display.openRiskPct) ? display.openRiskPct.toFixed(2) + '%' : '—';
       document.getElementById('riskHomeExposure').textContent =
-        Number.isFinite(summary.marginUtilizationPct) ? summary.marginUtilizationPct.toFixed(0) + '%' : '0%';
+        Number.isFinite(display.currentDrawdownPct) ? display.currentDrawdownPct.toFixed(1) + '%' : '—';
       document.getElementById('riskHomePositions').textContent =
-        summary.positionCount === 1 ? '1 position' : `${summary.positionCount} positions`;
-
-      statusEl.textContent = summary.status;
-      statusEl.className = 'risk-home-status ' + toneClass(summary.status);
+        display.openPositions === 1 ? '1 position' : `${display.openPositions ?? 0} positions`;
     }
 
     /**
