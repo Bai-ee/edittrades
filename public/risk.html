@@ -71,7 +71,40 @@
 
     .rm-input:focus { outline: none; border-color: var(--color-yellow-75); }
     .rm-textarea { font-family: var(--font-system); line-height: 1.45; resize: vertical; }
-    .rm-file { font-family: var(--font-mathias); font-size: 0.8125rem; color: var(--color-yellow-75-muted); max-width: 100%; }
+    /* A bare file input is ~21px tall — the smallest target on the page, on a
+       control whose whole job is "photograph your fill and drop it in here".
+       The input becomes a full-width block and its picker button is given the
+       same 44px floor and the same look as .rm-mini-btn. */
+    .rm-file {
+      font-family: var(--font-mathias);
+      font-size: 0.8125rem;
+      color: var(--color-yellow-75-muted);
+      max-width: 100%;
+      display: block;
+      width: 100%;
+      min-height: 44px;
+      padding: 0.25rem 0;
+    }
+
+    .rm-file::file-selector-button {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      min-height: 44px;
+      padding: 0 0.875rem;
+      margin-right: 0.625rem;
+      border-radius: 3px;
+      border: 1px solid rgba(230, 233, 224, 0.25);
+      background: transparent;
+      color: var(--color-yellow-75-muted);
+      cursor: pointer;
+    }
+
+    .rm-file::file-selector-button:hover {
+      color: var(--color-yellow-75);
+      border-color: var(--color-yellow-75);
+    }
 
     .rm-mini-btn {
       font-family: var(--font-mathias);
@@ -84,8 +117,10 @@
       background: transparent;
       color: var(--color-yellow-75-muted);
       cursor: pointer;
-      /* 34px minimum so this is a real tap target, not a desktop-only affordance. */
-      min-height: 34px;
+      /* 44px is the floor a finger actually needs. These are not decorative:
+         they classify a deposit, reset the sandbox and close the trade sheet,
+         so they get the same target size as any other action on the page. */
+      min-height: 44px;
     }
 
     .rm-mini-btn:hover { color: var(--color-yellow-75); border-color: var(--color-yellow-75); }
@@ -117,7 +152,9 @@
       text-transform: uppercase;
       color: var(--color-yellow-75);
       list-style: none;
-      min-height: 34px;
+      /* A disclosure is the only way to reach the transfer-classification
+         queue, so it is a primary target and gets the full 44px. */
+      min-height: 44px;
       display: flex;
       align-items: center;
     }
@@ -467,7 +504,11 @@
       outline: none;
       border-radius: 2px;
       /* A slider is the hardest control to hit on a phone: the padding gives
-         the thumb a 44px vertical target without a 44px visual bar. */
+         the thumb a 44px vertical target without a 44px visual bar.
+         content-box is load-bearing — the page sets `box-sizing: border-box`
+         on everything, which made `height: 4px` swallow the padding and
+         collapse this to a 40px target instead of 4 + 20 + 20. */
+      box-sizing: content-box;
       padding: 20px 0;
       background-clip: content-box;
       margin: 0;
@@ -619,7 +660,10 @@
     .rm-chart-note { font-family: var(--font-mathias); font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(230,233,224,0.3); margin: 0.5rem 0 0; }
 
     .rm-marker { cursor: pointer; }
-    /* The hit circle is invisible but 44px across: markers work by TAP. */
+    /* The hit circle is invisible but at least 44px across: markers work by
+       TAP. `transparent` (not `none`) is what keeps it in hit testing, and
+       its r=24 in riskPage.js is deliberate — at 320px the SVG is drawn at
+       ~0.94x its viewBox, where the previous r=22 measured only 41.2 CSS px. */
     .rm-marker-hit { fill: transparent; }
     .rm-marker-line { stroke: rgba(230, 233, 224, 0.16); stroke-width: 1; stroke-dasharray: 2 3; }
     .rm-marker-dot { stroke: #000; stroke-width: 2; }
@@ -731,7 +775,9 @@
     .rm-history { margin-bottom: 0.5rem; }
     .rm-history .table-edittrax { font-size: 0.75rem; }
     .rm-history .table-edittrax th { font-size: 0.625rem; letter-spacing: 0.12em; padding: 0.5rem 0.5rem; }
-    .rm-history .table-edittrax td { padding: 0.55rem 0.5rem; font-size: 0.75rem; color: var(--color-yellow-75); }
+    /* A row is the tap target that opens the trade record, so the vertical
+       padding is what gets it to a 44px-tall target rather than a 37px one. */
+    .rm-history .table-edittrax td { padding: 0.8rem 0.5rem; font-size: 0.75rem; color: var(--color-yellow-75); }
     .rm-history-row { cursor: pointer; }
     .rm-history-row:focus { outline: 1px solid var(--color-yellow-75); outline-offset: -1px; }
     .rm-history-empty { color: var(--color-yellow-75-dim) !important; text-align: center; padding: 1.5rem 0.5rem !important; }
@@ -923,7 +969,13 @@
       .rm-col-pnl { width: 24%; }
       .rm-col-status { width: 20%; }
       .rm-col-data { width: 24%; }
-      .rm-history .table-edittrax td, .rm-history .table-edittrax th { padding: 0.6rem 0.4rem; }
+      .rm-history .table-edittrax td, .rm-history .table-edittrax th { padding: 0.8rem 0.4rem; }
+
+      /* NEEDS REVIEW is the flag that says a record cannot be trusted, and the
+         cell that holds it is 69px wide at 320. Held on one line it was being
+         cut to "NEEDS REVIE" by the cell's own overflow:hidden, so it wraps
+         instead — two readable lines beat one truncated one. */
+      .rm-history .rm-data-flag { white-space: normal; }
 
       .rm-eval-action { font-size: 1.5rem; }
       .rm-sheet-panel { max-height: 96vh; border-radius: var(--radius-10) var(--radius-10) 0 0; }

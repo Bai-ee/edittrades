@@ -1116,7 +1116,7 @@ function renderChart() {
           <line x1="${m.cx.toFixed(1)}" y1="${padding.top}" x2="${m.cx.toFixed(1)}" y2="${(height - padding.bottom).toFixed(1)}"
                 class="rm-marker-line"/>
           <circle cx="${m.cx.toFixed(1)}" cy="${m.cy.toFixed(1)}" r="5.5" class="rm-marker-dot"/>
-          <circle cx="${m.cx.toFixed(1)}" cy="${m.cy.toFixed(1)}" r="22" class="rm-marker-hit"/>
+          <circle cx="${m.cx.toFixed(1)}" cy="${m.cy.toFixed(1)}" r="24" class="rm-marker-hit"/>
         </g>`
         )
         .join('')}
