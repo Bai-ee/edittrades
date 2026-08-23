@@ -13,7 +13,9 @@
     "validate:market-data": "node scripts/validate-market-data.js",
     "validate:decision-desk": "node scripts/validate-decision-desk.js",
     "validate:all": "node scripts/validate-all.js",
-    "validate:macro-core": "node scripts/validate-macro-core.js"
+    "validate:macro-core": "node scripts/validate-macro-core.js",
+    "validate:adaptive": "node scripts/validate-adaptive-risk.js",
+    "validate:wallet": "node scripts/validate-wallet-reconstruction.js"
   },
   "keywords": [
     "trading",
