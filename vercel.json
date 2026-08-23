@@ -1,131 +1,38 @@
 {
   "version": 2,
   "builds": [
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "api/health.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/analyze-compact.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/analyze-full-safe.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/analyze.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/indicators.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/scan.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/bitcoin-economic-value.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/agent-review.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/crypto-news.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/parse-trade-image.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/execute-trade.js",
-      "use": "@vercel/node"
-    },
-    {
-      "src": "api/review-trade.js",
-      "use": "@vercel/node"
-    }
+    { "src": "public/**", "use": "@vercel/static" },
+    { "src": "api/health.js", "use": "@vercel/node" },
+    { "src": "api/analyze-compact.js", "use": "@vercel/node" },
+    { "src": "api/analyze-full-safe.js", "use": "@vercel/node" },
+    { "src": "api/analyze.js", "use": "@vercel/node" },
+    { "src": "api/indicators.js", "use": "@vercel/node" },
+    { "src": "api/scan.js", "use": "@vercel/node" },
+    { "src": "api/bitcoin-economic-value.js", "use": "@vercel/node" },
+    { "src": "api/agent-review.js", "use": "@vercel/node" },
+    { "src": "api/crypto-news.js", "use": "@vercel/node" },
+    { "src": "api/parse-trade-image.js", "use": "@vercel/node" },
+    { "src": "api/execute-trade.js", "use": "@vercel/node" },
+    { "src": "api/review-trade.js", "use": "@vercel/node" }
   ],
   "routes": [
-    {
-      "src": "/api/health",
-      "dest": "/api/health.js"
-    },
-    {
-      "src": "/api/analyze-compact/(.*)",
-      "dest": "/api/analyze-compact.js"
-    },
-    {
-      "src": "/api/analyze-full",
-      "dest": "/api/analyze-full-safe.js"
-    },
-    {
-      "src": "/api/analyze/(.*)",
-      "dest": "/api/analyze.js"
-    },
-    {
-      "src": "/api/indicators/(.*)",
-      "dest": "/api/indicators.js"
-    },
-    {
-      "src": "/api/scan",
-      "dest": "/api/scan.js"
-    },
-    {
-      "src": "/api/bitcoin/economic-value",
-      "dest": "/api/bitcoin-economic-value.js"
-    },
-    {
-      "src": "/api/agent-review",
-      "dest": "/api/agent-review.js"
-    },
-    {
-      "src": "/api/crypto-news",
-      "dest": "/api/crypto-news.js"
-    },
-    {
-      "src": "/api/parse-trade-image",
-      "dest": "/api/parse-trade-image.js"
-    },
-    {
-      "src": "/api/execute-trade",
-      "dest": "/api/execute-trade.js"
-    },
-    {
-      "src": "/api/review-trade",
-      "dest": "/api/review-trade.js"
-    },
-    {
-      "src": "/risk",
-      "dest": "/public/risk.html"
-    },
-    {
-      "src": "/bitcoin-value",
-      "dest": "/public/bitcoin-value.html"
-    },
-    {
-      "src": "/scanner",
-      "dest": "/public/scanner.html"
-    },
-    {
-      "src": "/strategy",
-      "dest": "/public/strategy.html"
-    },
-    {
-      "src": "/tracker",
-      "dest": "/public/tracker.html"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/public/$1"
-    }
+    { "src": "/api/health", "dest": "/api/health.js" },
+    { "src": "/api/analyze-compact/(.*)", "dest": "/api/analyze-compact.js" },
+    { "src": "/api/analyze-full", "dest": "/api/analyze-full-safe.js" },
+    { "src": "/api/analyze/(.*)", "dest": "/api/analyze.js" },
+    { "src": "/api/indicators/(.*)", "dest": "/api/indicators.js" },
+    { "src": "/api/scan", "dest": "/api/scan.js" },
+    { "src": "/api/bitcoin/economic-value", "dest": "/api/bitcoin-economic-value.js" },
+    { "src": "/api/agent-review", "dest": "/api/agent-review.js" },
+    { "src": "/api/crypto-news", "dest": "/api/crypto-news.js" },
+    { "src": "/api/parse-trade-image", "dest": "/api/parse-trade-image.js" },
+    { "src": "/api/execute-trade", "dest": "/api/execute-trade.js" },
+    { "src": "/api/review-trade", "dest": "/api/review-trade.js" },
+    { "src": "/risk", "dest": "/public/risk.html" },
+    { "src": "/bitcoin-value", "dest": "/public/bitcoin-value.html" },
+    { "src": "/scanner", "dest": "/public/scanner.html" },
+    { "src": "/strategy", "dest": "/public/strategy.html" },
+    { "src": "/tracker", "dest": "/public/tracker.html" },
+    { "src": "/(.*)", "dest": "/public/$1" }
   ]
 }
