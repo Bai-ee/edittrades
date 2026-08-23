@@ -50,6 +50,8 @@ import {
   calculateLevelProgress,
   calculateOpenRisk,
   calculateDirectionalConcentration,
+  calculateStrategyEnvelope,
+  evaluateNoTradeConstraints,
   buildEquityCurve,
   calculateDrawdown,
   calculateRecentPerformance,
@@ -260,6 +262,68 @@ export function formatRecoveryLine(drawdownCheck) {
   };
 }
 
+/**
+ * Is a wallet READING too old to size against?
+ *
+ * A reading ages. How it was obtained does not change that, and this used to
+ * say otherwise: staleness was only ever considered for a CACHED read, so a
+ * LIVE one never expired however long the tab stayed open. That is precisely
+ * the case the freshness rule exists for — evaluate() re-runs on every
+ * confidence-slider move and strategy toggle, so a tab open for hours kept
+ * sizing positions against the balance fetched when the page first loaded,
+ * and STALE_WALLET_DATA, the blocker the engine raises for exactly this,
+ * could never fire on a live read.
+ *
+ * This decides nothing about risk; it hands the engine one boolean and the
+ * engine applies its own rule. Nothing here re-reads the balance either — it
+ * only stops an old one being presented as current.
+ *
+ * Pure and exported so the rule can be exercised at any clock position.
+ */
+export function isReadStale({ status, value, at, simulating = false, now = Date.now() } = {}) {
+  // The sandbox's balance is supplied, not read, so it cannot go stale.
+  if (simulating) return false;
+  // Nothing was read, so there is no reading to age. The engine already
+  // refuses to size against this via walletAvailable / a null walletValue.
+  if (value === null || value === undefined || status === 'IDLE') return false;
+  const readAt = at ? Date.parse(at) : null;
+  // A reading that cannot say when it was taken cannot be shown to be fresh.
+  if (!Number.isFinite(readAt)) return true;
+  return now - readAt > STALE_WALLET_MS;
+}
+
+/**
+ * Collapse the account's state to the engine's own three-value decision.
+ *
+ * This answers "can this ACCOUNT trade at all?", which is a different question
+ * from recommendTrade's "can THIS setup be sized?" — the home-page card asks
+ * the former, and once a setup has been staged through CHECK RISK the latter
+ * carries direction-specific blockers that have nothing to do with the account.
+ *
+ * The order below is recommendTrade's own order of precedence: data
+ * availability (its step 0), then staleness (its step 13), then the gate.
+ * Duplicating that ORDER is unavoidable if the two surfaces are to agree.
+ * Duplicating a NUMBER is not, and none is duplicated — `gateAllowed` is
+ * evaluateNoTradeConstraints' verdict, unmodified.
+ *
+ * One rule is added that recommendTrade does not have: A READ THAT DID NOT SEE
+ * THE WHOLE ACCOUNT CANNOT PRODUCE A CONFIDENT VERDICT. A partially priced
+ * wallet understates equity; a truncated transaction window both omits real
+ * trades and manufactures unmatched-sell scratches that count toward level
+ * gates. Either way "can this account trade?" is not known, and INCOMPLETE is
+ * the engine's own word for not knowing.
+ *
+ * @param {object}  account      the account handed to the engine
+ * @param {boolean} gateAllowed  evaluateNoTradeConstraints(...).allowed
+ * @returns {'TRADE'|'NO_TRADE'|'INCOMPLETE'}
+ */
+export function resolveAccountDecision(account = {}, gateAllowed = false) {
+  if (account.walletAvailable === false || !(account.walletValue > 0)) return 'INCOMPLETE';
+  if (account.dataStale === true) return 'INCOMPLETE';
+  if (account.walletComplete === false || account.historyComplete === false) return 'INCOMPLETE';
+  return gateAllowed ? 'TRADE' : 'NO_TRADE';
+}
+
 /** ↑ / ↓ / · for an engine factor direction. */
 export function directionGlyph(direction) {
   if (direction === 'UP') return '↑';
@@ -460,7 +524,11 @@ const state = {
     positions: [],
     cashFlowCandidates: [],
     warnings: [],
-    methodology: null
+    methodology: null,
+    /** False once the endpoint reports a window that did not reach the end of history. */
+    complete: true,
+    /** The endpoint's `window` block: transactionsScanned, hasMore, nextBefore. */
+    window: null
   },
 
   request: {
@@ -547,9 +615,20 @@ function openPositionsForEngine() {
       leverage: trade.leverage ?? null,
       margin: trade.margin ?? null,
       riskAmount: trade.riskAmount ?? null,
-      // The reconstruction never estimates unrealised P&L, so this stays null
-      // unless a human has entered a mark.
-      unrealizedPnl: Number.isFinite(trade.unrealizedPnl) ? trade.unrealizedPnl : 0,
+      /**
+       * The reconstruction never estimates unrealised P&L, so this stays null
+       * unless a human has entered a mark.
+       *
+       * It used to say `: 0` here, which contradicted the sentence above and
+       * asserted a mark this page does not have. Passing null instead does
+       * NOT change any number today — calculateOpenRisk applies the same
+       * `isFiniteNumber(p.unrealizedPnl) ? … : 0` default internally — but it
+       * stops the page from making the claim, and puts the remaining gap
+       * where it belongs: the engine cannot currently distinguish "no mark"
+       * from "flat", so an unmarked losing position consumes no heat. See
+       * docs/HOME_RISK_WALLET_FINDINGS.md.
+       */
+      unrealizedPnl: Number.isFinite(trade.unrealizedPnl) ? trade.unrealizedPnl : null,
       markPrice: trade.markPrice ?? null
     }));
 }
@@ -562,11 +641,13 @@ function walletValueForEngine() {
 }
 
 function isWalletStale() {
-  if (state.simulation.active) return false;
-  if (state.wallet.status !== 'CACHED') return false;
-  const at = state.wallet.at ? Date.parse(state.wallet.at) : null;
-  if (!Number.isFinite(at)) return true;
-  return Date.now() - at > STALE_WALLET_MS;
+  return isReadStale({
+    status: state.wallet.status,
+    value: state.wallet.value,
+    at: state.wallet.at,
+    simulating: state.simulation.active,
+    now: Date.now()
+  });
 }
 
 function buildAccount() {
@@ -584,6 +665,21 @@ function buildAccount() {
     walletValue: Number.isFinite(walletValue) ? walletValue : null,
     walletAvailable: state.wallet.status !== 'UNAVAILABLE',
     dataStale: isWalletStale(),
+
+    /**
+     * Whether each read saw everything there was to see.
+     *
+     * The engine takes no completeness input — it knows only `walletAvailable`
+     * and `dataStale` — so these two are NOT engine inputs and are ignored by
+     * recommendTrade(). They exist so the surfaces that summarise the account
+     * can say "this was computed from a partial read" instead of presenting a
+     * partial read as the account. `walletComplete` is false when the price
+     * feed could not value every holding, so the equity total is understated;
+     * `historyComplete` is false when the transaction window did not reach the
+     * end of the account's history.
+     */
+    walletComplete: state.simulation.active ? true : state.wallet.complete !== false,
+    historyComplete: state.simulation.active ? true : state.history.complete !== false,
     snapshots,
     cashFlows: classifiedCashFlows(),
     trades: tradesForEngine(),
@@ -650,6 +746,35 @@ function evaluate() {
     }
   });
 
+  /**
+   * The ACCOUNT-level gate, for the home-page card.
+   *
+   * `recommendation` above answers "can this specific setup be sized?", so
+   * once a setup has been staged through CHECK RISK its blockers include
+   * direction-specific ones. The home page is not proposing a trade; it asks
+   * whether the ACCOUNT can trade at all. So the gate is re-run here with
+   * `direction: null`, which the engine documents as the conservative read,
+   * and against the same envelope the engine would build for this level and
+   * strategy. Nothing is derived here — both calls are engine functions and
+   * their outputs are cached, never fed back in.
+   */
+  const accountGate = evaluateNoTradeConstraints({
+    envelope: calculateStrategyEnvelope({
+      level: levelState.level,
+      strategy: state.request.strategy,
+      recentPerformance: recent,
+      drawdown
+    }),
+    openRiskState: openRisk,
+    concentration,
+    adjustedEquity: equityState.adjustedEquity,
+    drawdown,
+    level: levelState.level,
+    direction: null
+  });
+
+  const accountDecision = resolveAccountDecision(account, accountGate.allowed);
+
   state.evaluation = {
     account,
     equityState,
@@ -660,7 +785,9 @@ function evaluate() {
     progress,
     openRisk,
     concentration,
-    recommendation
+    recommendation,
+    accountGate,
+    accountDecision
   };
 
   /**
@@ -692,7 +819,31 @@ function evaluate() {
       openRiskPct: openRisk.consumedRiskPct,
       openPositions: openRisk.count,
       walletValue: state.wallet.value,
-      totalClosedTrades: levelState.totalClosedTrades
+      totalClosedTrades: levelState.totalClosedTrades,
+
+      /* ----------------------------------------------------------------
+       * For the home-page card (public/js/riskHomeCard.js).
+       *
+       * The level LINE is cached as a composed string rather than as parts,
+       * so the home page cannot word a level differently from this page —
+       * there is exactly one implementation of that sentence and it is
+       * formatLevelLine() above.
+       *
+       * `walletAt` is cached because the card's freshness rule keys on when
+       * the BALANCE was read, not on when this evaluation ran. Only ever the
+       * real read; `state.wallet` is never the simulation, and this whole
+       * block is inside persist(), which refuses to run while simulating.
+       * ------------------------------------------------------------- */
+      levelLine: formatLevelLine(levelState, progress),
+      levelLabel: getLevelDefinition(levelState.level)?.label ?? null,
+      strategy: state.request.strategy,
+      decision: accountDecision,
+      blockerCount: accountGate.blockers.length,
+      primaryBlocker: accountGate.blockers[0]?.label ?? null,
+      walletStatus: state.wallet.status,
+      walletAt: state.wallet.at,
+      walletComplete: account.walletComplete,
+      historyComplete: account.historyComplete
     });
     for (const transition of levelState.transitions) {
       appendLevelTransition(transition, {
@@ -927,7 +1078,44 @@ function renderHealth() {
   if (state.history.status === 'LOADING') bits.push('RECONSTRUCTING TRADES…');
   if (state.history.status === 'UNAVAILABLE') bits.push('TRADE HISTORY UNAVAILABLE');
   if (state.history.status === 'OK') bits.push(`${levelState.totalClosedTrades} CLOSED TRADES`);
+
+  /**
+   * A truncated window has to say so right beside the closed-trade count it
+   * produced. "142 CLOSED TRADES" reads as the account's whole record; when
+   * the walk stopped at the cap it is only the recent tail, and the level
+   * computed from it is not the level of this account.
+   */
+  if (state.history.status === 'OK' && state.history.complete === false) {
+    const scanned = state.history.window?.transactionsScanned;
+    bits.push(
+      `PARTIAL HISTORY — ONLY THE LAST ${Number.isFinite(scanned) ? scanned : ''} TRANSACTIONS WERE READ`.replace('  ', ' ')
+    );
+  }
+
   setText('healthProvenance', bits.join('  ·  '));
+
+  /**
+   * The reconstruction's own warnings. These were collected into
+   * `state.history.warnings` and never rendered anywhere, which meant
+   * UNMATCHED_SELL, MISSING_TRANSACTIONS, BATCH_FAILED, DUPLICATE_SIGNATURES
+   * and PRICE_RESOLVER_FAILED — every signal that a number below is less
+   * solid than it looks — were silently discarded. Capped, because a long
+   * list stops being read.
+   */
+  const warnings = Array.isArray(state.history.warnings) ? state.history.warnings : [];
+  const walletWarnings = Array.isArray(state.wallet.warnings) ? state.wallet.warnings : [];
+  const allWarnings = [...walletWarnings, ...warnings];
+  show('healthWarningsWrap', allWarnings.length > 0);
+  if (allWarnings.length > 0) {
+    setHTML(
+      'healthWarnings',
+      allWarnings
+        .slice(0, 6)
+        .map((w) => `<li>${esc(String(w))}</li>`)
+        .join('') +
+        (allWarnings.length > 6 ? `<li>+${allWarnings.length - 6} more</li>` : '')
+    );
+  }
 }
 
 /* ========================================================================
@@ -1694,6 +1882,9 @@ async function loadHistoryLayer() {
     if (!response.ok) {
       state.history.status = 'UNAVAILABLE';
       state.history.warnings = body.warnings || [body.message || 'Trade history unavailable'];
+      // A history that could not be read is an incomplete read, not an empty
+      // account. Nothing downstream may treat "no trades seen" as "no trades".
+      state.history.complete = false;
       refresh();
       return;
     }
@@ -1703,6 +1894,20 @@ async function loadHistoryLayer() {
     state.history.methodology = body.methodology || null;
     state.history.cashFlowCandidates = body.cashFlows || [];
 
+    /**
+     * Whether the reconstruction saw the WHOLE account, kept separate from
+     * whether the request succeeded.
+     *
+     * A 200 with a truncated window is not a complete history: the endpoint
+     * matches sells against buys inside the window it read, so a window that
+     * cut the opening buys reports unmatched sells — NEEDS_REVIEW records
+     * with null P&L that still count toward the level's promotion gates. The
+     * response says so in `complete` and `window.hasMore`, and both used to
+     * be dropped here.
+     */
+    state.history.complete = body.complete !== false;
+    state.history.window = body.window || null;
+
     persist(() => ingestCashFlowCandidates(body.cashFlows || []));
     state.history.onchain = body.trades || [];
     state.history.trades = mergeTradeRecords(state.history.onchain);
@@ -1711,6 +1916,7 @@ async function loadHistoryLayer() {
   } catch (error) {
     state.history.status = 'UNAVAILABLE';
     state.history.warnings = [error.message];
+    state.history.complete = false;
   }
 
   refresh();
@@ -1880,7 +2086,11 @@ function bindWallet() {
       positions: [],
       cashFlowCandidates: [],
       warnings: [],
-      methodology: null
+      methodology: null,
+      // Reset with the rest of the shape: with no wallet attached there is no
+      // window to have been truncated, so this is complete by definition.
+      complete: true,
+      window: null
     };
     refresh();
   });

@@ -414,6 +414,23 @@
       overflow-wrap: anywhere;
     }
 
+    /* Reconstruction and wallet-read warnings. Inside the provenance block,
+       so it inherits the same quiet treatment and does not compete with the
+       figures it qualifies. Sits flush: the provenance line is already the
+       footnote layer, so the details border would be a second rule. */
+    #healthWarningsWrap { border-top: none; padding: 0.5rem 0 0; }
+    #healthWarningsWrap > *:not(summary) { margin-top: 0.5rem; }
+    .rm-warnings {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      /* The RPC's own strings; long, and not ours to reword. */
+      text-transform: none;
+      letter-spacing: 0.04em;
+      color: var(--color-yellow-75-muted);
+    }
+    .rm-warnings li { padding: 0.25rem 0; overflow-wrap: anywhere; }
+
     /* Cash-flow review */
     .rm-flow-row {
       border-bottom: 1px solid rgba(230, 233, 224, 0.08);
@@ -1122,6 +1139,14 @@
     <div class="rm-provenance">
       <div id="healthProvenance"></div>
       <div id="healthFlows"></div>
+      <!-- What the wallet reader and the reconstruction could not do cleanly.
+           Collapsed, because it is usually empty and always secondary — but
+           never absent, because every entry here means a figure above rests
+           on less than it appears to. -->
+      <details class="rm-details" id="healthWarningsWrap" hidden>
+        <summary>Data warnings</summary>
+        <ul class="rm-warnings" id="healthWarnings"></ul>
+      </details>
     </div>
 
     <!-- 3. QUICK RECOMMENDER -------------------------------------------->
