@@ -623,12 +623,24 @@ export function detectCorrelatedExposure({ positions = [], policy = DEFAULT_RISK
     const directionRisk = matching.reduce((sum, p) => sum + p.plannedRisk, 0);
     const riskSharePct = totalRisk > 0 ? toPercent(directionRisk / totalRisk) : 0;
 
-    // Breadth: several positions the same way. Depth: a couple carrying
-    // overwhelming one-way risk.
+    // Breadth: several positions the same way.
     const byCount = matching.length >= settings.minPositions;
+
+    // Depth: a couple carrying overwhelming one-way risk.
+    //
+    // Requires at least three positions in the book overall. In a two-position
+    // book the dominant direction is trivially 100% whenever both point the
+    // same way, so without this the rule would warn on essentially every small
+    // crypto book and become noise. Size is not lost by skipping it: two
+    // oversized correlated positions are caught by the correlated heat cap
+    // (maxCorrelatedDirectionRiskPct), which is the condition that actually
+    // matters. This rule is about composition, not magnitude.
+    const bookIsDiverseEnoughToJudgeShare = live.length >= settings.minPositions;
     const byShare =
+      bookIsDiverseEnoughToJudgeShare &&
       matching.length >= settings.minPositionsForShareRule &&
       riskSharePct >= settings.riskShareThresholdPct;
+
     const concentrated = byCount || byShare;
 
     // The dominant direction is the one carrying the most risk, so the heat

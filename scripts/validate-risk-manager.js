@@ -302,6 +302,34 @@ const twoHeavy = [
 ];
 ok('two dominant longs flagged by risk-share rule', detectCorrelatedExposure({ positions: twoHeavy }).concentrated === true);
 
+// A two-position book is trivially 100% one-directional, so the share rule
+// must not fire there or it becomes constant noise. Magnitude is still covered
+// by the correlated heat cap.
+const twoOnly = [
+  { asset: 'BTC', direction: 'LONG', plannedRisk: 250, margin: 3600, notional: 7200, status: 'OPEN' },
+  { asset: 'SOL', direction: 'LONG', plannedRisk: 180, margin: 2400, notional: 6000, status: 'PLANNED' }
+];
+const twoOnlyResult = detectCorrelatedExposure({ positions: twoOnly });
+ok('two-position all-long book not flagged', twoOnlyResult.concentrated === false,
+  `share was ${twoOnlyResult.riskSharePct}%`);
+near('but dominant direction risk is still reported', twoOnlyResult.directionRisk, 430, 0.01);
+
+// The heat cap still catches two oversized correlated longs (5.2% > 4% cap).
+const twoBig = [
+  { asset: 'BTC', direction: 'LONG', plannedRisk: 700, margin: 3600, notional: 7200, status: 'OPEN' },
+  { asset: 'ETH', direction: 'LONG', plannedRisk: 600, margin: 2400, notional: 6000, status: 'OPEN' }
+];
+const bigPlan = planTrade({
+  walletBalance: 25000,
+  positions: twoBig,
+  trade: { asset: 'SOL', direction: 'SHORT', entry: 150, stop: 158, riskPct: 0.5, leverage: 1 }
+});
+ok(
+  'oversized correlated longs still fail the heat cap without the share rule',
+  bigPlan.evaluation.checks.find((c) => c.id === 'concentration').state === 'fail',
+  bigPlan.evaluation.checks.find((c) => c.id === 'concentration').detail
+);
+
 /* ======================================================================
  * 11. POLICY BREACHES
  * =================================================================== */

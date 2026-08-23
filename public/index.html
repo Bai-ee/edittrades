@@ -879,6 +879,43 @@
       .eco-home-figures { gap: 1rem; }
       .eco-home-deviation { margin-left: auto; }
     }
+
+    /* ----------------------------------------------------------------
+     * RISK — quick reference
+     * Same weight and shape as the Economic Value card beside it: these
+     * are two peer decision layers (macro and risk), so neither should
+     * visually outrank the other.
+     * ------------------------------------------------------------- */
+    #riskCard {
+      display: block;
+      text-decoration: none;
+      background-color: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(230, 233, 224, 0.14);
+      border-radius: 5px;
+      padding: 0.75rem 1rem;
+      margin: 0 0 1rem 0;
+      transition: border-color 0.3s ease;
+    }
+
+    #riskCard:hover { border-color: rgba(230, 233, 224, 0.4); }
+
+    .risk-home-figure {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    .risk-home-figure .eco-label { font-size: 0.625rem; letter-spacing: 0.12em; }
+    .risk-home-figure .eco-value { font-size: 1rem; }
+
+    .risk-home-status {
+      margin-left: auto;
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
   </style>
 </head>
 <body class="min-h-screen">
@@ -1004,6 +1041,29 @@
       </div>
     </a>
 
+    <!-- Risk quick reference. Entire card links through to the Risk Manager. -->
+    <a href="/risk.html" id="riskCard" aria-label="Risk — open the Risk Manager">
+      <div class="eco-home-head">
+        <span class="eco-home-title">Risk</span>
+        <span class="risk-home-status eco-tone-neutral" id="riskHomeStatus">&mdash;</span>
+      </div>
+      <div class="eco-home-figures">
+        <div class="risk-home-figure">
+          <span class="eco-label">Wallet</span>
+          <span class="eco-value" id="riskHomeWallet">&mdash;</span>
+        </div>
+        <div class="risk-home-figure">
+          <span class="eco-label">Open Risk</span>
+          <span class="eco-value" id="riskHomeOpenRisk">&mdash;</span>
+        </div>
+        <div class="risk-home-figure">
+          <span class="eco-label">Margin</span>
+          <span class="eco-value" id="riskHomeExposure">&mdash;</span>
+        </div>
+        <span class="risk-home-status" id="riskHomePositions" style="color: rgba(230,233,224,0.5);"></span>
+      </div>
+    </a>
+
     <!-- Loading State -->
     <div id="loadingState" class="text-center py-12">
       <div class="inline-block w-8 h-8 border-2 border-t-transparent rounded-full animate-spin mb-4" style="border-color: var(--text-primary); border-top-color: transparent;"></div>
@@ -1072,6 +1132,19 @@
               </svg>
             </a>
             
+            <a
+              href="/risk.html"
+              style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem; text-decoration: none;"
+              title="Risk Manager"
+            >
+              <span style="font-weight: bold;">RISK MANAGER</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+            </a>
+
             <a
               href="/bitcoin-value.html"
               style="display: inline-flex; align-items: center; gap: 8px; background: transparent; border: none; color: var(--color-yellow-75); cursor: pointer; padding: 4px 8px; font-family: var(--font-mathias); font-size: 0.75rem; text-decoration: none;"
@@ -3874,12 +3947,20 @@
             >
               COPY
             </button>
-            <button 
+            <button
               onclick="trackThisTrade('${symbol}')"
               class="px-3 py-1 text-xs font-mathias font-bold"
               style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
             >
               TRACK
+            </button>
+            <button
+              onclick="checkRiskForTrade('${symbol}')"
+              class="px-3 py-1 text-xs font-mathias font-bold"
+              style="background-color: transparent; color: var(--color-yellow-75); border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s;"
+              title="Size this setup against your risk policy"
+            >
+              CHECK RISK
             </button>
           </div>
         </td>
@@ -6240,6 +6321,129 @@
       },
       retina_detect: true
     });
+  </script>
+
+  <!-- ==================================================================
+   * RISK MANAGER BRIDGE
+   *
+   * A separate module block because the main script above is a classic
+   * script and cannot use `import`. This renders the Risk quick-reference
+   * card and exposes the CHECK RISK handoff on `window` so the inline
+   * onclick in the generated trade rows can reach it.
+   *
+   * Every figure here comes from the shared deterministic engine — this
+   * page derives no risk numbers of its own.
+   * =============================================================== -->
+  <script type="module">
+    import { summarizeAccount, DEFAULT_RISK_POLICY, RISK_STATUS } from '/js/riskManager.js';
+    import { loadRiskProfile, loadLivePositions, stageSetupForRiskCheck } from '/js/riskStore.js';
+
+    function usdCompact(value) {
+      if (!Number.isFinite(value)) return '—';
+      return Math.abs(value) >= 1000
+        ? '$' + (value / 1000).toFixed(1) + 'K'
+        : '$' + value.toFixed(0);
+    }
+
+    function toneClass(status) {
+      if (status === RISK_STATUS.WITHIN_PLAN) return 'eco-tone-long';
+      if (status === RISK_STATUS.ABOVE_PLAN) return 'eco-tone-short';
+      return 'eco-tone-neutral';
+    }
+
+    function renderRiskCard() {
+      const profile = loadRiskProfile();
+      const statusEl = document.getElementById('riskHomeStatus');
+
+      // No wallet set yet: invite setup rather than showing zeroes that
+      // look like a configured account with nothing at risk.
+      if (!Number.isFinite(profile.walletBalance) || profile.walletBalance <= 0) {
+        document.getElementById('riskHomeWallet').textContent = 'Not set';
+        document.getElementById('riskHomeOpenRisk').textContent = '—';
+        document.getElementById('riskHomeExposure').textContent = '—';
+        statusEl.textContent = 'SET UP';
+        statusEl.className = 'risk-home-status eco-tone-neutral';
+        return;
+      }
+
+      const summary = summarizeAccount({
+        walletBalance: profile.walletBalance,
+        positions: loadLivePositions(),
+        policy: { ...DEFAULT_RISK_POLICY, ...(profile.policy || {}) }
+      });
+
+      document.getElementById('riskHomeWallet').textContent = usdCompact(summary.walletBalance);
+      document.getElementById('riskHomeOpenRisk').textContent =
+        Number.isFinite(summary.openRiskPct) ? summary.openRiskPct.toFixed(2) + '%' : '0.00%';
+      document.getElementById('riskHomeExposure').textContent =
+        Number.isFinite(summary.marginUtilizationPct) ? summary.marginUtilizationPct.toFixed(0) + '%' : '0%';
+      document.getElementById('riskHomePositions').textContent =
+        summary.positionCount === 1 ? '1 position' : `${summary.positionCount} positions`;
+
+      statusEl.textContent = summary.status;
+      statusEl.className = 'risk-home-status ' + toneClass(summary.status);
+    }
+
+    /**
+     * CHECK RISK: hand the currently-selected setup to the Risk Manager.
+     *
+     * Resolves the setup through the same strategyStates/strategyOptions
+     * convention TRACK uses, so both buttons always act on the same strategy.
+     * Note this repo has a pre-existing off-by-one in those toggles (the
+     * button labelled "Scalp" selects TREND_RIDER); matching TRACK keeps the
+     * two consistent rather than silently disagreeing.
+     */
+    window.checkRiskForTrade = function checkRiskForTrade(symbol) {
+      try {
+        // strategyStates and strategyOptions are declared with `const` in the
+        // classic script above, so they live in the global LEXICAL scope and
+        // are NOT properties of `window`. They are reachable by bare name
+        // (module scope chains to the same global environment) but only via a
+        // typeof guard, since a bare reference to an undeclared name throws.
+        // Reading them off `window` would silently yield index 0 and always
+        // send the 4H setup no matter which strategy is selected.
+        const index = (typeof strategyStates !== 'undefined' && strategyStates[symbol]) || 0;
+        const strategyKey =
+          (typeof strategyOptions !== 'undefined' && strategyOptions[index]) || '4h';
+        // getActiveSignal is a function declaration, so it IS on window.
+        const signal = typeof getActiveSignal === 'function'
+          ? getActiveSignal(symbol, strategyKey)
+          : null;
+
+        const setup = { asset: symbol.replace('USDT', '') };
+
+        if (signal && signal.valid) {
+          const direction = String(signal.direction || '').toUpperCase();
+          const zone = signal.entryZone || {};
+          // Same entry convention the rest of the app uses: longs take the
+          // low edge of the zone, shorts the high edge.
+          const entry = direction === 'LONG' ? zone.min : zone.max;
+
+          setup.direction = direction || 'LONG';
+          if (Number.isFinite(entry)) setup.entry = entry;
+          if (Number.isFinite(signal.stopLoss)) setup.stop = signal.stopLoss;
+          if (Array.isArray(signal.targets) && Number.isFinite(signal.targets[0])) {
+            setup.target = signal.targets[0];
+          }
+          // Recorded alongside the saved trade for later research. It never
+          // influences position size.
+          setup.setupContext = {
+            strategy: strategyKey,
+            setupType: signal.setupType || null,
+            confidence: signal.confidence ?? null,
+            reason: signal.reason || null
+          };
+        }
+
+        stageSetupForRiskCheck(setup);
+      } catch (error) {
+        console.warn('[CheckRisk] Could not stage setup, opening blank:', error.message);
+      }
+      window.location.href = '/risk.html?fromSetup=true';
+    };
+
+    window.addEventListener('DOMContentLoaded', renderRiskCard);
+    if (document.readyState !== 'loading') renderRiskCard();
   </script>
 
 </body>

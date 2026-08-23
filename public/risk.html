@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Risk Manager - EditTrades</title>
+
+  <meta property="og:title" content="EditTrades Risk Manager">
+  <meta property="og:description" content="Position sizing and portfolio risk before you commit capital.">
+  <meta property="og:image" content="/logos/og_img.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <link rel="icon" type="image/svg+xml" href="/logos/logo.svg">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/edittrax-styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+  <style>
+    html { overflow-x: hidden; width: 100%; max-width: 100%; box-sizing: border-box; }
+    body {
+      overflow-x: hidden; width: 100%; max-width: 100%;
+      margin: 0; padding: 0; box-sizing: border-box; position: relative;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+
+    #particles-js {
+      position: fixed; width: 100%; height: 100%; top: 0; left: 0; z-index: -1;
+      background: linear-gradient(180deg, #000000 0%, #0a0a0a 100%);
+    }
+
+    main { width: 100%; max-width: 100%; overflow-x: hidden; }
+
+    /* ----------------------------------------------------------------
+     * ACCOUNT BAR
+     * Always visible, deliberately quiet. It is context for the
+     * calculator, not the headline.
+     * ------------------------------------------------------------- */
+    .rm-account {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 1.25rem 2rem;
+      padding: 0.875rem 1rem;
+      background-color: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(230, 233, 224, 0.14);
+      border-radius: var(--radius-5);
+      margin: 0.5rem 0 1.75rem;
+    }
+
+    .rm-account-item .eco-label { font-size: 0.625rem; }
+    .rm-account-item .eco-value { font-size: 0.9375rem; display: block; margin-top: 0.2rem; }
+    .rm-account-status { margin-left: auto; align-self: center; }
+
+    /* ----------------------------------------------------------------
+     * SETUP  (first run only)
+     * ------------------------------------------------------------- */
+    .rm-setup {
+      border: 1px solid rgba(230, 233, 224, 0.2);
+      border-radius: var(--radius-10);
+      padding: 2rem 1.5rem;
+      margin-bottom: 2rem;
+      background-color: rgba(0, 0, 0, 0.5);
+    }
+
+    /* ----------------------------------------------------------------
+     * FORM
+     * ------------------------------------------------------------- */
+    .rm-section-heading {
+      font-family: var(--font-mathias);
+      font-size: 0.75rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-neutral);
+      margin: 0 0 0.875rem;
+    }
+
+    .rm-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.875rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .rm-field { min-width: 0; }
+
+    .rm-field label {
+      display: block;
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent-neutral);
+      margin-bottom: 0.35rem;
+    }
+
+    .rm-input {
+      width: 100%;
+      background-color: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(230, 233, 224, 0.22);
+      border-radius: var(--radius-5);
+      padding: 0.625rem 0.75rem;
+      color: var(--color-yellow-75);
+      font-family: var(--font-mathias);
+      font-size: 1rem;
+      font-variant-numeric: tabular-nums;
+      /* iOS zooms the page when a focused input is under 16px. */
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .rm-input:focus {
+      outline: none;
+      border-color: var(--color-yellow-75);
+    }
+
+    .rm-input.is-error { border-color: var(--accent-short); }
+
+    /* Direction is a two-state control, not a dropdown: it is faster to hit
+       and its state is readable without opening anything. */
+    .rm-direction { display: flex; gap: 0.375rem; }
+
+    .rm-direction button {
+      flex: 1;
+      font-family: var(--font-mathias);
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      padding: 0.625rem 0.5rem;
+      border-radius: var(--radius-5);
+      border: 1px solid rgba(230, 233, 224, 0.22);
+      background: transparent;
+      color: var(--accent-neutral);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .rm-direction button[aria-pressed="true"][data-dir="LONG"] {
+      background-color: var(--accent-long);
+      border-color: var(--accent-long);
+      color: #000;
+    }
+
+    .rm-direction button[aria-pressed="true"][data-dir="SHORT"] {
+      background-color: var(--accent-short);
+      border-color: var(--accent-short);
+      color: #000;
+    }
+
+    /* ----------------------------------------------------------------
+     * RESULT
+     * The answer to the page's one question. Largest type on the page.
+     * ------------------------------------------------------------- */
+    .rm-result {
+      border: 1px solid rgba(230, 233, 224, 0.18);
+      border-radius: var(--radius-10);
+      background-color: rgba(0, 0, 0, 0.55);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .rm-result-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.25rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid rgba(230, 233, 224, 0.12);
+    }
+
+    .rm-headline .eco-label { margin-bottom: 0.4rem; }
+
+    .rm-headline .eco-value {
+      font-size: clamp(1.875rem, 7vw, 3rem);
+      display: block;
+    }
+
+    .rm-status {
+      font-family: var(--font-mathias);
+      font-size: 0.8125rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      padding: 0.4rem 0.75rem;
+      border-radius: var(--radius-5);
+      border: 1px solid currentColor;
+      white-space: nowrap;
+    }
+
+    .rm-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .rm-metric .eco-label { font-size: 0.625rem; }
+    .rm-metric .eco-value { font-size: 1.0625rem; display: block; margin-top: 0.25rem; }
+    .rm-metric-sub {
+      font-size: 0.6875rem;
+      color: rgba(230, 233, 224, 0.4);
+      margin-top: 0.2rem;
+      font-family: var(--font-mathias);
+    }
+
+    /* ----------------------------------------------------------------
+     * SIZE SLIDER
+     * The point of this control is to make the size/risk relationship
+     * physical: drag it and watch dollars at risk move with you.
+     * ------------------------------------------------------------- */
+    .rm-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-top: 1.25rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid rgba(230, 233, 224, 0.12);
+    }
+
+    .rm-slider {
+      flex: 1;
+      min-width: 180px;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 2px;
+      background: rgba(230, 233, 224, 0.25);
+      outline: none;
+      border-radius: 2px;
+    }
+
+    .rm-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--color-yellow-75);
+      cursor: pointer;
+      border: 2px solid #000;
+    }
+
+    .rm-slider::-moz-range-thumb {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--color-yellow-75);
+      cursor: pointer;
+      border: 2px solid #000;
+    }
+
+    /* ----------------------------------------------------------------
+     * PORTFOLIO IMPACT
+     * ------------------------------------------------------------- */
+    .rm-impact {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1px;
+      background-color: rgba(230, 233, 224, 0.10);
+      border: 1px solid rgba(230, 233, 224, 0.10);
+      border-radius: var(--radius-10);
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+
+    .rm-impact-item { background-color: #000; padding: 0.875rem 1rem; }
+    .rm-impact-item .eco-value { font-size: 0.9375rem; display: block; margin-top: 0.3rem; }
+    .rm-arrow { color: rgba(230, 233, 224, 0.35); margin: 0 0.35rem; }
+
+    /* ----------------------------------------------------------------
+     * RISK CHECK
+     * ------------------------------------------------------------- */
+    .rm-check { margin-bottom: 1.5rem; }
+
+    .rm-check-item {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid rgba(230, 233, 224, 0.07);
+      font-size: 0.8125rem;
+    }
+
+    .rm-check-mark {
+      font-family: var(--font-mathias);
+      width: 1.1rem;
+      flex-shrink: 0;
+      text-align: center;
+    }
+
+    .rm-check-label { color: rgba(230, 233, 224, 0.85); }
+    .rm-check-detail {
+      margin-left: auto;
+      text-align: right;
+      color: rgba(230, 233, 224, 0.42);
+      font-size: 0.6875rem;
+      font-family: var(--font-mathias);
+    }
+
+    /* ----------------------------------------------------------------
+     * POSITIONS
+     * ------------------------------------------------------------- */
+    .rm-position {
+      display: flex;
+      align-items: center;
+      gap: 0.875rem;
+      flex-wrap: wrap;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid rgba(230, 233, 224, 0.08);
+      font-family: var(--font-mathias);
+      font-size: 0.8125rem;
+    }
+
+    .rm-position-asset { min-width: 84px; color: var(--color-yellow-75); font-weight: bold; }
+    .rm-position-spacer { margin-left: auto; display: flex; gap: 0.375rem; flex-wrap: wrap; }
+
+    .rm-mini-btn {
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.08em;
+      padding: 0.3rem 0.5rem;
+      border-radius: 3px;
+      border: 1px solid rgba(230, 233, 224, 0.25);
+      background: transparent;
+      color: var(--accent-neutral);
+      cursor: pointer;
+    }
+
+    .rm-mini-btn:hover { color: var(--color-yellow-75); border-color: var(--color-yellow-75); }
+    .rm-mini-btn[aria-pressed="true"] {
+      background: var(--color-yellow-75); color: #000; border-color: var(--color-yellow-75);
+    }
+
+    /* ----------------------------------------------------------------
+     * DISCLOSURES / PROSE
+     * ------------------------------------------------------------- */
+    .rm-details { border-top: 1px solid rgba(230, 233, 224, 0.12); padding: 1rem 0; }
+
+    .rm-details summary {
+      cursor: pointer;
+      font-family: var(--font-mathias);
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75);
+      list-style: none;
+    }
+
+    .rm-details summary::-webkit-details-marker { display: none; }
+    .rm-details summary::after { content: ' +'; color: var(--accent-neutral); }
+    .rm-details[open] summary::after { content: ' \2212'; }
+    .rm-details > *:not(summary) { margin-top: 1rem; }
+
+    .rm-prose { font-size: 0.8125rem; line-height: 1.65; color: rgba(230, 233, 224, 0.62); }
+    .rm-prose strong { color: var(--color-yellow-75); font-weight: 600; }
+
+    .rm-def { margin-bottom: 0.875rem; }
+    .rm-def dt {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75);
+    }
+    .rm-def dd { margin: 0.2rem 0 0; font-size: 0.8125rem; color: rgba(230, 233, 224, 0.6); line-height: 1.5; }
+
+    .rm-notice {
+      border-left: 2px solid var(--accent-short);
+      padding: 0.625rem 0.875rem;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: rgba(230, 233, 224, 0.7);
+      background: rgba(239, 68, 68, 0.06);
+      border-radius: 0 var(--radius-5) var(--radius-5) 0;
+      margin-bottom: 1.25rem;
+    }
+
+    .rm-macro {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(230, 233, 224, 0.45);
+      margin-bottom: 1.25rem;
+    }
+
+    @media (max-width: 640px) {
+      .rm-account { gap: 0.875rem 1.25rem; }
+      .rm-account-status { margin-left: 0; width: 100%; }
+      .rm-result { padding: 1.125rem; }
+      .rm-check-detail { margin-left: 0; width: 100%; text-align: left; }
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <div id="particles-js"></div>
+
+  <header class="header-edittrax">
+    <div class="max-w-6xl mx-auto px-4 py-3">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="logo-container flex flex-col items-center gap-2">
+          <img src="/logos/load.gif" alt="Loading Animation" style="width: 140px; height: auto;">
+          <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
+        </div>
+        <div class="flex items-center gap-2">
+          <a href="/" class="btn-base btn-secondary px-3 py-2 text-sm rounded">Home</a>
+          <a href="/bitcoin-value.html" class="btn-base btn-secondary px-3 py-2 text-sm rounded">Macro</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 pb-16">
+
+    <h1 class="eco-value" style="font-size: clamp(1.5rem, 5vw, 2.25rem); letter-spacing: 0.03em; text-transform: uppercase; margin: 1.5rem 0 0.5rem;">Risk Manager</h1>
+    <p style="max-width: 48ch; font-size: 0.8125rem; line-height: 1.55; color: var(--accent-neutral); margin: 0 0 1rem;">
+      How much to put at risk before you commit capital. Planning only &mdash;
+      this never places a trade or connects to an exchange.
+    </p>
+
+    <div id="rmNotice" class="rm-notice" hidden></div>
+
+    <!-- ACCOUNT BAR ---------------------------------------------------->
+    <section class="rm-account" id="accountBar" hidden aria-label="Account summary">
+      <div class="rm-account-item">
+        <div class="eco-label">Wallet</div><span class="eco-value" id="accWallet">&mdash;</span>
+      </div>
+      <div class="rm-account-item">
+        <div class="eco-label">Available</div><span class="eco-value" id="accAvailable">&mdash;</span>
+      </div>
+      <div class="rm-account-item">
+        <div class="eco-label">Margin Used</div><span class="eco-value" id="accMargin">&mdash;</span>
+      </div>
+      <div class="rm-account-item">
+        <div class="eco-label">Notional</div><span class="eco-value" id="accNotional">&mdash;</span>
+      </div>
+      <div class="rm-account-item">
+        <div class="eco-label">Open Risk</div><span class="eco-value" id="accOpenRisk">&mdash;</span>
+      </div>
+      <div class="rm-account-item">
+        <div class="eco-label">Positions</div><span class="eco-value" id="accPositions">0</span>
+      </div>
+      <div class="rm-account-status">
+        <span class="rm-status eco-tone-neutral" id="accStatus">&mdash;</span>
+      </div>
+    </section>
+
+    <!-- FIRST RUN ------------------------------------------------------>
+    <section class="rm-setup" id="setupCard" hidden>
+      <h2 class="eco-value" style="font-size: 1.25rem; margin: 0 0 0.5rem;">What&rsquo;s your trading wallet?</h2>
+      <p class="rm-prose" style="max-width: 52ch; margin-bottom: 1.25rem;">
+        The capital you have allocated to active trading &mdash; not net worth, savings or
+        retirement accounts. Every position size on this page is calculated from this
+        number and nothing else.
+      </p>
+      <div style="display: flex; gap: 0.625rem; flex-wrap: wrap; align-items: center;">
+        <input class="rm-input" id="setupWallet" type="number" inputmode="decimal"
+               placeholder="25000" style="max-width: 220px;" min="0" step="any">
+        <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="setupSave">Save</button>
+      </div>
+    </section>
+
+    <!-- CALCULATOR ----------------------------------------------------->
+    <div id="calculator" hidden>
+
+      <div class="rm-macro" id="macroContext" hidden></div>
+
+      <h2 class="rm-section-heading">The Trade</h2>
+      <div class="rm-form">
+        <div class="rm-field">
+          <label for="fAsset">Asset</label>
+          <input class="rm-input" id="fAsset" type="text" placeholder="BTC" autocomplete="off">
+        </div>
+        <div class="rm-field">
+          <label>Direction</label>
+          <div class="rm-direction" role="group" aria-label="Direction">
+            <button type="button" data-dir="LONG" aria-pressed="true">Long</button>
+            <button type="button" data-dir="SHORT" aria-pressed="false">Short</button>
+          </div>
+        </div>
+        <div class="rm-field">
+          <label for="fEntry">Entry</label>
+          <input class="rm-input" id="fEntry" type="number" inputmode="decimal" placeholder="72000" min="0" step="any">
+        </div>
+        <div class="rm-field">
+          <label for="fStop">Stop</label>
+          <input class="rm-input" id="fStop" type="number" inputmode="decimal" placeholder="69500" min="0" step="any">
+        </div>
+        <div class="rm-field">
+          <label for="fTarget">Target <span style="opacity:0.5">(optional)</span></label>
+          <input class="rm-input" id="fTarget" type="number" inputmode="decimal" placeholder="80000" min="0" step="any">
+        </div>
+        <div class="rm-field">
+          <label for="fLeverage">Leverage</label>
+          <input class="rm-input" id="fLeverage" type="number" inputmode="decimal" placeholder="1" min="1" step="any" value="1">
+        </div>
+        <div class="rm-field">
+          <label for="fRisk">Risk %</label>
+          <input class="rm-input" id="fRisk" type="number" inputmode="decimal" placeholder="1" min="0" step="any">
+        </div>
+      </div>
+
+      <!-- RESULT ------------------------------------------------------->
+      <section class="rm-result" id="resultCard" aria-live="polite">
+        <div class="rm-result-head">
+          <div class="rm-headline">
+            <div class="eco-label" id="resHeadLabel">Recommended Position</div>
+            <span class="eco-value" id="resNotional">&mdash;</span>
+          </div>
+          <span class="rm-status eco-tone-neutral" id="resStatus">Incomplete</span>
+        </div>
+
+        <div class="rm-metrics">
+          <div class="rm-metric">
+            <div class="eco-label">Margin</div>
+            <span class="eco-value" id="resMargin">&mdash;</span>
+            <div class="rm-metric-sub" id="resMarginSub"></div>
+          </div>
+          <div class="rm-metric">
+            <div class="eco-label">Account Risk</div>
+            <span class="eco-value" id="resRisk">&mdash;</span>
+            <div class="rm-metric-sub" id="resRiskSub"></div>
+          </div>
+          <div class="rm-metric">
+            <div class="eco-label">Stop Distance</div>
+            <span class="eco-value" id="resStopDist">&mdash;</span>
+            <div class="rm-metric-sub" id="resStopSub"></div>
+          </div>
+          <div class="rm-metric">
+            <div class="eco-label">Est. Liquidation</div>
+            <span class="eco-value" id="resLiq">&mdash;</span>
+            <div class="rm-metric-sub" id="resLiqSub"></div>
+          </div>
+          <div class="rm-metric">
+            <div class="eco-label">Risk : Reward</div>
+            <span class="eco-value" id="resRR">&mdash;</span>
+            <div class="rm-metric-sub" id="resRRSub"></div>
+          </div>
+          <div class="rm-metric">
+            <div class="eco-label">Units</div>
+            <span class="eco-value" id="resUnits">&mdash;</span>
+            <div class="rm-metric-sub">Size in asset</div>
+          </div>
+        </div>
+
+        <div class="rm-slider-row">
+          <div class="eco-label" style="white-space: nowrap;">Position Size</div>
+          <input class="rm-slider" id="sizeSlider" type="range" min="10" max="300" value="100" step="1"
+                 aria-label="Adjust position size relative to the recommended size">
+          <div class="eco-value" id="sliderReadout" style="font-size: 0.875rem; min-width: 110px; text-align: right;">100% of rec.</div>
+          <button class="rm-mini-btn" id="sliderReset" type="button">Reset</button>
+        </div>
+      </section>
+
+      <!-- PORTFOLIO IMPACT --------------------------------------------->
+      <h2 class="rm-section-heading">If You Take This Trade</h2>
+      <section class="rm-impact" aria-label="Portfolio impact">
+        <div class="rm-impact-item">
+          <div class="eco-label">Open Risk</div>
+          <span class="eco-value" id="impRisk">&mdash;</span>
+        </div>
+        <div class="rm-impact-item">
+          <div class="eco-label">Margin Used</div>
+          <span class="eco-value" id="impMargin">&mdash;</span>
+        </div>
+        <div class="rm-impact-item">
+          <div class="eco-label">Notional Exposure</div>
+          <span class="eco-value" id="impNotional">&mdash;</span>
+        </div>
+      </section>
+
+      <!-- RISK CHECK --------------------------------------------------->
+      <h2 class="rm-section-heading" id="checkHeading">Risk Check</h2>
+      <section class="rm-check" id="checkList" aria-label="Pre-trade risk check"></section>
+
+      <div style="display: flex; gap: 0.625rem; flex-wrap: wrap; margin-bottom: 2rem;">
+        <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="saveTrade">Save Trade</button>
+        <button class="btn-base btn-secondary px-4 py-2 text-sm rounded" id="clearForm">Clear</button>
+      </div>
+    </div>
+
+    <!-- POSITIONS ------------------------------------------------------>
+    <h2 class="rm-section-heading">Positions</h2>
+    <section id="positionsList" aria-label="Planned and open positions">
+      <p class="rm-prose" id="positionsEmpty">No planned or open positions yet.</p>
+    </section>
+
+    <!-- HISTORY -------------------------------------------------------->
+    <h2 class="rm-section-heading" style="margin-top: 2.5rem;">Risk History</h2>
+    <section class="rm-impact" id="historyStats" aria-label="Risk history"></section>
+
+    <!-- SETTINGS ------------------------------------------------------->
+    <h2 class="rm-section-heading" style="margin-top: 2.5rem;">Settings &amp; Reference</h2>
+
+    <details class="rm-details" id="policyDetails">
+      <summary>Wallet &amp; risk policy</summary>
+      <div>
+        <div class="rm-form" id="policyForm"></div>
+        <div style="display: flex; gap: 0.625rem; flex-wrap: wrap;">
+          <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="policySave">Save Policy</button>
+          <button class="btn-base btn-secondary px-4 py-2 text-sm rounded" id="policyReset">Restore Defaults</button>
+        </div>
+        <p class="rm-prose" style="margin-top: 1rem;" id="policyNote"></p>
+      </div>
+    </details>
+
+    <details class="rm-details">
+      <summary>Advanced &mdash; fees, slippage &amp; funding</summary>
+      <div>
+        <p class="rm-prose">
+          A planned stop is <strong>not a guaranteed maximum loss</strong>. Fees are charged
+          on entry and exit, slippage applies at the stop, and funding accrues while the
+          position is held. These default to zero so the headline risk figure stays the
+          clean planned number; apply a preset to see cost-adjusted output.
+        </p>
+        <div class="rm-form" id="costForm"></div>
+        <div style="display: flex; gap: 0.625rem; flex-wrap: wrap;" id="costPresets"></div>
+        <p class="rm-prose" style="margin-top: 1rem;" id="costSummary"></p>
+      </div>
+    </details>
+
+    <details class="rm-details">
+      <summary>Storage &amp; backup</summary>
+      <div class="rm-prose" id="storageBody"></div>
+    </details>
+
+    <details class="rm-details">
+      <summary>What these terms mean</summary>
+      <div>
+        <dl>
+          <div class="rm-def">
+            <dt>Risk per trade</dt>
+            <dd>The percentage of your trading wallet lost if the planned stop executes.</dd>
+          </div>
+          <div class="rm-def">
+            <dt>Exposure</dt>
+            <dd>The total market value the position controls. A $10,000 position is not $10,000 of risk.</dd>
+          </div>
+          <div class="rm-def">
+            <dt>Leverage</dt>
+            <dd>Reduces the margin required. It does not make the underlying trade less risky &mdash; it moves the liquidation price closer.</dd>
+          </div>
+          <div class="rm-def">
+            <dt>Open risk</dt>
+            <dd>Estimated loss if every open position reaches its planned stop at once.</dd>
+          </div>
+          <div class="rm-def">
+            <dt>Est. liquidation</dt>
+            <dd>An approximation for an isolated position. Never use it as a stop-loss.</dd>
+          </div>
+        </dl>
+      </div>
+    </details>
+
+    <p class="rm-prose" style="margin-top: 2rem; font-size: 0.75rem; color: rgba(230,233,224,0.35);">
+      Decision support only. Nothing here places a trade, connects to an exchange, or
+      modifies a position. Green means the planned risk fits your own policy &mdash; it
+      never means a trade will make money.
+    </p>
+
+  </main>
+
+  <script type="module">
+    import {
+      DEFAULT_RISK_POLICY,
+      RISK_STATUS,
+      SUGGESTED_COST_ASSUMPTIONS,
+      planTrade,
+      summarizeAccount
+    } from '/js/riskManager.js';
+
+    import {
+      loadRiskProfile, saveRiskProfile,
+      loadTrades, saveTrade, updateTradeStatus, deleteTrade, loadLivePositions,
+      consumePendingSetup, exportAll, isCloudSyncEnabled
+    } from '/js/riskStore.js';
+
+    particlesJS('particles-js', {
+      particles: {
+        number: { value: 400 }, color: { value: '#ffffff' }, shape: { type: 'circle' },
+        opacity: { value: 0.5, random: true, anim: { enable: true, speed: 1, opacity_min: 0.1 } },
+        size: { value: 2, random: true }, line_linked: { enable: false },
+        move: { enable: true, speed: 0.5, direction: 'none', random: true, out_mode: 'out' }
+      },
+      interactivity: {
+        detect_on: 'canvas', events: { onhover: { enable: true, mode: 'grab' } },
+        modes: { grab: { distance: 140, line_linked: { opacity: 0.3 } } }
+      }
+    });
+
+    /* ================================================================
+     * STATE
+     * ============================================================= */
+    const state = {
+      profile: null,
+      policy: { ...DEFAULT_RISK_POLICY },
+      positions: [],
+      form: { asset: '', direction: 'LONG', entry: null, stop: null, target: null, leverage: 1, riskPct: null },
+      sizeFactor: 1,      // slider: multiple of the recommended notional
+      plan: null,
+      editingId: null
+    };
+
+    /* ================================================================
+     * FORMATTING
+     * ============================================================= */
+    const num = (v) => {
+      const n = typeof v === 'string' ? parseFloat(v) : v;
+      return Number.isFinite(n) ? n : null;
+    };
+
+    function usd(value, compact = false) {
+      if (!Number.isFinite(value)) return '—';
+      if (compact && Math.abs(value) >= 1000) {
+        return '$' + (value / 1000).toFixed(1) + 'K';
+      }
+      return '$' + value.toLocaleString('en-US', {
+        minimumFractionDigits: Math.abs(value) < 100 && value % 1 !== 0 ? 2 : 0,
+        maximumFractionDigits: Math.abs(value) < 100 ? 2 : 0
+      });
+    }
+
+    const pct = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) + '%' : '—');
+
+    function toneClass(status) {
+      if (status === RISK_STATUS.WITHIN_PLAN) return 'eco-tone-long';
+      if (status === RISK_STATUS.ABOVE_PLAN) return 'eco-tone-short';
+      return 'eco-tone-neutral';
+    }
+
+    /* ================================================================
+     * BOOT
+     * ============================================================= */
+    function boot() {
+      const profile = loadRiskProfile();
+      state.profile = profile;
+      state.policy = { ...DEFAULT_RISK_POLICY, ...(profile.policy || {}) };
+      state.positions = loadLivePositions();
+
+      const hasWallet = Number.isFinite(profile.walletBalance) && profile.walletBalance > 0;
+      document.getElementById('setupCard').hidden = hasWallet;
+      document.getElementById('accountBar').hidden = !hasWallet;
+      document.getElementById('calculator').hidden = !hasWallet;
+
+      if (hasWallet) {
+        document.getElementById('fRisk').value = state.policy.defaultRiskPerTradePct;
+        state.form.riskPct = state.policy.defaultRiskPerTradePct;
+      }
+
+      applyPendingSetup();
+      renderPolicyForm();
+      renderCostForm();
+      renderStorage();
+      renderAccount();
+      renderPositions();
+      renderHistory();
+      recalculate();
+      loadMacroContext();
+    }
+
+    /**
+     * A setup handed over from the home page's CHECK RISK button.
+     * Mirrors the existing index -> tracker handoff: read it, clear it, and
+     * clean the URL so a refresh does not re-apply a stale setup.
+     */
+    function applyPendingSetup() {
+      const setup = consumePendingSetup();
+      if (!setup) return;
+
+      if (setup.asset) document.getElementById('fAsset').value = setup.asset;
+      if (setup.direction) setDirection(String(setup.direction).toUpperCase());
+      if (Number.isFinite(setup.entry)) document.getElementById('fEntry').value = setup.entry;
+      if (Number.isFinite(setup.stop)) document.getElementById('fStop').value = setup.stop;
+      if (Number.isFinite(setup.target)) document.getElementById('fTarget').value = setup.target;
+
+      state.pendingSetupContext = setup.setupContext || null;
+
+      if (window.location.search) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+      readForm();
+    }
+
+    /* ================================================================
+     * FORM
+     * ============================================================= */
+    function readForm() {
+      state.form = {
+        asset: document.getElementById('fAsset').value.trim().toUpperCase(),
+        direction: state.form.direction,
+        entry: num(document.getElementById('fEntry').value),
+        stop: num(document.getElementById('fStop').value),
+        target: num(document.getElementById('fTarget').value),
+        leverage: num(document.getElementById('fLeverage').value) || 1,
+        riskPct: num(document.getElementById('fRisk').value)
+      };
+    }
+
+    function setDirection(dir) {
+      state.form.direction = dir === 'SHORT' ? 'SHORT' : 'LONG';
+      document.querySelectorAll('.rm-direction button').forEach((b) => {
+        b.setAttribute('aria-pressed', String(b.dataset.dir === state.form.direction));
+      });
+    }
+
+    /* ================================================================
+     * CALCULATE
+     * All numbers below come from the deterministic engine. Nothing on
+     * this page derives a risk figure of its own.
+     * ============================================================= */
+    function recalculate() {
+      const wallet = state.profile?.walletBalance;
+      if (!Number.isFinite(wallet) || wallet <= 0) return;
+
+      // First pass at the slider's neutral position gives the recommended
+      // size; the slider then scales that. Without this two-pass approach the
+      // slider would have no baseline to be a multiple OF.
+      const base = planTrade({
+        walletBalance: wallet,
+        trade: { ...state.form },
+        positions: state.positions,
+        policy: state.policy
+      });
+
+      let plan = base;
+      if (base.valid && state.sizeFactor !== 1) {
+        plan = planTrade({
+          walletBalance: wallet,
+          trade: { ...state.form, notionalOverride: base.trade.notional * state.sizeFactor },
+          positions: state.positions,
+          policy: state.policy
+        });
+      }
+
+      state.plan = plan;
+      state.baseNotional = base.valid ? base.trade.notional : null;
+      renderResult(plan);
+      renderImpact(plan);
+      renderCheck(plan);
+      renderCostSummary(plan);
+      markInvalidFields(plan);
+    }
+
+    function markInvalidFields(plan) {
+      const stopInput = document.getElementById('fStop');
+      const bad = !plan.valid && (plan.errors || []).some((e) => /stop/i.test(e));
+      stopInput.classList.toggle('is-error', bad);
+    }
+
+    /* ================================================================
+     * RENDER — RESULT
+     * ============================================================= */
+    function renderResult(plan) {
+      const status = document.getElementById('resStatus');
+
+      if (!plan.valid) {
+        document.getElementById('resNotional').textContent = '—';
+        ['resMargin', 'resRisk', 'resStopDist', 'resLiq', 'resRR', 'resUnits']
+          .forEach((id) => (document.getElementById(id).textContent = '—'));
+        ['resMarginSub', 'resRiskSub', 'resStopSub', 'resLiqSub', 'resRRSub']
+          .forEach((id) => (document.getElementById(id).textContent = ''));
+
+        status.textContent = RISK_STATUS.INCOMPLETE;
+        status.className = 'rm-status eco-tone-neutral';
+        document.getElementById('resHeadLabel').textContent =
+          (plan.errors && plan.errors[0]) || 'Recommended Position';
+        return;
+      }
+
+      const t = plan.trade;
+      document.getElementById('resHeadLabel').textContent =
+        `${t.asset || 'Position'} ${t.direction} — Recommended Position`;
+      document.getElementById('resNotional').textContent = usd(t.notional);
+
+      document.getElementById('resMargin').textContent = usd(t.margin);
+      document.getElementById('resMarginSub').textContent = `at ${t.leverage}x leverage`;
+
+      document.getElementById('resRisk').textContent = usd(t.riskAmount);
+      document.getElementById('resRiskSub').textContent = `${pct(t.riskPct)} of wallet`;
+
+      document.getElementById('resStopDist').textContent = pct(t.stopDistancePct);
+      document.getElementById('resStopSub').textContent = `stop ${usd(t.stop)}`;
+
+      const liq = plan.liquidation;
+      document.getElementById('resLiq').textContent = liq.available ? usd(liq.price) : 'N/A';
+      document.getElementById('resLiqSub').textContent = liq.available
+        ? `${pct(liq.distancePct, 1)} away · estimate`
+        : (liq.reason || '').slice(0, 48);
+
+      const rr = plan.riskReward;
+      document.getElementById('resRR').textContent = rr.available ? rr.label : '—';
+      document.getElementById('resRRSub').textContent = rr.available
+        ? `target ${usd(t.target)}`
+        : 'no target set';
+
+      document.getElementById('resUnits').textContent =
+        t.units >= 1 ? t.units.toFixed(3) : t.units.toPrecision(3);
+
+      status.textContent = plan.status;
+      status.className = 'rm-status ' + toneClass(plan.status);
+
+      const readout = document.getElementById('sliderReadout');
+      readout.textContent = `${Math.round(state.sizeFactor * 100)}% of rec.`;
+    }
+
+    /* ================================================================
+     * RENDER — PORTFOLIO IMPACT
+     * ============================================================= */
+    function renderImpact(plan) {
+      const set = (id, before, after, formatter, beforePct, afterPct) => {
+        const el = document.getElementById(id);
+        if (!plan.valid) { el.textContent = '—'; return; }
+        const suffix = Number.isFinite(afterPct)
+          ? ` <span style="font-size:0.6875rem;color:rgba(230,233,224,0.45)">(${pct(beforePct, 2)} → ${pct(afterPct, 2)})</span>`
+          : '';
+        el.innerHTML =
+          `${formatter(before)}<span class="rm-arrow">→</span>${formatter(after)}${suffix}`;
+      };
+
+      if (!plan.valid) {
+        ['impRisk', 'impMargin', 'impNotional'].forEach((id) => (document.getElementById(id).textContent = '—'));
+        return;
+      }
+
+      set('impRisk', plan.portfolio.before.openRisk, plan.portfolio.after.openRisk,
+        (v) => usd(v), plan.portfolio.before.openRiskPct, plan.portfolio.after.openRiskPct);
+      set('impMargin', plan.exposure.before.marginUsed, plan.exposure.after.marginUsed,
+        (v) => usd(v, true), plan.exposure.before.marginUtilizationPct, plan.exposure.after.marginUtilizationPct);
+      set('impNotional', plan.exposure.before.notionalExposure, plan.exposure.after.notionalExposure,
+        (v) => usd(v, true), plan.exposure.before.notionalExposurePct, plan.exposure.after.notionalExposurePct);
+    }
+
+    /* ================================================================
+     * RENDER — RISK CHECK
+     * ============================================================= */
+    function renderCheck(plan) {
+      const host = document.getElementById('checkList');
+      const heading = document.getElementById('checkHeading');
+
+      if (!plan.valid) {
+        heading.textContent = 'Risk Check';
+        host.innerHTML = '<p class="rm-prose">Enter an entry and a stop to run the check.</p>';
+        return;
+      }
+
+      const ev = plan.evaluation;
+      heading.textContent = `Risk Check — ${ev.passed} / ${ev.total} passed`;
+
+      const mark = { pass: '✓', fail: '✕', warn: '!', unknown: '?' };
+      const tone = {
+        pass: 'eco-tone-long', fail: 'eco-tone-short',
+        warn: 'eco-tone-neutral', unknown: 'eco-tone-neutral'
+      };
+
+      host.innerHTML = ev.checks.map((c) => `
+        <div class="rm-check-item">
+          <span class="rm-check-mark ${tone[c.state]}">${mark[c.state]}</span>
+          <span class="rm-check-label">${c.label}</span>
+          <span class="rm-check-detail">${c.detail || ''}</span>
+        </div>
+      `).join('');
+
+      // The concentration label is the one warning worth repeating loudly,
+      // since it is about the book rather than this trade.
+      if (plan.concentration && plan.concentration.concentrated) {
+        host.innerHTML += `
+          <p class="rm-prose" style="margin-top:0.75rem;">
+            <strong>${plan.concentration.label}</strong> —
+            ${plan.concentration.positions.join(', ')} all point ${plan.concentration.direction}.
+            Correlated positions are not independent bets; their risk is summed with no
+            diversification credit.
+          </p>`;
+      }
+    }
+
+    /* ================================================================
+     * RENDER — ACCOUNT
+     * ============================================================= */
+    function renderAccount() {
+      const wallet = state.profile?.walletBalance;
+      if (!Number.isFinite(wallet)) return;
+
+      const s = summarizeAccount({
+        walletBalance: wallet,
+        positions: state.positions,
+        policy: state.policy
+      });
+
+      document.getElementById('accWallet').textContent = usd(s.walletBalance);
+      document.getElementById('accAvailable').textContent = usd(s.available);
+      document.getElementById('accMargin').textContent = usd(s.marginUsed);
+      document.getElementById('accNotional').textContent = usd(s.notionalExposure);
+      document.getElementById('accOpenRisk').textContent =
+        `${usd(s.openRisk)} · ${pct(s.openRiskPct)}`;
+      document.getElementById('accPositions').textContent = String(s.positionCount);
+
+      const status = document.getElementById('accStatus');
+      status.textContent = s.status;
+      status.className = 'rm-status ' + toneClass(s.status);
+    }
+
+    /* ================================================================
+     * RENDER — POSITIONS
+     * ============================================================= */
+    function renderPositions() {
+      const host = document.getElementById('positionsList');
+      const all = loadTrades().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+      if (all.length === 0) {
+        host.innerHTML = '<p class="rm-prose" id="positionsEmpty">No planned or open positions yet.</p>';
+        return;
+      }
+
+      host.innerHTML = all.map((t) => {
+        const dirTone = t.direction === 'SHORT' ? 'eco-tone-short' : 'eco-tone-long';
+        const dim = t.status === 'CLOSED' || t.status === 'CANCELLED' ? 'opacity:0.45;' : '';
+        const pnl = Number.isFinite(t.actualPnl)
+          ? `<span class="${t.actualPnl >= 0 ? 'eco-tone-long' : 'eco-tone-short'}">${usd(t.actualPnl)}</span>`
+          : '';
+        return `
+          <div class="rm-position" style="${dim}">
+            <span class="rm-position-asset">${t.asset || '—'}</span>
+            <span class="${dirTone}">${t.direction || ''}</span>
+            <span style="color:rgba(230,233,224,0.6)">${usd(t.notional, true)}</span>
+            <span style="color:rgba(230,233,224,0.6)">risk ${usd(t.plannedRisk)}</span>
+            <span style="color:rgba(230,233,224,0.4)">${pct(t.plannedRiskPct)}</span>
+            ${pnl}
+            <span class="rm-position-spacer">
+              ${['PLANNED', 'OPEN', 'CLOSED', 'CANCELLED'].map((s) => `
+                <button class="rm-mini-btn" data-id="${t.id}" data-status="${s}"
+                        aria-pressed="${t.status === s}">${s}</button>`).join('')}
+              <button class="rm-mini-btn" data-delete="${t.id}">DEL</button>
+            </span>
+          </div>`;
+      }).join('');
+
+      host.querySelectorAll('[data-status]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const status = btn.dataset.status;
+          let extra = {};
+          // Closing a trade is the one point where the actual outcome can be
+          // captured, which is what makes planned-vs-actual analysis possible.
+          if (status === 'CLOSED') {
+            const raw = window.prompt('Actual P&L for this trade (optional, e.g. -250 or 400):', '');
+            if (raw !== null && raw.trim() !== '') {
+              const parsed = num(raw);
+              if (Number.isFinite(parsed)) extra.actualPnl = parsed;
+            }
+          }
+          await updateTradeStatus(btn.dataset.id, status, extra);
+          refreshAfterMutation();
+        });
+      });
+
+      host.querySelectorAll('[data-delete]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          if (!window.confirm('Delete this trade permanently?')) return;
+          await deleteTrade(btn.dataset.delete);
+          refreshAfterMutation();
+        });
+      });
+    }
+
+    function refreshAfterMutation() {
+      state.positions = loadLivePositions();
+      renderAccount();
+      renderPositions();
+      renderHistory();
+      recalculate();
+    }
+
+    /* ================================================================
+     * RENDER — HISTORY
+     * Deliberately a handful of measurements, not a trading journal.
+     * ============================================================= */
+    function renderHistory() {
+      const host = document.getElementById('historyStats');
+      const all = loadTrades();
+
+      if (all.length === 0) {
+        host.innerHTML = '<div class="rm-impact-item"><div class="eco-label">No history</div>' +
+          '<span class="eco-value">—</span></div>';
+        return;
+      }
+
+      const riskPcts = all.map((t) => t.plannedRiskPct).filter(Number.isFinite);
+      const levs = all.map((t) => t.leverage).filter(Number.isFinite);
+      const rrs = all.map((t) => t.riskReward).filter(Number.isFinite);
+      const closed = all.filter((t) => t.status === 'CLOSED' && Number.isFinite(t.actualPnl));
+      const overPolicy = all.filter((t) =>
+        Number.isFinite(t.plannedRiskPct) &&
+        t.plannedRiskPct > (t.policyAtEntry?.maxRiskPerTradePct ?? state.policy.maxRiskPerTradePct)
+      ).length;
+
+      const avg = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
+      const realized = closed.reduce((s, t) => s + t.actualPnl, 0);
+
+      const stats = [
+        ['Trades Recorded', String(all.length), ''],
+        ['Avg Planned Risk', pct(avg(riskPcts)), 'of wallet'],
+        ['Largest Planned Risk', pct(riskPcts.length ? Math.max(...riskPcts) : null), 'of wallet'],
+        ['Avg Leverage', levs.length ? avg(levs).toFixed(2) + 'x' : '—', ''],
+        ['Avg R:R', rrs.length ? '1 : ' + avg(rrs).toFixed(1) : '—', 'where target set'],
+        ['Above Policy', String(overPolicy), 'at time of planning'],
+        ['Closed P&L', closed.length ? usd(realized) : '—', `${closed.length} closed`]
+      ];
+
+      host.innerHTML = stats.map(([label, value, sub]) => `
+        <div class="rm-impact-item">
+          <div class="eco-label">${label}</div>
+          <span class="eco-value">${value}</span>
+          ${sub ? `<div class="rm-metric-sub">${sub}</div>` : ''}
+        </div>`).join('');
+    }
+
+    /* ================================================================
+     * POLICY FORM
+     * ============================================================= */
+    const POLICY_FIELDS = [
+      ['walletBalance', 'Trading Wallet', '$'],
+      ['defaultRiskPerTradePct', 'Default Risk / Trade', '%'],
+      ['maxRiskPerTradePct', 'Max Risk / Trade', '%'],
+      ['maxTotalOpenRiskPct', 'Max Total Open Risk', '%'],
+      ['maxCorrelatedDirectionRiskPct', 'Max Correlated Risk', '%'],
+      ['maxMarginUtilizationPct', 'Max Margin Used', '%'],
+      ['maxNotionalExposurePct', 'Max Notional Exposure', '%'],
+      ['maxLeverage', 'Max Leverage', 'x']
+    ];
+
+    function renderPolicyForm() {
+      const host = document.getElementById('policyForm');
+      host.innerHTML = POLICY_FIELDS.map(([key, label, unit]) => {
+        const value = key === 'walletBalance'
+          ? (state.profile?.walletBalance ?? '')
+          : (state.policy[key] ?? '');
+        return `
+          <div class="rm-field">
+            <label for="p_${key}">${label} <span style="opacity:0.5">${unit}</span></label>
+            <input class="rm-input" id="p_${key}" type="number" inputmode="decimal"
+                   min="0" step="any" value="${value}">
+          </div>`;
+      }).join('');
+
+      document.getElementById('policyNote').innerHTML =
+        `Defaults are starting presets, not universal best practice. 1% per trade is a
+         steady-state target; 2% is Elder's ceiling. 6% total open risk is Elder's 6% rule.
+         The 200% notional cap follows ESMA's 2:1 crypto limit and catches a tight stop
+         sizing to a huge position at nominally low risk.
+         <strong>Every value here is yours to change.</strong>`;
+    }
+
+    /* ================================================================
+     * COST FORM
+     * ============================================================= */
+    const COST_FIELDS = [
+      ['takerFeePct', 'Taker Fee', '% per side'],
+      ['slippagePct', 'Slippage', '% at stop'],
+      ['fundingPctPerDay', 'Funding', '% per day']
+    ];
+
+    function renderCostForm() {
+      document.getElementById('costForm').innerHTML = COST_FIELDS.map(([key, label, unit]) => `
+        <div class="rm-field">
+          <label for="c_${key}">${label} <span style="opacity:0.5">${unit}</span></label>
+          <input class="rm-input" id="c_${key}" type="number" inputmode="decimal" min="0" step="any"
+                 value="${state.policy.costs?.[key] ?? 0}">
+        </div>`).join('');
+
+      document.getElementById('costPresets').innerHTML =
+        Object.entries(SUGGESTED_COST_ASSUMPTIONS).map(([key, preset]) =>
+          `<button class="rm-mini-btn" data-preset="${key}">${preset.label}</button>`).join('') +
+        `<button class="rm-mini-btn" data-preset="zero">Clear</button>`;
+
+      document.getElementById('costPresets').querySelectorAll('[data-preset]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const key = btn.dataset.preset;
+          const preset = key === 'zero'
+            ? { takerFeePct: 0, slippagePct: 0, fundingPctPerDay: 0 }
+            : SUGGESTED_COST_ASSUMPTIONS[key];
+          state.policy.costs = {
+            takerFeePct: preset.takerFeePct,
+            slippagePct: preset.slippagePct,
+            fundingPctPerDay: preset.fundingPctPerDay
+          };
+          renderCostForm();
+          persistPolicy();
+          recalculate();
+        });
+      });
+
+      COST_FIELDS.forEach(([key]) => {
+        document.getElementById(`c_${key}`).addEventListener('input', (e) => {
+          state.policy.costs = { ...state.policy.costs, [key]: num(e.target.value) ?? 0 };
+          persistPolicy();
+          recalculate();
+        });
+      });
+    }
+
+    function renderCostSummary(plan) {
+      const el = document.getElementById('costSummary');
+      if (!plan || !plan.valid || !plan.costs.applied) {
+        el.textContent = 'No execution costs applied — the risk figure is the clean planned number.';
+        return;
+      }
+      const c = plan.costs;
+      el.innerHTML = `On a ${usd(plan.trade.notional)} position: fees ${usd(c.fees)},
+        slippage ${usd(c.slippage)}, funding ${usd(c.funding)} —
+        <strong>${usd(c.total)} total</strong> on top of the ${usd(plan.trade.riskAmount)}
+        planned loss. ${c.note}`;
+    }
+
+    /* ================================================================
+     * STORAGE PANEL
+     * ============================================================= */
+    function renderStorage() {
+      document.getElementById('storageBody').innerHTML = `
+        <p>Risk settings and trade history are stored <strong>in this browser only</strong>.
+        They do not sync across devices and are cleared if you clear site data.</p>
+        <p style="margin-top:0.75rem;">This is deliberate. The only durable alternative in
+        this deployment is a Firestore project with no authentication and open read/write
+        rules, and a trading-wallet balance is more sensitive than the trade signals
+        already stored there. Cloud sync is
+        <strong>${isCloudSyncEnabled() ? 'ON' : 'off'}</strong>.</p>
+        <p style="margin-top:0.75rem;">Export a backup before clearing your browser data.</p>
+        <button class="rm-mini-btn" id="exportBtn" style="margin-top:0.5rem;">Copy Backup JSON</button>`;
+
+      document.getElementById('exportBtn').addEventListener('click', async () => {
+        const json = JSON.stringify(exportAll(), null, 2);
+        try {
+          await navigator.clipboard.writeText(json);
+          document.getElementById('exportBtn').textContent = 'Copied';
+        } catch {
+          // Clipboard is blocked in some contexts; the console is a reliable fallback.
+          console.log(json);
+          document.getElementById('exportBtn').textContent = 'Logged to console';
+        }
+      });
+    }
+
+    /* ================================================================
+     * MACRO CONTEXT
+     * Secondary context only. It never alters risk percentages — that
+     * would need backtesting first.
+     * ============================================================= */
+    async function loadMacroContext() {
+      try {
+        const res = await fetch('/api/bitcoin/economic-value?view=summary');
+        if (!res.ok) return;
+        const data = await res.json();
+        const c = data.current;
+        if (!c) return;
+
+        state.macroContext = {
+          state: c.state,
+          premiumDiscountPct: c.premiumDiscount,
+          economicValue: c.economicValue,
+          asOf: c.date
+        };
+
+        const el = document.getElementById('macroContext');
+        el.hidden = false;
+        el.innerHTML = `BTC Macro — <span class="${toneClass(RISK_STATUS.CAUTION)}">${c.state}</span>
+          · ${c.premiumDiscount >= 0 ? '+' : ''}${c.premiumDiscount.toFixed(1)}% to economic value
+          <span style="opacity:0.6">· context only, does not change your sizing</span>`;
+      } catch (error) {
+        console.warn('[Risk] Macro context unavailable:', error.message);
+      }
+    }
+
+    /* ================================================================
+     * PERSISTENCE
+     * ============================================================= */
+    async function persistPolicy() {
+      await saveRiskProfile({
+        walletBalance: state.profile?.walletBalance,
+        policy: state.policy
+      });
+      state.profile = loadRiskProfile();
+    }
+
+    /* ================================================================
+     * EVENTS
+     * ============================================================= */
+    ['fAsset', 'fEntry', 'fStop', 'fTarget', 'fLeverage', 'fRisk'].forEach((id) => {
+      document.getElementById(id).addEventListener('input', () => {
+        readForm();
+        // Editing the risk or the trade invalidates any manual size the user
+        // dragged to, so the slider returns to the recommendation.
+        state.sizeFactor = 1;
+        document.getElementById('sizeSlider').value = 100;
+        recalculate();
+      });
+    });
+
+    document.querySelectorAll('.rm-direction button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setDirection(btn.dataset.dir);
+        readForm();
+        recalculate();
+      });
+    });
+
+    document.getElementById('sizeSlider').addEventListener('input', (e) => {
+      state.sizeFactor = Number(e.target.value) / 100;
+      recalculate();
+    });
+
+    document.getElementById('sliderReset').addEventListener('click', () => {
+      state.sizeFactor = 1;
+      document.getElementById('sizeSlider').value = 100;
+      recalculate();
+    });
+
+    document.getElementById('setupSave').addEventListener('click', async () => {
+      const balance = num(document.getElementById('setupWallet').value);
+      if (!Number.isFinite(balance) || balance <= 0) {
+        showNotice('Enter a trading wallet balance greater than zero.');
+        return;
+      }
+      await saveRiskProfile({ walletBalance: balance, policy: state.policy });
+      hideNotice();
+      boot();
+    });
+
+    document.getElementById('policySave').addEventListener('click', async () => {
+      const wallet = num(document.getElementById('p_walletBalance').value);
+      const next = { ...state.policy };
+      POLICY_FIELDS.forEach(([key]) => {
+        if (key === 'walletBalance') return;
+        const value = num(document.getElementById(`p_${key}`).value);
+        if (Number.isFinite(value)) next[key] = value;
+      });
+      state.policy = next;
+      await saveRiskProfile({ walletBalance: wallet, policy: next });
+      state.profile = loadRiskProfile();
+      renderAccount();
+      recalculate();
+      showNotice('Policy saved.', 'ok');
+    });
+
+    document.getElementById('policyReset').addEventListener('click', async () => {
+      state.policy = { ...DEFAULT_RISK_POLICY };
+      await persistPolicy();
+      renderPolicyForm();
+      renderCostForm();
+      renderAccount();
+      recalculate();
+    });
+
+    document.getElementById('saveTrade').addEventListener('click', async () => {
+      const plan = state.plan;
+      if (!plan || !plan.valid) {
+        showNotice('Complete the trade details before saving.');
+        return;
+      }
+      const t = plan.trade;
+      await saveTrade({
+        asset: t.asset || 'UNTITLED',
+        direction: t.direction,
+        entry: t.entry,
+        stop: t.stop,
+        target: t.target,
+        leverage: t.leverage,
+        notional: t.notional,
+        units: t.units,
+        margin: t.margin,
+        plannedRisk: t.riskAmount,
+        plannedRiskPct: t.riskPct,
+        stopDistancePct: t.stopDistancePct,
+        riskReward: plan.riskReward.available ? plan.riskReward.ratio : null,
+        riskStatusAtEntry: plan.status,
+        policyAtEntry: state.policy,
+        // Recorded for the future research hook. Never used to alter sizing.
+        macroContext: state.macroContext || null,
+        setupContext: state.pendingSetupContext || null,
+        status: 'PLANNED'
+      });
+      state.pendingSetupContext = null;
+      refreshAfterMutation();
+      showNotice('Trade saved as PLANNED.', 'ok');
+    });
+
+    document.getElementById('clearForm').addEventListener('click', () => {
+      ['fAsset', 'fEntry', 'fStop', 'fTarget'].forEach((id) => (document.getElementById(id).value = ''));
+      document.getElementById('fLeverage').value = 1;
+      document.getElementById('fRisk').value = state.policy.defaultRiskPerTradePct;
+      state.sizeFactor = 1;
+      document.getElementById('sizeSlider').value = 100;
+      state.pendingSetupContext = null;
+      readForm();
+      recalculate();
+    });
+
+    function showNotice(message, kind = 'error') {
+      const el = document.getElementById('rmNotice');
+      el.hidden = false;
+      el.textContent = message;
+      el.style.borderLeftColor = kind === 'ok' ? 'var(--accent-long)' : 'var(--accent-short)';
+      el.style.background = kind === 'ok' ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)';
+      if (kind === 'ok') setTimeout(hideNotice, 2500);
+    }
+
+    function hideNotice() {
+      document.getElementById('rmNotice').hidden = true;
+    }
+
+    window.addEventListener('DOMContentLoaded', boot);
+    if (document.readyState !== 'loading') boot();
+  </script>
+
+</body>
+</html>
