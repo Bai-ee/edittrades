@@ -164,14 +164,23 @@ function reachedTheApp(response) {
 }
 
 function unreachable(what, response) {
+  // Two different failures, and conflating them sends the reader to the wrong
+  // place: nothing answered at all, versus something that is not this
+  // application answered on its behalf.
+  const cause =
+    response.status === 0
+      ? `no response at all (${response.error || 'connection failed'}).\n\n` +
+        'Nothing answered, so the host is unreachable from here — DNS, an egress\n' +
+        'policy, or the wrong --base URL.'
+      : `HTTP ${response.status}, which is not a response this endpoint defines.\n\n` +
+        'Something in front of the deployment answered instead — an egress proxy, a\n' +
+        'WAF, or Vercel deployment protection on a preview URL.';
+
   console.log(
-    `\n${what} did not reach the application (HTTP ${response.status || 'no response'}` +
-    `${response.error ? ': ' + response.error : ''}).\n\n` +
-    'Something in front of the deployment answered instead — an egress policy, a\n' +
-    'WAF, or Vercel deployment protection on a preview URL. This probe has\n' +
-    'therefore verified NOTHING about the live pipeline. Re-run it from a network\n' +
-    'that can reach the deployment, and against a URL that does not require auth,\n' +
-    'before treating live wallet data as validated.\n'
+    `\n${what} did not reach the application: ${cause}\n\n` +
+    'This probe has therefore verified NOTHING about the live pipeline. Re-run it\n' +
+    'from a network that can reach the deployment, against a URL that does not\n' +
+    'require auth, before treating live wallet data as validated.\n'
   );
   process.exit(3);
 }
