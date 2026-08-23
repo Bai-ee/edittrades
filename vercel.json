@@ -6,7 +6,51 @@
       "use": "@vercel/static"
     },
     {
-      "src": "api/**/*.js",
+      "src": "api/health.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/analyze-compact.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/analyze-full-safe.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/analyze.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/indicators.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/scan.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/bitcoin-economic-value.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/agent-review.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/crypto-news.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/parse-trade-image.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/execute-trade.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/review-trade.js",
       "use": "@vercel/node"
     }
   ],
