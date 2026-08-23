@@ -131,9 +131,46 @@
       text-align: right;
       border-left: 1px solid rgba(230, 233, 224, 0.12);
       padding-left: 1.5rem;
+      /* Same 1.5rem group rhythm as mobile, so the block is leaded
+         identically at both sizes rather than relying on collapsing margins
+         at one and a flex gap at the other. */
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 1.5rem;
     }
 
     .eco-figure-deviation .eco-value { font-size: clamp(1.5rem, 5.5vw, 2.5rem); }
+
+    /* ----------------------------------------------------------------
+     * VERDICT RHYTHM
+     * Spacing inside the verdict was set by ad-hoc inline margins that all
+     * differed slightly, so the blocks read as unevenly leaded. One scale
+     * governs it now:
+     *   label -> figure        0.35rem
+     *   figure -> caption      0.5rem
+     *   group  -> group        1.5rem   (the flex gap)
+     * Every element in the block uses these and nothing else.
+     * ------------------------------------------------------------- */
+    .eco-deviation-group > .eco-label:first-child {
+      margin-bottom: 0.35rem;
+    }
+
+    .eco-caption {
+      margin-top: 0.5rem;
+      line-height: 1.5;
+    }
+
+    /* Directional read on the deviation. Sized between the percentage and
+       the captions: it is an interpretation of the number above it, not a
+       competing headline. */
+    .eco-bias {
+      font-family: var(--font-mathias);
+      font-size: 1.25rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      line-height: 1.1;
+    }
 
     /* The state is the page's interpretive verdict, so it gets a definite
        edge instead of sitting as one more line of text. Same pill the Risk
@@ -145,7 +182,8 @@
       font-size: 0.75rem;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      margin-top: 0.5rem;
+      line-height: 1.1;
+      margin-top: 0;
       padding: 0.4rem 0.75rem;
       border: 1px solid currentColor;
       border-radius: var(--radius-5);
@@ -437,7 +475,8 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 1.25rem;
+        /* Single value governs every gap between groups in this block. */
+        gap: 1.5rem;
       }
 
       .eco-figure-deviation > div {
@@ -445,12 +484,16 @@
         text-align: center;
       }
 
+      .eco-bias { font-size: 1.375rem; }
+
       /* The deviation is the number the page exists to show, so it carries
          the largest type here. */
       .eco-figure-deviation .eco-value {
         font-size: clamp(2.5rem, 13vw, 3.25rem);
         display: block;
-        margin-top: 0.1rem;
+        /* No nudge here: the label above already supplies the 0.35rem
+           label -> figure step, same as every other group. */
+        margin-top: 0;
       }
 
       .eco-state {
@@ -552,17 +595,28 @@
         </div>
 
         <div class="eco-figure-deviation">
-          <div>
+          <div class="eco-deviation-group">
             <div class="eco-label" id="figDeviationLabel">Premium / Discount</div>
             <span class="eco-value eco-tone-neutral" id="figDeviation">&mdash;</span>
             <!-- Economic Value is built from cost-basis anchors, so price
                  normally sits above it. Without the typical figure alongside,
                  a state like NEAR VALUE at +35% reads as a contradiction. -->
-            <div class="eco-label" id="figTypical" style="margin-top: 0.4rem;"></div>
+            <div class="eco-label eco-caption" id="figTypical"></div>
           </div>
-          <div>
+
+          <!-- What the deviation supports directionally. Scoped to valuation
+               only: it says where price sits against its own history, not
+               that a trade will work. Valuation can stay stretched for a long
+               time, which is why the caption says so out loud. -->
+          <div class="eco-deviation-group">
+            <div class="eco-label">Valuation Bias</div>
+            <div class="eco-bias eco-tone-neutral" id="figBias">&mdash;</div>
+            <div class="eco-label eco-caption" id="figBiasNote"></div>
+          </div>
+
+          <div class="eco-deviation-group">
             <div class="eco-state eco-tone-neutral" id="figState">&mdash;</div>
-            <div class="eco-label" id="figConvergence" style="margin-top: 0.35rem;"></div>
+            <div class="eco-label eco-caption" id="figConvergence"></div>
           </div>
         </div>
       </div>
@@ -651,7 +705,10 @@
   </main>
 
   <script>
-    particlesJS('particles-js', {
+    // Background decoration only. It loads from a CDN, so if that request
+    // fails the call would throw and take the rest of this script block --
+    // chart, valuation readout and all -- down with it.
+    if (typeof particlesJS === 'function') particlesJS('particles-js', {
       particles: {
         number: { value: 500 },
         color: { value: '#ffffff' },
@@ -1188,6 +1245,8 @@
       stateEl.textContent = current.state;
       stateEl.className = 'eco-state ' + toneClass(current.stateTone);
 
+      renderBias(current);
+
       const convergence = current.convergence;
       // "anchors agree · MODERATE AGREEMENT" said it twice; the count and the
       // agreement level carry it between them.
@@ -1195,6 +1254,76 @@
         convergence && convergence.available
           ? convergence.within + '/' + convergence.total + ' anchors · ' + convergence.agreement
           : '';
+    }
+
+    /* =================================================================
+     * VALUATION BIAS
+     *
+     * Reads directly off the percentile-calibrated state, so it inherits
+     * that calibration rather than inventing a second set of thresholds.
+     *
+     * Note PREMIUM maps to NEUTRAL on purpose. The historical median premium
+     * is around +65%, so an ordinary premium is a normal place for Bitcoin to
+     * sit — calling it bearish would have the page shouting "short" through
+     * most of a typical year. Only readings past the historical extremes
+     * lean either way.
+     *
+     * This describes VALUATION, not a trade. Valuation can stay stretched for
+     * a long time and is a poor timing tool, which the caption states plainly.
+     * ============================================================== */
+    const BIAS_BY_STATE = {
+      'DEEP DISCOUNT': {
+        label: 'Supports Long',
+        tone: 'long',
+        note: 'Price is near the cheap extreme of its own history'
+      },
+      DISCOUNT: {
+        label: 'Supports Long',
+        tone: 'long',
+        note: 'Price is below its usual standing against these anchors'
+      },
+      'NEAR VALUE': {
+        label: 'Neutral',
+        tone: 'neutral',
+        note: 'Price sits about where it normally does'
+      },
+      PREMIUM: {
+        label: 'Neutral',
+        tone: 'neutral',
+        note: 'A premium this size is typical, not stretched'
+      },
+      EXTENDED: {
+        label: 'Supports Short',
+        tone: 'short',
+        note: 'Price is above its usual standing against these anchors'
+      },
+      EUPHORIC: {
+        label: 'Supports Short',
+        tone: 'short',
+        note: 'Price is near the expensive extreme of its own history'
+      }
+    };
+
+    function renderBias(current) {
+      const el = document.getElementById('figBias');
+      const note = document.getElementById('figBiasNote');
+      const bias = BIAS_BY_STATE[current.state];
+
+      if (!bias) {
+        // UNCALIBRATED or UNAVAILABLE: say nothing rather than guess.
+        el.textContent = '—';
+        el.className = 'eco-bias eco-tone-neutral';
+        note.textContent = current.state === 'UNCALIBRATED'
+          ? 'Not enough history to calibrate'
+          : '';
+        return;
+      }
+
+      // Colour comes from the engine's own tone so the pill and the bias can
+      // never disagree; the map only supplies wording.
+      el.textContent = bias.label;
+      el.className = 'eco-bias ' + toneClass(current.stateTone || bias.tone);
+      note.textContent = bias.note + ' · not a timing signal';
     }
 
     function renderMetrics() {

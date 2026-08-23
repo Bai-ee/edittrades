@@ -511,6 +511,11 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 0.6875rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+  /* Pinned rather than left at `normal`: Mathias reports a ~1.0 default and
+     the fallback stack ~1.2, so labels shifted as the webfont swapped in and
+     stacked blocks read as unevenly leaded. 1.1 is the shared display
+     leading -- .eco-bias and .eco-state use the same, prose uses 1.5. */
+  line-height: 1.1;
   color: var(--color-yellow-75-muted);
 }
 
