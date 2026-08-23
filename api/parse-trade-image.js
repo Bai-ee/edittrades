@@ -3,6 +3,8 @@
  * Uses raw fetch instead of SDK for better serverless compatibility
  */
 
+import aiContract from '../services/aiContract.js';
+
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -47,7 +49,7 @@ export default async function handler(req, res) {
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: aiContract.AI_MODELS.vision,
         messages: [
           {
             role: 'user',

@@ -1,0 +1,73 @@
+rules_version = '2';
+
+// EditTrades — Firestore security rules
+//
+// These rules did not previously exist anywhere in the repository or its git
+// history. The live rules could therefore only be read in the Firebase console,
+// and two committed artifacts asserted they were wide open:
+//
+//   FIREBASE_SETUP_GUIDE.md   prescribes `allow read, write: if true`
+//   public/js/riskStore.js    states it as fact in its header comment
+//
+// Committing them makes the access model reviewable, diffable, and deployable
+// from source rather than being a click-path someone has to remember.
+//
+// DEPLOYING IS A SEPARATE STEP. This file has no effect until:
+//
+//   firebase deploy --only firestore:rules
+//
+// Until that command runs against project `edittrades-fd451`, the database
+// keeps whatever rules the console currently holds.
+//
+// Model: single-operator, per-account isolation.
+// Every document lives under /users/{uid}/… and is reachable only by that uid.
+// Anonymous auth is sufficient — the point is not to identify a person, it is
+// that one browser's data cannot be read or altered by anyone else. Trade
+// history and, more sensitively, a trading-wallet balance state how much money
+// the operator has; that does not belong in a globally readable collection.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny. Any path not explicitly matched below is closed, so a new
+    // collection added later fails shut rather than inheriting an open rule.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{uid} {
+
+      // The owning user, and only the owning user.
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      // Bound document size so a compromised or buggy client cannot be used to
+      // park arbitrary data in the project.
+      function withinSizeLimit() {
+        return request.resource == null || request.resource.size() < 20000;
+      }
+
+      allow read: if isOwner();
+      allow write: if isOwner() && withinSizeLimit();
+
+      match /{collection}/{docId} {
+        allow read: if isOwner();
+        allow write: if isOwner() && withinSizeLimit();
+      }
+    }
+
+    // Legacy root-level `trades` collection, written by public/tracker.html
+    // before per-user scoping existed.
+    //
+    // Closed deliberately, and NOT left readable for migration. Anything
+    // written there was world-readable and world-writable for its whole life,
+    // so it must be treated as public and possibly tampered with; silently
+    // importing it into a user's private space would launder untrusted data
+    // into the record the Risk Manager reasons over. Export it from the console
+    // and re-import deliberately after review if it is worth keeping.
+    match /trades/{tradeId} {
+      allow read, write: if false;
+    }
+  }
+}

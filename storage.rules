@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// EditTrades — Firebase Storage security rules
+//
+// As with firestore.rules, these did not exist in the repository.
+// FIREBASE_SETUP_GUIDE.md prescribed `allow read, write: if true` for
+// trade_images, which makes the bucket a free public file host — anyone can
+// upload anything, and every trade screenshot is world-readable.
+//
+// DEPLOYING IS A SEPARATE STEP:
+//
+//   firebase deploy --only storage
+//
+// Model matches Firestore: per-user isolation under the caller's own uid.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{uid}/trade_images/{imageId} {
+      function isOwner() {
+        return request.auth != null && request.auth.uid == uid;
+      }
+
+      allow read: if isOwner();
+
+      // Images only, capped at 8 MB. Without a contentType check the bucket
+      // accepts HTML, and a stored HTML file served from a Firebase download
+      // URL is a stored-XSS vector for anyone who opens it.
+      allow write: if isOwner()
+                   && request.resource.size < 8 * 1024 * 1024
+                   && request.resource.contentType.matches('image/(png|jpeg|jpg|webp|gif)');
+
+      allow delete: if isOwner();
+    }
+
+    // Legacy world-writable path. Closed; see the note in firestore.rules.
+    match /trade_images/{imageId} {
+      allow read, write: if false;
+    }
+  }
+}

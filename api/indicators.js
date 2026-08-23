@@ -179,9 +179,16 @@ export default async function handler(req, res) {
     }
 
     // Build response
+    // Provenance is read from the data actually returned, per timeframe.
+    // This field used to be the hardcoded string 'kraken' — the only
+    // provenance claim in the codebase, and a false one: it stamped a real
+    // exchange's name on whatever the fetch produced, including the
+    // random-walk candles the market-data layer used to fabricate.
+    const dataSources = marketData.multiTimeframeProvenance(multiData);
+
     const response = {
       symbol,
-      source: 'kraken', // Using Kraken as primary data source
+      dataSources,
       timeframes,
       timestamp: new Date().toISOString()
     };

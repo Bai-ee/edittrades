@@ -1154,11 +1154,22 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
   }
   
   // Check if all conditions align for 95% cap in AGGRESSIVE mode
+  //
+  // Volume quality must be MEASURED and acceptable, not merely "not LOW".
+  // The old test `(!marketData || marketData.volumeQuality !== 'LOW')` was
+  // satisfied by absent data, so a microstructure outage silently unlocked the
+  // highest confidence tier in the most permissive mode — and the API layer
+  // used to paper over exactly that outage with a fabricated 'MEDIUM'. With the
+  // fabrication removed, requiring a real reading is what makes this a filter
+  // again rather than a formality. Unmeasured now means "no 95% cap", not "pass".
+  const volumeMeasuredAcceptable =
+    marketData?.volumeQuality === 'HIGH' || marketData?.volumeQuality === 'MEDIUM';
+
   const allConditionsAligned = mode === 'AGGRESSIVE' &&
     !macroContradiction &&
     !primaryContradiction &&
     exhaustionCount < 2 &&
-    (!marketData || marketData.volumeQuality !== 'LOW') &&
+    volumeMeasuredAcceptable &&
     (dflowData ? checkDflowAlignment(dflowData, direction).aligned === true : true);
   
   // Apply hard caps

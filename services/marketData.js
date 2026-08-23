@@ -1,10 +1,36 @@
 /**
  * Market Data Module
- * Single source of truth for OHLCV candlestick data
- * Provides high-resolution multi-timeframe data for strategy engine
+ * ------------------
+ * Single source of truth for OHLCV candlestick data.
+ *
+ * TRUST MODEL — the one rule this module exists to hold:
+ *
+ *   Every value returned here is a real observation from a named provider, or
+ *   it is an error. There is no third option.
+ *
+ * That is a change in kind, not degree. This module previously answered a
+ * failed Kraken call with `generateSyntheticData()` — a random walk seeded from
+ * a spot price, or from a hardcoded $50,000 when even the spot lookup failed —
+ * and returned it through the same code path as genuine candles, with nothing
+ * in the shape of the result to tell them apart. Those candles fed the scanner,
+ * the strategy engine, the AI trading context and anything sizing a position
+ * off them. It is deleted, and `assertNotSynthetic` now guards the return path
+ * so it cannot come back unnoticed.
+ *
+ * Providers are Kraken then Bitfinex. Both publish genuine exchange trades, so
+ * failing between them changes the venue but not the meaning of the data. When
+ * both are down, a cached real observation is served and labelled STALE; when
+ * there is no cache either, the call throws DataUnavailableError.
+ *
+ * Every candle array carries provenance — source, fetch time, age, freshness,
+ * whether it was aggregated from a shorter bar — readable via
+ * `getProvenance()` from services/dataProvenance.js.
  */
 
 import axios from 'axios';
+import * as provenance from './dataProvenance.js';
+
+const BITFINEX_BASE = process.env.BITFINEX_API_BASE || 'https://api-pub.bitfinex.com/v2';
 
 // Comprehensive symbol mapping for major cryptocurrencies
 const SYMBOL_MAP = {
@@ -51,109 +77,149 @@ const SYMBOL_MAP = {
   'TONUSDT': { kraken: 'TONUSD', bitfinex: 'tTONUSD', coingecko: 'the-open-network', name: 'Toncoin' }
 };
 
-// Interval mapping to minutes
-const INTERVAL_TO_MINUTES = {
-  '1m': 1,
-  '3m': 3,
-  '5m': 5,
-  '15m': 15,
-  '30m': 30,
-  '1h': 60,
-  '4h': 240,
-  '1d': 1440,
-  '3d': 4320,   // 3 days
-  '1w': 10080,
-  '1M': 43200   // ~30 days
-};
+/**
+ * Resolve a symbol to its per-provider identifiers, or refuse.
+ *
+ * The previous code wrote `SYMBOL_MAP[symbol]?.kraken || 'XBTUSD'` at three
+ * call sites, so an unrecognised ticker did not fail — it silently returned
+ * **Bitcoin** data under the requested symbol's name. A typo, or any asset not
+ * in the map, produced a complete, plausible, entirely wrong analysis: BTC
+ * candles, BTC indicators, a BTC setup, labelled as the other asset. That is
+ * the purest form of the failure this module now forbids, so an unknown symbol
+ * is an error.
+ */
+function requireSymbol(symbol) {
+  const entry = SYMBOL_MAP[symbol];
+  if (!entry) throw new provenance.UnsupportedSymbolError(symbol);
+  return entry;
+}
 
 /**
- * Aggregate 1D candles into 3D candles
- * @param {Array} dailyCandles - Array of 1D OHLCV candles
- * @returns {Array} Array of 3D OHLCV candles
+ * Resolve a symbol to its Kraken pair, or throw.
+ *
+ * Exported because two other modules had each grown their own copy of this
+ * lookup and both were wrong: `api/analyze-full.js` declared a shadowing
+ * three-entry map (so every asset outside BTC/ETH/SOL got Bitcoin's order book
+ * under its own name), and `server.js` read `marketData.SYMBOL_MAP`, which was
+ * never exported — so the optional chain collapsed to `'XBTUSD'` for *every*
+ * symbol. One exported resolver that throws is the only way that stays fixed.
+ */
+export function resolveKrakenPair(symbol) {
+  return requireSymbol(symbol).kraken;
+}
+
+/** Read-only view of the supported-symbol table. */
+export const SUPPORTED_SYMBOLS = Object.freeze({ ...SYMBOL_MAP });
+
+/* ========================================================================
+ * AGGREGATION
+ *
+ * Aggregating shorter real bars into longer ones is a legitimate transform of
+ * genuine observations, not fabrication — but only if the buckets are pinned
+ * to absolute time.
+ *
+ * The previous implementation chunked the array in fixed groups (`i += 7`)
+ * starting from whatever row the provider's window happened to begin at. Since
+ * Kraken returns a rolling last-N window, that start row moves on every call,
+ * so a "weekly" candle silently changed which seven days it covered between
+ * one request and the next, and never matched a real weekly bar on any chart.
+ * Indicators built on it were computing over a drifting basis.
+ *
+ * Every bucket below is now derived from the bar's own timestamp, so the same
+ * calendar period always produces the same candle regardless of the window.
+ * ===================================================================== */
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Combine a set of same-bucket candles into one.
+ * Open comes from the earliest bar and close from the latest, so the caller
+ * must pass them in ascending time order.
+ */
+function mergeBucket(bucket, bucketStart, bucketEnd) {
+  return {
+    timestamp: bucketStart,
+    open: bucket[0].open,
+    high: Math.max(...bucket.map((c) => c.high)),
+    low: Math.min(...bucket.map((c) => c.low)),
+    close: bucket[bucket.length - 1].close,
+    volume: bucket.reduce((sum, c) => sum + c.volume, 0),
+    closeTime: bucketEnd,
+    // How many source bars actually landed in this bucket. A trailing bucket
+    // mid-formation, or one spanning a provider gap, will be short — the
+    // caller can drop partial periods rather than treat them as complete.
+    sourceBars: bucket.length
+  };
+}
+
+/**
+ * Group candles by a key function, then merge each group.
+ * @param {Array} candles ascending by timestamp
+ * @param {(ts:number)=>{start:number,end:number}} bucketFor
+ */
+function aggregateByBucket(candles, bucketFor) {
+  if (!Array.isArray(candles) || candles.length === 0) return [];
+
+  const out = [];
+  let current = [];
+  let currentStart = null;
+  let currentEnd = null;
+
+  for (const candle of candles) {
+    const { start, end } = bucketFor(candle.timestamp);
+    if (currentStart === null) {
+      currentStart = start;
+      currentEnd = end;
+    } else if (start !== currentStart) {
+      out.push(mergeBucket(current, currentStart, currentEnd));
+      current = [];
+      currentStart = start;
+      currentEnd = end;
+    }
+    current.push(candle);
+  }
+
+  if (current.length > 0) out.push(mergeBucket(current, currentStart, currentEnd));
+  return out;
+}
+
+/**
+ * 3-day buckets anchored to the Unix epoch.
+ *
+ * There is no universal convention for where a 3-day candle starts, so the
+ * choice is arbitrary — but it must be *fixed*, and epoch-anchoring makes it
+ * reproducible by anyone: bucket = floor(ts / 3 days).
  */
 function aggregate3DayCandles(dailyCandles) {
-  const threeDayCandles = [];
-  
-  for (let i = 0; i < dailyCandles.length; i += 3) {
-    const chunk = dailyCandles.slice(i, i + 3);
-    if (chunk.length === 0) continue;
-    
-    // Aggregate 3 days into 1 candle
-    const lastCandle = chunk[chunk.length - 1];
-    const aggregated = {
-      timestamp: chunk[0].timestamp,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map(c => c.high)),
-      low: Math.min(...chunk.map(c => c.low)),
-      close: lastCandle.close,
-      volume: chunk.reduce((sum, c) => sum + c.volume, 0),
-      closeTime: lastCandle.closeTime || (lastCandle.timestamp + (3 * 24 * 60 * 60 * 1000))
-    };
-    
-    threeDayCandles.push(aggregated);
-  }
-  
-  return threeDayCandles;
+  const span = 3 * DAY_MS;
+  return aggregateByBucket(dailyCandles, (ts) => {
+    const start = Math.floor(ts / span) * span;
+    return { start, end: start + span };
+  });
 }
 
-/**
- * Aggregate 1D candles into 1W (weekly) candles
- * @param {Array} dailyCandles - Array of 1D OHLCV candles
- * @returns {Array} Array of 1W OHLCV candles
- */
+/** ISO weeks: Monday 00:00 UTC through the following Sunday. */
 function aggregateWeeklyCandles(dailyCandles) {
-  const weeklyCandles = [];
-  
-  for (let i = 0; i < dailyCandles.length; i += 7) {
-    const chunk = dailyCandles.slice(i, i + 7);
-    if (chunk.length === 0) continue;
-    
-    // Aggregate 7 days into 1 week candle
-    const lastCandle = chunk[chunk.length - 1];
-    const aggregated = {
-      timestamp: chunk[0].timestamp,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map(c => c.high)),
-      low: Math.min(...chunk.map(c => c.low)),
-      close: lastCandle.close,
-      volume: chunk.reduce((sum, c) => sum + c.volume, 0),
-      closeTime: lastCandle.closeTime || (lastCandle.timestamp + (7 * 24 * 60 * 60 * 1000))
-    };
-    
-    weeklyCandles.push(aggregated);
-  }
-  
-  return weeklyCandles;
+  return aggregateByBucket(dailyCandles, (ts) => {
+    const d = new Date(ts);
+    const dayOfWeek = (d.getUTCDay() + 6) % 7; // Monday = 0
+    const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - dayOfWeek * DAY_MS;
+    return { start, end: start + 7 * DAY_MS };
+  });
 }
 
 /**
- * Aggregate 1D candles into 1M (monthly) candles
- * @param {Array} dailyCandles - Array of 1D OHLCV candles
- * @returns {Array} Array of 1M OHLCV candles
+ * Calendar months, not 30-day blocks.
+ * The old fixed-30-day chunking drifted a full month out of alignment roughly
+ * every year, so a "monthly" candle was not a month.
  */
 function aggregateMonthlyCandles(dailyCandles) {
-  const monthlyCandles = [];
-  
-  for (let i = 0; i < dailyCandles.length; i += 30) {
-    const chunk = dailyCandles.slice(i, i + 30);
-    if (chunk.length === 0) continue;
-    
-    // Aggregate ~30 days into 1 month candle
-    const lastCandle = chunk[chunk.length - 1];
-    const aggregated = {
-      timestamp: chunk[0].timestamp,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map(c => c.high)),
-      low: Math.min(...chunk.map(c => c.low)),
-      close: lastCandle.close,
-      volume: chunk.reduce((sum, c) => sum + c.volume, 0),
-      closeTime: lastCandle.closeTime || (lastCandle.timestamp + (30 * 24 * 60 * 60 * 1000))
-    };
-    
-    monthlyCandles.push(aggregated);
-  }
-  
-  return monthlyCandles;
+  return aggregateByBucket(dailyCandles, (ts) => {
+    const d = new Date(ts);
+    const start = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+    const end = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+    return { start, end };
+  });
 }
 
 /**
@@ -164,171 +230,340 @@ function aggregateMonthlyCandles(dailyCandles) {
  * @returns {Promise<Array>} Array of OHLCV objects
  */
 async function fetchFromKraken(symbol, interval, limit = 500) {
-  try {
-    const krakenSymbol = SYMBOL_MAP[symbol]?.kraken || 'XBTUSD';
-    
-    // Kraken interval mapping
-    // For 3d, 1w, and 1M, fetch daily data and aggregate
-    if (interval === '3d') {
-      const dailyData = await fetchFromKraken(symbol, '1d', limit * 3);
-      return aggregate3DayCandles(dailyData);
-    }
-    
-    if (interval === '1w') {
-      const dailyData = await fetchFromKraken(symbol, '1d', limit * 7);
-      return aggregateWeeklyCandles(dailyData);
-    }
-    
-    if (interval === '1M') {
-      const dailyData = await fetchFromKraken(symbol, '1d', limit * 30);
-      return aggregateMonthlyCandles(dailyData);
-    }
-    
-    const krakenInterval = {
-      '1m': 1,
-      '3m': 3,
-      '5m': 5,
-      '15m': 15,
-      '1h': 60,
-      '4h': 240,
-      '1d': 1440
-    }[interval] || 60;
+  const krakenSymbol = requireSymbol(symbol).kraken;
 
-    const response = await axios.get('https://api.kraken.com/0/public/OHLC', {
-      params: {
-        pair: krakenSymbol,
-        interval: krakenInterval
-      },
-      timeout: 10000
-    });
+  // Intervals Kraken serves natively. Anything absent here is aggregated from
+  // a shorter native bar rather than being requested and silently mis-served:
+  // the old code fell back to `|| 60`, so a request for '3m' — which Kraken
+  // does not offer — returned HOURLY candles labelled as three-minute ones.
+  const KRAKEN_NATIVE = { '1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440, '1w': 10080 };
 
-    if (response.data.error && response.data.error.length > 0) {
-      throw new Error(`Kraken API error: ${response.data.error.join(', ')}`);
-    }
+  const DERIVED = {
+    '3m': { from: '1m', aggregate: (c) => aggregateByBucket(c, bucketOfMinutes(3)), factor: 3 },
+    '3d': { from: '1d', aggregate: aggregate3DayCandles, factor: 3 },
+    '1M': { from: '1d', aggregate: aggregateMonthlyCandles, factor: 31 }
+  };
 
-    const pairKey = Object.keys(response.data.result).find(k => k !== 'last');
-    const ohlcData = response.data.result[pairKey];
-
-    if (!ohlcData || ohlcData.length === 0) {
-      throw new Error('No data returned from Kraken');
-    }
-
-    // Convert Kraken format to our standard format
-    const candles = ohlcData.slice(-limit).map(candle => ({
-      timestamp: candle[0] * 1000, // Kraken uses seconds, we use milliseconds
-      open: parseFloat(candle[1]),
-      high: parseFloat(candle[2]),
-      low: parseFloat(candle[3]),
-      close: parseFloat(candle[4]),
-      volume: parseFloat(candle[6]),
-      closeTime: (candle[0] + krakenInterval * 60) * 1000
-    }));
-
-    return candles;
-  } catch (error) {
-    console.error(`Kraken fetch error for ${symbol} ${interval}:`, error.message);
-    throw error;
+  const derived = DERIVED[interval];
+  if (derived) {
+    const source = await fetchFromKraken(symbol, derived.from, limit * derived.factor);
+    return { candles: derived.aggregate(source.candles), derivedFrom: derived.from };
   }
+
+  const krakenInterval = KRAKEN_NATIVE[interval];
+  if (!krakenInterval) {
+    throw new Error(`Kraken does not support interval ${interval} for ${symbol}`);
+  }
+
+  const response = await axios.get('https://api.kraken.com/0/public/OHLC', {
+    params: { pair: krakenSymbol, interval: krakenInterval },
+    timeout: 10000
+  });
+
+  if (response.data?.error && response.data.error.length > 0) {
+    throw new Error(`Kraken API error: ${response.data.error.join(', ')}`);
+  }
+  if (!response.data?.result) {
+    throw new Error('Kraken returned an unexpected payload shape');
+  }
+
+  const pairKey = Object.keys(response.data.result).find((k) => k !== 'last');
+  const ohlcData = response.data.result[pairKey];
+
+  if (!Array.isArray(ohlcData) || ohlcData.length === 0) {
+    throw new Error('No data returned from Kraken');
+  }
+
+  const candles = ohlcData.slice(-limit).map((candle) => ({
+    timestamp: candle[0] * 1000, // Kraken reports seconds
+    open: parseFloat(candle[1]),
+    high: parseFloat(candle[2]),
+    low: parseFloat(candle[3]),
+    close: parseFloat(candle[4]),
+    volume: parseFloat(candle[6]),
+    closeTime: (candle[0] + krakenInterval * 60) * 1000
+  }));
+
+  return { candles: rejectMalformed(candles, 'kraken', symbol, interval), derivedFrom: null };
+}
+
+/** Bucket helper for minute-multiple intervals, anchored to the epoch. */
+function bucketOfMinutes(minutes) {
+  const span = minutes * 60 * 1000;
+  return (ts) => {
+    const start = Math.floor(ts / span) * span;
+    return { start, end: start + span };
+  };
 }
 
 /**
- * Generate synthetic OHLCV data based on current price
- * Used as fallback when real APIs are unavailable
- * @param {string} symbol - Trading pair
- * @param {string} interval - Timeframe
- * @param {number} limit - Number of candles
- * @param {number} basePrice - Current/base price
- * @returns {Array} Synthetic OHLCV candles
+ * Second real provider for candles.
+ *
+ * Bitfinex is already trusted elsewhere in this repo (the Bitcoin Economic
+ * Value price fallback) and publishes genuine exchange OHLCV, which is what
+ * makes it an acceptable fallback under the trust model: both providers report
+ * real trades, so failing over changes the venue but not the meaning. It also
+ * serves up to 10,000 bars against Kraken's hard 720, so on long timeframes it
+ * is frequently the *better* source rather than a degraded one.
  */
-function generateSyntheticData(symbol, interval, limit, basePrice) {
-  const intervalMinutes = INTERVAL_TO_MINUTES[interval] || 60;
-  const intervalMs = intervalMinutes * 60 * 1000;
-  const now = Date.now();
-  
-  const candles = [];
-  let currentPrice = basePrice;
-  
-  for (let i = limit - 1; i >= 0; i--) {
-    const timestamp = now - (i * intervalMs);
-    
-    // Simulate price movement with random walk
-    const volatility = basePrice * 0.002; // 0.2% volatility per candle
-    const change = (Math.random() - 0.5) * volatility * 2;
-    currentPrice = currentPrice + change;
-    
-    // Generate OHLC from the price movement
-    const open = currentPrice;
-    const close = currentPrice + (Math.random() - 0.5) * volatility;
-    const high = Math.max(open, close) + Math.random() * volatility;
-    const low = Math.min(open, close) - Math.random() * volatility;
-    const volume = Math.random() * basePrice * 100;
-    
-    candles.push({
-      timestamp,
-      open: parseFloat(open.toFixed(2)),
-      high: parseFloat(high.toFixed(2)),
-      low: parseFloat(low.toFixed(2)),
-      close: parseFloat(close.toFixed(2)),
-      volume: parseFloat(volume.toFixed(2)),
-      closeTime: timestamp + intervalMs
-    });
-    
-    currentPrice = close;
+async function fetchFromBitfinex(symbol, interval, limit = 500) {
+  const bitfinexSymbol = requireSymbol(symbol).bitfinex;
+
+  const BITFINEX_NATIVE = {
+    '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+    '1h': '1h', '1d': '1D', '1w': '1W', '1M': '1M'
+  };
+
+  const DERIVED = {
+    '3m': { from: '1m', aggregate: (c) => aggregateByBucket(c, bucketOfMinutes(3)), factor: 3 },
+    // Bitfinex has 3h and 6h but no 4h, so a 4h bar is four real 1h bars.
+    '4h': { from: '1h', aggregate: (c) => aggregateByBucket(c, bucketOfMinutes(240)), factor: 4 },
+    '3d': { from: '1d', aggregate: aggregate3DayCandles, factor: 3 }
+  };
+
+  const derived = DERIVED[interval];
+  if (derived) {
+    const source = await fetchFromBitfinex(symbol, derived.from, limit * derived.factor);
+    return { candles: derived.aggregate(source.candles), derivedFrom: derived.from };
   }
-  
+
+  const tf = BITFINEX_NATIVE[interval];
+  if (!tf) {
+    throw new Error(`Bitfinex does not support interval ${interval} for ${symbol}`);
+  }
+
+  const response = await axios.get(
+    `${BITFINEX_BASE}/candles/trade:${tf}:${bitfinexSymbol}/hist`,
+    { params: { limit: Math.min(limit, 10000), sort: 1 }, timeout: 10000 }
+  );
+
+  if (!Array.isArray(response.data)) {
+    throw new Error('Bitfinex returned an unexpected payload shape');
+  }
+  if (response.data.length === 0) {
+    throw new Error('No data returned from Bitfinex');
+  }
+
+  // Bitfinex candle layout: [ MTS, OPEN, CLOSE, HIGH, LOW, VOLUME ]
+  const intervalMs = provenance.INTERVAL_MS[interval] || 0;
+  const candles = response.data
+    .filter((c) => Array.isArray(c) && c.length >= 6)
+    .map((c) => ({
+      timestamp: c[0],
+      open: Number(c[1]),
+      high: Number(c[3]),
+      low: Number(c[4]),
+      close: Number(c[2]),
+      volume: Number(c[5]),
+      closeTime: c[0] + intervalMs
+    }));
+
+  return { candles: rejectMalformed(candles, 'bitfinex', symbol, interval), derivedFrom: null };
+}
+
+/**
+ * Drop nothing, fix nothing — just refuse a series that is not internally
+ * coherent.
+ *
+ * A NaN close or a high below the low is a parse or provider fault, and every
+ * indicator downstream will happily consume it and emit a number. Repairing
+ * such a bar would be fabrication; the only honest options are to reject the
+ * series or pass the fault on, and passing it on is how a bad print becomes a
+ * position size.
+ */
+function rejectMalformed(candles, source, symbol, interval) {
+  for (const c of candles) {
+    const values = [c.open, c.high, c.low, c.close, c.volume];
+    if (values.some((v) => !Number.isFinite(v))) {
+      throw new Error(`${source} returned a non-numeric OHLCV field for ${symbol} ${interval}`);
+    }
+    if (c.high < c.low || c.open <= 0 || c.close <= 0) {
+      throw new Error(`${source} returned an incoherent candle for ${symbol} ${interval} at ${new Date(c.timestamp).toISOString()}`);
+    }
+  }
+  // Ascending time order is assumed by every aggregation and indicator here.
+  for (let i = 1; i < candles.length; i++) {
+    if (candles[i].timestamp <= candles[i - 1].timestamp) {
+      throw new Error(`${source} returned out-of-order candles for ${symbol} ${interval}`);
+    }
+  }
   return candles;
 }
 
-/**
- * Get current price from CoinGecko (for synthetic data baseline)
- * @param {string} symbol - Trading pair
- * @returns {Promise<number>} Current price
- */
-async function getCurrentPrice(symbol) {
-  try {
-    const coinId = SYMBOL_MAP[symbol]?.coingecko || 'bitcoin';
-    const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
-      params: {
-        ids: coinId,
-        vs_currencies: 'usd'
-      },
-      timeout: 5000
-    });
-    
-    return response.data[coinId]?.usd || 50000;
-  } catch (error) {
-    console.error('Error fetching current price:', error.message);
-    // Return reasonable defaults
-    const defaults = { BTCUSDT: 87000, ETHUSDT: 3200, SOLUSDT: 140 };
-    return defaults[symbol] || 50000;
-  }
+/* ========================================================================
+ * CANDLE CACHE
+ *
+ * Two jobs. The obvious one is avoiding a provider round-trip per request.
+ * The load-bearing one is that when every provider is down, a real observation
+ * from twenty minutes ago — clearly labelled STALE — is more useful to a trader
+ * than an error, and infinitely more honest than a fabricated series. The cache
+ * therefore stores the fetch time and never rewrites it: freshness is always
+ * computed from when the data actually left the exchange.
+ * ===================================================================== */
+
+const candleCache = new Map();
+
+/** Fresh window per interval: half a bar, so a cache hit is never a stale bar. */
+function cacheTtlMs(interval) {
+  const bar = provenance.INTERVAL_MS[interval] || 3_600_000;
+  return Math.max(30_000, Math.min(bar / 2, 15 * 60 * 1000));
+}
+
+function cacheKey(symbol, interval, limit) {
+  return `${symbol}:${interval}:${limit}`;
+}
+
+/** Exposed so validation scripts and tests can start from a known state. */
+export function clearCandleCache() {
+  candleCache.clear();
 }
 
 /**
- * Fetch OHLCV candles for a single symbol and interval
- * Tries multiple sources with fallback
- * @param {string} symbol - Trading pair (e.g., 'BTCUSDT')
- * @param {string} interval - Timeframe (1m, 5m, 15m, 1h, 4h)
- * @param {number} limit - Number of candles to fetch
- * @returns {Promise<Array>} Array of OHLCV objects
+ * Fetch OHLCV candles for one symbol and interval from a real provider.
+ *
+ * Provider order is Kraken, then Bitfinex — both genuine exchange feeds. If
+ * both fail, a cached real observation is served and labelled STALE; if there
+ * is no cache either, this THROWS `DataUnavailableError`.
+ *
+ * It does not, and must not, ever return invented candles. The random-walk
+ * fallback this function used to carry could put a fabricated series into the
+ * scanner, the strategy engine, the AI context and any risk calculation
+ * downstream, with nothing in the response to distinguish it from a real one.
+ *
+ * @returns {Promise<Array>} candle array carrying non-enumerable provenance
+ * @throws {DataUnavailableError|UnsupportedSymbolError}
  */
 export async function getCandles(symbol, interval, limit = 500) {
-  // Try Kraken first (best free API for crypto OHLC)
-  try {
-    console.log(`Fetching ${symbol} ${interval} from Kraken...`);
-    const candles = await fetchFromKraken(symbol, interval, limit);
-    console.log(`✅ Got ${candles.length} candles from Kraken`);
-    return candles;
-  } catch (krakenError) {
-    console.log(`⚠️  Kraken unavailable: ${krakenError.message}`);
+  requireSymbol(symbol); // throws rather than substituting Bitcoin
+
+  const key = cacheKey(symbol, interval, limit);
+  const cached = candleCache.get(key);
+  const now = Date.now();
+
+  if (cached && now - cached.fetchedAt < cacheTtlMs(interval)) {
+    const candles = cached.candles.slice();
+    return provenance.attachProvenance(
+      candles,
+      provenance.makeProvenance({
+        source: cached.source,
+        fetchedAt: cached.fetchedAt,
+        interval,
+        fromCache: true,
+        lastBarTime: candles[candles.length - 1]?.timestamp ?? null,
+        derivedFrom: cached.derivedFrom
+      })
+    );
   }
 
-  // Fallback: Generate synthetic data
-  console.log(`📊 Generating synthetic ${interval} data for ${symbol}...`);
-  const currentPrice = await getCurrentPrice(symbol);
-  const syntheticCandles = generateSyntheticData(symbol, interval, limit, currentPrice);
-  console.log(`✅ Generated ${syntheticCandles.length} synthetic candles`);
-  return syntheticCandles;
+  const providerFailures = [];
+
+  for (const provider of [
+    { name: 'kraken', fetch: fetchFromKraken },
+    { name: 'bitfinex', fetch: fetchFromBitfinex }
+  ]) {
+    try {
+      const { candles, derivedFrom } = await provider.fetch(symbol, interval, limit);
+      if (!Array.isArray(candles) || candles.length === 0) {
+        throw new Error('Provider returned an empty series');
+      }
+
+      const fetchedAt = Date.now();
+      candleCache.set(key, { candles, source: provider.name, derivedFrom, fetchedAt });
+
+      if (providerFailures.length > 0) {
+        // A provider transition is a real operational event, not noise. It is
+        // logged at warn so it shows up without having to enable debug output.
+        logProviderTransition({
+          symbol, interval, used: provider.name, failures: providerFailures
+        });
+      }
+
+      const result = provenance.attachProvenance(
+        candles.slice(),
+        provenance.makeProvenance({
+          source: provider.name,
+          fetchedAt,
+          interval,
+          fromCache: false,
+          lastBarTime: candles[candles.length - 1]?.timestamp ?? null,
+          derivedFrom,
+          providerFailures
+        })
+      );
+      // Tripwire: fails here, at the source, if anything ever reintroduces a
+      // fabricated series rather than several layers downstream.
+      return provenance.assertNotSynthetic(result, `getCandles(${symbol},${interval})`);
+    } catch (error) {
+      providerFailures.push({ provider: provider.name, error: error.message });
+      console.warn(`[MarketData] ${provider.name} failed for ${symbol} ${interval}: ${error.message}`);
+    }
+  }
+
+  // Every provider is down. A real observation that has gone cold, clearly
+  // marked, beats both an error and an invention.
+  if (cached) {
+    console.warn(
+      `[MarketData] All providers failed for ${symbol} ${interval}; serving STALE cache from ${new Date(cached.fetchedAt).toISOString()}`
+    );
+    const candles = cached.candles.slice();
+    return provenance.attachProvenance(
+      candles,
+      provenance.makeProvenance({
+        source: cached.source,
+        fetchedAt: cached.fetchedAt,
+        interval,
+        fromCache: true,
+        lastBarTime: candles[candles.length - 1]?.timestamp ?? null,
+        derivedFrom: cached.derivedFrom,
+        providerFailures
+      })
+    );
+  }
+
+  throw new provenance.DataUnavailableError(
+    `No market data available for ${symbol} ${interval}: every provider failed and no cached observation exists.`,
+    { symbol, interval, providerFailures }
+  );
+}
+
+/**
+ * Candles plus an explicit provenance object, for callers that need to put
+ * freshness into a response body (provenance attached to the array itself is
+ * non-enumerable and does not survive JSON serialisation).
+ *
+ * Never throws: an unavailable feed comes back as `ok:false` with the reason,
+ * which is the shape the system-health model and the decision context consume.
+ */
+export async function getCandlesWithProvenance(symbol, interval, limit = 500) {
+  try {
+    const candles = await getCandles(symbol, interval, limit);
+    return { ok: true, candles, provenance: provenance.getProvenance(candles), error: null };
+  } catch (error) {
+    return {
+      ok: false,
+      candles: null,
+      provenance: provenance.unavailableProvenance({
+        interval,
+        providerFailures: error.providerFailures || []
+      }),
+      error: { code: error.code || 'ERROR', message: error.message }
+    };
+  }
+}
+
+/** Structured record of a fallback, so provider health is greppable in logs. */
+function logProviderTransition({ symbol, interval, used, failures }) {
+  console.warn(
+    '[MarketData] provider_transition ' +
+      JSON.stringify({
+        event: 'provider_transition',
+        symbol,
+        interval,
+        used,
+        failed: failures.map((f) => f.provider),
+        reasons: failures.map((f) => `${f.provider}: ${f.error}`)
+      })
+  );
 }
 
 /**
@@ -340,34 +575,53 @@ export async function getCandles(symbol, interval, limit = 500) {
  * @returns {Promise<Object>} Object with interval as key, candles array as value
  */
 export async function getMultiTimeframeData(symbol, intervals = ['4h', '1h', '15m', '5m'], limit = 500) {
-  console.log(`\n📊 Fetching multi-timeframe data for ${symbol}:`, intervals);
-  
   const results = {};
-  
-  // Fetch all intervals in parallel
-  const promises = intervals.map(async (interval) => {
-    try {
-      const candles = await getCandles(symbol, interval, limit);
-      return { interval, candles, error: null };
-    } catch (error) {
-      console.error(`Error fetching ${symbol} ${interval}:`, error.message);
-      return { interval, candles: null, error: error.message };
-    }
-  });
 
-  const settled = await Promise.all(promises);
-  
-  // Build results object
-  settled.forEach(({ interval, candles, error }) => {
-    if (error) {
-      results[interval] = { error };
-    } else {
-      results[interval] = candles;
-    }
-  });
+  const settled = await Promise.all(
+    intervals.map(async (interval) => {
+      try {
+        const candles = await getCandles(symbol, interval, limit);
+        return { interval, candles, error: null };
+      } catch (error) {
+        console.warn(`[MarketData] ${symbol} ${interval} unavailable: ${error.message}`);
+        return {
+          interval,
+          candles: null,
+          // Preserved as a structured code so callers can distinguish "the feed
+          // is down" from "the feed is fine but too short for this indicator".
+          error: { code: error.code || 'ERROR', message: error.message }
+        };
+      }
+    })
+  );
 
-  console.log(`✅ Multi-timeframe data ready for ${symbol}\n`);
+  // A per-interval failure stays a `{ error }` object rather than an array,
+  // which is the contract every existing consumer already tests for
+  // (`candles.error`, then `Array.isArray`). One dead timeframe therefore
+  // degrades that timeframe only — it does not fabricate, and it does not take
+  // the whole request down.
+  for (const { interval, candles, error } of settled) {
+    results[interval] = error ? { error: error.message, code: error.code } : candles;
+  }
+
   return results;
+}
+
+/**
+ * Provenance for a multi-timeframe bundle, keyed by interval.
+ * Separate from the bundle itself so the candle arrays keep the plain shape
+ * indicator code expects.
+ */
+export function multiTimeframeProvenance(multiData) {
+  const out = {};
+  for (const [interval, value] of Object.entries(multiData || {})) {
+    if (Array.isArray(value)) {
+      out[interval] = provenance.getProvenance(value);
+    } else {
+      out[interval] = provenance.unavailableProvenance({ interval });
+    }
+  }
+  return out;
 }
 
 /**
@@ -376,43 +630,63 @@ export async function getMultiTimeframeData(symbol, intervals = ['4h', '1h', '15
  * @returns {Promise<Object>} Price data
  */
 export async function getTickerPrice(symbol) {
+  const entry = requireSymbol(symbol);
+  const providerFailures = [];
+
+  // --- Kraken: full ticker, every field a real observation -----------------
   try {
-    // Try Kraken ticker first
-    const krakenSymbol = SYMBOL_MAP[symbol]?.kraken || 'XBTUSD';
     const response = await axios.get('https://api.kraken.com/0/public/Ticker', {
-      params: { pair: krakenSymbol },
+      params: { pair: entry.kraken },
       timeout: 5000
     });
 
-    if (response.data.error && response.data.error.length > 0) {
-      throw new Error('Kraken ticker error');
+    if (response.data?.error && response.data.error.length > 0) {
+      throw new Error(`Kraken ticker error: ${response.data.error.join(', ')}`);
     }
 
-    const pairKey = Object.keys(response.data.result)[0];
-    const tickerData = response.data.result[pairKey];
+    const pairKey = Object.keys(response.data?.result || {})[0];
+    const tickerData = response.data?.result?.[pairKey];
+    if (!tickerData) throw new Error('Kraken ticker returned no pair data');
 
     const lastPrice = parseFloat(tickerData.c[0]);
+    const openPrice = parseFloat(tickerData.o);
     const high24h = parseFloat(tickerData.h[1]);
     const low24h = parseFloat(tickerData.l[1]);
     const volume24h = parseFloat(tickerData.v[1]);
-    const openPrice = parseFloat(tickerData.o);
+
+    if (!Number.isFinite(lastPrice) || lastPrice <= 0) {
+      throw new Error('Kraken ticker returned no usable price');
+    }
+
+    const changeAvailable = Number.isFinite(openPrice) && openPrice > 0;
 
     return {
       symbol,
       price: lastPrice,
-      priceChange: lastPrice - openPrice,
-      priceChangePercent: ((lastPrice - openPrice) / openPrice) * 100,
-      high24h,
-      low24h,
-      volume24h
+      // Absolute and percentage are genuinely different quantities. The old
+      // CoinGecko branch assigned the *percentage* to both, so any consumer
+      // reading `priceChange` as dollars was off by orders of magnitude.
+      priceChange: changeAvailable ? lastPrice - openPrice : null,
+      priceChangePercent: changeAvailable ? ((lastPrice - openPrice) / openPrice) * 100 : null,
+      high24h: Number.isFinite(high24h) ? high24h : null,
+      low24h: Number.isFinite(low24h) ? low24h : null,
+      volume24h: Number.isFinite(volume24h) ? volume24h : null,
+      provenance: provenance.makeProvenance({
+        source: 'kraken',
+        fetchedAt: Date.now(),
+        interval: '1m'
+      })
     };
   } catch (error) {
-    // Fallback to CoinGecko
-    console.log('Falling back to CoinGecko for ticker...');
-    const coinId = SYMBOL_MAP[symbol]?.coingecko || 'bitcoin';
+    providerFailures.push({ provider: 'kraken', error: error.message });
+    console.warn(`[MarketData] Kraken ticker failed for ${symbol}: ${error.message}`);
+  }
+
+  // --- CoinGecko: a real price, but a genuinely narrower observation -------
+  try {
     const response = await axios.get('https://api.coingecko.com/api/v3/simple/price', {
       params: {
-        ids: coinId,
+        ids: entry.coingecko,
         vs_currencies: 'usd',
         include_24hr_change: true,
         include_24hr_vol: true
@@ -420,17 +694,47 @@ export async function getTickerPrice(symbol) {
       timeout: 5000
     });
 
-    const data = response.data[coinId];
+    const data = response.data?.[entry.coingecko];
+    const price = Number(data?.usd);
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error('CoinGecko returned no usable price');
+    }
+
+    const changePct = Number.isFinite(Number(data.usd_24h_change))
+      ? Number(data.usd_24h_change)
+      : null;
+
+    logProviderTransition({ symbol, interval: 'ticker', used: 'coingecko', failures: providerFailures });
+
     return {
       symbol,
-      price: data.usd,
-      priceChange: data.usd_24h_change || 0,
-      priceChangePercent: data.usd_24h_change || 0,
-      high24h: data.usd * 1.02,
-      low24h: data.usd * 0.98,
-      volume24h: data.usd_24h_vol || 0
+      price,
+      // Derived from the percentage against the implied 24h-ago price. This is
+      // arithmetic on a real observation, not an invented figure.
+      priceChange: changePct === null ? null : price - price / (1 + changePct / 100),
+      priceChangePercent: changePct,
+      // CoinGecko's simple/price does not publish a 24h high or low, so these
+      // are null. They were previously filled with `price * 1.02` and
+      // `price * 0.98` — a fabricated 4%-wide range that any range-based
+      // indicator or stop placement would have consumed as a real day's trade.
+      high24h: null,
+      low24h: null,
+      volume24h: Number.isFinite(Number(data.usd_24h_vol)) ? Number(data.usd_24h_vol) : null,
+      provenance: provenance.makeProvenance({
+        source: 'coingecko',
+        fetchedAt: Date.now(),
+        interval: '1m',
+        providerFailures
+      })
     };
+  } catch (error) {
+    providerFailures.push({ provider: 'coingecko', error: error.message });
   }
+
+  throw new provenance.DataUnavailableError(
+    `No ticker available for ${symbol}: every provider failed.`,
+    { symbol, interval: 'ticker', providerFailures }
+  );
 }
 
 /**
@@ -684,12 +988,15 @@ export async function getDflowPredictionMarkets(symbol) {
 
 export default {
   getCandles,
+  getCandlesWithProvenance,
   getMultiTimeframeData,
+  multiTimeframeProvenance,
   getTickerPrice,
   isSymbolSupported,
   getSupportedSymbols,
   getSupportedSymbolsWithInfo,
   getAllKrakenPairs,
-  getDflowPredictionMarkets
+  getDflowPredictionMarkets,
+  clearCandleCache
 };
 
