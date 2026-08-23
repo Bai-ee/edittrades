@@ -104,8 +104,41 @@ export const ECONOMIC_VALUE_CONFIG = {
      * Cross-check: 2025 anchor (24 J/TH) x ~800 EH/s implies ~170 TWh/yr,
      * consistent with the Cambridge CBECI best-guess estimate.
      */
+    /*
+     * SOURCES AND BASIS — this is a MODEL, not network accounting.
+     *
+     * No exchange or chain publishes fleet-average efficiency; it is not
+     * directly observable. Each anchor below is a judgement about the mix of
+     * hardware plausibly running that year, bracketed by the flagship machines
+     * available at the time (fleet average runs roughly 1.5-2x worse than
+     * best-in-class, because old machines stay online while they clear
+     * marginal cost):
+     *
+     *   Antminer S1   (2013-14)  ~2,000 J/TH
+     *   Antminer S3   (2014)     ~  771 J/TH
+     *   Antminer S5   (2015)     ~  510 J/TH
+     *   Antminer S7   (2016)     ~  273 J/TH
+     *   Antminer S9   (2016-17)  ~   98 J/TH
+     *   Antminer S17  (2019)     ~   45 J/TH
+     *   Antminer S19  (2020)     ~   30 J/TH
+     *   Antminer S21  (2024)     ~   15 J/TH
+     *
+     * Only the AGGREGATE is falsifiable: the 2025 anchor (24 J/TH) against
+     * ~800 EH/s implies ~170 TWh/yr, which the validation harness checks
+     * against a CBECI-scale band. Per-year values cannot be validated to
+     * better than roughly +/-30%, which is why the output is labelled
+     * EST. MINER COST everywhere and carries 0.20 weight rather than more.
+     *
+     * The 2013 anchor was 8,000 J/TH, which is far too efficient for its date:
+     * in January 2013 the network was still overwhelmingly GPU and FPGA, on
+     * the order of 50,000-300,000 J/TH, and the first Avalon ASICs (~9,400
+     * J/TH) did not ship until late that month. 30,000 is a defensible
+     * transitional figure for a mixed GPU/FPGA/early-ASIC fleet. It sits at
+     * the startDate boundary where the model is least trustworthy in any case.
+     */
     efficiencyCurveJPerTh: [
-      { date: '2013-01-01', value: 8000 },
+      { date: '2013-01-01', value: 30000 },
+      { date: '2013-07-01', value: 8000 },
       { date: '2014-01-01', value: 1800 },
       { date: '2015-01-01', value: 750 },
       { date: '2016-01-01', value: 320 },
@@ -127,6 +160,15 @@ export const ECONOMIC_VALUE_CONFIG = {
      * migrated toward cheaper power over time, so this is a curve rather than
      * a single present-day figure applied retroactively.
      */
+    /*
+     * Within the $0.03-0.07/kWh industrial band commonly cited for hosted
+     * mining from 2016 onward. The 2013 figure is above that band on purpose:
+     * 2013 miners were largely on small-commercial or residential power.
+     *
+     * NOTE: the last anchor is 2025-01-01, so any date after it is CLAMPED,
+     * not interpolated — the curve has been flat for the whole of 2026. The
+     * API reports `minerAssumptions.extrapolated` when this is happening.
+     */
     electricityCurveUsdPerKwh: [
       { date: '2013-01-01', value: 0.080 },
       { date: '2016-01-01', value: 0.065 },
@@ -137,9 +179,18 @@ export const ECONOMIC_VALUE_CONFIG = {
 
     /**
      * Non-energy costs as a multiplier on energy cost: hardware amortisation,
-     * hosting, pool fees, staff. 1.25 means energy is ~80% of cash cost.
+     * hosting, pool fees, staff.
+     *
+     * Raised from 1.25 to 1.40. Public miner disclosures generally put energy
+     * at roughly 60-75% of cash cost, implying 1.35-1.65x; 1.25 implied ~80%,
+     * which sits outside that range at the optimistic end. The bias direction
+     * matters and was systematic: a low multiplier gives a low miner cost,
+     * hence a low Economic Value, hence a HIGH reported premium. At 0.20
+     * weight the composite effect is on the order of a few percent.
+     *
+     * Still an assumption, not a measurement.
      */
-    overheadMultiplier: 1.25,
+    overheadMultiplier: 1.40,
 
     /**
      * Miner revenue includes fees, but production *cost* should not be
@@ -762,8 +813,13 @@ export function calculateEconomicConvergence(anchors, economicValue, config = EC
   ) {
     agreement = 'HIGH AGREEMENT';
   } else if (
-    ratioWithin >= settings.moderateAgreement.minRatioWithin ||
-    spread <= settings.moderateAgreement.maxSpread
+    // `within >= 1` is a new precondition. The OR meant a tight spread alone
+    // could report MODERATE AGREEMENT with ZERO anchors inside the band —
+    // observed as "0/2 anchors - MODERATE AGREEMENT", which is a contradiction
+    // rendered as a confidence statement.
+    within >= 1 &&
+    (ratioWithin >= settings.moderateAgreement.minRatioWithin ||
+      spread <= settings.moderateAgreement.maxSpread)
   ) {
     agreement = 'MODERATE AGREEMENT';
   }
@@ -894,7 +950,8 @@ export function calculateHistoricalEconomicValue(rawRows, options = {}) {
     minerDetail,
     distribution,
     spotPrice: options.spotPrice,
-    config
+    config,
+    asOf: options.asOf ?? Date.now()
   });
 
   return {
@@ -921,7 +978,18 @@ function lastWith(history, field) {
   return null;
 }
 
-function buildCurrentReading({ history, series, combined, minerDetail, distribution, spotPrice, config }) {
+function buildCurrentReading({
+  history,
+  series,
+  combined,
+  minerDetail,
+  distribution,
+  spotPrice,
+  config,
+  // Injected so the module stays pure: the only wall-clock read in the
+  // calculation core would otherwise make every historical test non-reproducible.
+  asOf = Date.now()
+}) {
   if (history.length === 0) return null;
 
   const latestValueRow = lastWith(history, 'economicValue');
@@ -954,7 +1022,23 @@ function buildCurrentReading({ history, series, combined, minerDetail, distribut
         electricityUsdPerKwh: roundTo(minerDetail[index].electricityUsdPerKwh, 4),
         overheadMultiplier: minerDetail[index].overheadMultiplier,
         estimatedNetworkKwhPerDay: roundTo(minerDetail[index].kwhPerDay, 0),
-        note: 'Estimate. Not a price floor.'
+        /**
+         * True when the reading's date is past the last anchor on either
+         * curve, so the value is a CLAMPED extrapolation rather than an
+         * interpolation. The electricity curve ends 2025-01-01, so this is
+         * already true today and the "curve" has been a constant for months.
+         * Surfaced because a frozen assumption presented as a curve is the
+         * quiet kind of wrong.
+         */
+        extrapolated: (() => {
+          const lastEff = config.minerCost.efficiencyCurveJPerTh.at(-1)?.date;
+          const lastElec = config.minerCost.electricityCurveUsdPerKwh.at(-1)?.date;
+          const d = latestValueRow.date;
+          return Boolean((lastEff && d > lastEff) || (lastElec && d > lastElec));
+        })(),
+        note:
+          'Modelled, not measured. Fleet-average efficiency is not observable; ' +
+          'only the implied network energy draw is externally checkable. Not a price floor.'
       }
     : null;
 
@@ -985,6 +1069,41 @@ function buildCurrentReading({ history, series, combined, minerDetail, distribut
       lthRealizedPrice: anchors.lthRealizedPrice
     },
     weightsApplied: index >= 0 && combined[index] ? combined[index].weightsApplied : null,
+
+    /**
+     * Anchor availability FOR THIS READING.
+     *
+     * meta.anchorStatus reports whether an anchor was ever present across the
+     * whole history — `present > 0` over ~5,900 rows. That is a different
+     * question from which anchors drove today's number, and the page bound its
+     * UNAVAILABLE tiles to the history-wide flag. So an anchor could vanish for
+     * the current day only, the composite would silently renormalise over the
+     * remaining two, and nothing surfaced: the tile stayed "available" and
+     * rendered an em-dash, the notice banner stayed hidden, and source status
+     * stayed ok. Measured on a realized-cap dropout for the last 30 days,
+     * Economic Value moved 35% and the premium went from +582% to +949% with
+     * every honesty affordance green.
+     *
+     * These three fields describe the reading actually being displayed.
+     */
+    anchorsUsed: index >= 0 && combined[index] ? combined[index].anchorsUsed : [],
+    anchorsExpected: COMPOSITE_ANCHOR_KEYS.filter(
+      (key) => isFiniteNumber(config.weights[key]) && config.weights[key] > 0
+    ).length,
+    /**
+     * True when this reading was built from fewer anchors than the model
+     * defines. A renormalised composite is a DIFFERENT MODEL, not a slightly
+     * noisier version of the same one — and its premium is then scored against
+     * a percentile distribution built almost entirely from full-anchor
+     * readings, so the state label is comparing across models.
+     */
+    degraded: (() => {
+      const used = index >= 0 && combined[index] ? combined[index].anchorsUsed.length : 0;
+      const expected = COMPOSITE_ANCHOR_KEYS.filter(
+        (key) => isFiniteNumber(config.weights[key]) && config.weights[key] > 0
+      ).length;
+      return used > 0 && used < expected;
+    })(),
     context: {
       mvrv: roundTo(mvrv, 4),
       puell: latestValueRow.puell
@@ -999,10 +1118,35 @@ function buildCurrentReading({ history, series, combined, minerDetail, distribut
       label: convergence.available ? `${convergence.within}/${convergence.total}` : null
     },
     minerAssumptions,
-    // Surfaced so the page can warn when the on-chain feed has fallen behind.
-    dataAgeDays: series.length
+
+    /**
+     * Gap between the newest row in the series and the newest row that
+     * produced a composite — i.e. how many trailing days have data but no
+     * usable anchor set.
+     *
+     * Renamed from dataAgeDays because it was documented and validated as
+     * "on-chain feed behind price feed", which it structurally cannot measure:
+     * both operands come from the SAME series, and normalizeDailySeries spans
+     * only observed dates, so when Coin Metrics stops publishing the series
+     * simply ends earlier and this stays 0. A feed 13 days behind reported
+     * zero staleness while the headline paired a live spot price against a
+     * 13-day-old Economic Value.
+     */
+    anchorGapDays: series.length
       ? Math.max(0, Math.round((series[series.length - 1].timestamp - latestValueRow.timestamp) / MS_PER_DAY))
-      : null
+      : null,
+
+    /**
+     * Real feed age, measured against the wall clock.
+     *
+     * `asOf` is injected by the caller so this module stays pure and
+     * deterministic under test; it defaults to now for ordinary use.
+     */
+    dataAgeDays: Math.max(
+      0,
+      Math.round((asOf - latestValueRow.timestamp) / MS_PER_DAY)
+    ),
+    latestDataDate: new Date(latestValueRow.timestamp).toISOString().slice(0, 10)
   };
 }
 

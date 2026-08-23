@@ -182,8 +182,19 @@ const shortLiq = estimateLiquidation({ entry: 69500, direction: 'SHORT', leverag
 const longLiq = estimateLiquidation({ entry: 72000, direction: 'LONG', leverage: 5 });
 ok('short liquidation is above entry', shortLiq.available && shortLiq.price > 69500, `got ${shortLiq.price}`);
 ok('long liquidation is below entry', longLiq.available && longLiq.price < 72000, `got ${longLiq.price}`);
-// 5x: 1/5 - 0.005 = 0.195 -> 72000 * 0.805 = 57,960
-near('long liq at 5x ~= 57,960', longLiq.price, 57960, 1);
+// Exact isolated solve (equity = maintenance margin), not the first-order
+// approximation this previously asserted:
+//   long:  entry * (1 - 1/L) / (1 - mmr) = 72000 * 0.8 / 0.995 = 57,889.45
+// The old expectation of 57,960 came from `entry * (1 - (1/L - mmr))`, which
+// is conservative for longs but ANTI-conservative for shorts — it reported
+// more room than the model implies, by about entry * mmr / L.
+near('long liq at 5x ~= 57,889.45 (exact solve)', longLiq.price, 57889.45, 0.5);
+near(
+  'short liq at 5x ~= 83,052.5 -> exact 82,985.07',
+  shortLiq.price,
+  (69500 * (1 + 1 / 5)) / (1 + 0.005),
+  0.5
+);
 
 /* ======================================================================
  * 6. LIQUIDATION EDGE CASES
@@ -288,7 +299,13 @@ const threeLongs = [
 const conc = detectCorrelatedExposure({ positions: threeLongs });
 ok('three longs flagged as concentrated', conc.concentrated === true);
 ok('direction reported as LONG', conc.direction === 'LONG');
-ok('label reads CORRELATED LONG EXPOSURE', conc.label === 'CORRELATED LONG EXPOSURE', conc.label);
+// The rule counts direction and risk share; it never computes a correlation.
+// Claiming "CORRELATED" asserted a measurement that was never made.
+ok(
+  'label reads DIRECTIONAL LONG CONCENTRATION',
+  conc.label === 'DIRECTIONAL LONG CONCENTRATION',
+  conc.label
+);
 ok('lists the assets', Array.isArray(conc.positions) && conc.positions.length === 3);
 
 const mixed = detectCorrelatedExposure({ positions: book }); // 2 long, 1 short
@@ -426,9 +443,25 @@ const negWallet = planTrade({
 });
 ok('negative wallet rejected', negWallet.valid === false);
 
+// ABSENT vs INVALID.
+//
+// This test previously asserted that riskPct: 0 "falls back to the policy
+// default 1%" — locking in the hazard. 0, -1, NaN and 'abc' all silently
+// produced a fully-sized 1% position with nothing saying a substitution had
+// occurred, and risk.html feeds this field from free text, so clearing the box
+// sized a real trade. Present-but-invalid is now an error; only genuine
+// absence takes the default, and it says so.
 const zeroRisk = calculateAllowedRisk({ walletBalance: 25000, riskPct: 0 });
-// 0 is not a positive risk, so it falls back to the policy default rather than sizing to zero.
-near('zero risk falls back to policy default 1%', zeroRisk.riskPct, DEFAULT_RISK_POLICY.defaultRiskPerTradePct, 0.0001);
+ok('riskPct 0 is rejected, not silently defaulted', zeroRisk.valid === false, JSON.stringify(zeroRisk));
+
+for (const bad of [-1, NaN, 'abc']) {
+  const r = calculateAllowedRisk({ walletBalance: 25000, riskPct: bad });
+  ok(`riskPct ${JSON.stringify(bad)} is rejected`, r.valid === false, JSON.stringify(r));
+}
+
+const absentRisk = calculateAllowedRisk({ walletBalance: 25000, riskPct: undefined });
+near('absent riskPct takes the policy default', absentRisk.riskPct, DEFAULT_RISK_POLICY.defaultRiskPerTradePct, 0.0001);
+ok('absent riskPct is flagged as defaulted', absentRisk.usedDefaultRisk === true);
 
 ok('missing target does not invalidate the plan', clean.valid === true && planTrade({
   walletBalance: 25000,
@@ -507,6 +540,82 @@ for (const wallet of [1000, 25000, 500000]) {
   }
 }
 ok(`all ${sweepCount} combinations hold the three core invariants`, sweepFailures === 0, `${sweepFailures} failed`);
+
+/* ======================================================================
+ * 16. REGRESSIONS — defects this harness previously did not cover
+ * =================================================================== */
+console.log('\n16. Regressions from the production-desk audit');
+console.log('-----------------------------------------------');
+
+// H2 — the aggregate notional cap was computed but never evaluated on the
+// planned-trade path. A 0.4% stop at 20x sized to 250% of the wallet and
+// reported WITHIN PLAN with every check passing.
+{
+  const loosePolicy = { ...DEFAULT_RISK_POLICY, maxLeverage: 25 };
+  const huge = planTrade({
+    walletBalance: 25000,
+    positions: [],
+    policy: loosePolicy,
+    trade: { asset: 'BTC', direction: 'LONG', entry: 72000, stop: 71712, riskPct: 1, leverage: 20 }
+  });
+  const notionalCheck = (huge.evaluation?.checks || []).find((c) => c.id === 'notional-exposure');
+  ok('notional-exposure check exists', !!notionalCheck, JSON.stringify(huge.evaluation?.checks?.map(c => c.id)));
+  ok('250% notional fails the notional check', notionalCheck && notionalCheck.state === 'fail',
+     notionalCheck && notionalCheck.detail);
+  ok('250% notional does not report WITHIN PLAN', huge.status !== 'WITHIN PLAN', huge.status);
+}
+
+// M1 — cross margin must refuse a per-position liquidation estimate.
+{
+  const cross = estimateLiquidation({ entry: 72000, direction: 'LONG', leverage: 5, marginMode: 'cross' });
+  ok('cross margin returns no liquidation price', cross.available === false && cross.price === undefined);
+  ok('cross margin states the account-level reason',
+     typeof cross.reason === 'string' && cross.reason.includes('ACCOUNT'), cross.reason);
+
+  const spot = estimateLiquidation({ entry: 72000, direction: 'LONG', leverage: 1, instrument: 'spot' });
+  ok('spot is not liquidatable', spot.available === false && spot.notApplicable === true);
+}
+
+// M3 — above 1/mmr the position is liquidatable at entry; the old first-order
+// form returned a price on the WRONG SIDE of entry (72,288 for a long at 72,000).
+{
+  const absurd = estimateLiquidation({ entry: 72000, direction: 'LONG', leverage: 1000 });
+  ok('1000x returns no liquidation price', absurd.available === false, JSON.stringify(absurd));
+  const shortAbsurd = estimateLiquidation({ entry: 69500, direction: 'SHORT', leverage: 1000 });
+  ok('1000x short returns no liquidation price', shortAbsurd.available === false);
+}
+
+// M4 — a stop a hair from entry must not size to a nine-figure notional.
+{
+  const hair = planTrade({
+    walletBalance: 25000,
+    trade: { asset: 'BTC', direction: 'LONG', entry: 100, stop: 100 - 1e-10, riskPct: 1 }
+  });
+  ok('stop within epsilon of entry is rejected', hair.valid === false, JSON.stringify(hair.errors || hair));
+}
+
+// M7 — a clean unleveraged trade should not grade worse than a leveraged one.
+{
+  const spotClean = planTrade({
+    walletBalance: 25000,
+    positions: [],
+    trade: { asset: 'BTC', direction: 'LONG', entry: 72000, stop: 69500, target: 80000, riskPct: 1, leverage: 1 }
+  });
+  const liqCheck = (spotClean.evaluation?.checks || []).find((c) => c.id === 'liquidation');
+  ok('1x long scores liquidation as pass, not unknown', liqCheck && liqCheck.state === 'pass',
+     liqCheck && `${liqCheck.state}: ${liqCheck.detail}`);
+  ok('clean 1x trade reads WITHIN PLAN', spotClean.status === 'WITHIN PLAN', spotClean.status);
+}
+
+// Leverage must never change the loss at the stop.
+{
+  const losses = [1, 2, 3, 5, 10, 25].map((lev) => planTrade({
+    walletBalance: 25000,
+    trade: { asset: 'BTC', direction: 'LONG', entry: 72000, stop: 69500, riskPct: 1, leverage: lev }
+  }).trade.lossAtStop);
+  const spread = Math.max(...losses) - Math.min(...losses);
+  ok('loss at stop is invariant to leverage', spread < 1e-9, `spread ${spread}`);
+}
 
 console.log(`\n${'='.repeat(62)}`);
 console.log(failures === 0

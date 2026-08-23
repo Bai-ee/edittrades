@@ -56,8 +56,28 @@
       "dest": "/api/execute-trade.js"
     },
     {
-      "src": "/api/trade-status/(.*)",
-      "dest": "/api/trade-status.js"
+      "src": "/api/review-trade",
+      "dest": "/api/review-trade.js"
+    },
+    {
+      "src": "/risk",
+      "dest": "/public/risk.html"
+    },
+    {
+      "src": "/bitcoin-value",
+      "dest": "/public/bitcoin-value.html"
+    },
+    {
+      "src": "/scanner",
+      "dest": "/public/scanner.html"
+    },
+    {
+      "src": "/strategy",
+      "dest": "/public/strategy.html"
+    },
+    {
+      "src": "/tracker",
+      "dest": "/public/tracker.html"
     },
     {
       "src": "/(.*)",

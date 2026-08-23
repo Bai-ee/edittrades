@@ -46,7 +46,7 @@ async function handleMarketPulse(req, res, context, variables) {
     let tone = variables?.tone || 'neutral';
     let depth = variables?.depth || 'normal';
     const target = variables?.target || 'dashboard';
-    let temperature = parseFloat(variables?.temperature || '0.5');
+    let temperature = aiContract.clampTemperature(variables?.temperature);
     let toneFlavor = variables?.toneFlavor || context?.toneFlavor || null;
     
     // Dev-only prompt tuning (check if in development mode)
@@ -61,7 +61,7 @@ async function handleMarketPulse(req, res, context, variables) {
       if (devTone) tone = devTone;
       if (devDepth) depth = devDepth;
       if (devToneFlavor) toneFlavor = devToneFlavor;
-      temperature = Math.min(temperature, devTemperatureCap);
+      temperature = aiContract.clampTemperature(Math.min(temperature, devTemperatureCap));
       
       console.log('🔧 Dev config applied:', { tone, depth, temperature, target, toneFlavor: toneFlavor || 'default' });
     }
@@ -234,7 +234,7 @@ Explain why signals are or aren't appearing. If no signals, explain what needs t
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: aiContract.AI_MODELS.commentary,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -308,7 +308,21 @@ Explain why signals are or aren't appearing. If no signals, explain what needs t
 }
 
 // Market Review Handler (existing - keep for backward compatibility)
-async function handleMarketReview(req, res, tradesData, systemPrompt) {
+/**
+ * Fixed, server-side market-review prompt.
+ * Replaces the caller-supplied one this handler used to accept.
+ */
+const MARKET_REVIEW_SYSTEM_PROMPT = `${aiContract.DATA_CONTRACT}
+
+ROLE: You write a concise market review for a trading desk operator.
+
+Given a set of tracked assets and their engine-computed readings, write 1-2
+sentences on overall market behaviour and how the assets relate to each other.
+Observational, not directive. Quote only figures present in the DATA block. If
+the data is thin or degraded, say so instead of generalising.`;
+
+async function handleMarketReview(req, res, tradesData) {
+  const systemPrompt = MARKET_REVIEW_SYSTEM_PROMPT;
   try {
     console.log('🔍 Market review handler called');
     console.log('TradesData keys:', Object.keys(tradesData || {}));
@@ -324,11 +338,14 @@ async function handleMarketReview(req, res, tradesData, systemPrompt) {
 
     console.log('✅ API key found');
 
-    const userPrompt = `Analyze this market data and provide a concise 1-2 sentence market review:
+    // serializeDataBlock renders absent fields as "MISSING" rather than
+    // letting JSON.stringify drop them, so the model can see what it lacks.
+    const userPrompt = `Write a concise 1-2 sentence market review from the data below.
 
-${JSON.stringify(tradesData, null, 2)}
+DATA:
+${aiContract.serializeDataBlock(tradesData)}
 
-Remember: Keep it tight, observational, and focused on overall market behavior and correlation between assets.`;
+Keep it tight and observational. Quote only numbers present above.`;
 
     console.log('📤 Calling OpenAI API for market review (using raw fetch)...');
 
@@ -340,12 +357,12 @@ Remember: Keep it tight, observational, and focused on overall market behavior a
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: aiContract.AI_MODELS.commentary,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        temperature: 0.7,
+        temperature: aiContract.clampTemperature(0.3),
         max_tokens: 150
       })
     });
@@ -387,6 +404,8 @@ Remember: Keep it tight, observational, and focused on overall market behavior a
   }
 }
 
+import aiContract from '../services/aiContract.js';
+
 export default async function handler(req, res) {
   console.log('🚀 [AGENT-REVIEW] Handler called');
   console.log('🚀 [AGENT-REVIEW] Method:', req.method);
@@ -410,13 +429,28 @@ export default async function handler(req, res) {
     console.log('🚀 [AGENT-REVIEW] POST request received');
     console.log('🚀 [AGENT-REVIEW] Request body exists:', !!req.body);
     console.log('🚀 [AGENT-REVIEW] Request body keys:', Object.keys(req.body || {}));
-    const { marketSnapshot, setupType, symbol, tradesData, systemPrompt, pulseContext, pulseVariables } = req.body;
+    const { marketSnapshot, setupType, symbol, tradesData, pulseContext, pulseVariables } = req.body;
+
+    // `systemPrompt` is deliberately NOT read from the request body.
+    //
+    // It used to be destructured here and passed verbatim as the OpenAI system
+    // message. With CORS `*`, no auth and no rate limit, anyone on the internet
+    // could set the model's entire instruction set on the operator's API key —
+    // which also meant every guardrail on the market-review path was
+    // client-side text an attacker could simply replace. Reject the key
+    // outright rather than ignoring it, so a stale caller fails loudly.
+    if (req.body && 'systemPrompt' in req.body) {
+      return res.status(400).json({
+        error: 'systemPrompt is not accepted',
+        message:
+          'The system prompt is fixed server-side. Select behaviour with the `tone` and `depth` variables instead.'
+      });
+    }
     console.log('🚀 [AGENT-REVIEW] Extracted params:', {
       hasMarketSnapshot: !!marketSnapshot,
       hasSetupType: !!setupType,
       hasSymbol: !!symbol,
       hasTradesData: !!tradesData,
-      hasSystemPrompt: !!systemPrompt,
       hasPulseContext: !!pulseContext,
       hasPulseVariables: !!pulseVariables
     });
@@ -428,11 +462,9 @@ export default async function handler(req, res) {
     }
 
     // Market review mode (existing - keep for backward compatibility)
-    if (tradesData && systemPrompt) {
+    if (tradesData) {
       console.log('🚀 [AGENT-REVIEW] Market review mode detected');
-      console.log('🚀 [AGENT-REVIEW] System prompt length:', systemPrompt?.length);
-      console.log('🚀 [AGENT-REVIEW] Trades data preview:', JSON.stringify(tradesData).substring(0, 200) + '...');
-      return await handleMarketReview(req, res, tradesData, systemPrompt);
+      return await handleMarketReview(req, res, tradesData);
     }
 
     // Individual trade analysis mode (existing)
@@ -451,7 +483,7 @@ export default async function handler(req, res) {
         symbol: !symbol
       });
       return res.status(400).json({ 
-        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt' 
+        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData' 
       });
     }
 
@@ -539,7 +571,11 @@ DO NOT MENTION 4H TREND IN YOUR ANALYSIS - IT IS NOT A FACTOR`
 
     // Construct the system prompt based on the reasoning agent rules
     console.log('🚀 [AGENT-REVIEW] Constructing system prompt...');
-    const tradeSystemPrompt = `You are the Trading Reasoning Layer for EditTrades.
+    const tradeSystemPrompt = `${aiContract.DATA_CONTRACT}
+
+---
+
+You are the Trading Reasoning Layer for EditTrades.
 
 Your job:
 - Analyze EditTrades' JSON snapshot for ${setupType.toUpperCase()} setup
@@ -561,11 +597,22 @@ Rules:
 
 Write your response in this conversational style:
 
-CRITICAL: Match your language tone to the trade direction:
-- For LONG trades: Use bullish, optimistic language (e.g., "strong upward momentum", "bullish structure", "uptrend continuation", "buying pressure", "price breaking higher", "bullish alignment")
-- For SHORT trades: Use bearish, cautionary language (e.g., "downward pressure", "bearish structure", "downtrend continuation", "selling pressure", "price breaking lower", "bearish alignment")
-- The tone should reflect the direction of the trade, not just general market conditions
-- If the signal direction is LONG, your entire analysis should sound bullish
+TONE — evidence, not direction:
+- Describe what the engine reports and what the supplied inputs show.
+- Your confidence must track the quantity and freshness of the supplied
+  evidence, NOT the direction of the signal.
+- Directional vocabulary is fine when the supplied data supports it. Do not
+  adopt a bullish or bearish register merely because the signal has a
+  direction.
+- If the inputs are thin, degraded, or contradict the signal, say so plainly.
+  A well-supported "this long is technically valid but the evidence is thin"
+  is a better answer than a confident one.
+
+  (This block previously read: "If the signal direction is LONG, your entire
+  analysis should sound bullish." That decoupled tone from evidence by
+  instruction — and combined with a payload whose price and per-timeframe
+  fields were arriving undefined, it asked for conviction with nothing
+  underneath it.)
 - If the signal direction is SHORT, your entire analysis should sound bearish
 
 [Opening paragraph: Current setup assessment - is this a good ${setupType.toUpperCase()} trade? State clearly if it's valid or not and why. Use direction-appropriate language (bullish for longs, bearish for shorts).]
@@ -586,7 +633,7 @@ ${setupType === 'MicroScalp' ?
 - Which timeframes need to change and how
 - Specific price levels to monitor (mention actual numbers from the data)
 - What conditions need to happen (stoch movements, trend changes, etc.)
-- Timeline expectations (how many hours/candles)]
+- What supplied condition would confirm or invalidate the setup (no timeline: nothing in the data supports predicting when)]
 
 [Closing paragraph: Overall assessment with rating (A+, A, B, or SKIP). Be direct about trade quality. Use direction-appropriate language.]
 
@@ -645,10 +692,18 @@ Important:
     console.log('🚀 [AGENT-REVIEW] Original marketSnapshot size:', JSON.stringify(marketSnapshot).length, 'chars');
     
     // Filter marketSnapshot to only essential fields (avoid sending massive candle arrays)
+    // Key names must match what public/index.html actually sends.
+    // `createDashboardView()` emits `price`, `change24h` and
+    // `signal.confluence`; this filter read `currentPrice`, `priceChange24h`
+    // and `analysis`, so all three arrived undefined and JSON.stringify
+    // dropped them — the model saw no price at all while being asked for exact
+    // price levels. `timeframes` was never copied, so every per-timeframe
+    // question in the prompt (15m EMA distance, 5m stoch) referred to data
+    // that had been filtered out.
     const essentialSnapshot = {
       symbol: marketSnapshot.symbol || symbol,
-      currentPrice: marketSnapshot.currentPrice,
-      priceChange24h: marketSnapshot.priceChange24h,
+      currentPrice: marketSnapshot.price ?? marketSnapshot.currentPrice ?? null,
+      priceChange24h: marketSnapshot.change24h ?? marketSnapshot.priceChange24h ?? null,
       signal: marketSnapshot.signal ? {
         direction: marketSnapshot.signal.direction,
         confidence: marketSnapshot.signal.confidence,
@@ -659,14 +714,12 @@ Important:
         targets: marketSnapshot.signal.targets,
         invalidation: marketSnapshot.signal.invalidation
       } : null,
-      htfBias: marketSnapshot.htfBias,
-      analysis: marketSnapshot.analysis ? {
-        trendAlignment: marketSnapshot.analysis.trendAlignment,
-        stochMomentum: marketSnapshot.analysis.stochMomentum,
-        pullbackState: marketSnapshot.analysis.pullbackState,
-        liquidityZones: marketSnapshot.analysis.liquidityZones,
-        htfConfirmation: marketSnapshot.analysis.htfConfirmation
-      } : null
+      htfBias: marketSnapshot.htfBias ?? null,
+      analysis: marketSnapshot.signal?.confluence ?? marketSnapshot.analysis ?? null,
+      timeframes: marketSnapshot.timeframes ?? null,
+      macro: marketSnapshot.macro ?? null,
+      risk: marketSnapshot.risk ?? null,
+      dataHealth: marketSnapshot.dataHealth ?? marketSnapshot.health ?? null
     };
     
     console.log('🚀 [AGENT-REVIEW] Filtered snapshot size:', JSON.stringify(essentialSnapshot).length, 'chars');
@@ -688,8 +741,8 @@ Be specific about what's working or what's blocking this setup.
 
 If this is NOT a valid trade, explain what needs to happen to make it valid:
 ${setupType === 'MicroScalp' ?
-  '- Does 1H need to establish a trend (break from FLAT)?\n- Do 15m/5m need to pull back closer to their 21 EMAs? (give specific percentages)\n- What stoch movements are needed on 15m and 5m?\n- Timeline: Usually 1-4 hours for LTF alignment' :
-  '- Which timeframes need to change (e.g., "The 4H needs to break from FLAT and establish a clear UPTREND")\n- Specific price levels to watch (use actual numbers from the data)\n- What conditions need to change (e.g., "The 1H stoch needs to curl up from oversold")\n- How long this might take (e.g., "This could take 4-8 hours for the 4H to establish direction")'}
+  '- Does 1H need to establish a trend (break from FLAT)?\n- Do 15m/5m need to pull back closer to their 21 EMAs? (quote the supplied distances; if not supplied, say so)\n- What stoch movements are needed on 15m and 5m?' :
+  '- Which timeframes need to change (e.g., "The 4H needs to break from FLAT and establish a clear UPTREND")\n- Specific price levels to watch (use actual numbers from the data)\n- What conditions need to change (e.g., "The 1H stoch needs to curl up from oversold")\n- Which supplied condition is not yet met (do not estimate how long it will take)'}
 
 Write naturally in flowing paragraphs. No bullet points or lists. Be conversational but insightful.
 
@@ -701,7 +754,7 @@ End with your overall rating: A+, A, B, or SKIP`;
     console.log('🚀 [AGENT-REVIEW] User prompt length:', userPrompt?.length);
     
     const requestBody = {
-      model: 'gpt-4o-mini',
+      model: aiContract.AI_MODELS.commentary,
       messages: [
         { role: 'system', content: tradeSystemPrompt },
         { role: 'user', content: userPrompt }
@@ -761,11 +814,17 @@ End with your overall rating: A+, A, B, or SKIP`;
     
     console.log('🚀 [AGENT-REVIEW] ✅ Step 5: Individual trade analysis complete');
 
-    // Parse the response to extract priority rating if present
-    let priority = 'A';
-    if (agentResponse.includes('A+')) priority = 'A+';
-    else if (agentResponse.includes('SKIP')) priority = 'SKIP';
-    else if (agentResponse.includes('B')) priority = 'B';
+    // No grade is scraped out of the model's prose.
+    //
+    // This used to be a substring match: `.includes('B')` matched any capital
+    // B anywhere in the text, so "Bullish structure on BTC. Rating: A" graded
+    // as B. Worse, the initial value was 'A', so a response that mentioned no
+    // rating at all was emitted as a PASSING grade — and index.html used that
+    // grade to colour the trade panel while tracker.html persisted it to
+    // Firebase as part of the trade record.
+    //
+    // Ratings belong to the deterministic engine. The AI is commentary.
+    const priority = null;
 
     return res.status(200).json({
       success: true,

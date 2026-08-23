@@ -16,9 +16,50 @@ import * as strategyService from './services/strategy.js';
 import * as marketData from './services/marketData.js';
 import * as scannerService from './services/scanner.js';
 
-// Use CoinGecko as fallback if Binance is geo-restricted (for old endpoints)
-let dataService = binanceService;
-let usingFallback = false;
+/**
+ * Legacy provider selection for the pre-marketData endpoints.
+ *
+ * This was a pair of module-scope mutable variables (`dataService`,
+ * `usingFallback`) flipped in place on the first failure. Three problems, all
+ * fixed by making the choice per-request: the flip was PROCESS-GLOBAL, so one
+ * visitor's failed request degraded every later request from everyone; it was
+ * ONE-WAY, since nothing ever set `usingFallback` back to false, so a single
+ * transient blip pinned the process to the fallback until restart; and a
+ * failure on the *ticker* route silently switched the *candle* provider too.
+ * No response said which provider had served it.
+ */
+function providerChain() {
+  return [
+    { name: 'binance', service: binanceService },
+    { name: 'coingecko', service: coingeckoService }
+  ];
+}
+
+/**
+ * Try each provider in turn, returning the result plus which one produced it.
+ * Nothing is remembered between requests.
+ */
+async function withProviderFallback(operation, run) {
+  const failures = [];
+  for (const { name, service } of providerChain()) {
+    try {
+      const value = await run(service);
+      if (failures.length > 0) {
+        console.warn(`[Server] provider_transition ${JSON.stringify({
+          event: 'provider_transition', operation, used: name,
+          failed: failures.map((f) => f.provider)
+        })}`);
+      }
+      return { value, provider: name, providerFailures: failures };
+    } catch (error) {
+      failures.push({ provider: name, error: error.message });
+      console.warn(`[Server] ${name} failed for ${operation}: ${error.message}`);
+    }
+  }
+  const err = new Error(`All providers failed for ${operation}`);
+  err.providerFailures = failures;
+  throw err;
+}
 
 // ES Module dirname workaround
 const __filename = fileURLToPath(import.meta.url);
@@ -61,19 +102,10 @@ app.get('/api/data/:symbol/:interval', async (req, res) => {
 
     // Fetch data from primary service (with fallback)
     console.log(`Fetching ${symbol} ${interval} data...`);
-    let candles;
-    try {
-      candles = await dataService.fetchKlines(symbol, interval, limit);
-    } catch (error) {
-      if (!usingFallback && error.message.includes('451')) {
-        console.log('⚠️  Binance geo-restricted, switching to CoinGecko...');
-        dataService = coingeckoService;
-        usingFallback = true;
-        candles = await dataService.fetchKlines(symbol, interval, limit);
-      } else {
-        throw error;
-      }
-    }
+    const klinesResult = await withProviderFallback(`klines:${symbol}:${interval}`, (svc) =>
+      svc.fetchKlines(symbol, interval, limit)
+    );
+    const candles = klinesResult.value;
 
     // Calculate indicators
     console.log(`Calculating indicators for ${symbol} ${interval}...`);
@@ -117,19 +149,10 @@ app.get('/api/data/:symbol/:interval', async (req, res) => {
 app.get('/api/ticker/:symbol', async (req, res) => {
   try {
     const { symbol } = req.params;
-    let ticker;
-    try {
-      ticker = await dataService.fetchTickerPrice(symbol);
-    } catch (error) {
-      if (!usingFallback) {
-        console.log('⚠️  Switching to CoinGecko for ticker...');
-        dataService = coingeckoService;
-        usingFallback = true;
-        ticker = await dataService.fetchTickerPrice(symbol);
-      } else {
-        throw error;
-      }
-    }
+    const tickerResult = await withProviderFallback(`ticker:${symbol}`, (svc) =>
+      svc.fetchTickerPrice(symbol)
+    );
+    const ticker = tickerResult.value;
     res.json(ticker);
   } catch (error) {
     console.error('Error in /api/ticker:', error.message);
@@ -152,19 +175,10 @@ app.get('/api/multi/:symbol', async (req, res) => {
     console.log(`Fetching multi-timeframe data for ${symbol}:`, intervals);
 
     // Fetch all timeframes in parallel
-    let multiData;
-    try {
-      multiData = await dataService.fetchMultiTimeframe(symbol, intervals);
-    } catch (error) {
-      if (!usingFallback) {
-        console.log('⚠️  Switching to CoinGecko for multi-timeframe data...');
-        dataService = coingeckoService;
-        usingFallback = true;
-        multiData = await dataService.fetchMultiTimeframe(symbol, intervals);
-      } else {
-        throw error;
-      }
-    }
+    const multiResult = await withProviderFallback(`multi:${symbol}`, (svc) =>
+      svc.fetchMultiTimeframe(symbol, intervals)
+    );
+    const multiData = multiResult.value;
 
     // Calculate indicators for each timeframe
     const analysis = {};
@@ -189,13 +203,20 @@ app.get('/api/multi/:symbol', async (req, res) => {
     }
 
     // Get current price
-    const ticker = await dataService.fetchTickerPrice(symbol);
+    const priceResult = await withProviderFallback(`ticker:${symbol}`, (svc) =>
+      svc.fetchTickerPrice(symbol)
+    );
+    const ticker = priceResult.value;
 
     res.json({
       symbol,
       currentPrice: ticker.price,
       priceChange24h: ticker.priceChangePercent,
       analysis,
+      dataSources: {
+        candles: multiResult.provider,
+        ticker: priceResult.provider
+      },
       timestamp: new Date().toISOString()
     });
 
@@ -423,7 +444,10 @@ app.get('/api/analyze-full', async (req, res) => {
     // Fetch additional market data (spread, bid/ask, order book, recent trades)
     let marketDataInfo = null;
     try {
-      const krakenSymbol = marketData.SYMBOL_MAP?.[symbol]?.kraken || 'XBTUSD';
+      // `marketData.SYMBOL_MAP` was never exported, so this optional chain
+      // always collapsed to 'XBTUSD' — every symbol, including BTCUSDT itself,
+      // was served Bitcoin's microstructure. resolveKrakenPair throws instead.
+      const krakenSymbol = marketData.resolveKrakenPair(symbol);
       const tickerResponse = await axios.get('https://api.kraken.com/0/public/Ticker', {
         params: { pair: krakenSymbol },
         timeout: 5000
@@ -695,7 +719,14 @@ app.get('/api/crypto-news', async (req, res) => {
     }
 
     // Fetch from CryptoPanic
-    const API_KEY = process.env.CRYPTOPANIC_API_KEY || '7762b2058d34382d241b7bc409130a4c07074441';
+    // The literal key that used to sit in this `||` fallback is a live
+    // third-party credential and was committed to git in two files. It is
+    // removed; a missing env var must fail loudly rather than silently
+    // falling back to a shared secret in source.
+    const API_KEY = process.env.CRYPTOPANIC_API_KEY;
+    if (!API_KEY) {
+      throw new Error('CRYPTOPANIC_API_KEY is not configured');
+    }
     const params = new URLSearchParams({
       auth_token: API_KEY,
       filter: 'hot',
@@ -786,7 +817,7 @@ app.post('/api/parse-trade-image', async (req, res) => {
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: aiContract.AI_MODELS.vision,
         messages: [
           {
             role: 'user',
@@ -897,7 +928,7 @@ app.post('/api/agent-review', async (req, res) => {
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: aiContract.AI_MODELS.commentary,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
@@ -931,30 +962,38 @@ app.post('/api/agent-review', async (req, res) => {
     // INDIVIDUAL TRADE ANALYSIS MODE (existing)
     if (!marketSnapshot || !setupType || !symbol) {
       return res.status(400).json({ 
-        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData, systemPrompt' 
+        error: 'Missing required fields: marketSnapshot, setupType, symbol OR tradesData' 
       });
     }
 
     // Get OpenAI API key from environment variable
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      // Return success with a placeholder response for local dev (no API key)
-      // This prevents errors from showing in the UI
-      return res.status(200).json({ 
-        success: true,
+      // Fail closed. This used to return `success: true` with `priority: 'A'`
+      // — a fabricated PASSING trade grade emitted when no analysis had run at
+      // all. The client never checked the `localDev` flag, so it stored grade A
+      // and coloured the trade panel accordingly. A fallback path must never
+      // manufacture a verdict.
+      return res.status(503).json({
+        success: false,
+        reason: 'ai_unavailable',
         symbol,
         setupType,
-        priority: 'A',
-        formattedText: 'AI analysis unavailable in local development. Deploy to Vercel to enable OpenAI-powered trade analysis.',
-        timestamp: new Date().toISOString(),
-        localDev: true
+        message: 'OPENAI_API_KEY is not configured. No AI commentary was generated.',
+        timestamp: new Date().toISOString()
       });
     }
 
     console.log(`🤖 AI analyzing ${symbol} ${setupType} setup...`);
 
     // Call OpenAI API (simplified version - full logic in api/agent-review.js)
-    const tradeSystemPrompt = `You are a trading analysis AI. Analyze the ${setupType} setup for ${symbol} and provide a conversational assessment in 3-5 paragraphs. Rate it as A+, A, B, or SKIP.`;
+    // No rating is requested. The engine assigns grades; the AI explains.
+    const tradeSystemPrompt = `${aiContract.DATA_CONTRACT}
+
+---
+
+Analyze the ${setupType} setup for ${symbol} and give a conversational
+assessment in 3-5 paragraphs. Do not emit a rating, grade or score.`;
     
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -963,7 +1002,7 @@ app.post('/api/agent-review', async (req, res) => {
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: aiContract.AI_MODELS.commentary,
         messages: [
           { role: 'system', content: tradeSystemPrompt },
           { role: 'user', content: `Analyze: ${JSON.stringify(marketSnapshot)}` }
@@ -990,10 +1029,8 @@ app.post('/api/agent-review', async (req, res) => {
     }
 
     // Parse priority rating
-    let priority = 'A';
-    if (agentResponse.includes('A+')) priority = 'A+';
-    else if (agentResponse.includes('SKIP')) priority = 'SKIP';
-    else if (agentResponse.includes('B')) priority = 'B';
+    // No grade scraped from prose — see the same fix in api/agent-review.js.
+    const priority = null;
 
     console.log(`✅ AI analysis complete for ${symbol} - Priority: ${priority}`);
 

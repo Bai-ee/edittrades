@@ -3114,7 +3114,10 @@
         const analysisText = data.formattedText || data.analysis || 'Analysis complete';
         
         // Extract structured data from analysis if available
-        const priority = data.priority || 'B';
+        // UNRATED, not a default grade. The server no longer scrapes a
+        // rating out of the model's prose, so `data.priority` is null; a
+        // `|| 'B'` here would persist an invented grade to Firebase.
+        const priority = data.priority || 'UNRATED';
         const formattedText = data.formattedText || '';
         
         // Update market context from the fetched market data
