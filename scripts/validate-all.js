@@ -24,6 +24,7 @@ const SUITES = [
   { name: 'Market data integrity', script: 'scripts/validate-market-data.js', network: false },
   { name: 'Risk Manager', script: 'scripts/validate-risk-manager.js', network: false },
   { name: 'Decision desk integration', script: 'scripts/validate-decision-desk.js', network: false },
+  { name: 'Bitcoin macro core', script: 'scripts/validate-macro-core.js', network: false },
   { name: 'Bitcoin Economic Value', script: 'scripts/validate-economic-value.js', network: true }
 ];
 
