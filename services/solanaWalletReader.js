@@ -509,6 +509,17 @@ export async function getSignatures(address, opts = {}) {
 
   const warnings = [];
   const collected = [];
+  /**
+   * Seen signatures, so a page boundary cannot deliver the same transaction
+   * twice. Several public RPC providers return the `before` cursor row itself
+   * at the head of the next page, and a duplicated swap is not a harmless
+   * repeat: reconstructTrades sums it, doubling the position's quantity and
+   * notional while the record still reports a single signature (it
+   * de-duplicates `trade.signatures`) and full VERIFIED confidence. The
+   * evidence of the double is erased, so it has to be prevented here.
+   */
+  const seen = new Set();
+  let duplicates = 0;
   let before = opts.before || undefined;
   let hasMore = false;
 
@@ -526,7 +537,14 @@ export async function getSignatures(address, opts = {}) {
 
       if (!page || page.length === 0) break;
 
+      const before_ = collected.length;
+
       for (const item of page) {
+        if (!item?.signature || seen.has(item.signature)) {
+          if (item?.signature) duplicates++;
+          continue;
+        }
+        seen.add(item.signature);
         collected.push({
           signature: item.signature,
           slot: item.slot ?? null,
@@ -536,7 +554,23 @@ export async function getSignatures(address, opts = {}) {
         });
       }
 
-      before = page[page.length - 1].signature;
+      const nextBeforeSig = page[page.length - 1].signature;
+
+      /**
+       * A page that added nothing new means the cursor is not advancing —
+       * the provider is re-serving the same overlap window. Without this the
+       * de-duplication above turns the walk into an infinite loop, because
+       * `collected.length` is what the loop condition tests and it has
+       * stopped growing. Treat it as the end of the readable history and let
+       * `hasMore` below say that older history may still exist.
+       */
+      if (collected.length === before_ || nextBeforeSig === before) {
+        hasMore = true;
+        before = nextBeforeSig;
+        break;
+      }
+
+      before = nextBeforeSig;
 
       // A short page means the address history is exhausted.
       if (page.length < pageSize) break;
@@ -557,9 +591,37 @@ export async function getSignatures(address, opts = {}) {
     warnings.push('MISSING_BLOCKTIME: some signatures have no blockTime; their timestamps are null');
   }
 
+  if (duplicates > 0) {
+    warnings.push(`DUPLICATE_SIGNATURES: ${duplicates} repeated signature(s) dropped at a page boundary`);
+  }
+
+  /**
+   * TRUNCATED is a warning about the ACCOUNT, not about the RPC.
+   *
+   * `complete` here means "everything this address has done was read", which
+   * is the question every downstream consumer is really asking. A capped walk
+   * has not answered it, and saying otherwise is not a cosmetic inaccuracy:
+   * reconstructTrades matches sells against buys IN THE WINDOW, so a window
+   * that cuts the opening buys turns closed round trips into unmatched sells
+   * — NEEDS_REVIEW records with null P&L that calculateRecentPerformance
+   * counts as scratches and calculateRiskLevel counts toward its promotion
+   * gates. A truncated history does not just omit trades, it invents bad ones.
+   *
+   * Note the conservative edge: when the history length is exactly the cap,
+   * `hasMore` is true because one more page would be needed to prove
+   * otherwise. That reports a genuinely complete history as incomplete, which
+   * is the safe direction to be wrong in.
+   */
+  if (hasMore) {
+    warnings.push(
+      `TRUNCATED: stopped at the ${maxSignatures}-signature cap; older history was not read ` +
+      '(continue with the `before` cursor)'
+    );
+  }
+
   return {
     signatures: collected,
-    complete: true,
+    complete: !hasMore,
     warnings,
     hasMore,
     nextBefore: hasMore ? before : null
