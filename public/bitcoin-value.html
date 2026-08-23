@@ -1376,8 +1376,29 @@
       }
 
       const current = state.payload.current;
+
+      // A composite running on fewer anchors than the model defines is a
+      // DIFFERENT MODEL, and must never present identically to the full one.
+      // This banner previously fired only on a failed provider, meta.stale, or
+      // a stale feed — none of which trigger when an anchor drops out for the
+      // current day. The Realized Price tile would render an em-dash, the
+      // chart toggle stayed enabled, and the headline changed by tens of
+      // percent with nothing saying why.
+      if (current && current.degraded) {
+        const used = Array.isArray(current.anchorsUsed) ? current.anchorsUsed.length : '?';
+        const expected = current.anchorsExpected ?? 3;
+        problems.push(
+          `<strong>ECONOMIC VALUE DEGRADED — ${used} / ${expected} CORE ANCHORS AVAILABLE.</strong> ` +
+          'The composite has renormalised over the anchors that are present. This is not the full model, ' +
+          'and the valuation state is scored against a distribution built mostly from full-anchor readings.'
+        );
+      }
+
       if (current && current.dataAgeDays > 3) {
-        problems.push(`The on-chain feed is ${current.dataAgeDays} days behind the price feed.`);
+        problems.push(
+          `The on-chain data is ${current.dataAgeDays} days old (latest row ${current.latestDataDate}), ` +
+          'while the headline price is live.'
+        );
       }
 
       if (!problems.length) {

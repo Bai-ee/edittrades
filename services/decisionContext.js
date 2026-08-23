@@ -148,8 +148,8 @@ export function buildRiskBlock(plan) {
     marginMode: plan.trade?.marginMode ?? null,
     stopDistancePct: plan.trade?.stopDistancePct ?? null,
     plannedLossUsd: plan.trade?.lossAtStop ?? null,
-    riskReward: plan.trade?.riskReward ?? null,
-    totalOpenRiskPct: plan.portfolio?.after?.totalOpenRiskPct ?? null,
+    riskReward: plan.riskReward?.available ? plan.riskReward.ratio ?? plan.riskReward.label ?? null : null,
+    totalOpenRiskPct: plan.portfolio?.after?.openRiskPct ?? null,
     exposurePct: plan.exposure?.after?.notionalExposurePct ?? null,
     concentration: plan.concentration?.label ?? null,
     liquidation: plan.liquidation?.available

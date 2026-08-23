@@ -100,8 +100,26 @@ function readCache(key, ttl) {
   return entry;
 }
 
+/**
+ * Maximum age at which a stale cache entry is still worth serving.
+ *
+ * readStaleCache had no bound at all, so after a long provider outage the API
+ * would keep serving an arbitrarily old series with only a `stale` flag to say
+ * so. Past two days a valuation built on that history is not a degraded
+ * reading of the present, it is a reading of a different market.
+ */
+const MAX_STALE_AGE_MS = 48 * 60 * 60 * 1000;
+
 function readStaleCache(key) {
-  return cache.get(key) || null;
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.storedAt > MAX_STALE_AGE_MS) {
+    console.warn(
+      `[BitcoinData] Cache entry for ${key} is older than ${MAX_STALE_AGE_MS / 3600000}h; refusing to serve it.`
+    );
+    return null;
+  }
+  return entry;
 }
 
 function writeCache(key, value) {
@@ -197,12 +215,14 @@ function deriveRealizedCap(row) {
 function normalizeCoinMetricsRows(rows) {
   const out = [];
   let derivedCount = 0;
+  let nullCount = 0;
 
   for (const row of rows) {
     if (!row || typeof row.time !== 'string') continue;
     const date = row.time.slice(0, 10);
     const realized = deriveRealizedCap(row);
     if (realized.derived) derivedCount++;
+    else if (realized.value === null) nullCount++;
 
     out.push({
       date,
@@ -215,7 +235,7 @@ function normalizeCoinMetricsRows(rows) {
     });
   }
 
-  return { rows: out, realizedCapDerivedRows: derivedCount };
+  return { rows: out, realizedCapDerivedRows: derivedCount, realizedCapNullRows: nullCount };
 }
 
 /* ========================================================================
@@ -353,12 +373,24 @@ export async function getBitcoinEconomicSeries(options = {}) {
       // Surfaced so the page can say whether realized cap was measured
       // directly or recovered from MVRV x market cap.
       realizedCapDerivedRows: normalized.realizedCapDerivedRows,
+      realizedCapNullRows: normalized.realizedCapNullRows,
+      // The unavailable case must be reported as unavailable.
+      //
+      // This label used to read `derivedRows === 0 ? 'CapRealUSD (direct)'`,
+      // and deriveRealizedCap returns `derived: false` when BOTH CapRealUSD
+      // and CapMVRVCur are missing. So in the exact scenario this field exists
+      // to detect — the realized-cap anchor dying entirely — it affirmatively
+      // reported "CapRealUSD (direct)" while realizedCap was null on every row
+      // and the composite had silently dropped to two anchors. The tripwire
+      // inverted under the failure it was meant to catch.
       realizedCapSource:
-        normalized.realizedCapDerivedRows === 0
-          ? 'CapRealUSD (direct)'
-          : normalized.realizedCapDerivedRows === rows.length
-            ? 'derived from CapMrktCurUSD / CapMVRVCur'
-            : 'mixed: CapRealUSD where published, otherwise derived from MVRV'
+        normalized.realizedCapNullRows === rows.length
+          ? 'UNAVAILABLE — neither CapRealUSD nor CapMVRVCur was served'
+          : normalized.realizedCapDerivedRows === 0
+            ? 'CapRealUSD (direct)'
+            : normalized.realizedCapDerivedRows + normalized.realizedCapNullRows === rows.length
+              ? 'derived from CapMrktCurUSD / CapMVRVCur'
+              : 'mixed: CapRealUSD where published, otherwise derived from MVRV'
     };
   } catch (error) {
     console.error('[BitcoinData] Coin Metrics unavailable:', error.message);
