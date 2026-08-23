@@ -6,6 +6,8 @@
  * Returns structured feedback for learning and improvement
  */
 
+import aiContract from '../services/aiContract.js';
+
 export default async function handler(req, res) {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -136,7 +138,7 @@ Keep each section concise (2-3 sentences max). Be honest but constructive.`;
         'Authorization': `Bearer ${openaiApiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: aiContract.AI_MODELS.commentary,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }

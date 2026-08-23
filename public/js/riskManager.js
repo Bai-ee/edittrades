@@ -281,7 +281,10 @@ export function calculateStopDistance({ entry, stop, direction }) {
   if (!dir) return { valid: false, error: 'Direction must be LONG or SHORT' };
   if (!isPositiveNumber(entry)) return { valid: false, error: 'Entry must be a positive number' };
   if (!isPositiveNumber(stop)) return { valid: false, error: 'Stop must be a positive number' };
-  if (entry === stop) return { valid: false, error: 'Stop cannot equal entry' };
+  // Epsilon, not exact equality. `entry === stop` let a stop 1e-10 away pass,
+  // producing a $2.5e14 notional on a $25,000 wallet at nominally 1% risk.
+  const rawDistance = Math.abs(entry - stop) / entry;
+  if (rawDistance < 1e-9) return { valid: false, error: 'Stop cannot equal entry' };
 
   if (dir === 'LONG' && stop > entry) {
     return { valid: false, error: 'For a LONG, the stop must be below entry' };
@@ -312,7 +315,26 @@ export function calculateAllowedRisk({ walletBalance, riskPct, policy = DEFAULT_
     return { valid: false, error: 'Trading wallet balance must be a positive number' };
   }
 
-  const requested = isPositiveNumber(riskPct) ? riskPct : policy.defaultRiskPerTradePct;
+  // ABSENT and INVALID are different, and used to be conflated.
+  //
+  // `isPositiveNumber(riskPct) ? riskPct : default` meant 0, -1, NaN and "abc"
+  // ALL silently became the 1% default and produced a fully-sized position —
+  // on a $25k wallet, a $7,200 notional — with nothing in the result saying a
+  // substitution had happened. risk.html feeds this from a free-text field, so
+  // clearing the box or typing a lone "-" mid-entry sized a real trade.
+  //
+  // Absent (undefined/null/'') still falls back to the policy default, but
+  // says so via usedDefaultRisk. Anything present-but-invalid is an error.
+  const absent = riskPct === undefined || riskPct === null || riskPct === '';
+  if (!absent && !isPositiveNumber(riskPct)) {
+    return {
+      valid: false,
+      error: 'Risk percent must be a positive number'
+    };
+  }
+
+  const requested = absent ? policy.defaultRiskPerTradePct : riskPct;
+  const usedDefaultRisk = absent;
   if (!isPositiveNumber(requested)) {
     return { valid: false, error: 'Risk percent must be a positive number' };
   }
@@ -325,6 +347,7 @@ export function calculateAllowedRisk({ walletBalance, riskPct, policy = DEFAULT_
   return {
     valid: true,
     riskPct: requested,
+    usedDefaultRisk,
     allowedRisk: walletBalance * toFraction(requested),
     policyMaxPct: policy.maxRiskPerTradePct,
     exceedsPolicy
@@ -404,17 +427,62 @@ export function calculateRequiredMargin({ notional, leverage = 1 }) {
  * At 1x there is no liquidation for a long (price would have to reach zero),
  * so null is returned with a reason rather than a misleading number.
  */
-export function estimateLiquidation({ entry, direction, leverage = 1, policy = DEFAULT_RISK_POLICY }) {
+export function estimateLiquidation({
+  entry,
+  direction,
+  leverage = 1,
+  marginMode = 'isolated',
+  instrument = 'perpetual',
+  policy = DEFAULT_RISK_POLICY
+}) {
   const dir = normalizeDirection(direction);
   if (!dir) return { available: false, reason: 'Direction must be LONG or SHORT' };
   if (!isPositiveNumber(entry)) return { available: false, reason: 'Entry must be a positive number' };
   if (!isPositiveNumber(leverage)) return { available: false, reason: 'Leverage must be a positive number' };
+
+  const mode = String(marginMode).toLowerCase() === 'cross' ? 'cross' : 'isolated';
+
+  // Cross margin is NOT modelled, and is refused rather than approximated.
+  //
+  // The closed form below solves a single isolated position against its own
+  // margin. Under cross margin, liquidation is an account-level quantity that
+  // moves whenever ANY other position moves — the per-position formula is not
+  // imprecise there, it is answering a different question. This function
+  // previously hardcoded `marginMode: 'isolated'` and ignored the caller's
+  // choice entirely, so a cross-margin trade was shown an isolated number.
+  if (mode === 'cross') {
+    return {
+      available: false,
+      reason: 'LIQUIDATION DEPENDS ON ACCOUNT / EXCHANGE MARGIN STATE',
+      detail:
+        'Under cross margin, liquidation is determined by total account equity and every open position, ' +
+        'not by this trade alone. No per-position estimate is meaningful.',
+      marginMode: 'cross',
+      isEstimate: false
+    };
+  }
+
+  // Spot cannot be liquidated: there is no borrowed margin to call.
+  if (instrument === 'spot') {
+    return {
+      available: false,
+      notApplicable: true,
+      reason: 'Not applicable — a spot position cannot be liquidated',
+      marginMode: 'spot',
+      isEstimate: false
+    };
+  }
 
   const maintenanceRate = toFraction(policy.liquidation.maintenanceMarginRatePct);
 
   if (leverage <= 1) {
     return {
       available: false,
+      // Distinct from "we could not tell". At 1x-long there is genuinely
+      // nothing to liquidate, and the policy checklist scores this as a PASS
+      // rather than an unknown — otherwise the safest configuration on the
+      // page graded worse than a leveraged one.
+      notApplicable: dir === 'LONG',
       reason: dir === 'LONG'
         ? 'No liquidation at 1x — an unleveraged long is only lost if price reaches zero'
         : 'Unleveraged short liquidation depends on the venue and collateral model',
@@ -422,11 +490,40 @@ export function estimateLiquidation({ entry, direction, leverage = 1, policy = D
     };
   }
 
-  const move = 1 / leverage - maintenanceRate;
-  const price = dir === 'LONG' ? entry * (1 - move) : entry * (1 + move);
+  // Above 1/maintenanceRate (200x at the default 0.5%) the position is already
+  // below maintenance at entry. The old first-order form let `move` go
+  // negative and returned a liquidation price on the WRONG SIDE of entry —
+  // 72,288 for a long entered at 72,000 — which at 201x looks plausible.
+  if (leverage >= 1 / maintenanceRate) {
+    return {
+      available: false,
+      reason:
+        'Leverage exceeds the maintenance-margin threshold — the position would be liquidatable at entry',
+      isEstimate: true
+    };
+  }
+
+  // Exact isolated-margin solve (equity = maintenance margin), not the
+  // first-order `entry * (1 -/+ (1/L - mmr))` approximation. The old form was
+  // conservative for longs but ANTI-conservative for shorts: it reported more
+  // room than the model implies, by about entry * mmr / L. The exact form
+  // costs one division.
+  const price =
+    dir === 'LONG'
+      ? (entry * (1 - 1 / leverage)) / (1 - maintenanceRate)
+      : (entry * (1 + 1 / leverage)) / (1 + maintenanceRate);
 
   if (!isPositiveNumber(price)) {
     return { available: false, reason: 'Leverage too high to estimate a meaningful liquidation price', isEstimate: true };
+  }
+
+  // Sanity: a long's liquidation must sit below entry and a short's above it.
+  if ((dir === 'LONG' && price >= entry) || (dir === 'SHORT' && price <= entry)) {
+    return {
+      available: false,
+      reason: 'Liquidation estimate did not resolve to the correct side of entry',
+      isEstimate: true
+    };
   }
 
   return {
@@ -436,7 +533,8 @@ export function estimateLiquidation({ entry, direction, leverage = 1, policy = D
     distance: Math.abs(entry - price) / entry,
     distancePct: toPercent(Math.abs(entry - price) / entry),
     assumptions: {
-      marginMode: 'isolated',
+      marginMode: mode,
+      instrument,
       maintenanceMarginRatePct: policy.liquidation.maintenanceMarginRatePct,
       /**
        * Each caveat maps to a specific mechanism that breaks the closed form,
@@ -653,7 +751,13 @@ export function detectCorrelatedExposure({ positions = [], policy = DEFAULT_RISK
         directionRisk,
         riskSharePct,
         trigger: concentrated ? (byCount ? 'position-count' : 'risk-share') : null,
-        label: concentrated ? `CORRELATED ${direction} EXPOSURE` : null,
+        // DIRECTIONAL CONCENTRATION, not "CORRELATED". This rule counts
+        // same-direction positions and their share of risk; it never sees a
+        // price series and computes no correlation. Three unrelated assets —
+        // BTC, gold, EUR — all long produced "CORRELATED LONG EXPOSURE", which
+        // asserts a measurement that was never made. The engine's own comments
+        // were honest about this; the user-facing label was not.
+        label: concentrated ? `DIRECTIONAL ${direction} CONCENTRATION` : null,
         positions: matching.map((p) => p.asset || p.symbol).filter(Boolean)
       };
     }
@@ -726,6 +830,31 @@ export function evaluateRiskPolicy({
     add('exposure', 'Exposure within policy', 'unknown', 'Exposure unavailable');
   }
 
+  // 3b. Aggregate notional exposure
+  //
+  // calculateExposure has always computed `exceedsNotionalPolicy`, but nothing
+  // read it on the planned-trade path — it appeared only in summarizeAccount,
+  // which runs on the SAVED book and excludes the trade being planned. So the
+  // cap the UI advertises as catching "a tight stop sizing to a huge position
+  // at nominally low risk" did not fire: a 0.4% stop at 20x produced a $62,500
+  // notional on a $25,000 wallet (250%) and reported WITHIN PLAN with 7/7
+  // checks passed. Margin utilisation only caught it below ~6.7x leverage, and
+  // maxLeverage is a user-editable field.
+  if (exposureAfter && Number.isFinite(exposureAfter.notionalExposurePct) &&
+      Number.isFinite(policy.maxNotionalExposurePct)) {
+    const over = exposureAfter.notionalExposurePct > policy.maxNotionalExposurePct;
+    add(
+      'notional-exposure',
+      'Notional exposure within policy',
+      over ? 'fail' : 'pass',
+      `${round(exposureAfter.notionalExposurePct, 1)}% of wallet vs ${policy.maxNotionalExposurePct}% max`
+    );
+  } else if (policy.maxNotionalExposurePct === null) {
+    add('notional-exposure', 'Notional exposure within policy', 'pass', 'No notional cap configured');
+  } else {
+    add('notional-exposure', 'Notional exposure within policy', 'unknown', 'Notional exposure unavailable');
+  }
+
   // 4. Leverage
   if (trade && Number.isFinite(trade.leverage)) {
     const over = trade.leverage > policy.maxLeverage;
@@ -757,6 +886,15 @@ export function evaluateRiskPolicy({
         ? `Est. liquidation ${round(liquidation.price, 2)} would trigger before the stop`
         : `Est. liquidation ${round(liquidation.price, 2)}, buffer ${round(bufferShare, 0)}% of stop distance`
     );
+  } else if (liquidation && liquidation.notApplicable) {
+    // "No liquidation is possible here" is a PASS, not an unknown. Scoring it
+    // unknown meant a clean 1x trade — the lowest-risk configuration on the
+    // page — graded CAUTION while the same trade at 2x graded WITHIN PLAN.
+    add('liquidation', 'Stop before estimated liquidation', 'pass', liquidation.reason);
+  } else if (liquidation && liquidation.marginMode === 'cross') {
+    // Genuinely unknown, and deliberately so: cross-margin liquidation is an
+    // account-level quantity this tool does not model.
+    add('liquidation', 'Stop before estimated liquidation', 'unknown', liquidation.reason);
   } else {
     add(
       'liquidation',
@@ -799,7 +937,7 @@ export function evaluateRiskPolicy({
       'Directional concentration',
       overCorrelatedCap ? 'fail' : concentration.concentrated ? 'warn' : 'pass',
       overCorrelatedCap
-        ? `${round(directionRiskPct, 2)}% of wallet risked ${concentration.direction} vs ${policy.maxCorrelatedDirectionRiskPct}% correlated cap`
+        ? `${round(directionRiskPct, 2)}% of wallet risked ${concentration.direction} vs ${policy.maxCorrelatedDirectionRiskPct}% same-direction cap`
         : concentration.concentrated
           ? `${concentration.count} ${concentration.direction} positions, ${round(concentration.riskSharePct, 0)}% of open risk`
           : 'No obvious directional concentration'
@@ -895,7 +1033,16 @@ export function planTrade({
   }
 
   const marginCheck = calculateRequiredMargin({ notional: sizing.notional, leverage });
-  const liquidation = estimateLiquidation({ entry: trade.entry, direction, leverage, policy });
+  const marginMode = trade.marginMode || 'isolated';
+  const instrument = trade.instrument || 'perpetual';
+  const liquidation = estimateLiquidation({
+    entry: trade.entry,
+    direction,
+    leverage,
+    marginMode,
+    instrument,
+    policy
+  });
   const riskReward = calculateRiskReward({
     entry: trade.entry,
     stop: trade.stop,
@@ -936,7 +1083,12 @@ export function planTrade({
     margin: marginCheck.margin,
     stopDistance: stopCheck.distance,
     stopDistancePct: stopCheck.distancePct,
-    lossAtStop: sizing.lossAtStop
+    lossAtStop: sizing.lossAtStop,
+    // Surfaced so the caller can persist and display the semantics the
+    // liquidation estimate actually assumed, rather than inferring them.
+    marginMode,
+    instrument,
+    usedDefaultRisk: riskCheck.usedDefaultRisk === true
   };
 
   const evaluation = evaluateRiskPolicy({

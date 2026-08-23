@@ -5549,7 +5549,11 @@
         };
         
         // Display the formatted response
-        const priorityColor = 
+        // Neutral unless the DETERMINISTIC engine supplied a grade. This used
+        // to colour the panel from a rating scraped out of AI prose by
+        // substring match, so "Bullish structure on BTC" graded as B and an
+        // ungraded response defaulted to A.
+        const priorityColor =
           result.priority === 'A+' ? '#22c55e' :
           result.priority === 'A' ? '#3b82f6' :
           result.priority === 'B' ? '#f59e0b' : '#6b7280';
