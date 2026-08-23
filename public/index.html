@@ -843,6 +843,30 @@
       color: var(--color-yellow-75);
     }
 
+    /* System health indicator. Quiet by default, never absent when it matters. */
+    .system-health-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 8px;
+      border: 1px solid currentColor;
+      border-radius: 2px;
+      background: transparent;
+      font-family: var(--font-mathias);
+      font-size: 0.7rem;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      color: var(--color-yellow-75);
+    }
+    .system-health-badge::before {
+      content: '';
+      width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor;
+    }
+    /* Severity 3 is a failed feed: the operator should not trade on it. */
+    .system-health-badge[data-severity="3"] { color: #ef4444; }
+    .system-health-badge[data-severity="2"] { color: #f59e0b; }
+
     .eco-home-state {
       font-family: var(--font-mathias);
       font-size: 0.6875rem;
@@ -956,6 +980,9 @@
         <div id="active-signals" style="display: flex; align-items: center; gap: 8px;">
           <span id="signals-count" style="font-weight: bold; color: var(--color-yellow-75);">0 SIGNALS</span>
         </div>
+        <!-- System health. Hidden while everything is OK: a badge that is
+             always lit is one the operator learns to stop reading. -->
+        <button type="button" id="systemHealthIndicator" class="system-health-badge" hidden></button>
       </div>
       
       <!-- Top Right Actions -->
@@ -2533,10 +2560,41 @@
             anchors: bitcoinEconomicValue.anchors,
             mvrv: bitcoinEconomicValue.context ? bitcoinEconomicValue.context.mvrv : null,
             puell: bitcoinEconomicValue.context ? bitcoinEconomicValue.context.puell : null,
-            convergence: bitcoinEconomicValue.convergence
+            // Only report convergence when it is actually available. The old
+            // unconditional string produced "0/0 anchors agree (UNAVAILABLE)",
+            // which reads to a model as a measurement of total disagreement
+            // rather than as an absent metric.
+            convergence: bitcoinEconomicValue.convergence && bitcoinEconomicValue.convergence.available
               ? `${bitcoinEconomicValue.convergence.within}/${bitcoinEconomicValue.convergence.total} anchors agree (${bitcoinEconomicValue.convergence.agreement})`
               : null,
+            priceSource: bitcoinEconomicValue.priceSource || null,
             note: 'Pre-computed valuation reference. Not a trade signal. A premium is not bearish and a discount is not bullish on its own.'
+          };
+
+          // Source health travels WITH the values.
+          //
+          // The endpoint deliberately publishes meta.sources, meta.stale,
+          // anchorStatus and priceSource, and the client discarded all of it —
+          // so a stale, single-anchor reading reached the model looking
+          // identical to a healthy one. The data contract requires the model
+          // to open by naming degradation, which it can only do if told.
+          allTradesData.DATA_HEALTH = {
+            macro: {
+              degraded: bitcoinEconomicValue.degraded === true,
+              anchorsUsed: bitcoinEconomicValue.anchorsUsed || null,
+              anchorsExpected: bitcoinEconomicValue.anchorsExpected ?? 3,
+              dataAgeDays: bitcoinEconomicValue.dataAgeDays ?? null,
+              latestDataDate: bitcoinEconomicValue.latestDataDate ?? null,
+              stale: Boolean(bitcoinEconomicMeta && bitcoinEconomicMeta.stale),
+              dataFetchedAt: bitcoinEconomicMeta ? bitcoinEconomicMeta.dataFetchedAt : null,
+              failedProviders: Object.entries((bitcoinEconomicMeta && bitcoinEconomicMeta.sources) || {})
+                .filter(([, info]) => info && info.status === 'failed')
+                .map(([name]) => name)
+            }
+          };
+        } else {
+          allTradesData.DATA_HEALTH = {
+            macro: { available: false, reason: 'Bitcoin Economic Value could not be loaded' }
           };
         }
 
@@ -2686,7 +2744,10 @@
           },
           body: JSON.stringify({
             tradesData: allTradesData,
-            systemPrompt: `When analyzing trade JSON, respond with direct, concise market insight. Avoid technical jargon unless necessary. Focus on what the market is behaving like rather than what indicators say. Identify whether assets influence each other and call out any shared momentum or correlation. If no trades appear, state why the structure isn't clean. ${toneGuidance} Tone should be confident, observational, and actionable—similar to a seasoned trader explaining what they see without fluff. Always keep responses tight, honest, and rooted in the bigger picture sentiment behind the data, not just the numbers. If BITCOIN_ECONOMIC_VALUE is present you may interpret it as longer-term valuation context, but you must never recalculate it, estimate any anchor that is null, or treat a premium or discount as a buy or sell signal. Keep your response to 1-2 sentences maximum.`
+            // No systemPrompt. It is fixed server-side and the endpoint now
+            // rejects the key: a client-supplied system message meant every
+            // guardrail here was text an attacker could replace.
+            tone: toneGuidance ? 'guided' : 'neutral'
           })
         });
         
@@ -3379,6 +3440,80 @@
      * context (see getAIMarketReview).
      * =============================================================== */
     let bitcoinEconomicValue = null;
+    let bitcoinEconomicMeta = null;
+
+    /* ==================================================================
+     * SYSTEM HEALTH INDICATOR
+     *
+     * Deliberately silent when everything is fine. A badge that is always
+     * lit teaches the operator to stop reading it, and then it is worse
+     * than nothing on the day it matters.
+     * =============================================================== */
+    const systemHealthState = { macro: null, marketData: null };
+
+    function updateSystemHealthIndicator() {
+      const el = document.getElementById('systemHealthIndicator');
+      if (!el) return;
+
+      const problems = [];
+
+      const current = bitcoinEconomicValue;
+      const meta = bitcoinEconomicMeta;
+
+      if (current === null) {
+        problems.push({ severity: 3, label: 'MACRO UNAVAILABLE', detail: 'Bitcoin Economic Value could not be loaded.' });
+      } else {
+        // A composite renormalised over fewer anchors is a different model.
+        if (current.degraded) {
+          const used = Array.isArray(current.anchorsUsed) ? current.anchorsUsed.length : '?';
+          problems.push({
+            severity: 2,
+            label: 'MACRO DEGRADED',
+            detail: `Economic Value is running on ${used} of ${current.anchorsExpected ?? 3} core anchors. ` +
+                    'This is not the full model.'
+          });
+        }
+        if (meta && meta.stale) {
+          problems.push({ severity: 2, label: 'MACRO STALE', detail: 'Serving a cached macro series; providers were unreachable.' });
+        }
+        if (Number.isFinite(current.dataAgeDays) && current.dataAgeDays > 3) {
+          problems.push({
+            severity: 2,
+            label: 'MACRO STALE',
+            detail: `On-chain data is ${current.dataAgeDays} days old (latest ${current.latestDataDate}).`
+          });
+        }
+        const failed = Object.entries((meta && meta.sources) || {})
+          .filter(([, info]) => info && info.status === 'failed')
+          .map(([name]) => name);
+        if (failed.length) {
+          problems.push({ severity: 2, label: 'PROVIDER DOWN', detail: `Unreachable: ${failed.join(', ')}.` });
+        }
+      }
+
+      if (systemHealthState.marketData && systemHealthState.marketData.failed > 0) {
+        problems.push({
+          severity: 3,
+          label: 'MARKET DATA UNAVAILABLE',
+          detail: `${systemHealthState.marketData.failed} symbol(s) returned no market data.`
+        });
+      }
+
+      if (!problems.length) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+
+      problems.sort((a, b) => b.severity - a.severity);
+      el.hidden = false;
+      el.textContent = problems[0].label;
+      el.dataset.severity = String(problems[0].severity);
+      el.title = problems.map((p) => `${p.label} — ${p.detail}`).join('\n');
+      el.onclick = () => {
+        alert(problems.map((p) => `${p.label}\n${p.detail}`).join('\n\n'));
+      };
+    }
 
     // Same long / short / neutral language the rest of the app uses, driven by
     // the server's percentile-calibrated valuation state so the number and the
@@ -3408,6 +3543,12 @@
         if (!current) throw new Error('No current reading');
 
         bitcoinEconomicValue = current;
+        // Keep meta. It carries source status, staleness and the fetch time —
+        // everything needed to tell a degraded reading from a healthy one. It
+        // used to be discarded here, so the AI and the home card both received
+        // a value with no way to know whether it was trustworthy.
+        bitcoinEconomicMeta = payload.meta || null;
+        updateSystemHealthIndicator();
 
         document.getElementById('ecoHomePrice').textContent = formatEcoUsd(current.price);
         document.getElementById('ecoHomeValue').textContent = formatEcoUsd(current.economicValue);

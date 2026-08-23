@@ -468,6 +468,11 @@ export async function saveTrade(trade) {
     walletAtEntry: trade.walletAtEntry ?? profile.walletBalance ?? null,
     policyAtEntry: trade.policyAtEntry ?? profile.policy ?? null,
     riskStatusAtEntry: trade.riskStatusAtEntry ?? null,
+    // What the liquidation estimate assumed, and which checks failed.
+    marginMode: trade.marginMode ?? 'isolated',
+    instrument: trade.instrument ?? 'perpetual',
+    warnings: Array.isArray(trade.warnings) ? trade.warnings : [],
+    costsAtEntry: trade.costsAtEntry ?? null,
 
     // Context captured for the future research hook. Recorded, never used to
     // adjust sizing — that would need backtesting first.

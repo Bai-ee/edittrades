@@ -15,6 +15,19 @@
   <link rel="stylesheet" href="/edittrax-styles.css">
   <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
   <style>
+    /* Liquidation caveats — deliberately quiet but always present. An estimate
+       whose assumptions are invisible reads to the user as a measurement. */
+    .rm-caveats {
+      margin-top: 0.75rem;
+      padding: 0.75rem 0.875rem;
+      border-left: 2px solid currentColor;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      opacity: 0.7;
+    }
+    .rm-caveats ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+    .rm-caveats li { margin-bottom: 0.25rem; }
+
     html { overflow-x: hidden; width: 100%; max-width: 100%; box-sizing: border-box; }
     body {
       overflow-x: hidden; width: 100%; max-width: 100%;
@@ -553,6 +566,21 @@
           <label for="fRisk">Risk %</label>
           <input class="rm-input" id="fRisk" type="number" inputmode="decimal" placeholder="1" min="0" step="any">
         </div>
+        <div class="rm-field">
+          <label for="fInstrument">Instrument</label>
+          <select class="rm-input" id="fInstrument">
+            <option value="perpetual">Perpetual</option>
+            <option value="margin">Margin</option>
+            <option value="spot">Spot</option>
+          </select>
+        </div>
+        <div class="rm-field">
+          <label for="fMarginMode">Margin Mode</label>
+          <select class="rm-input" id="fMarginMode">
+            <option value="isolated">Isolated</option>
+            <option value="cross">Cross</option>
+          </select>
+        </div>
       </div>
 
       <!-- RESULT ------------------------------------------------------->
@@ -597,6 +625,11 @@
             <div class="rm-metric-sub">Size in asset</div>
           </div>
         </div>
+
+        <!-- Liquidation caveats. The engine has always produced these; the
+             page never showed them. An estimate whose assumptions are invisible
+             reads as a measurement. -->
+        <div class="rm-caveats" id="liqCaveats" hidden></div>
 
         <div class="rm-slider-row">
           <div class="eco-label" style="white-space: nowrap;">Position Size</div>
@@ -789,7 +822,7 @@
     function boot() {
       const profile = loadRiskProfile();
       state.profile = profile;
-      state.policy = { ...DEFAULT_RISK_POLICY, ...(profile.policy || {}) };
+      state.policy = mergePolicy(profile.policy);
       state.positions = loadLivePositions();
 
       const hasWallet = Number.isFinite(profile.walletBalance) && profile.walletBalance > 0;
@@ -847,7 +880,12 @@
         stop: num(document.getElementById('fStop').value),
         target: num(document.getElementById('fTarget').value),
         leverage: num(document.getElementById('fLeverage').value) || 1,
-        riskPct: num(document.getElementById('fRisk').value)
+        riskPct: num(document.getElementById('fRisk').value),
+        // Liquidation semantics depend on both. Under cross margin the engine
+        // refuses a per-position estimate rather than showing an isolated
+        // number for an account-level quantity.
+        instrument: document.getElementById('fInstrument').value,
+        marginMode: document.getElementById('fMarginMode').value
       };
     }
 
@@ -863,9 +901,48 @@
      * All numbers below come from the deterministic engine. Nothing on
      * this page derives a risk figure of its own.
      * ============================================================= */
+    /**
+     * Deep-merge a stored policy over the defaults.
+     *
+     * A shallow spread let a partial stored sub-object REPLACE a default
+     * wholesale, so a policy missing `costs` or `liquidation` made planTrade
+     * throw on destructuring — and with no error boundary the page kept the
+     * previous numbers on screen next to the new form values, then saved them.
+     */
+    function mergePolicy(stored) {
+      const merged = { ...DEFAULT_RISK_POLICY, ...(stored || {}) };
+      for (const key of ['costs', 'liquidation', 'concentration']) {
+        merged[key] = { ...DEFAULT_RISK_POLICY[key], ...((stored || {})[key] || {}) };
+      }
+      return merged;
+    }
+
     function recalculate() {
+      try {
+        recalculateInner();
+      } catch (error) {
+        // Never leave stale numbers on screen beside new inputs: that is the
+        // state in which a user saves a plan that was computed from something
+        // else entirely.
+        console.error('[Risk] Calculation failed:', error);
+        state.plan = null;
+        const card = document.getElementById('resultCard');
+        if (card) card.classList.add('is-error');
+        const head = document.getElementById('resHeadLabel');
+        if (head) head.textContent = `Calculation failed — ${error.message}`;
+        ['resNotional', 'resMargin', 'resRisk', 'resStopDist', 'resLiq', 'resRR', 'resUnits']
+          .forEach((id) => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
+        const saveBtn = document.getElementById('saveTradeBtn');
+        if (saveBtn) saveBtn.disabled = true;
+      }
+    }
+
+    function recalculateInner() {
       const wallet = state.profile?.walletBalance;
       if (!Number.isFinite(wallet) || wallet <= 0) return;
+
+      const card = document.getElementById('resultCard');
+      if (card) card.classList.remove('is-error');
 
       // First pass at the slider's neutral position gives the recommended
       // size; the slider then scales that. Without this two-pass approach the
@@ -936,11 +1013,52 @@
       document.getElementById('resStopDist').textContent = pct(t.stopDistancePct);
       document.getElementById('resStopSub').textContent = `stop ${usd(t.stop)}`;
 
+      // Liquidation.
+      //
+      // The engine has always carried five caveats explaining exactly why this
+      // number is an estimate; none of them ever reached the page, which showed
+      // only "$57,960 / 3.5% away / estimate". They are rendered now, and under
+      // cross margin no price is shown at all.
       const liq = plan.liquidation;
-      document.getElementById('resLiq').textContent = liq.available ? usd(liq.price) : 'N/A';
-      document.getElementById('resLiqSub').textContent = liq.available
-        ? `${pct(liq.distancePct, 1)} away · estimate`
-        : (liq.reason || '').slice(0, 48);
+      const liqEl = document.getElementById('resLiq');
+      const liqSub = document.getElementById('resLiqSub');
+
+      if (liq.available) {
+        liqEl.textContent = usd(liq.price);
+        liqSub.textContent = `${pct(liq.distancePct, 1)} away · EST. · isolated`;
+        liqSub.title = (liq.assumptions?.caveats || []).join('\n\n');
+      } else if (liq.marginMode === 'cross') {
+        liqEl.textContent = 'N/A';
+        liqEl.style.fontSize = '0.7em';
+        liqSub.textContent = 'LIQUIDATION DEPENDS ON ACCOUNT / EXCHANGE MARGIN STATE';
+        liqSub.title = liq.detail || '';
+      } else {
+        liqEl.textContent = liq.notApplicable ? 'N/A' : '—';
+        liqEl.style.fontSize = '';
+        liqSub.textContent = (liq.reason || '').slice(0, 72);
+        liqSub.title = liq.reason || '';
+      }
+
+      // Full caveat text, visible rather than only on hover.
+      const caveatEl = document.getElementById('liqCaveats');
+      if (caveatEl) {
+        const caveats = liq.available ? (liq.assumptions?.caveats || []) : [];
+        if (caveats.length) {
+          caveatEl.hidden = false;
+          caveatEl.innerHTML =
+            '<strong>Liquidation estimate assumes:</strong><ul>' +
+            caveats.map((c) => `<li>${c}</li>`).join('') +
+            '</ul>';
+        } else if (liq.marginMode === 'cross') {
+          caveatEl.hidden = false;
+          caveatEl.innerHTML =
+            '<strong>No liquidation estimate under cross margin.</strong> ' +
+            'Liquidation is determined by total account equity and every open position, not by this trade alone. ' +
+            'Switch to Isolated for an estimate, or read it from your exchange.';
+        } else {
+          caveatEl.hidden = true;
+        }
+      }
 
       const rr = plan.riskReward;
       document.getElementById('resRR').textContent = rr.available ? rr.label : '—';
@@ -1348,6 +1466,13 @@
       });
     });
 
+    // Instrument and margin mode change liquidation semantics, so they must
+    // trigger a recalculation like any other input.
+    ['fInstrument', 'fMarginMode'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', () => { readForm(); recalculate(); });
+    });
+
     document.querySelectorAll('.rm-direction button').forEach((btn) => {
       btn.addEventListener('click', () => {
         setDirection(btn.dataset.dir);
@@ -1426,14 +1551,43 @@
         riskReward: plan.riskReward.available ? plan.riskReward.ratio : null,
         riskStatusAtEntry: plan.status,
         policyAtEntry: state.policy,
+        // Semantics the liquidation estimate assumed, persisted with the trade
+        // so a later review knows what model produced the number.
+        marginMode: t.marginMode || 'isolated',
+        instrument: t.instrument || 'perpetual',
+        // Which checks actually failed or warned. Previously only the single
+        // status string was kept, so a trade saved as ABOVE PLAN carried no
+        // record of WHAT was breached — which is most of the value of a
+        // planned-vs-actual history.
+        warnings: (plan.evaluation?.checks || [])
+          .filter((c) => c.state === 'fail' || c.state === 'warn')
+          .map((c) => `${c.state.toUpperCase()} ${c.label}: ${c.detail}`),
+        // Modelled costs at plan time; computed and displayed, then discarded.
+        costsAtEntry: plan.costs || null,
         // Recorded for the future research hook. Never used to alter sizing.
         macroContext: state.macroContext || null,
         setupContext: state.pendingSetupContext || null,
         status: 'PLANNED'
       });
       state.pendingSetupContext = null;
+
+      // Clear the form after saving.
+      //
+      // Without this, refreshAfterMutation reloaded state.positions (which
+      // includes PLANNED) while the form still held the same trade, so
+      // planTrade appended a SECOND prospective copy: open risk 250 -> 500,
+      // margin 3600 -> 7200, "2 positions counted" for one saved trade. Every
+      // subsequent sizing decision was then made against inflated heat.
+      ['fAsset', 'fEntry', 'fStop', 'fTarget'].forEach((id) => {
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('fLeverage').value = 1;
+      state.sizeFactor = 1;
+      document.getElementById('sizeSlider').value = 100;
+      readForm();
+
       refreshAfterMutation();
-      showNotice('Trade saved as PLANNED.', 'ok');
+      showNotice('Trade saved as PLANNED. Form cleared.', 'ok');
     });
 
     document.getElementById('clearForm').addEventListener('click', () => {
