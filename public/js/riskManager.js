@@ -48,17 +48,50 @@
 export const DEFAULT_RISK_POLICY = {
   version: '1.0.0',
 
-  /** Risk applied to a new trade unless the user overrides it, in percent. */
+  /**
+   * Risk applied to a new trade unless the user overrides it, in percent.
+   *
+   * 1% is Van Tharp's canonical percent-risk value and the Turtles' unit size
+   * (1 unit = 1N = 1% of equity). At 1% risk of ruin is negligible for any
+   * positive-expectancy strategy and the account survives a long losing run.
+   *
+   * Note this is deep fractional Kelly, NOT growth-optimal. It is a survival
+   * and parameter-uncertainty choice, and is not claimed to maximise returns.
+   */
   defaultRiskPerTradePct: 1.0,
 
-  /** Hard ceiling for a single trade's risk, in percent. */
+  /**
+   * Hard ceiling for a single trade's risk, in percent.
+   *
+   * Elder's 2% Rule. Note the two values above play genuinely different roles
+   * and are not a range to split: 1% is a steady-state TARGET, 2% is a
+   * CEILING (Elder frames it against prior month-end equity). Above 2%,
+   * probability of ruin turns exponential rather than linear.
+   */
   maxRiskPerTradePct: 2.0,
 
   /**
    * "Portfolio heat": combined risk across every open and planned position if
    * they all stopped out at once, in percent of the trading wallet.
+   *
+   * 6% is Elder's 6% Rule — the canonical figure, and exactly 6x the 1%
+   * default. The honest range in the literature is 6-12%: the Turtle lineage
+   * permits up to ~12 units (~12%) in one direction. 6% is the conservative
+   * end, and brackets sensibly against prop-firm 5% daily-loss limits.
    */
-  maxTotalOpenRiskPct: 5.0,
+  maxTotalOpenRiskPct: 6.0,
+
+  /**
+   * Ceiling on combined risk pointing the SAME direction, in percent.
+   *
+   * Implements the Turtle structure: a correlated basket is allowed 6 units
+   * against 4 for a single market — 1.5x, not additive. Same-direction crypto
+   * perps are assumed correlated with NO diversification credit, because
+   * correlations converge toward 1.0 precisely during drawdowns (BTC-SOL has
+   * printed 0.99 on a weekly window during stress). Granting credit from a
+   * calm-window correlation would understate heat exactly when it binds.
+   */
+  maxCorrelatedDirectionRiskPct: 4.0,
 
   /**
    * Ceiling on capital committed as margin, in percent of wallet.
@@ -69,13 +102,32 @@ export const DEFAULT_RISK_POLICY = {
   maxMarginUtilizationPct: 30.0,
 
   /**
-   * Optional ceiling on total notional as percent of wallet. null = not
-   * enforced. At 3x leverage, notional can legitimately exceed wallet, so
-   * this is off by default rather than set to a number that fights leverage.
+   * Ceiling on total notional as percent of wallet. null disables it.
+   *
+   * 200% (2x effective) follows the only citable authorities on crypto
+   * leverage for retail: ESMA's product intervention caps crypto CFDs at 2:1,
+   * and Japan's FSA moved to a 2x cap. There is no equivalent figure in the
+   * trading literature — Tharp, Elder and the Turtles say nothing about
+   * aggregate notional — so this is borrowed from securities regulation and
+   * should be read as a backstop rather than a derived optimum.
+   *
+   * It earns its place by catching a case every other check passes: a very
+   * tight stop sizes to an enormous notional at nominally "1% risk", leaving
+   * the position one ordinary wick from liquidation.
    */
-  maxNotionalExposurePct: null,
+  maxNotionalExposurePct: 200,
 
-  /** Ceiling on leverage for any single position. */
+  /**
+   * Ceiling on leverage for any single position.
+   *
+   * 3x. ESMA (2:1) and Japan FSA (2x) are the anchors; retail CFD brokers sit
+   * at 2:1-5:1. The quantitative case: liquidation distance is roughly
+   * (1/leverage - maintenance rate), so at 3x liquidation sits ~33% away —
+   * about 8 daily sigma for SOL — whereas at 20x it sits ~4.5% away, roughly
+   * ONE ordinary daily move for SOL. That is the honest definition of
+   * dangerous, and it is what the October 2025 cascade (~$19B liquidated
+   * across ~1.6M accounts in hours) actually looked like.
+   */
   maxLeverage: 3.0,
 
   /** Concentration detection. */
@@ -120,12 +172,47 @@ export const DEFAULT_RISK_POLICY = {
    * Optional execution assumptions. A planned stop is not a guaranteed
    * maximum loss, and these let the user see roughly how far off it can be.
    * All default to zero so the headline number stays the clean planned figure
-   * until the user opts in.
+   * until the user opts in. See SUGGESTED_COST_ASSUMPTIONS for researched
+   * values the ADVANCED panel can apply in one click.
    */
   costs: {
     takerFeePct: 0,
     slippagePct: 0,
     fundingPctPerDay: 0
+  }
+};
+
+/**
+ * Researched, citable execution assumptions. Offered as a preset rather than
+ * a default so the headline risk figure stays the clean planned number until
+ * the user asks for cost-adjusted output.
+ */
+export const SUGGESTED_COST_ASSUMPTIONS = {
+  majors: {
+    label: 'BTC / ETH majors',
+    // Binance and OKX base-tier perp taker is 0.050%, Bybit 0.055%.
+    takerFeePct: 0.05,
+    // Weakest-sourced input. Published figures are mostly slippage TOLERANCE
+    // settings rather than expected cost; this is an assumption, not a
+    // measurement.
+    slippagePct: 0.05,
+    // 0.01% per 8h = 0.03%/day. This is Binance's structural interest
+    // component AND within ~10% of BTC perp's 2024 realised mean (10.24%
+    // annualised), which makes it unusually well anchored.
+    fundingPctPerDay: 0.03
+  },
+  alts: {
+    label: 'Alts',
+    takerFeePct: 0.055,
+    slippagePct: 0.25,
+    fundingPctPerDay: 0.03
+  },
+  stress: {
+    label: 'Stress case',
+    takerFeePct: 0.055,
+    slippagePct: 0.5,
+    // Funding is clamped at +/-0.05% per 8h on most contracts = 0.15%/day.
+    fundingPctPerDay: 0.15
   }
 };
 
@@ -351,7 +438,18 @@ export function estimateLiquidation({ entry, direction, leverage = 1, policy = D
     assumptions: {
       marginMode: 'isolated',
       maintenanceMarginRatePct: policy.liquidation.maintenanceMarginRatePct,
-      note: 'Approximation. Excludes funding, fees, tiered maintenance margin and mark-price differences.'
+      /**
+       * Each caveat maps to a specific mechanism that breaks the closed form,
+       * not defensive boilerplate. Exchanges call their own displayed figure
+       * an estimate; a third-party pre-trade tool cannot do better.
+       */
+      caveats: [
+        'Assumes isolated margin and a single position. Under cross margin, liquidation is an account-level quantity that moves whenever any other position moves.',
+        `Assumes a ${policy.liquidation.maintenanceMarginRatePct}% maintenance margin rate. Real rates are tiered by position size and differ per venue and symbol.`,
+        'Exchanges liquidate on mark price, not last price. During a wick these diverge exactly when it matters.',
+        'Excludes funding and fees, so the real liquidation price drifts over time even with no price movement.',
+        'Never use this as a stop-loss.'
+      ]
     }
   };
 }
@@ -506,7 +604,17 @@ export function detectCorrelatedExposure({ positions = [], policy = DEFAULT_RISK
   const settings = policy.concentration;
   const totalRisk = live.reduce((sum, p) => sum + p.plannedRisk, 0);
 
-  let worst = { concentrated: false, direction: null, count: 0, riskSharePct: null, positions: [] };
+  // Always report the dominant direction's stats, whether or not it trips a
+  // rule. The correlated heat cap is evaluated against directionRisk
+  // independently, so it must be populated even for an unflagged book.
+  let dominant = {
+    concentrated: false,
+    direction: null,
+    count: 0,
+    directionRisk: 0,
+    riskSharePct: null,
+    positions: []
+  };
 
   for (const direction of ['LONG', 'SHORT']) {
     const matching = live.filter((p) => normalizeDirection(p.direction) === direction);
@@ -515,26 +623,31 @@ export function detectCorrelatedExposure({ positions = [], policy = DEFAULT_RISK
     const directionRisk = matching.reduce((sum, p) => sum + p.plannedRisk, 0);
     const riskSharePct = totalRisk > 0 ? toPercent(directionRisk / totalRisk) : 0;
 
+    // Breadth: several positions the same way. Depth: a couple carrying
+    // overwhelming one-way risk.
     const byCount = matching.length >= settings.minPositions;
     const byShare =
       matching.length >= settings.minPositionsForShareRule &&
       riskSharePct >= settings.riskShareThresholdPct;
+    const concentrated = byCount || byShare;
 
-    if ((byCount || byShare) && matching.length > worst.count) {
-      worst = {
-        concentrated: true,
+    // The dominant direction is the one carrying the most risk, so the heat
+    // cap is always judged against the heavier side.
+    if (directionRisk > dominant.directionRisk) {
+      dominant = {
+        concentrated,
         direction,
         count: matching.length,
         directionRisk,
         riskSharePct,
-        trigger: byCount ? 'position-count' : 'risk-share',
-        label: `CORRELATED ${direction} EXPOSURE`,
+        trigger: concentrated ? (byCount ? 'position-count' : 'risk-share') : null,
+        label: concentrated ? `CORRELATED ${direction} EXPOSURE` : null,
         positions: matching.map((p) => p.asset || p.symbol).filter(Boolean)
       };
     }
   }
 
-  return worst;
+  return dominant;
 }
 
 /* ========================================================================
@@ -656,15 +769,28 @@ export function evaluateRiskPolicy({
     add('margin-available', 'Margin available', 'unknown', 'Margin not calculated');
   }
 
-  // 7. Directional concentration
+  // 7. Directional concentration.
+  // Two distinct conditions: the cluster being flagged at all (a warning),
+  // and same-direction heat exceeding the correlated cap (a breach). The
+  // second is stronger because it says the correlated basket is oversized in
+  // absolute terms, not merely lopsided relative to the rest of the book.
   if (concentration) {
+    const directionRiskPct =
+      isPositiveNumber(walletBalance) && Number.isFinite(concentration.directionRisk)
+        ? toPercent(concentration.directionRisk / walletBalance)
+        : null;
+    const overCorrelatedCap =
+      directionRiskPct !== null && directionRiskPct > policy.maxCorrelatedDirectionRiskPct;
+
     add(
       'concentration',
       'Directional concentration',
-      concentration.concentrated ? 'warn' : 'pass',
-      concentration.concentrated
-        ? `${concentration.count} ${concentration.direction} positions, ${round(concentration.riskSharePct, 0)}% of open risk`
-        : 'No obvious directional concentration'
+      overCorrelatedCap ? 'fail' : concentration.concentrated ? 'warn' : 'pass',
+      overCorrelatedCap
+        ? `${round(directionRiskPct, 2)}% of wallet risked ${concentration.direction} vs ${policy.maxCorrelatedDirectionRiskPct}% correlated cap`
+        : concentration.concentrated
+          ? `${concentration.count} ${concentration.direction} positions, ${round(concentration.riskSharePct, 0)}% of open risk`
+          : 'No obvious directional concentration'
     );
   } else {
     add('concentration', 'Directional concentration', 'unknown', 'Positions unavailable');

@@ -326,18 +326,48 @@ ok(
   overLev.evaluation.checks.find((c) => c.id === 'leverage').state === 'fail'
 );
 
-// Portfolio already at 4.5%; a further 1% breaches the 5% heat limit.
-const hotBook = [{ asset: 'ETH', direction: 'SHORT', plannedRisk: 1125, margin: 2000, notional: 4000, status: 'OPEN' }];
+// Portfolio already at 5.5%; a further 1% breaches the 6% heat limit (Elder).
+const hotBook = [{ asset: 'ETH', direction: 'SHORT', plannedRisk: 1375, margin: 2000, notional: 4000, status: 'OPEN' }];
 const overHeat = planTrade({
   walletBalance: 25000,
   positions: hotBook,
   trade: { asset: 'BTC', direction: 'LONG', entry: 72000, stop: 69500, riskPct: 1, leverage: 2 }
 });
-near('open risk after = 5.5%', overHeat.portfolio.after.openRiskPct, 5.5, 0.01);
+near('open risk after = 6.5%', overHeat.portfolio.after.openRiskPct, 6.5, 0.01);
 ok(
-  'portfolio heat breach detected',
+  'portfolio heat breach detected against 6% policy',
   overHeat.evaluation.checks.find((c) => c.id === 'portfolio-risk').state === 'fail'
 );
+ok('policy heat default is Elder 6%', DEFAULT_RISK_POLICY.maxTotalOpenRiskPct === 6.0);
+
+// Correlated-direction heat cap: 3 longs at 1.5% each = 4.5% one way,
+// past the 4% correlated cap even though total heat (4.5%) is under 6%.
+const correlatedHeat = [
+  { asset: 'BTC', direction: 'LONG', plannedRisk: 375, margin: 1000, notional: 2000, status: 'OPEN' },
+  { asset: 'ETH', direction: 'LONG', plannedRisk: 375, margin: 1000, notional: 2000, status: 'OPEN' },
+  { asset: 'SOL', direction: 'LONG', plannedRisk: 375, margin: 1000, notional: 2000, status: 'OPEN' }
+];
+const overCorrelated = planTrade({
+  walletBalance: 25000,
+  positions: correlatedHeat,
+  trade: { asset: 'AVAX', direction: 'LONG', entry: 40, stop: 38, riskPct: 1.5, leverage: 2 }
+});
+near('total heat still under the 6% cap', overCorrelated.portfolio.after.openRiskPct, 6.0, 0.01);
+ok(
+  'correlated-direction cap breached even though total heat is not',
+  overCorrelated.evaluation.checks.find((c) => c.id === 'concentration').state === 'fail',
+  overCorrelated.evaluation.checks.find((c) => c.id === 'concentration').detail
+);
+
+// Aggregate notional cap catches the tight-stop case that passes risk checks.
+ok('notional exposure cap defaults to 200%', DEFAULT_RISK_POLICY.maxNotionalExposurePct === 200);
+const tightNotional = calculateExposure({
+  positions: [{ direction: 'LONG', plannedRisk: 250, margin: 250000, notional: 250000, status: 'PLANNED' }],
+  walletBalance: 25000
+});
+ok('1000% notional exposure breaches the cap', tightNotional.exceedsNotionalPolicy === true);
+const normalNotional = calculateExposure({ positions: book, walletBalance: 25000 });
+ok('76% notional exposure does not breach the cap', normalNotional.exceedsNotionalPolicy === false);
 
 const clean = planTrade({
   walletBalance: 25000,
