@@ -394,10 +394,17 @@
       
       .coin-row td:first-child {
         width: auto;
-        max-width: 50%;
-        font-size: 2.5rem;
+        max-width: 56%;
+        /* Was a flat 2.5rem, which at phone widths could not fit a name like
+           ETHEREUM inside this cell and broke it mid-word ("ETHERE / UM").
+           A proper noun should never split like that, so the type scales with
+           the viewport instead. break-word is kept purely as a safety net for
+           an unusually long name, so nothing can ever force horizontal
+           overflow. */
+        font-size: clamp(1.5rem, 7.2vw, 2.5rem);
+        line-height: 1.05;
         padding-right: 0.5rem !important;
-        word-wrap: break-word;
+        word-break: keep-all;
         overflow-wrap: break-word;
         box-sizing: border-box;
       }

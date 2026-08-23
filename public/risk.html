@@ -69,7 +69,7 @@
       font-size: 0.75rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--accent-neutral);
+      color: var(--color-yellow-75-muted);
       margin: 0 0 0.875rem;
     }
 
@@ -88,7 +88,7 @@
       font-size: 0.625rem;
       letter-spacing: 0.14em;
       text-transform: uppercase;
-      color: var(--accent-neutral);
+      color: var(--color-yellow-75-muted);
       margin-bottom: 0.35rem;
     }
 
@@ -127,7 +127,7 @@
       border-radius: var(--radius-5);
       border: 1px solid rgba(230, 233, 224, 0.22);
       background: transparent;
-      color: var(--accent-neutral);
+      color: var(--color-yellow-75-muted);
       cursor: pointer;
       transition: all 0.2s;
     }
@@ -317,7 +317,7 @@
       border-radius: 3px;
       border: 1px solid rgba(230, 233, 224, 0.25);
       background: transparent;
-      color: var(--accent-neutral);
+      color: var(--color-yellow-75-muted);
       cursor: pointer;
     }
 
@@ -342,7 +342,7 @@
     }
 
     .rm-details summary::-webkit-details-marker { display: none; }
-    .rm-details summary::after { content: ' +'; color: var(--accent-neutral); }
+    .rm-details summary::after { content: ' +'; color: var(--color-yellow-75-muted); }
     .rm-details[open] summary::after { content: ' \2212'; }
     .rm-details > *:not(summary) { margin-top: 1rem; }
 
@@ -379,11 +379,65 @@
       margin-bottom: 1.25rem;
     }
 
-    @media (max-width: 640px) {
-      .rm-account { gap: 0.875rem 1.25rem; }
-      .rm-account-status { margin-left: 0; width: 100%; }
-      .rm-result { padding: 1.125rem; }
-      .rm-check-detail { margin-left: 0; width: 100%; text-align: left; }
+    @media (max-width: 720px) {
+      /* Account bar becomes a two-up grid so each figure gets real width
+         instead of wrapping unevenly across a flex row. */
+      .rm-account {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+
+      .rm-account-item .eco-value { font-size: 1.0625rem; }
+
+      .rm-account-status {
+        grid-column: 1 / -1;
+        margin-left: 0;
+        width: 100%;
+      }
+
+      .rm-status { display: block; text-align: center; font-size: 0.875rem; }
+
+      /* One field per row: these are numeric inputs that get typed into, and
+         half-width fields on a phone are both harder to hit and harder to read
+         back. */
+      .rm-form { grid-template-columns: 1fr; gap: 1rem; }
+
+      .rm-input { font-size: 1.0625rem; padding: 0.75rem; }
+
+      .rm-field label { font-size: 0.6875rem; }
+
+      .rm-direction button { padding: 0.75rem 0.5rem; font-size: 0.8125rem; }
+
+      .rm-result { padding: 1.25rem; }
+
+      .rm-result-head { flex-direction: column; align-items: stretch; gap: 1rem; }
+
+      .rm-headline .eco-value { font-size: clamp(2.25rem, 11vw, 3rem); }
+
+      /* Two-up keeps related figures comparable without shrinking them to
+         thirds of a narrow screen. */
+      .rm-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 1rem; }
+      .rm-metric .eco-value { font-size: 1.125rem; }
+
+      .rm-slider-row { gap: 0.875rem; }
+      .rm-slider { flex: 1 1 100%; min-width: 0; }
+      .rm-slider-row .eco-value { text-align: left; min-width: 0; }
+
+      .rm-impact { grid-template-columns: 1fr; }
+
+      .rm-check-item { flex-wrap: wrap; }
+      .rm-check-detail { margin-left: 0; width: 100%; text-align: left; padding-left: 1.85rem; }
+
+      .rm-section-heading { font-size: 0.875rem; }
+
+      /* Full-width actions, stacked, so the primary action is unmissable. */
+      #saveTrade, #clearForm, #setupSave, #policySave, #policyReset { width: 100%; }
+      #setupWallet { max-width: none !important; }
+
+      .rm-position { gap: 0.5rem 0.875rem; }
+      .rm-position-spacer { margin-left: 0; width: 100%; }
+      .rm-mini-btn { flex: 1 1 auto; }
     }
   </style>
 </head>
@@ -393,12 +447,12 @@
 
   <header class="header-edittrax">
     <div class="max-w-6xl mx-auto px-4 py-3">
-      <div class="flex items-center justify-between flex-wrap gap-3">
+      <div class="header-row">
         <div class="logo-container flex flex-col items-center gap-2">
           <img src="/logos/load.gif" alt="Loading Animation" style="width: 140px; height: auto;">
           <img src="/logos/et_horizontal.png" alt="EditTrades Logo" class="logo-img">
         </div>
-        <div class="flex items-center gap-2">
+        <div class="header-nav">
           <a href="/" class="btn-base btn-secondary px-3 py-2 text-sm rounded">Home</a>
           <a href="/bitcoin-value.html" class="btn-base btn-secondary px-3 py-2 text-sm rounded">Macro</a>
         </div>
@@ -409,7 +463,7 @@
   <main class="max-w-6xl mx-auto px-4 pb-16">
 
     <h1 class="eco-value" style="font-size: clamp(1.5rem, 5vw, 2.25rem); letter-spacing: 0.03em; text-transform: uppercase; margin: 1.5rem 0 0.5rem;">Risk Manager</h1>
-    <p style="max-width: 48ch; font-size: 0.8125rem; line-height: 1.55; color: var(--accent-neutral); margin: 0 0 1rem;">
+    <p style="max-width: 48ch; font-size: 0.8125rem; line-height: 1.55; color: var(--color-yellow-75-muted); margin: 0 0 1rem;">
       How much to put at risk before you commit capital. Planning only &mdash;
       this never places a trade or connects to an exchange.
     </p>

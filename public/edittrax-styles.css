@@ -35,6 +35,15 @@
   --accent-long: #10b981;
   --accent-short: #ef4444;
   --accent-neutral: #6b7280;
+
+  /* Muted steps of the primary cream (--color-yellow-75).
+     Secondary text previously borrowed --accent-neutral, which is a grey
+     (#6b7280) from a different colour family and reads muddy beside the
+     cream. These keep every tint of supporting text on the same hue, so the
+     palette stays consistent and legible at low emphasis. */
+  --color-yellow-75-muted: rgba(230, 233, 224, 0.66);
+  --color-yellow-75-dim: rgba(230, 233, 224, 0.42);
+  --color-yellow-75-faint: rgba(230, 233, 224, 0.18);
   
   /* Fonts */
   --font-mathias: "Mathias", sans-serif;
@@ -184,6 +193,54 @@ h1, h2, h3, h4, h5, h6 {
 .logo-img {
   height: 40px;
   width: auto;
+}
+
+/* Header row + nav.
+   On desktop the brand sits left and navigation right. On mobile that
+   arrangement leaves the nav stranded in a short left-aligned row, so the
+   whole header stacks, centres, and the nav becomes an equal-width grid
+   filling the full measure — matching the home page, which already lays its
+   SAFE / AGGRESSIVE controls out this way. */
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+}
+
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+@media (max-width: 720px) {
+  .header-row {
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-4);
+  }
+
+  .header-row .logo-container {
+    width: 100%;
+  }
+
+  .header-nav {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    width: 100%;
+    gap: var(--spacing-2);
+  }
+
+  /* Equal-width targets, comfortably tappable. */
+  .header-nav > * {
+    width: 100%;
+    text-align: center;
+    padding-top: var(--spacing-3);
+    padding-bottom: var(--spacing-3);
+  }
 }
 
 /* ========================================
@@ -444,7 +501,7 @@ h1, h2, h3, h4, h5, h6 {
   font-size: 0.6875rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent-neutral);
+  color: var(--color-yellow-75-muted);
 }
 
 .eco-value {
@@ -458,20 +515,32 @@ h1, h2, h3, h4, h5, h6 {
  * RESPONSIVE
  * ======================================== */
 @media (max-width: 640px) {
+  /* 12px was below comfortable reading size for body copy on a phone.
+     Note rem units are unaffected (they resolve against :root), so this only
+     lifts text that inherits from body. */
   body {
-    font-size: 12px;
+    font-size: 14px;
   }
-  
+
+  /* Buttons are full-width on mobile now, so they can carry their full label
+     size rather than being shrunk to fit a cramped row. */
   .btn-base {
     padding: var(--spacing-3) var(--spacing-4);
-    font-size: 0.75rem;
+    font-size: 0.875rem;
   }
-  
+
   .logo-img {
-    height: 32px;
+    height: 36px;
   }
-  
+
+  /* Page titles are the primary orientation cue on a small screen and were
+     being shrunk below the size of some body copy. */
   h1 {
+    font-size: 1.75rem;
+    line-height: 1.05;
+  }
+
+  h2 {
     font-size: 1.25rem;
   }
 }
