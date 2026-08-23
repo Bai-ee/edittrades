@@ -947,6 +947,65 @@
       letter-spacing: 0.14em;
       text-transform: uppercase;
     }
+
+    /* The level is the headline: it is the single number that decides how
+       much this account may risk, so it outranks the three figures below. */
+    .risk-home-level {
+      font-family: var(--font-mathias);
+      font-size: 0.9375rem;
+      letter-spacing: 0.08em;
+      color: var(--color-yellow-75);
+      margin-bottom: 0.4rem;
+      /* Long at level -1 on a 320px screen; wrapping beats overflowing. */
+      overflow-wrap: anywhere;
+    }
+
+    /* Progress toward the next level. Hidden outright when the engine reports
+       no progress figure — an empty bar reads as "0%", which is a claim. */
+    .risk-home-progress {
+      height: 2px;
+      background-color: rgba(230, 233, 224, 0.16);
+      border-radius: 1px;
+      overflow: hidden;
+      margin-bottom: 0.7rem;
+    }
+
+    .risk-home-progress-bar {
+      height: 100%;
+      width: 0;
+      background-color: var(--color-yellow-75);
+      transition: width 0.3s ease;
+    }
+
+    /* Strategy sits with the figures; the note sits under everything, quiet,
+       because it explains the card rather than being read at a glance. */
+    .risk-home-strategy {
+      margin-left: auto;
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(230, 233, 224, 0.5);
+    }
+
+    .risk-home-note {
+      display: block;
+      margin-top: 0.55rem;
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(230, 233, 224, 0.45);
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 640px) {
+      .risk-home-level { font-size: 0.875rem; }
+      /* Below ~380px three figures plus a strategy chip will not sit on one
+         line. Letting the strategy take its own row keeps every figure whole
+         instead of squeezing all four. */
+      .risk-home-strategy { margin-left: 0; }
+    }
   </style>
 </head>
 <body class="min-h-screen">
@@ -1075,11 +1134,19 @@
       </div>
     </a>
 
-    <!-- Risk quick reference. Entire card links through to the Risk Manager. -->
+    <!-- Adaptive Risk Manager quick reference. Entire card links through.
+         Every figure is the Risk Manager's LAST COMPLETE evaluation, read
+         from the read-only display cache; this page derives no risk numbers
+         and makes no network request of its own. See public/js/riskHomeCard.js. -->
     <a href="/risk.html" id="riskCard" aria-label="Risk — open the Risk Manager">
       <div class="eco-home-head">
         <span class="eco-home-title">Risk</span>
         <span class="risk-home-status eco-tone-neutral" id="riskHomeStatus">&mdash;</span>
+      </div>
+      <div class="risk-home-level" id="riskHomeLevel">&mdash;</div>
+      <div class="risk-home-progress" id="riskHomeProgressWrap" role="progressbar"
+           aria-valuemin="0" aria-valuemax="100" aria-label="Progress to next risk level" hidden>
+        <div class="risk-home-progress-bar" id="riskHomeProgressBar"></div>
       </div>
       <div class="eco-home-figures">
         <div class="risk-home-figure">
@@ -1091,11 +1158,12 @@
           <span class="eco-value" id="riskHomeOpenRisk">&mdash;</span>
         </div>
         <div class="risk-home-figure">
-          <span class="eco-label">Margin</span>
-          <span class="eco-value" id="riskHomeExposure">&mdash;</span>
+          <span class="eco-label">Positions</span>
+          <span class="eco-value" id="riskHomePositions">&mdash;</span>
         </div>
-        <span class="risk-home-status" id="riskHomePositions" style="color: rgba(230,233,224,0.5);"></span>
+        <span class="risk-home-strategy" id="riskHomeStrategy"></span>
       </div>
+      <span class="risk-home-note" id="riskHomeNote" hidden></span>
     </a>
 
     <!-- Loading State -->
@@ -6479,61 +6547,87 @@
    * RISK MANAGER BRIDGE
    *
    * A separate module block because the main script above is a classic
-   * script and cannot use `import`. This renders the Risk quick-reference
-   * card and exposes the CHECK RISK handoff on `window` so the inline
-   * onclick in the generated trade rows can reach it.
+   * script and cannot use `import`. This renders the Adaptive Risk Manager
+   * quick-reference card and exposes the CHECK RISK handoff on `window` so
+   * the inline onclick in the generated trade rows can reach it.
    *
-   * Every figure here comes from the shared deterministic engine — this
-   * page derives no risk numbers of its own.
+   * Every figure here is the Adaptive Risk Manager's LAST COMPLETE
+   * evaluation, read from its read-only display cache. This page derives no
+   * risk numbers of its own and makes no request of its own — the level
+   * depends on reconstructed trade history that only /risk.html loads, so a
+   * home page that evaluated for itself would show a confidently wrong
+   * level. See the header of public/js/riskHomeCard.js for the full argument.
    * =============================================================== -->
   <script type="module">
-    import { summarizeAccount, DEFAULT_RISK_POLICY, RISK_STATUS } from '/js/riskManager.js';
-    import { loadRiskProfile, loadLivePositions, stageSetupForRiskCheck } from '/js/riskStore.js';
+    import { buildRiskHomeCard } from '/js/riskHomeCard.js';
+    import { loadLevelDisplay, stageSetupForRiskCheck } from '/js/riskStore.js';
 
-    function usdCompact(value) {
-      if (!Number.isFinite(value)) return '—';
-      return Math.abs(value) >= 1000
-        ? '$' + (value / 1000).toFixed(1) + 'K'
-        : '$' + value.toFixed(0);
-    }
+    const TONE_CLASS = {
+      POSITIVE: 'eco-tone-long',
+      NEGATIVE: 'eco-tone-short',
+      NEUTRAL: 'eco-tone-neutral'
+    };
 
-    function toneClass(status) {
-      if (status === RISK_STATUS.WITHIN_PLAN) return 'eco-tone-long';
-      if (status === RISK_STATUS.ABOVE_PLAN) return 'eco-tone-short';
-      return 'eco-tone-neutral';
-    }
-
+    /**
+     * Paint the Adaptive Risk Manager summary.
+     *
+     * buildRiskHomeCard() decides EVERY string and every hidden/shown state;
+     * this function only writes them into the DOM. That split is what keeps
+     * the card testable without a browser (scripts/validate-home-risk-card.js)
+     * and what stops home-page markup from quietly growing risk logic.
+     *
+     * The whole thing is wrapped: this card is one of several on the page, and
+     * a corrupt localStorage entry must not stop the scanner from rendering.
+     */
     function renderRiskCard() {
-      const profile = loadRiskProfile();
-      const statusEl = document.getElementById('riskHomeStatus');
-
-      // No wallet set yet: invite setup rather than showing zeroes that
-      // look like a configured account with nothing at risk.
-      if (!Number.isFinite(profile.walletBalance) || profile.walletBalance <= 0) {
-        document.getElementById('riskHomeWallet').textContent = 'Not set';
-        document.getElementById('riskHomeOpenRisk').textContent = '—';
-        document.getElementById('riskHomeExposure').textContent = '—';
-        statusEl.textContent = 'SET UP';
-        statusEl.className = 'risk-home-status eco-tone-neutral';
+      let view;
+      try {
+        view = buildRiskHomeCard({ display: loadLevelDisplay(), now: Date.now() });
+      } catch (error) {
+        console.warn('[RiskCard] Could not build the risk summary:', error.message);
+        // Leave the markup's own em-dashes in place. A card that says nothing
+        // is honest; a card that says 0% is not.
         return;
       }
 
-      const summary = summarizeAccount({
-        walletBalance: profile.walletBalance,
-        positions: loadLivePositions(),
-        policy: { ...DEFAULT_RISK_POLICY, ...(profile.policy || {}) }
-      });
+      const set = (id, text) => {
+        const node = document.getElementById(id);
+        if (node) node.textContent = text;
+      };
 
-      document.getElementById('riskHomeWallet').textContent = usdCompact(summary.walletBalance);
-      document.getElementById('riskHomeOpenRisk').textContent =
-        Number.isFinite(summary.openRiskPct) ? summary.openRiskPct.toFixed(2) + '%' : '0.00%';
-      document.getElementById('riskHomeExposure').textContent =
-        Number.isFinite(summary.marginUtilizationPct) ? summary.marginUtilizationPct.toFixed(0) + '%' : '0%';
-      document.getElementById('riskHomePositions').textContent =
-        summary.positionCount === 1 ? '1 position' : `${summary.positionCount} positions`;
+      const statusEl = document.getElementById('riskHomeStatus');
+      if (statusEl) {
+        statusEl.textContent = view.decision;
+        statusEl.className = 'risk-home-status ' + (TONE_CLASS[view.decisionTone] || TONE_CLASS.NEUTRAL);
+      }
 
-      statusEl.textContent = summary.status;
-      statusEl.className = 'risk-home-status ' + toneClass(summary.status);
+      set('riskHomeLevel', view.levelLine || 'NOT EVALUATED');
+      set('riskHomeWallet', view.figures[0].value);
+      set('riskHomeOpenRisk', view.figures[1].value);
+      set('riskHomePositions', view.figures[2].value);
+      set('riskHomeStrategy', view.strategy || '');
+
+      // Hidden rather than emptied when the engine reported no progress
+      // figure: a zero-width bar is indistinguishable from a real 0%.
+      const wrap = document.getElementById('riskHomeProgressWrap');
+      const bar = document.getElementById('riskHomeProgressBar');
+      if (wrap && bar) {
+        const hasProgress = Number.isFinite(view.progressPct);
+        wrap.hidden = !hasProgress;
+        if (hasProgress) {
+          bar.style.width = view.progressPct + '%';
+          wrap.setAttribute('aria-valuenow', String(Math.round(view.progressPct)));
+        }
+      }
+
+      const note = document.getElementById('riskHomeNote');
+      if (note) {
+        note.textContent = view.note || '';
+        note.hidden = !view.note;
+      }
+
+      const card = document.getElementById('riskCard');
+      if (card) card.setAttribute('aria-label', view.ariaLabel);
     }
 
     /**
