@@ -9,7 +9,9 @@
     "dev": "node --watch server.js",
     "backtest:btc4h": "node backtests/btc-4h-backtest.js",
     "validate:btc-value": "node scripts/validate-economic-value.js",
-    "validate:risk": "node scripts/validate-risk-manager.js"
+    "validate:risk": "node scripts/validate-risk-manager.js",
+    "validate:adaptive": "node scripts/validate-adaptive-risk.js",
+    "validate:wallet": "node scripts/validate-wallet-reconstruction.js"
   },
   "keywords": [
     "trading",

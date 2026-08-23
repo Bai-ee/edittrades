@@ -56,6 +56,14 @@
       "dest": "/api/execute-trade.js"
     },
     {
+      "src": "/api/wallet/portfolio",
+      "dest": "/api/wallet-portfolio.js"
+    },
+    {
+      "src": "/api/wallet/trades",
+      "dest": "/api/wallet-trades.js"
+    },
+    {
       "src": "/api/trade-status/(.*)",
       "dest": "/api/trade-status.js"
     },

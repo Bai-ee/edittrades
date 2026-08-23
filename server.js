@@ -1031,6 +1031,26 @@ app.post('/api/execute-trade', async (req, res) => {
 });
 
 /**
+ * GET /api/wallet/portfolio
+ * Read-only balances, holdings and USD value for one observed Solana address.
+ * Query: address (required), refresh=true, includeZero=true
+ */
+app.get('/api/wallet/portfolio', async (req, res) => {
+  const { default: walletPortfolioHandler } = await import('./api/wallet-portfolio.js');
+  return walletPortfolioHandler(req, res);
+});
+
+/**
+ * GET /api/wallet/trades
+ * Trade history reconstructed from on-chain Jupiter activity (read-only).
+ * Query: address (required), maxTransactions, before, perpsMode=FLAG|OMIT, prices=false
+ */
+app.get('/api/wallet/trades', async (req, res) => {
+  const { default: walletTradesHandler } = await import('./api/wallet-trades.js');
+  return walletTradesHandler(req, res);
+});
+
+/**
  * GET /api/trade-status/:signature
  * Check transaction status on Solana
  */
@@ -1087,6 +1107,8 @@ app.listen(PORT, () => {
   console.log(`   GET /api/bitcoin/economic-value ₿ (Bitcoin Economic Value)`);
   console.log(`   POST /api/execute-trade 💰 (Jupiter Swap)`);
   console.log(`   GET /api/trade-status/:signature 📊 (Transaction Status)`);
+  console.log(`   GET /api/wallet/portfolio 👛 (Read-only Wallet Holdings)`);
+  console.log(`   GET /api/wallet/trades 📜 (Reconstructed Trade History)`);
 
   console.log('\n💾 Data Source: Auto-detect (Binance or CoinGecko)');
   console.log('\n✨ Ready to analyze crypto markets!\n');
