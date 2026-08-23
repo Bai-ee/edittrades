@@ -216,6 +216,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 @media (max-width: 720px) {
+  /* The header carries its own 1rem padding AND its inner wrapper adds px-4,
+     so header content sat 32px in while <main> content sat at 16px — the nav
+     read as narrower than the headline beneath it. Dropping the outer
+     horizontal padding on mobile lets the inner wrapper alone set the measure,
+     so the nav spans exactly the same width as the page content. */
+  .header-edittrax {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
   .header-row {
     flex-direction: column;
     align-items: center;

@@ -78,8 +78,42 @@
       font-size: 0.8125rem;
       line-height: 1.55;
       color: var(--color-yellow-75-muted);
+      margin: 0 0 0.875rem;
+    }
+
+    /* Optional detail. Quiet by default so it never competes with the
+       figures, but one tap away rather than buried in the methodology
+       section at the foot of the page. */
+    .eco-about {
       margin: 0 0 2rem;
     }
+
+    .eco-about summary {
+      display: inline-block;
+      cursor: pointer;
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-dim);
+      list-style: none;
+      padding: 0.25rem 0;
+    }
+
+    .eco-about summary::-webkit-details-marker { display: none; }
+    .eco-about summary::after { content: ' +'; }
+    .eco-about[open] summary::after { content: ' \2212'; }
+    .eco-about summary:hover { color: var(--color-yellow-75); }
+
+    .eco-about p {
+      max-width: 52ch;
+      margin: 0.5rem 0 0;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      color: var(--color-yellow-75-muted);
+    }
+
+    .eco-about strong { color: var(--color-yellow-75); font-weight: 600; }
 
     /* Deliberately asymmetric: the price/value pair reads first, the
        deviation sits apart from it. Not a row of identical KPI boxes. */
@@ -336,8 +370,28 @@
     @media (max-width: 720px) {
       .eco-headline { padding: 1.5rem 0 1.25rem; }
 
-      .eco-title { font-size: clamp(1.875rem, 9vw, 2.5rem); }
-      .eco-standfirst { max-width: none; font-size: 0.9375rem; }
+      /* Centred on mobile: with a narrow measure the title wraps to two
+         lines anyway, and centring makes that wrap read as intentional
+         rather than ragged. Desktop keeps it left-aligned, where a long
+         line has a clear starting edge to scan from. */
+      .eco-title {
+        font-size: clamp(1.875rem, 9vw, 2.5rem);
+        text-align: center;
+      }
+
+      .eco-standfirst {
+        max-width: none;
+        font-size: 0.9375rem;
+        text-align: center;
+        margin-bottom: 0.5rem;
+      }
+
+      .eco-about {
+        text-align: center;
+        margin-bottom: 1.5rem;
+      }
+
+      .eco-about p { text-align: left; }
 
       /* BTC and Economic Value stay paired side by side — they are meant to
          be read against each other — but each takes half the full measure. */
@@ -415,12 +469,27 @@
     <!-- HEADLINE ------------------------------------------------------->
     <section class="eco-headline">
       <h1 class="eco-title">Bitcoin Economic Value</h1>
+
+      <!-- Six lines of explanation used to push the first real number two
+           thirds of the way down a phone screen. The one-line version keeps
+           the essential framing plus the disclaimer; the detail moves into a
+           disclosure for anyone who wants it. -->
       <p class="eco-standfirst">
-        Bitcoin&rsquo;s market price against a composite of long-duration economic
-        anchors &mdash; aggregate holder cost basis, long-term market structure and
-        estimated production cost. A reference for how expensive or cheap Bitcoin
-        is, not a claim about what it is worth.
+        Bitcoin&rsquo;s price against its long-term economic anchors.
+        A reference, not a claim about what Bitcoin is worth.
       </p>
+
+      <details class="eco-about">
+        <summary>What goes into it</summary>
+        <p>
+          Three structurally independent anchors: <strong>aggregate holder cost
+          basis</strong> (realized price), <strong>long-term market
+          structure</strong> (the 200-week moving average) and
+          <strong>estimated production cost</strong> (mining economics).
+          They are blended in log space, and the weighting renormalises over
+          whichever anchors have data on a given date.
+        </p>
+      </details>
 
       <div class="eco-figures">
         <div class="eco-figure-primary">

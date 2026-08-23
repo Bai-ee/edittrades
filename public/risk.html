@@ -431,6 +431,11 @@
 
       .rm-section-heading { font-size: 0.875rem; }
 
+      /* Matches the Bitcoin Economic Value page: centred title on a narrow
+         measure so the wrap reads as intentional, left-aligned on desktop. */
+      .rm-page-title { text-align: center; }
+      .rm-standfirst { text-align: center; max-width: none; font-size: 0.9375rem; }
+
       /* Full-width actions, stacked, so the primary action is unmissable. */
       #saveTrade, #clearForm, #setupSave, #policySave, #policyReset { width: 100%; }
       #setupWallet { max-width: none !important; }
@@ -462,8 +467,8 @@
 
   <main class="max-w-6xl mx-auto px-4 pb-16">
 
-    <h1 class="eco-value" style="font-size: clamp(1.5rem, 5vw, 2.25rem); letter-spacing: 0.03em; text-transform: uppercase; margin: 1.5rem 0 0.5rem;">Risk Manager</h1>
-    <p style="max-width: 48ch; font-size: 0.8125rem; line-height: 1.55; color: var(--color-yellow-75-muted); margin: 0 0 1rem;">
+    <h1 class="eco-value rm-page-title" style="font-size: clamp(1.5rem, 7vw, 2.25rem); letter-spacing: 0.03em; text-transform: uppercase; margin: 1.5rem 0 0.5rem;">Risk Manager</h1>
+    <p class="rm-standfirst" style="max-width: 48ch; font-size: 0.8125rem; line-height: 1.55; color: var(--color-yellow-75-muted); margin: 0 0 1rem;">
       How much to put at risk before you commit capital. Planning only &mdash;
       this never places a trade or connects to an exchange.
     </p>
