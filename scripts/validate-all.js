@@ -20,9 +20,18 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * The adaptive, wallet and home-card suites were reachable only through their
+ * own npm scripts, so `validate:all` could report a green desk while none of
+ * them had run. They are offline and fixture-driven like the rest; there was
+ * no reason for them to sit outside the one command people actually type.
+ */
 const SUITES = [
   { name: 'Market data integrity', script: 'scripts/validate-market-data.js', network: false },
   { name: 'Risk Manager', script: 'scripts/validate-risk-manager.js', network: false },
+  { name: 'Adaptive risk engine', script: 'scripts/validate-adaptive-risk.js', network: false },
+  { name: 'Wallet reconstruction', script: 'scripts/validate-wallet-reconstruction.js', network: false },
+  { name: 'Home-page risk card', script: 'scripts/validate-home-risk-card.js', network: false },
   { name: 'Decision desk integration', script: 'scripts/validate-decision-desk.js', network: false },
   { name: 'Bitcoin macro core', script: 'scripts/validate-macro-core.js', network: false },
   { name: 'Bitcoin Economic Value', script: 'scripts/validate-economic-value.js', network: true }

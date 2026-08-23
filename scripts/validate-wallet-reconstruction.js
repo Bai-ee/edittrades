@@ -788,6 +788,147 @@ for (const buyPrices of [[1, 2], [2, 1], [5, 5], [0.5, 4]]) {
 
 ok(`all ${sweepCount} generated FIFO sequences hold their invariants`, sweepFailures === 0, `${sweepFailures} failed`);
 
+/* ======================================================================
+ * 17. THE SIGNATURE WALK IS HONEST ABOUT ITS OWN BOUNDS
+ *
+ * Two defects lived here, and both were invisible precisely because the walk
+ * reported success:
+ *
+ *   - A capped walk returned `complete: true`. Downstream that means "this is
+ *     the account's whole history", and it is not. reconstructTrades matches
+ *     sells against buys INSIDE the window, so a window that cuts the opening
+ *     buys does not merely omit trades — it manufactures unmatched sells,
+ *     which arrive as NEEDS_REVIEW records with null P&L that
+ *     calculateRecentPerformance counts as scratches and calculateRiskLevel
+ *     counts toward its promotion gates. A truncated read moves the level.
+ *
+ *   - Signatures were never de-duplicated. Several public RPC providers
+ *     re-serve the `before` cursor row at the head of the next page, and a
+ *     repeated swap is summed twice: double quantity, double notional, still
+ *     VERIFIED. The trade record de-duplicates its own `signatures` array, so
+ *     the evidence of the double was erased on the way out.
+ *
+ * The fake connection below is deliberately hostile in the way real providers
+ * are: unbounded history, and a configurable page overlap.
+ * =================================================================== */
+
+section('17. Signature-walk bounds: truncation is declared and duplicates are dropped');
+
+/** An RPC with `total` signatures and an `overlap`-row repeat at each page boundary. */
+function pagingConnection({ total = 5000, overlap = 0 } = {}) {
+  return {
+    getSignaturesForAddress: async (_owner, { limit, before }) => {
+      const start = before ? Number(String(before).replace('sig', '')) - overlap : 0;
+      const page = [];
+      for (let i = 0; i < limit && start + i < total; i++) {
+        const n = start + i + 1;
+        page.push({ signature: `sig${String(n).padStart(5, '0')}`, slot: n, blockTime: 1700000000 + n, err: null });
+      }
+      return page;
+    },
+    getParsedTransactions: async (batch) => batch.map(() => null)
+  };
+}
+
+const WALK_ADDRESS = '11111111111111111111111111111112';
+
+// --- a capped walk over a much longer history ---
+const truncated = await walletReader.getSignatures(WALK_ADDRESS, {
+  maxSignatures: 100,
+  connection: pagingConnection({ total: 5000 })
+});
+ok('a capped walk returns exactly the cap', truncated.signatures.length === 100, String(truncated.signatures.length));
+ok('a capped walk is NOT reported as complete', truncated.complete === false, String(truncated.complete));
+ok('a capped walk reports hasMore', truncated.hasMore === true);
+ok('a capped walk offers a cursor to continue', typeof truncated.nextBefore === 'string' && truncated.nextBefore.length > 0);
+ok('a capped walk says it was truncated', truncated.warnings.some((w) => w.startsWith('TRUNCATED:')),
+  JSON.stringify(truncated.warnings));
+
+// --- a history that genuinely ends inside the cap must NOT cry truncation ---
+const exhausted = await walletReader.getSignatures(WALK_ADDRESS, {
+  maxSignatures: 100,
+  connection: pagingConnection({ total: 12 })
+});
+ok('an exhausted history is complete', exhausted.complete === true);
+ok('an exhausted history does not claim more', exhausted.hasMore === false);
+ok('an exhausted history raises no truncation warning', !exhausted.warnings.some((w) => w.startsWith('TRUNCATED:')));
+ok('an exhausted history offers no cursor', exhausted.nextBefore === null);
+
+// --- the conservative edge: history length exactly equals the cap ---
+const exact = await walletReader.getSignatures(WALK_ADDRESS, {
+  maxSignatures: 100,
+  connection: pagingConnection({ total: 100 })
+});
+ok('a history exactly the size of the cap is treated as possibly truncated', exact.complete === false,
+  'proving otherwise needs one more page, so the safe answer is "incomplete"');
+
+// --- duplicate rows at a page boundary ---
+const overlapping = await walletReader.getSignatures(WALK_ADDRESS, {
+  maxSignatures: 2000,
+  connection: pagingConnection({ total: 5000, overlap: 3 })
+});
+const walkUnique = new Set(overlapping.signatures.map((s) => s.signature));
+ok('an overlapping provider yields no duplicate signatures',
+  walkUnique.size === overlapping.signatures.length,
+  `${overlapping.signatures.length} collected, ${walkUnique.size} unique`);
+ok('dropped duplicates are declared',
+  overlapping.warnings.some((w) => w.startsWith('DUPLICATE_SIGNATURES:')),
+  JSON.stringify(overlapping.warnings));
+
+/*
+ * A provider whose cursor never advances must terminate.
+ *
+ * De-duplication is what makes this possible: the walk loops on
+ * `collected.length < maxSignatures`, so a full page that adds nothing new
+ * leaves the loop condition unchanged and the walk spins forever. It needs a
+ * FULL page (a short page already means "history exhausted") that contributes
+ * no new rows, which is why this fixture repeats rows inside page one — that
+ * is what leaves room under the cap for a second page to be requested at all.
+ */
+const stuck = await walletReader.getSignatures(WALK_ADDRESS, {
+  maxSignatures: 40,
+  connection: {
+    getSignaturesForAddress: async (_owner, { limit }) =>
+      // Always a full page, but only ever 20 distinct signatures in it.
+      Array.from({ length: limit }, (_, i) => {
+        const n = i % 20;
+        return { signature: `stuck${n}`, slot: n, blockTime: 1700000000 + n, err: null };
+      }),
+    getParsedTransactions: async (batch) => batch.map(() => null)
+  }
+});
+ok('a non-advancing cursor terminates instead of looping forever', stuck.signatures.length === 20, String(stuck.signatures.length));
+ok('a non-advancing cursor keeps only distinct signatures',
+  new Set(stuck.signatures.map((s) => s.signature)).size === stuck.signatures.length);
+ok('a non-advancing cursor is not reported as a complete history', stuck.complete === false, String(stuck.complete));
+ok('a non-advancing cursor declares the duplicates it dropped',
+  stuck.warnings.some((w) => w.startsWith('DUPLICATE_SIGNATURES:')), JSON.stringify(stuck.warnings));
+
+// A short first page is a genuine end-of-history signal, not a stuck cursor.
+const shortPage = await walletReader.getSignatures(WALK_ADDRESS, {
+  maxSignatures: 500,
+  connection: {
+    getSignaturesForAddress: async (_owner, { limit }) =>
+      Array.from({ length: Math.min(limit, 10) }, (_, i) => ({
+        signature: `short${i}`, slot: i, blockTime: 1700000000 + i, err: null
+      })),
+    getParsedTransactions: async (batch) => batch.map(() => null)
+  }
+});
+ok('a short page is treated as the end of history, not as truncation', shortPage.complete === true, String(shortPage.complete));
+ok('a short page raises no truncation warning', !shortPage.warnings.some((w) => w.startsWith('TRUNCATED:')));
+
+// --- the truncation reaches getWalletActivity, which is what the API returns ---
+const truncatedActivity = await walletReader.getWalletActivity(WALK_ADDRESS, {
+  maxTransactions: 100,
+  connection: pagingConnection({ total: 5000 })
+});
+ok('getWalletActivity propagates incompleteness', truncatedActivity.complete === false);
+ok('getWalletActivity propagates the truncation warning',
+  truncatedActivity.warnings.some((w) => w.startsWith('TRUNCATED:')));
+ok('getWalletActivity propagates the continuation cursor',
+  truncatedActivity.hasMore === true && Boolean(truncatedActivity.nextBefore));
+
 /* ====================================================================== */
 
 console.log(`\n${'='.repeat(62)}`);

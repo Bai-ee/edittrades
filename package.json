@@ -15,7 +15,9 @@
     "validate:all": "node scripts/validate-all.js",
     "validate:macro-core": "node scripts/validate-macro-core.js",
     "validate:adaptive": "node scripts/validate-adaptive-risk.js",
-    "validate:wallet": "node scripts/validate-wallet-reconstruction.js"
+    "validate:wallet": "node scripts/validate-wallet-reconstruction.js",
+    "validate:home-risk": "node scripts/validate-home-risk-card.js",
+    "probe:wallet": "node scripts/probe-live-wallet.js"
   },
   "keywords": [
     "trading",
