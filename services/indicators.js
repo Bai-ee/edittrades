@@ -172,6 +172,18 @@ export function calculateAllIndicators(candles) {
     },
     metadata: {
       candleCount: candles.length,
+      /**
+       * The newest bar's OPEN time, which is what this has always reported.
+       * Renamed because `lastUpdate` read as "when this data was refreshed" —
+       * so a stale series still looked freshly updated, and under the old
+       * synthetic path it reported Date.now() for fabricated candles.
+       * Real fetch freshness lives in provenance (services/dataProvenance.js).
+       */
+      lastBarOpenTime: new Date(candles[candles.length - 1].timestamp).toISOString(),
+      lastBarClosed: Number.isFinite(candles[candles.length - 1].closeTime)
+        ? Date.now() >= candles[candles.length - 1].closeTime
+        : null,
+      // Kept so existing consumers do not break on a renamed field.
       lastUpdate: new Date(candles[candles.length - 1].timestamp).toISOString()
     }
   };

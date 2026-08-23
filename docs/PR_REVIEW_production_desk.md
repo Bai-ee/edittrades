@@ -1,7 +1,7 @@
 # PR Review Packet — Production Decision Desk
 
 **Branch:** `claude/edittrades-production-desk-k30mjg` → `main`
-**Commits:** 6 · **Diff:** 35 files, +4,775 / −1,030
+**Commits:** 8 · **Diff:** 39 files, ~+5,400 / −1,040
 **Author:** implementing agent (Claude) · **Date:** 2026-08-23
 
 ---
@@ -48,16 +48,17 @@ Each command is fast and offline unless marked.
 git fetch origin && git checkout claude/edittrades-production-desk-k30mjg
 npm install
 
-# 1. Whole suite. Expect: 3 PASS, 1 SKIPPED (no network), exit 0.
+# 1. Whole suite. Expect: 4 PASS (304 assertions), 1 SKIPPED (no network), exit 0.
 npm run validate:all
 ```
 
 Expected tail:
 
 ```
-  PASS                   Market data integrity          (58 assertions)
+  PASS                   Market data integrity          (63 assertions)
   PASS                   Risk Manager                   (114 assertions)
   PASS                   Decision desk integration      (60 assertions)
+  PASS                   Bitcoin macro core             (67 assertions)
   SKIPPED (no network)   Bitcoin Economic Value
 ```
 
@@ -219,8 +220,17 @@ incorrect behaviour.** Judge each:
 | `label reads CORRELATED LONG EXPOSURE` | asserted the word "CORRELATED" | asserts `DIRECTIONAL LONG CONCENTRATION` | The rule counts direction and never computes a correlation. BTC + gold + EUR all long produced "CORRELATED" |
 
 Net assertion count went **96 → 114** on the risk harness (18 new regression
-tests), plus 118 new assertions in two new suites. **No test was deleted or
-loosened to get green.**
+tests), plus 190 new assertions across three new suites. **No test was deleted
+or loosened to get green.**
+
+`scripts/validate-macro-core.js` was **mutation-tested**: seven deliberate
+regressions were introduced into the calculation core and the suite caught all
+seven. One of them (the convergence OR condition) was *not* caught on the first
+attempt — the test's fixture had too wide a spread to trip the bug, making it a
+tautology of exactly the kind it was written to replace. It was rewritten to
+construct the real failing shape, and the mutation is now caught. That
+iteration is recorded here because a test suite's value is entirely in whether
+it can fail.
 
 ---
 
@@ -269,12 +279,18 @@ Ranked. None blocks the merge; all are real.
    server-side and execute only what the server computed.
 2. The rate ledger is in-memory, so per-lambda-instance on Vercel. Raises the
    cost of a drain attempt; does not bound it.
-3. The Economic Value validator's identity checks are **tautologies** — a 100×
-   upstream MVRV corruption passes all of them. Not fixed in this PR.
+3. The *live* Economic Value validator still contains three tautological
+   identity checks (they compare a value against the formula that produced
+   it). They are now superseded by `validate-macro-core.js`, which is
+   mutation-tested, but they have not been deleted from the live harness.
 4. The `CapMVRVCur` dependency has visibility now, but no mitigation. No free
    alternative realized-cap source exists.
-5. Indicators still compute on the unclosed candle
-   (`brokeResistanceOnClose` evaluated against a bar that has not closed).
+5. Indicators still *compute* on the unclosed candle. The dishonest part is
+   fixed — `brokeResistanceOnClose` now returns `null` rather than `false`
+   while the bar is forming, and `barClosed` / `lastBarClosed` are exposed —
+   but EMAs and stochastics are still calculated including the in-progress
+   bar, so they repaint. Making the engine drop or flag the forming bar for
+   every indicator is a larger change.
 6. `strategy_logic_export/` is a stale duplicate of `services/`, `api/`, `lib/`
    — including a full copy of the deleted synthetic generator. Not built by
    Vercel, but it will drift.

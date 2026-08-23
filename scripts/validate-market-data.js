@@ -309,6 +309,52 @@ ok('unknown symbols are refused', await (async () => {
 })());
 
 /* ======================================================================
+ * 6b. THE NEWEST BAR MAY STILL BE FORMING
+ * =================================================================== */
+section('6b. Unclosed-bar honesty');
+
+{
+  const { computeLevels } = await import('../lib/levels.js');
+
+  // computeLevels compares closeTime against the REAL clock, so this section
+  // uses Date.now() rather than the fixed `now` the provenance tests inject.
+  const realNow = Date.now();
+  const mk = (closeTimeOffset) => {
+    const bars = Array.from({ length: 40 }, (_, i) => ({
+      timestamp: realNow - (40 - i) * 3600_000,
+      open: 100, high: 101, low: 99, close: 100, volume: 5,
+      closeTime: realNow - (40 - i) * 3600_000 + 3600_000
+    }));
+    // Push a bar that breaks above the prior range.
+    bars.push({
+      timestamp: realNow, open: 100, high: 130, low: 100, close: 125, volume: 9,
+      closeTime: realNow + closeTimeOffset
+    });
+    return bars;
+  };
+
+  // Bar still forming: closeTime in the future.
+  const forming = computeLevels(mk(3600_000), 125, { swingHighs: [], swingLows: [] });
+  ok('an unclosed bar reports barClosed false', forming.barClosed === false,
+     String(forming.barClosed));
+  ok(
+    'brokeResistanceOnClose is null, not false, while the bar is open',
+    forming.brokeResistanceOnClose === null,
+    String(forming.brokeResistanceOnClose)
+  );
+  ok('brokeSupportOnClose is likewise null', forming.brokeSupportOnClose === null);
+
+  // Bar closed: closeTime in the past.
+  const closed = computeLevels(mk(-1000), 125, { swingHighs: [], swingLows: [] });
+  ok('a closed bar reports barClosed true', closed.barClosed === true, String(closed.barClosed));
+  ok(
+    'a closed bar yields a real boolean for the break flag',
+    typeof closed.brokeResistanceOnClose === 'boolean',
+    String(closed.brokeResistanceOnClose)
+  );
+}
+
+/* ======================================================================
  * 7. SYSTEM HEALTH DERIVATION
  * =================================================================== */
 section('7. System health');
