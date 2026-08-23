@@ -14,19 +14,24 @@
  *    database dependency.
  *
  *  - Firestore DOES exist (project edittrades-fd451, used by tracker.html for
- *    the `trades` collection) but it runs with NO authentication and rules of
- *    `allow read, write: if true`. The database is world-readable and
- *    world-writable, and the API key ships in page source.
+ *    the `trades` collection). Its rules are now committed as firestore.rules
+ *    at the repo root: default-deny, per-uid isolation under /users/{uid}/.
+ *    Note that committing rules is not deploying them — until
+ *    `firebase deploy --only firestore:rules` has run against the project, the
+ *    live database keeps whatever the console currently holds, which the repo's
+ *    own FIREBASE_SETUP_GUIDE.md prescribes as `allow read, write: if true`.
  *
  * Trade signals already live under those rules. A trading-wallet balance is
  * materially more sensitive: it says how much money the operator has. So the
  * default backend here is localStorage — private to the browser, durable
  * enough for a single-operator tool, and adding no new public exposure.
  *
- * Cloud sync is available but OPT-IN (enableCloudSync). Turning it on gives
- * multi-device access at the cost of putting account size in a publicly
- * readable database. That trade is the user's to make, not ours to make
- * silently, so it is off until chosen.
+ * Cloud sync is available but OPT-IN (enableCloudSync). It now writes only
+ * under /users/{uid}/, requires an authenticated session, and reports its
+ * status rather than failing silently — previously getCloudDb() returned null
+ * whenever the Firebase SDK was absent, and risk.html and index.html both load
+ * riskStore WITHOUT the SDK, so every caller who enabled sync got a silent
+ * no-op: no error, no warning, and the belief that their data was backed up.
  *
  * LIMITATIONS OF THE DEFAULT (localStorage):
  *  - Per-browser. No sync across devices.
@@ -114,14 +119,48 @@ function getCloudDb() {
 }
 
 /**
+ * The signed-in uid, or null.
+ *
+ * Every cloud write is scoped under this. Without it there is no per-user
+ * isolation at the data layer and a write would land in a shared namespace,
+ * so a missing uid disables sync rather than falling back to a flat path.
+ */
+function getCloudUid() {
+  try {
+    if (typeof firebase === 'undefined' || !firebase.auth) return null;
+    return firebase.auth().currentUser?.uid || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Why cloud sync is not currently writing, or null when it is.
+ * Callers should render this: the whole failure mode being fixed here is a
+ * user believing their data is backed up when nothing is being written.
+ */
+export function cloudSyncStatus() {
+  if (!isCloudSyncEnabled()) return { active: false, reason: 'Cloud sync is off' };
+  if (typeof firebase === 'undefined' || !firebase.firestore) {
+    return { active: false, reason: 'Firebase SDK is not loaded on this page' };
+  }
+  if (!getCloudUid()) {
+    return { active: false, reason: 'Not signed in — cloud writes require an authenticated session' };
+  }
+  return { active: true, reason: null };
+}
+
+/**
  * Mirror a write to Firestore. Never throws and never blocks the local write:
  * local is the source of truth, cloud is a convenience copy.
  */
 async function mirrorToCloud(collection, docId, data) {
   const db = getCloudDb();
-  if (!db) return false;
+  const uid = getCloudUid();
+  if (!db || !uid) return false;
   try {
-    await db.collection(collection).doc(String(docId)).set(data);
+    // /users/{uid}/{collection}/{docId} — the path firestore.rules authorises.
+    await db.collection('users').doc(uid).collection(collection).doc(String(docId)).set(data);
     return true;
   } catch (error) {
     console.warn(`[RiskStore] Cloud mirror failed for ${collection}/${docId}:`, error.message);
@@ -131,9 +170,10 @@ async function mirrorToCloud(collection, docId, data) {
 
 async function removeFromCloud(collection, docId) {
   const db = getCloudDb();
-  if (!db) return false;
+  const uid = getCloudUid();
+  if (!db || !uid) return false;
   try {
-    await db.collection(collection).doc(String(docId)).delete();
+    await db.collection('users').doc(uid).collection(collection).doc(String(docId)).delete();
     return true;
   } catch (error) {
     console.warn(`[RiskStore] Cloud delete failed for ${collection}/${docId}:`, error.message);
@@ -153,13 +193,82 @@ export function loadRiskProfile() {
   if (!stored || typeof stored !== 'object') {
     return { walletBalance: null, policy: null, schemaVersion: SCHEMA_VERSION, updatedAt: null };
   }
-  // Additive/loose schema, same posture as the tracker's loadTrades back-fill.
   return {
-    walletBalance: Number.isFinite(stored.walletBalance) ? stored.walletBalance : null,
-    policy: stored.policy && typeof stored.policy === 'object' ? stored.policy : null,
+    walletBalance: Number.isFinite(stored.walletBalance) && stored.walletBalance > 0
+      ? stored.walletBalance
+      : null,
+    // Sanitised, not trusted. The stored policy holds the risk CEILINGS, and
+    // it used to be accepted on nothing more than `typeof === 'object'` and
+    // then shallow-spread over the defaults by risk.html. Anything on the
+    // origin — a stale write, a bad import, an extension — could set
+    // maxRiskPerTradePct to 9999 and every limit would read green forever
+    // while sizing arbitrarily. A shallow spread also let a partial nested
+    // object REPLACE a default wholesale, which threw inside planTrade.
+    policy: sanitizePolicy(stored.policy),
     schemaVersion: stored.schemaVersion || SCHEMA_VERSION,
     updatedAt: stored.updatedAt || null
   };
+}
+
+/**
+ * Bounds for every user-editable policy field.
+ *
+ * These are outer sanity rails, not the policy itself — the defaults live in
+ * riskManager.js and are far tighter. The job here is only to guarantee that
+ * whatever comes back off disk is a number in a range where the arithmetic and
+ * the limits still mean something.
+ */
+const POLICY_BOUNDS = {
+  defaultRiskPerTradePct: [0.01, 20],
+  maxRiskPerTradePct: [0.01, 20],
+  maxTotalOpenRiskPct: [0.01, 50],
+  maxCorrelatedRiskPct: [0.01, 50],
+  maxNotionalExposurePct: [1, 1000],
+  maxMarginUtilizationPct: [1, 100],
+  maxLeverage: [1, 125],
+  minStopDistancePct: [0, 10]
+};
+
+/** Nested policy sub-objects, kept so a partial write cannot delete one. */
+const POLICY_NESTED = ['costs', 'liquidation', 'concentration'];
+
+/**
+ * Return a policy containing only recognised keys with in-range values.
+ * Unknown keys are dropped; out-of-range and non-numeric values are omitted so
+ * the engine default applies instead.
+ */
+export function sanitizePolicy(stored) {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return null;
+
+  const clean = {};
+  for (const [key, [min, max]] of Object.entries(POLICY_BOUNDS)) {
+    const value = stored[key];
+    if (value === null) {
+      // An explicit null means "this cap is disabled", which is a legitimate
+      // choice the engine understands. Preserved as-is.
+      clean[key] = null;
+    } else if (Number.isFinite(value) && value >= min && value <= max) {
+      clean[key] = value;
+    } else if (value !== undefined) {
+      console.warn(
+        `[RiskStore] Ignoring out-of-range policy value ${key}=${JSON.stringify(value)} ` +
+          `(expected ${min}..${max}); the engine default will be used.`
+      );
+    }
+  }
+
+  for (const key of POLICY_NESTED) {
+    const nested = stored[key];
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const sub = {};
+      for (const [k, v] of Object.entries(nested)) {
+        if (Number.isFinite(v) || typeof v === 'string' || typeof v === 'boolean') sub[k] = v;
+      }
+      if (Object.keys(sub).length > 0) clean[key] = sub;
+    }
+  }
+
+  return Object.keys(clean).length > 0 ? clean : null;
 }
 
 /**
@@ -225,19 +334,103 @@ export function appendWalletSnapshot(balance, note = '') {
  * PLANNED TRADES
  * ===================================================================== */
 
+const TRADE_STATUSES = ['PLANNED', 'OPEN', 'CLOSED', 'CANCELLED'];
+
+/** Numeric fields that must be a real number for the record to count. */
+const TRADE_NUMERIC_FIELDS = [
+  'entry', 'stop', 'target', 'leverage', 'notional', 'units',
+  'margin', 'plannedRisk', 'plannedRiskPct', 'stopDistancePct',
+  'walletAtEntry', 'exitPrice', 'actualPnl'
+];
+
+/**
+ * Load planned trades, coercing what can be coerced and quarantining what
+ * cannot.
+ *
+ * The previous version back-filled defaults and returned every record as-is.
+ * Downstream, calculatePortfolioRisk and detectCorrelatedExposure filter on
+ * `isPositiveNumber(plannedRisk)` and calculateExposure coerces a non-numeric
+ * margin to 0 — so a record whose plannedRisk was the STRING "1000", or whose
+ * status was lowercase "open", was silently dropped from every aggregate with
+ * no error anywhere. Measured effect on a two-position book: open risk fell
+ * from $1,400 (5.6%) to $0, and the same planned trade flipped from ABOVE PLAN
+ * to WITHIN PLAN. Risk that disappears quietly is worse than risk that errors.
+ *
+ * Numeric strings are coerced (a legitimate legacy shape). Anything still
+ * unusable is quarantined and reported via `loadTradesWithRejects()` so the UI
+ * can show that the book is incomplete rather than under-counting in silence.
+ */
+export function loadTradesWithRejects() {
+  const raw = readJSON(KEYS.trades, []);
+  if (!Array.isArray(raw)) return { trades: [], rejected: [] };
+
+  const trades = [];
+  const rejected = [];
+
+  for (const stored of raw) {
+    if (!stored || typeof stored !== 'object') {
+      rejected.push({ record: stored, reason: 'Not an object' });
+      continue;
+    }
+
+    const trade = {
+      status: 'PLANNED',
+      leverage: 1,
+      macroContext: null,
+      setupContext: null,
+      exitPrice: null,
+      actualPnl: null,
+      ...stored
+    };
+
+    // Coerce numeric-looking strings; reject anything else non-numeric.
+    let fault = null;
+    for (const field of TRADE_NUMERIC_FIELDS) {
+      const value = trade[field];
+      if (value === null || value === undefined) continue;
+      if (Number.isFinite(value)) continue;
+      const coerced = typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+      if (Number.isFinite(coerced)) {
+        trade[field] = coerced;
+      } else {
+        fault = `${field} is not a number (${JSON.stringify(value)})`;
+        break;
+      }
+    }
+    if (fault) {
+      rejected.push({ record: stored, reason: fault });
+      continue;
+    }
+
+    const status = String(trade.status || '').toUpperCase();
+    if (!TRADE_STATUSES.includes(status)) {
+      rejected.push({ record: stored, reason: `Unknown status ${JSON.stringify(trade.status)}` });
+      continue;
+    }
+    trade.status = status;
+
+    const direction = String(trade.direction || '').toUpperCase();
+    if (direction && !['LONG', 'SHORT'].includes(direction)) {
+      rejected.push({ record: stored, reason: `Unknown direction ${JSON.stringify(trade.direction)}` });
+      continue;
+    }
+    if (direction) trade.direction = direction;
+
+    trades.push(trade);
+  }
+
+  if (rejected.length > 0) {
+    console.warn(
+      `[RiskStore] ${rejected.length} stored trade(s) failed validation and are excluded from ` +
+        'portfolio risk. Reasons: ' + rejected.map((r) => r.reason).join('; ')
+    );
+  }
+
+  return { trades, rejected };
+}
+
 export function loadTrades() {
-  const trades = readJSON(KEYS.trades, []);
-  if (!Array.isArray(trades)) return [];
-  // Back-fill loosely rather than rejecting older records.
-  return trades.map((trade) => ({
-    status: 'PLANNED',
-    leverage: 1,
-    macroContext: null,
-    setupContext: null,
-    exitPrice: null,
-    actualPnl: null,
-    ...trade
-  }));
+  return loadTradesWithRejects().trades;
 }
 
 function persistTrades(trades) {
@@ -378,10 +571,50 @@ export function exportAll() {
 
 export function importAll(payload) {
   if (!payload || typeof payload !== 'object') throw new Error('Invalid backup payload');
-  if (payload.profile) writeJSON(KEYS.profile, payload.profile);
-  if (Array.isArray(payload.walletHistory)) writeJSON(KEYS.walletHistory, payload.walletHistory);
-  if (Array.isArray(payload.trades)) writeJSON(KEYS.trades, payload.trades);
-  return true;
+
+  // An import is the least trustworthy write in the system — the file has been
+  // outside the app, is hand-editable, and lands directly on the keys that hold
+  // the wallet balance and every risk ceiling. It used to be written verbatim,
+  // which made it the simplest route to the disabled-limits state described in
+  // sanitizePolicy. Everything below goes through the same validation as a
+  // normal read, and the result is reported rather than assumed.
+  const result = { profile: false, walletHistory: 0, trades: 0, rejected: [] };
+
+  if (payload.profile && typeof payload.profile === 'object') {
+    const balance = Number(payload.profile.walletBalance);
+    writeJSON(KEYS.profile, {
+      walletBalance: Number.isFinite(balance) && balance > 0 ? balance : null,
+      policy: sanitizePolicy(payload.profile.policy),
+      schemaVersion: SCHEMA_VERSION,
+      updatedAt: nowISO()
+    });
+    result.profile = true;
+  }
+
+  if (Array.isArray(payload.walletHistory)) {
+    const clean = payload.walletHistory.filter(
+      (e) => e && typeof e === 'object' && Number.isFinite(Number(e.balance))
+    ).map((e) => ({
+      id: e.id || newId(),
+      balance: Number(e.balance),
+      note: typeof e.note === 'string' ? e.note : '',
+      timestamp: e.timestamp || nowISO()
+    }));
+    writeJSON(KEYS.walletHistory, clean);
+    result.walletHistory = clean.length;
+  }
+
+  if (Array.isArray(payload.trades)) {
+    // Write first, then re-read through the validator so imported records are
+    // held to exactly the same standard as records already on disk.
+    writeJSON(KEYS.trades, payload.trades);
+    const { trades, rejected } = loadTradesWithRejects();
+    writeJSON(KEYS.trades, trades);
+    result.trades = trades.length;
+    result.rejected = rejected;
+  }
+
+  return result;
 }
 
 export default {

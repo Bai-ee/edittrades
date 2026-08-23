@@ -719,7 +719,14 @@ app.get('/api/crypto-news', async (req, res) => {
     }
 
     // Fetch from CryptoPanic
-    const API_KEY = process.env.CRYPTOPANIC_API_KEY || '7762b2058d34382d241b7bc409130a4c07074441';
+    // The literal key that used to sit in this `||` fallback is a live
+    // third-party credential and was committed to git in two files. It is
+    // removed; a missing env var must fail loudly rather than silently
+    // falling back to a shared secret in source.
+    const API_KEY = process.env.CRYPTOPANIC_API_KEY;
+    if (!API_KEY) {
+      throw new Error('CRYPTOPANIC_API_KEY is not configured');
+    }
     const params = new URLSearchParams({
       auth_token: API_KEY,
       filter: 'hot',
