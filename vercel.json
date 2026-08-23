@@ -21,7 +21,7 @@
     },
     {
       "src": "/api/analyze-full",
-      "dest": "/api/analyze-full.js"
+      "dest": "/api/analyze-full-safe.js"
     },
     {
       "src": "/api/analyze/(.*)",
