@@ -6,7 +6,7 @@
   <title>Risk Manager - EditTrades</title>
 
   <meta property="og:title" content="EditTrades Risk Manager">
-  <meta property="og:description" content="Position sizing and portfolio risk before you commit capital.">
+  <meta property="og:description" content="Adaptive position sizing. How much your account has earned the right to risk, right now.">
   <meta property="og:image" content="/logos/og_img.jpg">
   <meta name="twitter:card" content="summary_large_image">
 
@@ -15,19 +15,6 @@
   <link rel="stylesheet" href="/edittrax-styles.css">
   <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
   <style>
-    /* Liquidation caveats — deliberately quiet but always present. An estimate
-       whose assumptions are invisible reads to the user as a measurement. */
-    .rm-caveats {
-      margin-top: 0.75rem;
-      padding: 0.75rem 0.875rem;
-      border-left: 2px solid currentColor;
-      font-size: 0.75rem;
-      line-height: 1.5;
-      opacity: 0.7;
-    }
-    .rm-caveats ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
-    .rm-caveats li { margin-bottom: 0.25rem; }
-
     html { overflow-x: hidden; width: 100%; max-width: 100%; box-sizing: border-box; }
     body {
       overflow-x: hidden; width: 100%; max-width: 100%;
@@ -42,68 +29,29 @@
 
     main { width: 100%; max-width: 100%; overflow-x: hidden; }
 
-    /* ----------------------------------------------------------------
-     * ACCOUNT BAR
-     * Always visible, deliberately quiet. It is context for the
-     * calculator, not the headline.
-     * ------------------------------------------------------------- */
-    .rm-account {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 1.25rem 2rem;
-      padding: 0.875rem 1rem;
-      background-color: rgba(0, 0, 0, 0.6);
-      border: 1px solid rgba(230, 233, 224, 0.14);
-      border-radius: var(--radius-5);
-      margin: 0.5rem 0 1.75rem;
+    /* Several containers below set `display` via a class or an id rule, which
+       would out-specify the `hidden` attribute's UA style. This keeps `hidden`
+       meaning hidden everywhere on the page. */
+    [hidden] { display: none !important; }
+
+    .sr-only {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
     }
 
-    .rm-account-item .eco-label { font-size: 0.625rem; }
-    .rm-account-item .eco-value { font-size: 0.9375rem; display: block; margin-top: 0.2rem; }
-    .rm-account-status { margin-left: auto; align-self: center; }
-
-    /* ----------------------------------------------------------------
-     * SETUP  (first run only)
-     * ------------------------------------------------------------- */
-    .rm-setup {
-      border: 1px solid rgba(230, 233, 224, 0.2);
-      border-radius: var(--radius-10);
-      padding: 2rem 1.5rem;
-      margin-bottom: 2rem;
-      background-color: rgba(0, 0, 0, 0.5);
-    }
-
-    /* ----------------------------------------------------------------
-     * FORM
-     * ------------------------------------------------------------- */
+    /* ================================================================
+     * SHARED PRIMITIVES  (kept from the previous page, reused below)
+     * ============================================================= */
     .rm-section-heading {
       font-family: var(--font-mathias);
       font-size: 0.75rem;
       letter-spacing: 0.18em;
       text-transform: uppercase;
       color: var(--color-yellow-75-muted);
-      margin: 0 0 0.875rem;
+      margin: 2.25rem 0 0.875rem;
     }
 
-    .rm-form {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 0.875rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .rm-field { min-width: 0; }
-
-    .rm-field label {
-      display: block;
-      font-family: var(--font-mathias);
-      font-size: 0.625rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--color-yellow-75-muted);
-      margin-bottom: 0.35rem;
-    }
+    .rm-section-heading:first-of-type { margin-top: 0; }
 
     .rm-input {
       width: 100%;
@@ -113,220 +61,39 @@
       padding: 0.625rem 0.75rem;
       color: var(--color-yellow-75);
       font-family: var(--font-mathias);
+      /* 16px floor: below it iOS zooms the page on focus and the layout jumps. */
       font-size: 1rem;
       font-variant-numeric: tabular-nums;
-      /* iOS zooms the page when a focused input is under 16px. */
       -webkit-appearance: none;
       appearance: none;
+      min-width: 0;
     }
 
-    .rm-input:focus {
-      outline: none;
-      border-color: var(--color-yellow-75);
-    }
-
-    .rm-input.is-error { border-color: var(--accent-short); }
-
-    /* Direction is a two-state control, not a dropdown: it is faster to hit
-       and its state is readable without opening anything. */
-    .rm-direction { display: flex; gap: 0.375rem; }
-
-    .rm-direction button {
-      flex: 1;
+    .rm-input:focus { outline: none; border-color: var(--color-yellow-75); }
+    .rm-textarea { font-family: var(--font-system); line-height: 1.45; resize: vertical; }
+    /* A bare file input is ~21px tall — the smallest target on the page, on a
+       control whose whole job is "photograph your fill and drop it in here".
+       The input becomes a full-width block and its picker button is given the
+       same 44px floor and the same look as .rm-mini-btn. */
+    .rm-file {
       font-family: var(--font-mathias);
-      font-size: 0.75rem;
-      letter-spacing: 0.1em;
-      padding: 0.625rem 0.5rem;
-      border-radius: var(--radius-5);
-      border: 1px solid rgba(230, 233, 224, 0.22);
-      background: transparent;
+      font-size: 0.8125rem;
       color: var(--color-yellow-75-muted);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .rm-direction button[aria-pressed="true"][data-dir="LONG"] {
-      background-color: var(--accent-long);
-      border-color: var(--accent-long);
-      color: #000;
-    }
-
-    .rm-direction button[aria-pressed="true"][data-dir="SHORT"] {
-      background-color: var(--accent-short);
-      border-color: var(--accent-short);
-      color: #000;
-    }
-
-    /* ----------------------------------------------------------------
-     * RESULT
-     * The answer to the page's one question. Largest type on the page.
-     * ------------------------------------------------------------- */
-    .rm-result {
-      border: 1px solid rgba(230, 233, 224, 0.18);
-      border-radius: var(--radius-10);
-      background-color: rgba(0, 0, 0, 0.55);
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
-
-    .rm-result-head {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 1rem;
-      flex-wrap: wrap;
-      margin-bottom: 1.25rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid rgba(230, 233, 224, 0.12);
-    }
-
-    .rm-headline .eco-label { margin-bottom: 0.4rem; }
-
-    .rm-headline .eco-value {
-      font-size: clamp(1.875rem, 7vw, 3rem);
+      max-width: 100%;
       display: block;
+      width: 100%;
+      min-height: 44px;
+      padding: 0.25rem 0;
     }
 
-    .rm-status {
+    .rm-file::file-selector-button {
       font-family: var(--font-mathias);
-      font-size: 0.8125rem;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      padding: 0.4rem 0.75rem;
-      border-radius: var(--radius-5);
-      border: 1px solid currentColor;
-      white-space: nowrap;
-    }
-
-    .rm-metrics {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 1.25rem;
-    }
-
-    .rm-metric .eco-label { font-size: 0.625rem; }
-    .rm-metric .eco-value { font-size: 1.0625rem; display: block; margin-top: 0.25rem; }
-    .rm-metric-sub {
       font-size: 0.6875rem;
-      color: rgba(230, 233, 224, 0.4);
-      margin-top: 0.2rem;
-      font-family: var(--font-mathias);
-    }
-
-    /* ----------------------------------------------------------------
-     * SIZE SLIDER
-     * The point of this control is to make the size/risk relationship
-     * physical: drag it and watch dollars at risk move with you.
-     * ------------------------------------------------------------- */
-    .rm-slider-row {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      flex-wrap: wrap;
-      margin-top: 1.25rem;
-      padding-top: 1.25rem;
-      border-top: 1px solid rgba(230, 233, 224, 0.12);
-    }
-
-    .rm-slider {
-      flex: 1;
-      min-width: 180px;
-      -webkit-appearance: none;
-      appearance: none;
-      height: 2px;
-      background: rgba(230, 233, 224, 0.25);
-      outline: none;
-      border-radius: 2px;
-    }
-
-    .rm-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 18px; height: 18px;
-      border-radius: 50%;
-      background: var(--color-yellow-75);
-      cursor: pointer;
-      border: 2px solid #000;
-    }
-
-    .rm-slider::-moz-range-thumb {
-      width: 18px; height: 18px;
-      border-radius: 50%;
-      background: var(--color-yellow-75);
-      cursor: pointer;
-      border: 2px solid #000;
-    }
-
-    /* ----------------------------------------------------------------
-     * PORTFOLIO IMPACT
-     * ------------------------------------------------------------- */
-    .rm-impact {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 1px;
-      background-color: rgba(230, 233, 224, 0.10);
-      border: 1px solid rgba(230, 233, 224, 0.10);
-      border-radius: var(--radius-10);
-      overflow: hidden;
-      margin-bottom: 1.5rem;
-    }
-
-    .rm-impact-item { background-color: #000; padding: 0.875rem 1rem; }
-    .rm-impact-item .eco-value { font-size: 0.9375rem; display: block; margin-top: 0.3rem; }
-    .rm-arrow { color: rgba(230, 233, 224, 0.35); margin: 0 0.35rem; }
-
-    /* ----------------------------------------------------------------
-     * RISK CHECK
-     * ------------------------------------------------------------- */
-    .rm-check { margin-bottom: 1.5rem; }
-
-    .rm-check-item {
-      display: flex;
-      align-items: baseline;
-      gap: 0.75rem;
-      padding: 0.5rem 0;
-      border-bottom: 1px solid rgba(230, 233, 224, 0.07);
-      font-size: 0.8125rem;
-    }
-
-    .rm-check-mark {
-      font-family: var(--font-mathias);
-      width: 1.1rem;
-      flex-shrink: 0;
-      text-align: center;
-    }
-
-    .rm-check-label { color: rgba(230, 233, 224, 0.85); }
-    .rm-check-detail {
-      margin-left: auto;
-      text-align: right;
-      color: rgba(230, 233, 224, 0.42);
-      font-size: 0.6875rem;
-      font-family: var(--font-mathias);
-    }
-
-    /* ----------------------------------------------------------------
-     * POSITIONS
-     * ------------------------------------------------------------- */
-    .rm-position {
-      display: flex;
-      align-items: center;
-      gap: 0.875rem;
-      flex-wrap: wrap;
-      padding: 0.75rem 0;
-      border-bottom: 1px solid rgba(230, 233, 224, 0.08);
-      font-family: var(--font-mathias);
-      font-size: 0.8125rem;
-    }
-
-    .rm-position-asset { min-width: 84px; color: var(--color-yellow-75); font-weight: bold; }
-    .rm-position-spacer { margin-left: auto; display: flex; gap: 0.375rem; flex-wrap: wrap; }
-
-    .rm-mini-btn {
-      font-family: var(--font-mathias);
-      font-size: 0.625rem;
       letter-spacing: 0.08em;
-      padding: 0.3rem 0.5rem;
+      text-transform: uppercase;
+      min-height: 44px;
+      padding: 0 0.875rem;
+      margin-right: 0.625rem;
       border-radius: 3px;
       border: 1px solid rgba(230, 233, 224, 0.25);
       background: transparent;
@@ -334,16 +101,49 @@
       cursor: pointer;
     }
 
+    .rm-file::file-selector-button:hover {
+      color: var(--color-yellow-75);
+      border-color: var(--color-yellow-75);
+    }
+
+    .rm-mini-btn {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.5rem 0.625rem;
+      border-radius: 3px;
+      border: 1px solid rgba(230, 233, 224, 0.25);
+      background: transparent;
+      color: var(--color-yellow-75-muted);
+      cursor: pointer;
+      /* 44px is the floor a finger actually needs. These are not decorative:
+         they classify a deposit, reset the sandbox and close the trade sheet,
+         so they get the same target size as any other action on the page. */
+      min-height: 44px;
+    }
+
     .rm-mini-btn:hover { color: var(--color-yellow-75); border-color: var(--color-yellow-75); }
     .rm-mini-btn[aria-pressed="true"] {
       background: var(--color-yellow-75); color: #000; border-color: var(--color-yellow-75);
     }
+    .rm-mini-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-    /* ----------------------------------------------------------------
-     * DISCLOSURES / PROSE
-     * ------------------------------------------------------------- */
+    .rm-prose { font-size: 0.8125rem; line-height: 1.65; color: rgba(230, 233, 224, 0.62); }
+    .rm-prose strong { color: var(--color-yellow-75); font-weight: 600; }
+
+    .rm-notice {
+      border-left: 2px solid var(--accent-short);
+      padding: 0.75rem 0.875rem;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      color: rgba(230, 233, 224, 0.78);
+      background: rgba(239, 68, 68, 0.08);
+      border-radius: 0 var(--radius-5) var(--radius-5) 0;
+      margin-bottom: 1.25rem;
+    }
+
     .rm-details { border-top: 1px solid rgba(230, 233, 224, 0.12); padding: 1rem 0; }
-
     .rm-details summary {
       cursor: pointer;
       font-family: var(--font-mathias);
@@ -352,110 +152,851 @@
       text-transform: uppercase;
       color: var(--color-yellow-75);
       list-style: none;
+      /* A disclosure is the only way to reach the transfer-classification
+         queue, so it is a primary target and gets the full 44px. */
+      min-height: 44px;
+      display: flex;
+      align-items: center;
     }
-
     .rm-details summary::-webkit-details-marker { display: none; }
     .rm-details summary::after { content: ' +'; color: var(--color-yellow-75-muted); }
     .rm-details[open] summary::after { content: ' \2212'; }
     .rm-details > *:not(summary) { margin-top: 1rem; }
 
-    .rm-prose { font-size: 0.8125rem; line-height: 1.65; color: rgba(230, 233, 224, 0.62); }
-    .rm-prose strong { color: var(--color-yellow-75); font-weight: 600; }
+    .rm-btn { width: auto; }
+    .rm-arrow { color: rgba(230, 233, 224, 0.35); margin: 0 0.4rem; }
 
-    .rm-def { margin-bottom: 0.875rem; }
-    .rm-def dt {
-      font-family: var(--font-mathias);
-      font-size: 0.6875rem;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--color-yellow-75);
-    }
-    .rm-def dd { margin: 0.2rem 0 0; font-size: 0.8125rem; color: rgba(230, 233, 224, 0.6); line-height: 1.5; }
-
-    .rm-notice {
-      border-left: 2px solid var(--accent-short);
-      padding: 0.625rem 0.875rem;
-      font-size: 0.75rem;
-      line-height: 1.5;
-      color: rgba(230, 233, 224, 0.7);
-      background: rgba(239, 68, 68, 0.06);
-      border-radius: 0 var(--radius-5) var(--radius-5) 0;
-      margin-bottom: 1.25rem;
-    }
-
-    .rm-macro {
+    /* Pills and chips. Both must WRAP, never clip: a factor the user cannot
+       read is worse than no factor at all. */
+    .rm-pill, .rm-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
       font-family: var(--font-mathias);
       font-size: 0.6875rem;
       letter-spacing: 0.1em;
       text-transform: uppercase;
-      color: rgba(230, 233, 224, 0.45);
+      padding: 0.3rem 0.5rem;
+      border-radius: 3px;
+      border: 1px solid currentColor;
+      /* Long engine codes break rather than push the row wide. */
+      overflow-wrap: anywhere;
+      max-width: 100%;
+    }
+
+    .rm-chip { color: var(--color-yellow-75-muted); border-color: rgba(230, 233, 224, 0.2); }
+    .rm-pill-glyph { font-size: 0.8125rem; line-height: 1; }
+    .rm-pill-row { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+
+    /* ================================================================
+     * WALLET BAR
+     * ============================================================= */
+    .rm-wallet {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.875rem;
+      padding: 0.75rem 0.875rem;
+      background: rgba(0, 0, 0, 0.6);
+      border: 1px solid rgba(230, 233, 224, 0.14);
+      border-radius: var(--radius-5);
       margin-bottom: 1.25rem;
     }
 
+    .rm-wallet-address {
+      font-family: var(--font-mathias);
+      font-size: 0.875rem;
+      color: var(--color-yellow-75);
+      /* An address is 32-44 base58 characters. It truncates; it never overflows. */
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    .rm-readonly-tag {
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent-long);
+      border: 1px solid var(--accent-long);
+      border-radius: 3px;
+      padding: 0.15rem 0.35rem;
+      white-space: nowrap;
+    }
+
+    .rm-wallet-actions { margin-left: auto; display: flex; gap: 0.375rem; flex-wrap: wrap; }
+
+    #walletConnected {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.75rem;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .rm-wallet-form { display: flex; gap: 0.5rem; flex-wrap: wrap; width: 100%; align-items: center; }
+    .rm-wallet-form .rm-input { flex: 1 1 220px; }
+
+    /* ================================================================
+     * 1. LEVEL — THE MAJOR VISUAL
+     * ============================================================= */
+    .rm-level {
+      border: 1px solid rgba(230, 233, 224, 0.22);
+      border-radius: var(--radius-10);
+      background: rgba(0, 0, 0, 0.55);
+      padding: 1.5rem 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .rm-level.is-defensive { border-color: rgba(239, 68, 68, 0.45); }
+
+    /* Eight nodes across the full measure. Equal flex columns mean the rail
+       fits 320px without a scroller and without a horizontal page overflow. */
+    .rm-rail {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 1.25rem;
+      width: 100%;
+    }
+
+    .rm-rail-node {
+      flex: 1 1 0;
+      min-width: 0;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-5);
+      border: 1px solid rgba(230, 233, 224, 0.16);
+      font-family: var(--font-mathias);
+      font-variant-numeric: tabular-nums;
+      color: var(--color-yellow-75-dim);
+      font-size: 0.8125rem;
+      background: rgba(0, 0, 0, 0.4);
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .rm-rail-node.is-passed, .rm-rail-node.is-reached {
+      color: var(--color-yellow-75-muted);
+      border-color: rgba(230, 233, 224, 0.3);
+    }
+
+    .rm-rail-node.is-defensive { color: rgba(239, 68, 68, 0.55); border-color: rgba(239, 68, 68, 0.22); }
+    .rm-rail-node.is-locked { color: var(--color-yellow-75-faint); }
+
+    /* The current level is the only boxed node. It reads as "you are here"
+       without any colour fireworks. */
+    .rm-rail-node.is-current {
+      border: 2px solid var(--color-yellow-75);
+      color: var(--color-yellow-75);
+      background: rgba(230, 233, 224, 0.08);
+      font-size: 1.0625rem;
+    }
+
+    .rm-level.is-defensive .rm-rail-node.is-current {
+      border-color: var(--accent-short);
+      color: var(--accent-short);
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .rm-level-line {
+      font-family: var(--font-mathias);
+      font-size: clamp(1.375rem, 6.5vw, 2rem);
+      letter-spacing: 0.03em;
+      color: var(--color-yellow-75);
+      line-height: 1.05;
+      margin-bottom: 0.35rem;
+      overflow-wrap: anywhere;
+    }
+
+    .rm-level.is-defensive .rm-level-line { color: var(--accent-short); }
+
+    .rm-level-name {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-dim);
+      margin-bottom: 0.875rem;
+    }
+
+    .rm-progress-track {
+      height: 8px;
+      width: 100%;
+      background: rgba(230, 233, 224, 0.1);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 0.5rem;
+    }
+
+    .rm-progress-bar {
+      height: 100%;
+      background: var(--color-yellow-75);
+      border-radius: 4px;
+      transition: width 0.4s ease;
+    }
+
+    .rm-level.is-defensive .rm-progress-bar { background: var(--accent-short); }
+
+    .rm-level-sub {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-dim);
+      margin-bottom: 1rem;
+    }
+
+    .rm-recovery {
+      border-left: 2px solid var(--accent-short);
+      padding: 0.5rem 0.75rem;
+      margin-bottom: 1rem;
+      background: rgba(239, 68, 68, 0.07);
+      border-radius: 0 var(--radius-5) var(--radius-5) 0;
+    }
+
+    .rm-recovery-line {
+      font-family: var(--font-mathias);
+      font-size: 1.0625rem;
+      color: var(--accent-short);
+      display: block;
+    }
+
+    .rm-recovery-detail {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.1em;
+      color: var(--color-yellow-75-dim);
+      margin-top: 0.2rem;
+    }
+
+    .rm-level-description {
+      font-size: 0.8125rem;
+      line-height: 1.55;
+      color: rgba(230, 233, 224, 0.5);
+      margin: 1rem 0 0;
+    }
+
+    /* ================================================================
+     * 2. ACCOUNT HEALTH  (compact by design — it is context, not headline)
+     * ============================================================= */
+    .rm-health {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+      gap: 1px;
+      background: rgba(230, 233, 224, 0.1);
+      border: 1px solid rgba(230, 233, 224, 0.1);
+      border-radius: var(--radius-10);
+      overflow: hidden;
+      margin-bottom: 0.625rem;
+    }
+
+    .rm-health-item { background: #000; padding: 0.625rem 0.75rem; min-width: 0; }
+    .rm-health-item .eco-label { font-size: 0.5625rem; letter-spacing: 0.12em; }
+    .rm-health-item .eco-value {
+      font-size: 1rem;
+      display: block;
+      margin-top: 0.2rem;
+      overflow-wrap: anywhere;
+    }
+
+    .rm-provenance {
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-dim);
+      margin-bottom: 1.5rem;
+      overflow-wrap: anywhere;
+    }
+
+    /* Cash-flow review */
+    .rm-flow-row {
+      border-bottom: 1px solid rgba(230, 233, 224, 0.08);
+      padding: 0.625rem 0;
+    }
+    .rm-flow-main { display: flex; gap: 0.625rem; align-items: baseline; flex-wrap: wrap; font-family: var(--font-mathias); font-size: 0.8125rem; }
+    .rm-flow-when { color: var(--color-yellow-75-dim); font-size: 0.6875rem; }
+    .rm-flow-move { color: var(--color-yellow-75-muted); font-size: 0.6875rem; overflow-wrap: anywhere; }
+    .rm-flow-actions { display: flex; gap: 0.375rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: center; }
+    .rm-flow-amount { max-width: 130px; }
+    .rm-flow-manual { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.875rem; }
+    .rm-flow-manual .rm-input { max-width: 160px; }
+
+    /* ================================================================
+     * 3. QUICK RECOMMENDER
+     * ============================================================= */
+    .rm-request {
+      border: 1px solid rgba(230, 233, 224, 0.16);
+      border-radius: var(--radius-10);
+      background: rgba(0, 0, 0, 0.45);
+      padding: 1.125rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .rm-request-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 0.875rem;
+      margin-bottom: 1.125rem;
+    }
+
+    .rm-field label, .rm-field > .eco-label {
+      display: block;
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-muted);
+      margin-bottom: 0.35rem;
+    }
+
+    /* Two large tap targets, never a dropdown: the choice is binary and its
+       state has to be readable without opening anything. */
+    .rm-strategy { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+    .rm-strategy button {
+      font-family: var(--font-mathias);
+      font-size: 0.875rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      min-height: 52px;
+      padding: 0.75rem 0.5rem;
+      border-radius: var(--radius-5);
+      border: 1px solid rgba(230, 233, 224, 0.22);
+      background: transparent;
+      color: var(--color-yellow-75-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .rm-strategy button[aria-pressed="true"] {
+      background: var(--color-yellow-75);
+      border-color: var(--color-yellow-75);
+      color: #000;
+    }
+
+    .rm-confidence-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .rm-confidence-value {
+      font-family: var(--font-mathias);
+      font-size: 1.25rem;
+      color: var(--color-yellow-75);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .rm-slider {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 4px;
+      background: rgba(230, 233, 224, 0.22);
+      outline: none;
+      border-radius: 2px;
+      /* A slider is the hardest control to hit on a phone: the padding gives
+         the thumb a 44px vertical target without a 44px visual bar.
+         content-box is load-bearing — the page sets `box-sizing: border-box`
+         on everything, which made `height: 4px` swallow the padding and
+         collapse this to a 40px target instead of 4 + 20 + 20. */
+      box-sizing: content-box;
+      padding: 20px 0;
+      background-clip: content-box;
+      margin: 0;
+    }
+
+    .rm-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      background: var(--color-yellow-75);
+      cursor: pointer;
+      border: 3px solid #000;
+      box-shadow: 0 0 0 1px rgba(230, 233, 224, 0.4);
+    }
+
+    .rm-slider::-moz-range-thumb {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      background: var(--color-yellow-75);
+      cursor: pointer;
+      border: 3px solid #000;
+      box-shadow: 0 0 0 1px rgba(230, 233, 224, 0.4);
+    }
+
+    .rm-slider-ends {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.14em;
+      color: var(--color-yellow-75-dim);
+    }
+
+    /* ================================================================
+     * 4. THE PRIMARY RECOMMENDATION — dominant, never shrunk on mobile
+     * ============================================================= */
+    .rm-rec {
+      border: 2px solid var(--color-yellow-75);
+      border-radius: var(--radius-10);
+      background: rgba(0, 0, 0, 0.7);
+      padding: 1.75rem 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .rm-rec-headline {
+      display: block;
+      /* Deliberately the largest type on the page at every width. */
+      font-size: clamp(2rem, 10vw, 3.5rem);
+      line-height: 1.02;
+      letter-spacing: 0.01em;
+      overflow-wrap: anywhere;
+      margin-bottom: 0.5rem;
+    }
+
+    .rm-rec-maxloss {
+      font-family: var(--font-mathias);
+      font-size: clamp(1rem, 4.5vw, 1.375rem);
+      color: var(--color-yellow-75-muted);
+      letter-spacing: 0.06em;
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .rm-rec-caption {
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-dim);
+      margin-bottom: 1rem;
+    }
+
+    .rm-rec-chips { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 1.125rem; }
+
+    .rm-blocker {
+      border-left: 2px solid var(--accent-short);
+      background: rgba(239, 68, 68, 0.08);
+      border-radius: 0 var(--radius-5) var(--radius-5) 0;
+      padding: 0.875rem;
+      margin-bottom: 1.125rem;
+    }
+
+    .rm-blocker-label {
+      font-family: var(--font-mathias);
+      font-size: 0.9375rem;
+      color: var(--color-yellow-75);
+      margin-bottom: 0.625rem;
+      overflow-wrap: anywhere;
+    }
+
+    .rm-blocker-figures { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 0.625rem; }
+    .rm-blocker-figures > span { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+    .rm-blocker-figures .eco-value { font-size: 1.125rem; overflow-wrap: anywhere; }
+    .rm-blocker-remedy { font-size: 0.8125rem; line-height: 1.55; color: rgba(230, 233, 224, 0.7); margin: 0; }
+    .rm-blocker-more { font-size: 0.6875rem; color: var(--color-yellow-75-dim); margin: 0.5rem 0 0; }
+    .rm-blocker-inline { margin-bottom: 0.75rem; }
+    .rm-blocker-limit { font-family: var(--font-mathias); font-size: 0.6875rem; color: var(--color-yellow-75-dim); margin-left: 0.5rem; }
+
+    .rm-warnings { margin: 0 0 1.125rem; padding-left: 1.1rem; }
+    .rm-warnings li { font-size: 0.8125rem; line-height: 1.5; color: rgba(230, 233, 224, 0.62); margin-bottom: 0.35rem; }
+
+    .rm-rec-version {
+      font-family: var(--font-mathias);
+      font-size: 0.5625rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(230, 233, 224, 0.28);
+      margin-top: 1rem;
+      overflow-wrap: anywhere;
+    }
+
+    /* ================================================================
+     * 5. DECISION FACTORS
+     * ============================================================= */
+    .rm-factor { padding: 0.75rem 0; border-bottom: 1px solid rgba(230, 233, 224, 0.08); }
+    .rm-factor-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; }
+    .rm-factor-label { font-family: var(--font-mathias); font-size: 0.8125rem; color: var(--color-yellow-75); overflow-wrap: anywhere; }
+    .rm-factor-detail { font-size: 0.75rem; line-height: 1.55; color: rgba(230, 233, 224, 0.55); margin: 0.35rem 0 0; overflow-wrap: anywhere; }
+
+    /* ================================================================
+     * 6. EQUITY CURVE
+     * ============================================================= */
+    .rm-chart-wrap {
+      border: 1px solid rgba(230, 233, 224, 0.12);
+      border-radius: var(--radius-10);
+      background: rgba(0, 0, 0, 0.5);
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .rm-chart-svg { display: block; width: 100%; touch-action: manipulation; }
+    .rm-chart-empty { padding: 2rem 0.5rem; text-align: center; }
+
+    .rm-chart-axis {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.1em;
+      color: var(--color-yellow-75-dim);
+      margin-top: 0.35rem;
+    }
+
+    .rm-chart-axis-mid { color: var(--color-yellow-75-muted); }
+    .rm-chart-note { font-family: var(--font-mathias); font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(230,233,224,0.3); margin: 0.5rem 0 0; }
+
+    .rm-marker { cursor: pointer; }
+    /* The hit circle is invisible but at least 44px across: markers work by
+       TAP. `transparent` (not `none`) is what keeps it in hit testing, and
+       its r=24 in riskPage.js is deliberate — at 320px the SVG is drawn at
+       ~0.94x its viewBox, where the previous r=22 measured only 41.2 CSS px. */
+    .rm-marker-hit { fill: transparent; }
+    .rm-marker-line { stroke: rgba(230, 233, 224, 0.16); stroke-width: 1; stroke-dasharray: 2 3; }
+    .rm-marker-dot { stroke: #000; stroke-width: 2; }
+    .rm-marker.is-up .rm-marker-dot { fill: var(--accent-long); }
+    .rm-marker.is-down .rm-marker-dot { fill: var(--accent-short); }
+    .rm-marker.is-selected .rm-marker-dot { r: 8; }
+    .rm-marker.is-selected .rm-marker-line { stroke: rgba(230, 233, 224, 0.4); }
+    .rm-marker:focus { outline: none; }
+    .rm-marker:focus .rm-marker-dot { stroke: var(--color-yellow-75); }
+
+    .rm-transition {
+      border: 1px solid rgba(230, 233, 224, 0.18);
+      border-radius: var(--radius-10);
+      background: rgba(0, 0, 0, 0.6);
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .rm-transition-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.625rem; margin-bottom: 0.5rem; }
+    .rm-transition-head .eco-value { font-size: 1.0625rem; }
+    .rm-transition-date { font-family: var(--font-mathias); font-size: 0.6875rem; color: var(--color-yellow-75-dim); }
+    .rm-transition-head .rm-mini-btn { margin-left: auto; }
+
+    .rm-transition-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+      gap: 0.75rem;
+      margin: 0.875rem 0;
+    }
+    .rm-transition-stats .eco-label { display: block; font-size: 0.5625rem; }
+    .rm-transition-stats .eco-value { font-size: 0.9375rem; }
+
+    .rm-threshold {
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid rgba(230, 233, 224, 0.06);
+    }
+    .rm-threshold.is-pass .rm-threshold-mark { color: var(--accent-long); }
+    .rm-threshold.is-fail .rm-threshold-mark { color: var(--accent-short); }
+    .rm-threshold-code { color: var(--color-yellow-75-muted); overflow-wrap: anywhere; }
+    .rm-threshold-value { margin-left: auto; color: var(--color-yellow-75-dim); white-space: nowrap; }
+
+    /* ================================================================
+     * 7. POSITIONS
+     * ============================================================= */
+    .rm-position-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem 0.875rem;
+      flex-wrap: wrap;
+      width: 100%;
+      text-align: left;
+      padding: 0.75rem;
+      margin-bottom: 0.375rem;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(230, 233, 224, 0.12);
+      border-radius: var(--radius-5);
+      font-family: var(--font-mathias);
+      font-size: 0.8125rem;
+      color: var(--color-yellow-75);
+      cursor: pointer;
+      min-height: 48px;
+    }
+
+    .rm-position-row.is-selected { border-color: var(--color-yellow-75); background: rgba(230, 233, 224, 0.06); }
+    .rm-position-asset { font-size: 0.9375rem; min-width: 72px; }
+    .rm-position-side { font-size: 0.6875rem; letter-spacing: 0.1em; }
+    .rm-position-figure { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; font-variant-numeric: tabular-nums; }
+    .rm-position-figure .eco-label { font-size: 0.5625rem; }
+
+    .rm-eval {
+      border: 1px solid rgba(230, 233, 224, 0.2);
+      border-radius: var(--radius-10);
+      background: rgba(0, 0, 0, 0.6);
+      padding: 1rem;
+      margin-top: 0.75rem;
+    }
+
+    .rm-eval-head { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    .rm-eval-action { font-size: 1.75rem; }
+    .rm-eval-actions { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 1rem; }
+
+    .rm-eval-option {
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.1em;
+      padding: 0.4rem 0.6rem;
+      border: 1px solid rgba(230, 233, 224, 0.18);
+      border-radius: 3px;
+      color: var(--color-yellow-75-dim);
+    }
+    .rm-eval-option.is-active { border-color: var(--color-yellow-75); color: var(--color-yellow-75); background: rgba(230,233,224,0.08); }
+
+    .rm-eval-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+    .rm-eval-stats .eco-label { display: block; font-size: 0.5625rem; }
+    .rm-eval-stats .eco-value { font-size: 0.9375rem; }
+    .rm-eval-block { margin-bottom: 1rem; }
+    .rm-eval-block .eco-label { display: block; margin-bottom: 0.2rem; }
+    .rm-rationale { margin: 0; padding-left: 1.1rem; }
+    .rm-rationale li { font-size: 0.75rem; line-height: 1.55; color: rgba(230, 233, 224, 0.55); margin-bottom: 0.35rem; }
+
+    /* ================================================================
+     * 8. HISTORY TABLE — dense, and deliberately reduced on a phone
+     * ============================================================= */
+    .rm-history { margin-bottom: 0.5rem; }
+    .rm-history .table-edittrax { font-size: 0.75rem; }
+    .rm-history .table-edittrax th { font-size: 0.625rem; letter-spacing: 0.12em; padding: 0.5rem 0.5rem; }
+    /* A row is the tap target that opens the trade record, so the vertical
+       padding is what gets it to a 44px-tall target rather than a 37px one. */
+    .rm-history .table-edittrax td { padding: 0.8rem 0.5rem; font-size: 0.75rem; color: var(--color-yellow-75); }
+    .rm-history-row { cursor: pointer; }
+    .rm-history-row:focus { outline: 1px solid var(--color-yellow-75); outline-offset: -1px; }
+    .rm-history-empty { color: var(--color-yellow-75-dim) !important; text-align: center; padding: 1.5rem 0.5rem !important; }
+
+    .rm-col-asset { width: 22%; }
+    .rm-col-side { width: 10%; }
+    .rm-col-pnl { width: 16%; font-variant-numeric: tabular-nums; }
+    .rm-col-level { width: 8%; }
+    .rm-col-strategy { width: 14%; }
+    .rm-col-confidence { width: 10%; }
+    .rm-col-status { width: 10%; }
+    .rm-col-data { width: 14%; }
+
+    .rm-data-flag { font-size: 0.5625rem; letter-spacing: 0.08em; white-space: nowrap; }
+
+    .rm-conflict-dot {
+      display: inline-block;
+      margin-left: 0.35rem;
+      width: 14px; height: 14px;
+      line-height: 13px;
+      text-align: center;
+      border-radius: 50%;
+      background: var(--accent-short);
+      color: #000;
+      font-size: 0.5625rem;
+    }
+
+    .rm-history-count {
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-dim);
+      margin-bottom: 1.5rem;
+    }
+
+    /* ================================================================
+     * TRADE DETAIL SHEET
+     * A sheet, not a modal: full height on a phone with its own scroll, so
+     * a long record is readable instead of being squeezed into a dialog.
+     * ============================================================= */
+    .rm-sheet {
+      position: fixed;
+      inset: 0;
+      z-index: 9998;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.86);
+    }
+
+    .rm-sheet[hidden] { display: none; }
+    body.rm-sheet-open { overflow: hidden; }
+
+    .rm-sheet-panel {
+      background: #000;
+      border: 1px solid var(--color-yellow-75);
+      border-radius: var(--radius-10) var(--radius-10) 0 0;
+      width: 100%;
+      max-width: 680px;
+      max-height: 92vh;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 1.25rem;
+      padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+    }
+
+    .rm-sheet-head { display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 1rem; }
+    .rm-sheet-head .rm-mini-btn { margin-left: auto; }
+    .rm-sheet-title { font-size: 1.375rem; display: block; margin-top: 0.25rem; overflow-wrap: anywhere; }
+
+    .rm-sheet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-bottom: 0.875rem; }
+    .rm-sheet-field { display: block; margin-bottom: 0.75rem; }
+    .rm-sheet-field .eco-label { display: block; margin-bottom: 0.3rem; font-size: 0.5625rem; }
+    .rm-sheet-section { border-top: 1px solid rgba(230, 233, 224, 0.12); padding-top: 0.875rem; margin-top: 0.875rem; }
+    .rm-sheet-section .eco-label { display: block; margin-bottom: 0.35rem; }
+    .rm-sheet-flow { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.5rem; }
+    .rm-sheet-flow .rm-input { max-width: 150px; }
+    .rm-sheet-actions { display: flex; gap: 0.625rem; flex-wrap: wrap; margin-top: 1.25rem; }
+
+    .rm-sheet-conflicts {
+      border: 1px solid var(--accent-short);
+      border-radius: var(--radius-5);
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      background: rgba(239, 68, 68, 0.07);
+    }
+    .rm-conflict-row { display: flex; flex-wrap: wrap; gap: 0.5rem; font-family: var(--font-mathias); font-size: 0.6875rem; padding: 0.3rem 0; }
+    .rm-conflict-field { color: var(--color-yellow-75); min-width: 72px; }
+    .rm-conflict-values { color: var(--color-yellow-75-muted); overflow-wrap: anywhere; }
+    .rm-conflict-res { margin-left: auto; color: var(--accent-short); letter-spacing: 0.08em; }
+
+    /* ================================================================
+     * SIMULATION
+     * ============================================================= */
+    .rm-sim-banner {
+      border: 1px dashed var(--accent-economic);
+      border-radius: var(--radius-5);
+      background: rgba(110, 110, 158, 0.12);
+      padding: 0.625rem 0.875rem;
+      margin-bottom: 1rem;
+      font-family: var(--font-mathias);
+      font-size: 0.6875rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-economic);
+      overflow-wrap: anywhere;
+    }
+
+    .rm-sim-panel {
+      border: 1px dashed rgba(110, 110, 158, 0.5);
+      border-radius: var(--radius-10);
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .rm-sim-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.75rem; }
+    .rm-sim-row .rm-input { max-width: 180px; }
+
+    /* ================================================================
+     * STRATEGY PROPOSALS AND PLANNED VS ACTUAL
+     * ============================================================= */
+    .rm-proposal, .rm-planned {
+      border: 1px solid rgba(230, 233, 224, 0.14);
+      border-radius: var(--radius-5);
+      padding: 0.875rem;
+      margin-bottom: 0.625rem;
+      background: rgba(0, 0, 0, 0.45);
+    }
+
+    .rm-proposal-head, .rm-planned-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+    .rm-proposal-change { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem; margin-bottom: 0.5rem; }
+    .rm-proposal-current { font-family: var(--font-mathias); font-size: 0.75rem; color: var(--color-yellow-75-dim); }
+    .rm-proposal-proposed { font-size: 0.875rem; overflow-wrap: anywhere; }
+    .rm-proposal-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+
+    .rm-planned-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; }
+    .rm-planned-cols .eco-label { display: block; font-size: 0.5625rem; margin-bottom: 0.15rem; }
+    .rm-planned-cols .eco-value { font-size: 0.9375rem; }
+    .rm-planned-meta { font-family: var(--font-mathias); font-size: 0.5625rem; letter-spacing: 0.1em; color: rgba(230,233,224,0.3); margin-top: 0.5rem; overflow-wrap: anywhere; }
+
+    .rm-strategy-version {
+      font-family: var(--font-mathias);
+      font-size: 0.625rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--color-yellow-75-dim);
+      margin-bottom: 0.75rem;
+    }
+
+    /* ================================================================
+     * MOBILE — a primary environment, tested at 320 / 375 / 390 / 430
+     * ============================================================= */
     @media (max-width: 720px) {
-      /* Account bar becomes a two-up grid so each figure gets real width
-         instead of wrapping unevenly across a flex row. */
-      .rm-account {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 1rem;
-      }
-
-      .rm-account-item .eco-value { font-size: 1.0625rem; }
-
-      .rm-account-status {
-        grid-column: 1 / -1;
-        margin-left: 0;
-        width: 100%;
-      }
-
-      .rm-status { display: block; text-align: center; font-size: 0.875rem; }
-
-      /* One field per row: these are numeric inputs that get typed into, and
-         half-width fields on a phone are both harder to hit and harder to read
-         back. */
-      .rm-form { grid-template-columns: 1fr; gap: 1rem; }
-
-      .rm-input { font-size: 1.0625rem; padding: 0.75rem; }
-
-      .rm-field label { font-size: 0.6875rem; }
-
-      .rm-direction button { padding: 0.75rem 0.5rem; font-size: 0.8125rem; }
-
-      .rm-result { padding: 1.25rem; }
-
-      .rm-result-head { flex-direction: column; align-items: stretch; gap: 1rem; }
-
-      .rm-headline .eco-value { font-size: clamp(2.25rem, 11vw, 3rem); }
-
-      /* Two-up keeps related figures comparable without shrinking them to
-         thirds of a narrow screen. */
-      .rm-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 1rem; }
-      .rm-metric .eco-value { font-size: 1.125rem; }
-
-      .rm-slider-row { gap: 0.875rem; }
-      .rm-slider { flex: 1 1 100%; min-width: 0; }
-      .rm-slider-row .eco-value { text-align: left; min-width: 0; }
-
-      .rm-impact { grid-template-columns: 1fr; }
-
-      .rm-check-item { flex-wrap: wrap; }
-      .rm-check-detail { margin-left: 0; width: 100%; text-align: left; padding-left: 1.85rem; }
-
-      .rm-section-heading { font-size: 0.875rem; }
-
-      /* Matches the Bitcoin Economic Value page: centred title on a narrow
-         measure so the wrap reads as intentional, left-aligned on desktop. */
       .rm-page-title { text-align: center; }
       .rm-standfirst { text-align: center; max-width: none; font-size: 0.9375rem; }
 
-      /* Full-width actions, stacked, so the primary action is unmissable. */
-      #saveTrade, #clearForm, #setupSave, #policySave, #policyReset { width: 100%; }
-      #setupWallet { max-width: none !important; }
+      /* Inputs stay at or above 16px: below it iOS zooms on focus. */
+      .rm-input { font-size: 1.0625rem; padding: 0.75rem; }
 
-      .rm-position { gap: 0.5rem 0.875rem; }
-      .rm-position-spacer { margin-left: 0; width: 100%; }
-      .rm-mini-btn { flex: 1 1 auto; }
+      .rm-level { padding: 1.25rem 1rem; }
+      /* The rail keeps all eight nodes at 320px by shrinking the node, never
+         by scrolling the page. */
+      .rm-rail { gap: 0.1875rem; }
+      .rm-rail-node { height: 40px; font-size: 0.75rem; }
+      .rm-rail-node.is-current { font-size: 1rem; }
+
+      .rm-health { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .rm-health-item .eco-value { font-size: 1.0625rem; }
+
+      .rm-request-grid { grid-template-columns: 1fr; }
+
+      /* The recommendation is NOT reduced to desktop body type here. */
+      .rm-rec { padding: 1.5rem 1rem; }
+      .rm-rec-headline { font-size: clamp(2.125rem, 11vw, 3rem); }
+
+      .rm-blocker-figures { gap: 1rem; }
+
+      /* Primary actions go full width and stack, so nothing is a small target. */
+      .rm-btn, #takeTrade, #evaluatePosition, #walletSave, #addFlow { width: 100%; }
+      .rm-wallet-actions { margin-left: 0; width: 100%; }
+      .rm-wallet-actions .rm-mini-btn { flex: 1 1 auto; }
+
+      /* HISTORY: low-priority columns are dropped rather than a desktop table
+         being forced into 320px. ASSET / P&L / STATUS / DATA survive, which is
+         what a phone reader actually scans for. The container still scrolls
+         locally if a value runs long — the PAGE never does. */
+      .rm-col-side, .rm-col-level, .rm-col-strategy, .rm-col-confidence { display: none; }
+      .rm-col-asset { width: 32%; }
+      .rm-col-pnl { width: 24%; }
+      .rm-col-status { width: 20%; }
+      .rm-col-data { width: 24%; }
+      .rm-history .table-edittrax td, .rm-history .table-edittrax th { padding: 0.8rem 0.4rem; }
+
+      /* NEEDS REVIEW is the flag that says a record cannot be trusted, and the
+         cell that holds it is 69px wide at 320. Held on one line it was being
+         cut to "NEEDS REVIE" by the cell's own overflow:hidden, so it wraps
+         instead — two readable lines beat one truncated one. */
+      .rm-history .rm-data-flag { white-space: normal; }
+
+      .rm-eval-action { font-size: 1.5rem; }
+      .rm-sheet-panel { max-height: 96vh; border-radius: var(--radius-10) var(--radius-10) 0 0; }
+      .rm-sheet-grid { grid-template-columns: 1fr; }
+      .rm-sheet-actions .rm-btn { width: 100%; }
+      .rm-flow-amount { max-width: none; flex: 1 1 100%; }
+    }
+
+    /* 360px and below: the tightest real device width still has to work. */
+    @media (max-width: 360px) {
+      .rm-rail { gap: 0.125rem; }
+      .rm-rail-node { height: 38px; font-size: 0.6875rem; }
+      .rm-health { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .rm-health-item { padding: 0.5rem 0.5rem; }
+      .rm-strategy button { font-size: 0.75rem; min-height: 48px; }
+    }
+
+    /* Desktop: the sheet becomes a centred panel rather than a bottom sheet. */
+    @media (min-width: 721px) {
+      .rm-sheet { align-items: center; padding: 2rem; }
+      .rm-sheet-panel { border-radius: var(--radius-10); }
     }
   </style>
 </head>
@@ -481,1141 +1022,358 @@
   <main class="max-w-6xl mx-auto px-4 pb-16">
 
     <h1 class="eco-value rm-page-title" style="font-size: clamp(1.5rem, 7vw, 2.25rem); letter-spacing: 0.03em; text-transform: uppercase; margin: 1.5rem 0 0.5rem;">Risk Manager</h1>
-    <p class="rm-standfirst" style="max-width: 48ch; font-size: 0.8125rem; line-height: 1.55; color: var(--color-yellow-75-muted); margin: 0 0 1rem;">
-      How much to put at risk before you commit capital. Planning only &mdash;
-      this never places a trade or connects to an exchange.
+    <p class="rm-standfirst" style="max-width: 52ch; font-size: 0.8125rem; line-height: 1.55; color: var(--color-yellow-75-muted); margin: 0 0 1.25rem;">
+      How much this account has earned the right to risk, right now. Decision
+      support only &mdash; nothing here places, modifies or closes a trade.
     </p>
 
     <div id="rmNotice" class="rm-notice" hidden></div>
+    <div id="simulationBanner" class="rm-sim-banner" hidden><span id="simulationSummary"></span></div>
 
-    <!-- ACCOUNT BAR ---------------------------------------------------->
-    <section class="rm-account" id="accountBar" hidden aria-label="Account summary">
-      <div class="rm-account-item">
-        <div class="eco-label">Wallet</div><span class="eco-value" id="accWallet">&mdash;</span>
+    <!-- WALLET ---------------------------------------------------------->
+    <section class="rm-wallet" aria-label="Observed wallet">
+      <div id="walletConnected" hidden>
+        <span class="rm-wallet-address" id="walletAddressLabel">&mdash;</span>
+        <span class="rm-readonly-tag">Read-only</span>
+        <span class="rm-wallet-actions">
+          <button class="rm-mini-btn" type="button" id="walletRefresh">Refresh</button>
+          <button class="rm-mini-btn" type="button" id="simulateToggle" aria-pressed="false">Simulate</button>
+          <button class="rm-mini-btn" type="button" id="walletClear">Change</button>
+        </span>
       </div>
-      <div class="rm-account-item">
-        <div class="eco-label">Available</div><span class="eco-value" id="accAvailable">&mdash;</span>
-      </div>
-      <div class="rm-account-item">
-        <div class="eco-label">Margin Used</div><span class="eco-value" id="accMargin">&mdash;</span>
-      </div>
-      <div class="rm-account-item">
-        <div class="eco-label">Notional</div><span class="eco-value" id="accNotional">&mdash;</span>
-      </div>
-      <div class="rm-account-item">
-        <div class="eco-label">Open Risk</div><span class="eco-value" id="accOpenRisk">&mdash;</span>
-      </div>
-      <div class="rm-account-item">
-        <div class="eco-label">Positions</div><span class="eco-value" id="accPositions">0</span>
-      </div>
-      <div class="rm-account-status">
-        <span class="rm-status eco-tone-neutral" id="accStatus">&mdash;</span>
+
+      <div id="walletConnect" class="rm-wallet-form">
+        <label class="sr-only" for="walletInput">Solana wallet address</label>
+        <input class="rm-input" id="walletInput" type="text" inputmode="text" autocomplete="off"
+               spellcheck="false" placeholder="Solana address (read-only)">
+        <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="walletSave">Watch wallet</button>
+        <p class="rm-prose" style="flex: 1 1 100%; margin: 0;">
+          A <strong>public address only</strong>. This page reads balances and
+          history and can never sign, move or spend anything. Never paste a seed
+          phrase or private key here or anywhere else. The address is stored in
+          this browser and is not uploaded.
+        </p>
       </div>
     </section>
 
-    <!-- FIRST RUN ------------------------------------------------------>
-    <section class="rm-setup" id="setupCard" hidden>
-      <h2 class="eco-value" style="font-size: 1.25rem; margin: 0 0 0.5rem;">What&rsquo;s your trading wallet?</h2>
-      <p class="rm-prose" style="max-width: 52ch; margin-bottom: 1.25rem;">
-        The capital you have allocated to active trading &mdash; not net worth, savings or
-        retirement accounts. Every position size on this page is calculated from this
-        number and nothing else.
+    <!-- SIMULATION PANEL ------------------------------------------------>
+    <section class="rm-sim-panel" id="simulationPanel" hidden aria-label="Simulation sandbox">
+      <p class="rm-prose" style="margin-top:0;">
+        <strong>Sandbox.</strong> Everything below runs against a copy of the
+        account. Real history, level state and recorded trades cannot be
+        changed from here, and nothing is saved.
       </p>
-      <div style="display: flex; gap: 0.625rem; flex-wrap: wrap; align-items: center;">
-        <input class="rm-input" id="setupWallet" type="number" inputmode="decimal"
-               placeholder="25000" style="max-width: 220px;" min="0" step="any">
-        <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="setupSave">Save</button>
+      <div class="rm-sim-row">
+        <label class="eco-label" for="simWallet">Wallet value</label>
+        <input class="rm-input" id="simWallet" type="number" inputmode="decimal" min="0" step="any" placeholder="25000">
+      </div>
+      <div class="rm-sim-row">
+        <span class="eco-label">Hypothetical closed trades</span>
+        <button class="rm-mini-btn" type="button" data-sim-trade="1">Add +1R win</button>
+        <button class="rm-mini-btn" type="button" data-sim-trade="-1">Add &minus;1R loss</button>
+        <button class="rm-mini-btn" type="button" id="simReset">Reset</button>
       </div>
     </section>
 
-    <!-- CALCULATOR ----------------------------------------------------->
-    <div id="calculator" hidden>
+    <!-- 1. LEVEL AND PROGRESS ------------------------------------------->
+    <section class="rm-level" id="levelCard" aria-label="Risk level and progression">
+      <div class="rm-rail" id="levelRail" role="img" aria-label="Risk level rail from -2 to 5"></div>
 
-      <div class="rm-macro" id="macroContext" hidden></div>
+      <div class="rm-level-line" id="levelLine">LEVEL 0 &middot; 0% TO LEVEL 1</div>
+      <div class="rm-level-name" id="levelName"></div>
 
-      <h2 class="rm-section-heading">The Trade</h2>
-      <div class="rm-form">
-        <div class="rm-field">
-          <label for="fAsset">Asset</label>
-          <input class="rm-input" id="fAsset" type="text" placeholder="BTC" autocomplete="off">
-        </div>
-        <div class="rm-field">
-          <label>Direction</label>
-          <div class="rm-direction" role="group" aria-label="Direction">
-            <button type="button" data-dir="LONG" aria-pressed="true">Long</button>
-            <button type="button" data-dir="SHORT" aria-pressed="false">Short</button>
-          </div>
-        </div>
-        <div class="rm-field">
-          <label for="fEntry">Entry</label>
-          <input class="rm-input" id="fEntry" type="number" inputmode="decimal" placeholder="72000" min="0" step="any">
-        </div>
-        <div class="rm-field">
-          <label for="fStop">Stop</label>
-          <input class="rm-input" id="fStop" type="number" inputmode="decimal" placeholder="69500" min="0" step="any">
-        </div>
-        <div class="rm-field">
-          <label for="fTarget">Target <span style="opacity:0.5">(optional)</span></label>
-          <input class="rm-input" id="fTarget" type="number" inputmode="decimal" placeholder="80000" min="0" step="any">
-        </div>
-        <div class="rm-field">
-          <label for="fLeverage">Leverage</label>
-          <input class="rm-input" id="fLeverage" type="number" inputmode="decimal" placeholder="1" min="1" step="any" value="1">
-        </div>
-        <div class="rm-field">
-          <label for="fRisk">Risk %</label>
-          <input class="rm-input" id="fRisk" type="number" inputmode="decimal" placeholder="1" min="0" step="any">
-        </div>
-        <div class="rm-field">
-          <label for="fInstrument">Instrument</label>
-          <select class="rm-input" id="fInstrument">
-            <option value="perpetual">Perpetual</option>
-            <option value="margin">Margin</option>
-            <option value="spot">Spot</option>
-          </select>
-        </div>
-        <div class="rm-field">
-          <label for="fMarginMode">Margin Mode</label>
-          <select class="rm-input" id="fMarginMode">
-            <option value="isolated">Isolated</option>
-            <option value="cross">Cross</option>
-          </select>
-        </div>
+      <div class="rm-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+           aria-label="Progress to the next level">
+        <div class="rm-progress-bar" id="levelBar" style="width: 0%"></div>
+      </div>
+      <div class="rm-level-sub" id="levelTradesToNext"></div>
+
+      <div class="rm-recovery" id="levelRecoveryWrap" hidden>
+        <span class="rm-recovery-line" id="levelRecovery"></span>
+        <span class="rm-recovery-detail" id="levelRecoveryDetail"></span>
       </div>
 
-      <!-- RESULT ------------------------------------------------------->
-      <section class="rm-result" id="resultCard" aria-live="polite">
-        <div class="rm-result-head">
-          <div class="rm-headline">
-            <div class="eco-label" id="resHeadLabel">Recommended Position</div>
-            <span class="eco-value" id="resNotional">&mdash;</span>
-          </div>
-          <span class="rm-status eco-tone-neutral" id="resStatus">Incomplete</span>
-        </div>
+      <div class="rm-pill-row" id="levelFactors"></div>
+      <p class="rm-level-description" id="levelDescription"></p>
+    </section>
 
-        <div class="rm-metrics">
-          <div class="rm-metric">
-            <div class="eco-label">Margin</div>
-            <span class="eco-value" id="resMargin">&mdash;</span>
-            <div class="rm-metric-sub" id="resMarginSub"></div>
-          </div>
-          <div class="rm-metric">
-            <div class="eco-label">Account Risk</div>
-            <span class="eco-value" id="resRisk">&mdash;</span>
-            <div class="rm-metric-sub" id="resRiskSub"></div>
-          </div>
-          <div class="rm-metric">
-            <div class="eco-label">Stop Distance</div>
-            <span class="eco-value" id="resStopDist">&mdash;</span>
-            <div class="rm-metric-sub" id="resStopSub"></div>
-          </div>
-          <div class="rm-metric">
-            <div class="eco-label">Est. Liquidation</div>
-            <span class="eco-value" id="resLiq">&mdash;</span>
-            <div class="rm-metric-sub" id="resLiqSub"></div>
-          </div>
-          <div class="rm-metric">
-            <div class="eco-label">Risk : Reward</div>
-            <span class="eco-value" id="resRR">&mdash;</span>
-            <div class="rm-metric-sub" id="resRRSub"></div>
-          </div>
-          <div class="rm-metric">
-            <div class="eco-label">Units</div>
-            <span class="eco-value" id="resUnits">&mdash;</span>
-            <div class="rm-metric-sub">Size in asset</div>
-          </div>
-        </div>
-
-        <!-- Liquidation caveats. The engine has always produced these; the
-             page never showed them. An estimate whose assumptions are invisible
-             reads as a measurement. -->
-        <div class="rm-caveats" id="liqCaveats" hidden></div>
-
-        <div class="rm-slider-row">
-          <div class="eco-label" style="white-space: nowrap;">Position Size</div>
-          <input class="rm-slider" id="sizeSlider" type="range" min="10" max="300" value="100" step="1"
-                 aria-label="Adjust position size relative to the recommended size">
-          <div class="eco-value" id="sliderReadout" style="font-size: 0.875rem; min-width: 110px; text-align: right;">100% of rec.</div>
-          <button class="rm-mini-btn" id="sliderReset" type="button">Reset</button>
-        </div>
-      </section>
-
-      <!-- PORTFOLIO IMPACT --------------------------------------------->
-      <h2 class="rm-section-heading">If You Take This Trade</h2>
-      <section class="rm-impact" aria-label="Portfolio impact">
-        <div class="rm-impact-item">
-          <div class="eco-label">Open Risk</div>
-          <span class="eco-value" id="impRisk">&mdash;</span>
-        </div>
-        <div class="rm-impact-item">
-          <div class="eco-label">Margin Used</div>
-          <span class="eco-value" id="impMargin">&mdash;</span>
-        </div>
-        <div class="rm-impact-item">
-          <div class="eco-label">Notional Exposure</div>
-          <span class="eco-value" id="impNotional">&mdash;</span>
-        </div>
-      </section>
-
-      <!-- RISK CHECK --------------------------------------------------->
-      <h2 class="rm-section-heading" id="checkHeading">Risk Check</h2>
-      <section class="rm-check" id="checkList" aria-label="Pre-trade risk check"></section>
-
-      <div style="display: flex; gap: 0.625rem; flex-wrap: wrap; margin-bottom: 2rem;">
-        <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="saveTrade">Save Trade</button>
-        <button class="btn-base btn-secondary px-4 py-2 text-sm rounded" id="clearForm">Clear</button>
+    <!-- 2. ACCOUNT HEALTH ----------------------------------------------->
+    <h2 class="rm-section-heading">Account</h2>
+    <section class="rm-health" aria-label="Account health">
+      <div class="rm-health-item">
+        <div class="eco-label">Wallet</div><span class="eco-value" id="healthWallet">&mdash;</span>
       </div>
+      <div class="rm-health-item">
+        <div class="eco-label">Trading equity</div><span class="eco-value" id="healthEquity">&mdash;</span>
+      </div>
+      <div class="rm-health-item">
+        <div class="eco-label">Open risk</div><span class="eco-value" id="healthOpenRisk">&mdash;</span>
+      </div>
+      <div class="rm-health-item">
+        <div class="eco-label">Drawdown</div><span class="eco-value" id="healthDrawdown">&mdash;</span>
+      </div>
+      <div class="rm-health-item">
+        <div class="eco-label">Exposure</div><span class="eco-value" id="healthExposure">&mdash;</span>
+      </div>
+      <div class="rm-health-item">
+        <div class="eco-label">Positions</div><span class="eco-value" id="healthPositions">0</span>
+      </div>
+    </section>
+    <div class="rm-provenance">
+      <div id="healthProvenance"></div>
+      <div id="healthFlows"></div>
     </div>
 
-    <!-- POSITIONS ------------------------------------------------------>
-    <h2 class="rm-section-heading">Positions</h2>
-    <section id="positionsList" aria-label="Planned and open positions">
-      <p class="rm-prose" id="positionsEmpty">No planned or open positions yet.</p>
+    <!-- 3. QUICK RECOMMENDER -------------------------------------------->
+    <h2 class="rm-section-heading">The trade</h2>
+    <section class="rm-request" aria-label="Trade request">
+      <div class="rm-request-grid">
+        <div class="rm-field">
+          <label for="reqAsset">Asset</label>
+          <input class="rm-input" id="reqAsset" type="text" placeholder="BTC" autocomplete="off">
+        </div>
+        <div class="rm-field">
+          <label for="reqEntry">Entry <span style="opacity:0.5">(optional)</span></label>
+          <input class="rm-input" id="reqEntry" type="number" inputmode="decimal" min="0" step="any" placeholder="72000">
+        </div>
+        <div class="rm-field">
+          <label for="reqStop">Stop <span style="opacity:0.5">(optional)</span></label>
+          <input class="rm-input" id="reqStop" type="number" inputmode="decimal" min="0" step="any" placeholder="69500">
+        </div>
+      </div>
+
+      <div class="rm-field" style="margin-bottom: 1.25rem;">
+        <span class="eco-label">Strategy</span>
+        <div class="rm-strategy" role="group" aria-label="Strategy">
+          <button type="button" data-strategy="STANDARD" aria-pressed="true">Standard</button>
+          <button type="button" data-strategy="AGGRESSIVE" aria-pressed="false">Aggressive</button>
+        </div>
+      </div>
+
+      <div class="rm-field">
+        <div class="rm-confidence-head">
+          <span class="eco-label">Confidence</span>
+          <span class="rm-confidence-value" id="confidenceValue">50</span>
+        </div>
+        <input class="rm-slider" id="reqConfidence" type="range" min="0" max="100" step="1" value="50"
+               aria-label="Confidence in this setup, low to high">
+        <div class="rm-slider-ends">
+          <span id="confidenceLow">LOW 0</span>
+          <span id="confidenceHigh">HIGH 90</span>
+        </div>
+      </div>
     </section>
 
-    <!-- HISTORY -------------------------------------------------------->
-    <h2 class="rm-section-heading" style="margin-top: 2.5rem;">Risk History</h2>
-    <section class="rm-impact" id="historyStats" aria-label="Risk history"></section>
+    <!-- 4. PRIMARY RECOMMENDATION --------------------------------------->
+    <section class="rm-rec" aria-live="polite" aria-label="Recommendation">
+      <span class="rm-rec-headline eco-value" id="recHeadline">CANNOT SIZE</span>
 
-    <!-- SETTINGS ------------------------------------------------------->
-    <h2 class="rm-section-heading" style="margin-top: 2.5rem;">Settings &amp; Reference</h2>
-
-    <details class="rm-details" id="policyDetails">
-      <summary>Wallet &amp; risk policy</summary>
-      <div>
-        <div class="rm-form" id="policyForm"></div>
-        <div style="display: flex; gap: 0.625rem; flex-wrap: wrap;">
-          <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="policySave">Save Policy</button>
-          <button class="btn-base btn-secondary px-4 py-2 text-sm rounded" id="policyReset">Restore Defaults</button>
-        </div>
-        <p class="rm-prose" style="margin-top: 1rem;" id="policyNote"></p>
+      <div id="recMaxLossWrap" hidden>
+        <span class="rm-rec-maxloss" id="recMaxLoss"></span>
+        <div class="rm-rec-caption">Of adjusted trading equity, if the stop executes</div>
       </div>
-    </details>
 
-    <details class="rm-details">
-      <summary>Advanced &mdash; fees, slippage &amp; funding</summary>
+      <div class="rm-rec-chips" id="recChips"></div>
+
+      <div class="rm-blocker" id="recBlockerWrap" hidden>
+        <div id="recBlocker"></div>
+      </div>
+
+      <div id="recWarningsWrap" hidden>
+        <ul class="rm-warnings" id="recWarnings"></ul>
+      </div>
+
+      <button class="btn-base btn-primary px-4 py-2 text-sm rounded" id="takeTrade" disabled>I took this trade</button>
+      <div class="rm-rec-version" id="recVersion"></div>
+    </section>
+
+    <!-- 5. DECISION FACTORS --------------------------------------------->
+    <h2 class="rm-section-heading">Decision factors</h2>
+    <section id="factorList" aria-label="Decision factors"></section>
+
+    <!-- 6. PERFORMANCE --------------------------------------------------->
+    <h2 class="rm-section-heading">Adjusted trading equity</h2>
+    <p class="rm-prose" style="margin: 0 0 0.75rem;">
+      Performance with every <strong>classified</strong> deposit and withdrawal
+      removed, so a transfer can never read as a profit. Level changes are
+      marked &mdash; tap one for what moved it.
+    </p>
+    <div class="rm-chart-wrap"><div id="equityChart"></div></div>
+    <div id="transitionDetail"></div>
+
+    <details class="rm-details" id="flowReviewWrap" hidden>
+      <summary>Unclassified transfers</summary>
       <div>
         <p class="rm-prose">
-          A planned stop is <strong>not a guaranteed maximum loss</strong>. Fees are charged
-          on entry and exit, slippage applies at the stop, and funding accrues while the
-          position is held. These default to zero so the headline risk figure stays the
-          clean planned number; apply a preset to see cost-adjusted output.
+          Candidates found on-chain. Nothing is classified automatically: the
+          reader cannot tell an external deposit from a transfer between two
+          wallets you own, and getting that wrong corrupts every performance
+          figure downstream. Confirm with the USD value it was worth at the time.
         </p>
-        <div class="rm-form" id="costForm"></div>
-        <div style="display: flex; gap: 0.625rem; flex-wrap: wrap;" id="costPresets"></div>
-        <p class="rm-prose" style="margin-top: 1rem;" id="costSummary"></p>
+        <div id="flowReview"></div>
       </div>
     </details>
 
     <details class="rm-details">
-      <summary>Storage &amp; backup</summary>
-      <div class="rm-prose" id="storageBody"></div>
+      <summary>Record a transfer by hand</summary>
+      <div>
+        <div class="rm-flow-manual">
+          <label class="sr-only" for="manualFlowType">Type</label>
+          <select class="rm-input" id="manualFlowType" style="max-width: 160px;">
+            <option value="DEPOSIT">Deposit</option>
+            <option value="WITHDRAWAL">Withdrawal</option>
+          </select>
+          <label class="sr-only" for="manualFlowAmount">USD amount</label>
+          <input class="rm-input" id="manualFlowAmount" type="number" inputmode="decimal" min="0" step="any" placeholder="USD amount">
+          <button class="btn-base btn-secondary px-4 py-2 text-sm rounded" id="addFlow">Add</button>
+        </div>
+        <p class="rm-prose" style="margin-top: 0.75rem;">
+          A confirmed transfer moves the performance baseline. It never changes
+          the capital base &mdash; a deposit is money you can genuinely risk the
+          moment it lands.
+        </p>
+      </div>
+    </details>
+
+    <!-- 7. OPEN POSITIONS ------------------------------------------------>
+    <h2 class="rm-section-heading">Open positions</h2>
+    <section id="positionList" aria-label="Open positions"></section>
+    <div style="margin-top: 0.75rem;">
+      <button class="btn-base btn-secondary px-4 py-2 text-sm rounded" id="evaluatePosition" disabled>Evaluate</button>
+    </div>
+    <div class="rm-eval" id="positionEvalWrap" hidden><div id="positionEval"></div></div>
+
+    <!-- 8. TRADE HISTORY -------------------------------------------------->
+    <h2 class="rm-section-heading">Trade history</h2>
+    <div class="rm-history table-container">
+      <table class="table-edittrax">
+        <thead>
+          <tr>
+            <th class="rm-col-asset">Asset</th>
+            <th class="rm-col-side">Side</th>
+            <th class="rm-col-pnl">P&amp;L</th>
+            <th class="rm-col-level">Lvl</th>
+            <th class="rm-col-strategy">Strategy</th>
+            <th class="rm-col-confidence">Conf</th>
+            <th class="rm-col-status">Status</th>
+            <th class="rm-col-data">Data</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+    <div class="rm-history-count" id="historyCount"></div>
+
+    <!-- PLANNED VS ACTUAL -------------------------------------------------->
+    <h2 class="rm-section-heading">Recommended vs actual</h2>
+    <section id="plannedList" aria-label="Planned recommendations"></section>
+
+    <!-- STRATEGY LEARNING -------------------------------------------------->
+    <h2 class="rm-section-heading">Strategy proposals</h2>
+    <div class="rm-strategy-version" id="strategyVersionLine"></div>
+    <section id="proposalList" aria-label="Strategy learning proposals"></section>
+
+    <!-- REFERENCE ---------------------------------------------------------->
+    <h2 class="rm-section-heading">How this works</h2>
+
+    <details class="rm-details">
+      <summary>Levels</summary>
+      <div class="rm-prose">
+        <p>
+          The ladder runs &minus;2 to 5. <strong>Level 0 is where everyone
+          starts</strong> and is anchored to the default risk policy. Everything
+          above 0 is earned over many closed trades; everything below is
+          defensive.
+        </p>
+        <p>
+          <strong>Slow up, fast down.</strong> A promotion takes a full window of
+          trades with every gate clear, and only one level at a time. A drawdown
+          can drop several levels in a single evaluation, with no grace period.
+          A good run never raises risk on its own &mdash; it earns levels, and
+          the level is what widens the envelope.
+        </p>
+        <p>
+          Not trading is not the same as trading badly. A gap in activity never
+          demotes; it pauses promotion and applies a conservatism haircut for the
+          first few trades back.
+        </p>
+      </div>
     </details>
 
     <details class="rm-details">
-      <summary>What these terms mean</summary>
-      <div>
-        <dl>
-          <div class="rm-def">
-            <dt>Risk per trade</dt>
-            <dd>The percentage of your trading wallet lost if the planned stop executes.</dd>
-          </div>
-          <div class="rm-def">
-            <dt>Exposure</dt>
-            <dd>The total market value the position controls. A $10,000 position is not $10,000 of risk.</dd>
-          </div>
-          <div class="rm-def">
-            <dt>Leverage</dt>
-            <dd>Reduces the margin required. It does not make the underlying trade less risky &mdash; it moves the liquidation price closer.</dd>
-          </div>
-          <div class="rm-def">
-            <dt>Open risk</dt>
-            <dd>Estimated loss if every open position reaches its planned stop at once.</dd>
-          </div>
-          <div class="rm-def">
-            <dt>Est. liquidation</dt>
-            <dd>An approximation for an isolated position. Never use it as a stop-loss.</dd>
-          </div>
-        </dl>
+      <summary>Where the numbers come from</summary>
+      <div class="rm-prose">
+        <p>
+          Every figure on this page &mdash; size, leverage, max loss, level,
+          progress, open risk, drawdown &mdash; is produced by the shared risk
+          engine. This page formats and displays; it calculates nothing of its
+          own, and no AI is involved in any number.
+        </p>
+        <p>
+          <strong>On-chain data is authoritative.</strong> A screenshot or a
+          manual correction never silently overrides something the chain
+          observed directly: the disagreement is shown on the record for you to
+          resolve.
+        </p>
+        <p>
+          If the wallet cannot be read, the page says <strong>wallet data
+          unavailable</strong> rather than showing a balance. A stale read is
+          reported as stale and the recommendation stops presenting itself as
+          confident.
+        </p>
+      </div>
+    </details>
+
+    <details class="rm-details">
+      <summary>Storage &amp; privacy</summary>
+      <div class="rm-prose">
+        <p>
+          Wallet address, snapshots, classified transfers, level history,
+          strategy versions and your trade corrections are stored in
+          <strong>this browser only</strong>. None of it is uploaded, and none of
+          it is written to the project&rsquo;s shared database &mdash; that
+          database is world-readable, and account size does not belong in it.
+        </p>
+        <p>Clearing site data clears all of it. There is no server copy.</p>
       </div>
     </details>
 
     <p class="rm-prose" style="margin-top: 2rem; font-size: 0.75rem; color: rgba(230,233,224,0.35);">
-      Decision support only. Nothing here places a trade, connects to an exchange, or
-      modifies a position. Green means the planned risk fits your own policy &mdash; it
-      never means a trade will make money.
+      Decision support only. Every output describes risk capacity &mdash; what
+      this account can currently carry &mdash; and never where a price is going.
+      A recommendation is not a prediction and REDUCE does not mean a trade is
+      wrong.
     </p>
 
   </main>
 
+  <!-- TRADE DETAIL SHEET -->
+  <div class="rm-sheet" id="tradeSheet" hidden role="dialog" aria-modal="true" aria-label="Trade record">
+    <div class="rm-sheet-panel"><div id="sheetBody"></div></div>
+  </div>
+
+  <script>
+    // Background only. Kept identical to the rest of the site so the page does
+    // not read as a different application.
+    if (typeof particlesJS === 'function') {
+      particlesJS('particles-js', {
+        particles: {
+          number: { value: 400 }, color: { value: '#ffffff' }, shape: { type: 'circle' },
+          opacity: { value: 0.5, random: true, anim: { enable: true, speed: 1, opacity_min: 0.1 } },
+          size: { value: 2, random: true }, line_linked: { enable: false },
+          move: { enable: true, speed: 0.5, direction: 'none', random: true, out_mode: 'out' }
+        },
+        interactivity: {
+          detect_on: 'canvas', events: { onhover: { enable: true, mode: 'grab' } },
+          modes: { grab: { distance: 140, line_linked: { opacity: 0.3 } } }
+        }
+      });
+    }
+  </script>
+
   <script type="module">
-    import {
-      DEFAULT_RISK_POLICY,
-      RISK_STATUS,
-      SUGGESTED_COST_ASSUMPTIONS,
-      planTrade,
-      summarizeAccount
-    } from '/js/riskManager.js';
-
-    import {
-      loadRiskProfile, saveRiskProfile,
-      loadTrades, saveTrade, updateTradeStatus, deleteTrade, loadLivePositions,
-      consumePendingSetup, exportAll, isCloudSyncEnabled
-    } from '/js/riskStore.js';
-
-    particlesJS('particles-js', {
-      particles: {
-        number: { value: 400 }, color: { value: '#ffffff' }, shape: { type: 'circle' },
-        opacity: { value: 0.5, random: true, anim: { enable: true, speed: 1, opacity_min: 0.1 } },
-        size: { value: 2, random: true }, line_linked: { enable: false },
-        move: { enable: true, speed: 0.5, direction: 'none', random: true, out_mode: 'out' }
-      },
-      interactivity: {
-        detect_on: 'canvas', events: { onhover: { enable: true, mode: 'grab' } },
-        modes: { grab: { distance: 140, line_linked: { opacity: 0.3 } } }
-      }
-    });
-
-    /* ================================================================
-     * STATE
-     * ============================================================= */
-    const state = {
-      profile: null,
-      policy: { ...DEFAULT_RISK_POLICY },
-      positions: [],
-      form: { asset: '', direction: 'LONG', entry: null, stop: null, target: null, leverage: 1, riskPct: null },
-      sizeFactor: 1,      // slider: multiple of the recommended notional
-      plan: null,
-      editingId: null
-    };
-
-    /* ================================================================
-     * FORMATTING
-     * ============================================================= */
-    const num = (v) => {
-      const n = typeof v === 'string' ? parseFloat(v) : v;
-      return Number.isFinite(n) ? n : null;
-    };
-
-    function usd(value, compact = false) {
-      if (!Number.isFinite(value)) return '—';
-      if (compact && Math.abs(value) >= 1000) {
-        return '$' + (value / 1000).toFixed(1) + 'K';
-      }
-      return '$' + value.toLocaleString('en-US', {
-        minimumFractionDigits: Math.abs(value) < 100 && value % 1 !== 0 ? 2 : 0,
-        maximumFractionDigits: Math.abs(value) < 100 ? 2 : 0
-      });
-    }
-
-    const pct = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) + '%' : '—');
-
-    function toneClass(status) {
-      if (status === RISK_STATUS.WITHIN_PLAN) return 'eco-tone-long';
-      if (status === RISK_STATUS.ABOVE_PLAN) return 'eco-tone-short';
-      return 'eco-tone-neutral';
-    }
-
-    /* ================================================================
-     * BOOT
-     * ============================================================= */
-    function boot() {
-      const profile = loadRiskProfile();
-      state.profile = profile;
-      state.policy = mergePolicy(profile.policy);
-      state.positions = loadLivePositions();
-
-      const hasWallet = Number.isFinite(profile.walletBalance) && profile.walletBalance > 0;
-      document.getElementById('setupCard').hidden = hasWallet;
-      document.getElementById('accountBar').hidden = !hasWallet;
-      document.getElementById('calculator').hidden = !hasWallet;
-
-      if (hasWallet) {
-        document.getElementById('fRisk').value = state.policy.defaultRiskPerTradePct;
-        state.form.riskPct = state.policy.defaultRiskPerTradePct;
-      }
-
-      applyPendingSetup();
-      renderPolicyForm();
-      renderCostForm();
-      renderStorage();
-      renderAccount();
-      renderPositions();
-      renderHistory();
-      recalculate();
-      loadMacroContext();
-    }
-
-    /**
-     * A setup handed over from the home page's CHECK RISK button.
-     * Mirrors the existing index -> tracker handoff: read it, clear it, and
-     * clean the URL so a refresh does not re-apply a stale setup.
-     */
-    function applyPendingSetup() {
-      const setup = consumePendingSetup();
-      if (!setup) return;
-
-      if (setup.asset) document.getElementById('fAsset').value = setup.asset;
-      if (setup.direction) setDirection(String(setup.direction).toUpperCase());
-      if (Number.isFinite(setup.entry)) document.getElementById('fEntry').value = setup.entry;
-      if (Number.isFinite(setup.stop)) document.getElementById('fStop').value = setup.stop;
-      if (Number.isFinite(setup.target)) document.getElementById('fTarget').value = setup.target;
-
-      state.pendingSetupContext = setup.setupContext || null;
-
-      if (window.location.search) {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-      readForm();
-    }
-
-    /* ================================================================
-     * FORM
-     * ============================================================= */
-    function readForm() {
-      state.form = {
-        asset: document.getElementById('fAsset').value.trim().toUpperCase(),
-        direction: state.form.direction,
-        entry: num(document.getElementById('fEntry').value),
-        stop: num(document.getElementById('fStop').value),
-        target: num(document.getElementById('fTarget').value),
-        leverage: num(document.getElementById('fLeverage').value) || 1,
-        riskPct: num(document.getElementById('fRisk').value),
-        // Liquidation semantics depend on both. Under cross margin the engine
-        // refuses a per-position estimate rather than showing an isolated
-        // number for an account-level quantity.
-        instrument: document.getElementById('fInstrument').value,
-        marginMode: document.getElementById('fMarginMode').value
-      };
-    }
-
-    function setDirection(dir) {
-      state.form.direction = dir === 'SHORT' ? 'SHORT' : 'LONG';
-      document.querySelectorAll('.rm-direction button').forEach((b) => {
-        b.setAttribute('aria-pressed', String(b.dataset.dir === state.form.direction));
-      });
-    }
-
-    /* ================================================================
-     * CALCULATE
-     * All numbers below come from the deterministic engine. Nothing on
-     * this page derives a risk figure of its own.
-     * ============================================================= */
-    /**
-     * Deep-merge a stored policy over the defaults.
-     *
-     * A shallow spread let a partial stored sub-object REPLACE a default
-     * wholesale, so a policy missing `costs` or `liquidation` made planTrade
-     * throw on destructuring — and with no error boundary the page kept the
-     * previous numbers on screen next to the new form values, then saved them.
-     */
-    function mergePolicy(stored) {
-      const merged = { ...DEFAULT_RISK_POLICY, ...(stored || {}) };
-      for (const key of ['costs', 'liquidation', 'concentration']) {
-        merged[key] = { ...DEFAULT_RISK_POLICY[key], ...((stored || {})[key] || {}) };
-      }
-      return merged;
-    }
-
-    function recalculate() {
-      try {
-        recalculateInner();
-      } catch (error) {
-        // Never leave stale numbers on screen beside new inputs: that is the
-        // state in which a user saves a plan that was computed from something
-        // else entirely.
-        console.error('[Risk] Calculation failed:', error);
-        state.plan = null;
-        const card = document.getElementById('resultCard');
-        if (card) card.classList.add('is-error');
-        const head = document.getElementById('resHeadLabel');
-        if (head) head.textContent = `Calculation failed — ${error.message}`;
-        ['resNotional', 'resMargin', 'resRisk', 'resStopDist', 'resLiq', 'resRR', 'resUnits']
-          .forEach((id) => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
-        const saveBtn = document.getElementById('saveTradeBtn');
-        if (saveBtn) saveBtn.disabled = true;
-      }
-    }
-
-    function recalculateInner() {
-      const wallet = state.profile?.walletBalance;
-      if (!Number.isFinite(wallet) || wallet <= 0) return;
-
-      const card = document.getElementById('resultCard');
-      if (card) card.classList.remove('is-error');
-
-      // First pass at the slider's neutral position gives the recommended
-      // size; the slider then scales that. Without this two-pass approach the
-      // slider would have no baseline to be a multiple OF.
-      const base = planTrade({
-        walletBalance: wallet,
-        trade: { ...state.form },
-        positions: state.positions,
-        policy: state.policy
-      });
-
-      let plan = base;
-      if (base.valid && state.sizeFactor !== 1) {
-        plan = planTrade({
-          walletBalance: wallet,
-          trade: { ...state.form, notionalOverride: base.trade.notional * state.sizeFactor },
-          positions: state.positions,
-          policy: state.policy
-        });
-      }
-
-      state.plan = plan;
-      state.baseNotional = base.valid ? base.trade.notional : null;
-      renderResult(plan);
-      renderImpact(plan);
-      renderCheck(plan);
-      renderCostSummary(plan);
-      markInvalidFields(plan);
-    }
-
-    function markInvalidFields(plan) {
-      const stopInput = document.getElementById('fStop');
-      const bad = !plan.valid && (plan.errors || []).some((e) => /stop/i.test(e));
-      stopInput.classList.toggle('is-error', bad);
-    }
-
-    /* ================================================================
-     * RENDER — RESULT
-     * ============================================================= */
-    function renderResult(plan) {
-      const status = document.getElementById('resStatus');
-
-      if (!plan.valid) {
-        document.getElementById('resNotional').textContent = '—';
-        ['resMargin', 'resRisk', 'resStopDist', 'resLiq', 'resRR', 'resUnits']
-          .forEach((id) => (document.getElementById(id).textContent = '—'));
-        ['resMarginSub', 'resRiskSub', 'resStopSub', 'resLiqSub', 'resRRSub']
-          .forEach((id) => (document.getElementById(id).textContent = ''));
-
-        status.textContent = RISK_STATUS.INCOMPLETE;
-        status.className = 'rm-status eco-tone-neutral';
-        document.getElementById('resHeadLabel').textContent =
-          (plan.errors && plan.errors[0]) || 'Recommended Position';
-        return;
-      }
-
-      const t = plan.trade;
-      document.getElementById('resHeadLabel').textContent =
-        `${t.asset || 'Position'} ${t.direction} — Recommended Position`;
-      document.getElementById('resNotional').textContent = usd(t.notional);
-
-      document.getElementById('resMargin').textContent = usd(t.margin);
-      document.getElementById('resMarginSub').textContent = `at ${t.leverage}x leverage`;
-
-      document.getElementById('resRisk').textContent = usd(t.riskAmount);
-      document.getElementById('resRiskSub').textContent = `${pct(t.riskPct)} of wallet`;
-
-      document.getElementById('resStopDist').textContent = pct(t.stopDistancePct);
-      document.getElementById('resStopSub').textContent = `stop ${usd(t.stop)}`;
-
-      // Liquidation.
-      //
-      // The engine has always carried five caveats explaining exactly why this
-      // number is an estimate; none of them ever reached the page, which showed
-      // only "$57,960 / 3.5% away / estimate". They are rendered now, and under
-      // cross margin no price is shown at all.
-      const liq = plan.liquidation;
-      const liqEl = document.getElementById('resLiq');
-      const liqSub = document.getElementById('resLiqSub');
-
-      if (liq.available) {
-        liqEl.textContent = usd(liq.price);
-        liqSub.textContent = `${pct(liq.distancePct, 1)} away · EST. · isolated`;
-        liqSub.title = (liq.assumptions?.caveats || []).join('\n\n');
-      } else if (liq.marginMode === 'cross') {
-        liqEl.textContent = 'N/A';
-        liqEl.style.fontSize = '0.7em';
-        liqSub.textContent = 'LIQUIDATION DEPENDS ON ACCOUNT / EXCHANGE MARGIN STATE';
-        liqSub.title = liq.detail || '';
-      } else {
-        liqEl.textContent = liq.notApplicable ? 'N/A' : '—';
-        liqEl.style.fontSize = '';
-        liqSub.textContent = (liq.reason || '').slice(0, 72);
-        liqSub.title = liq.reason || '';
-      }
-
-      // Full caveat text, visible rather than only on hover.
-      const caveatEl = document.getElementById('liqCaveats');
-      if (caveatEl) {
-        const caveats = liq.available ? (liq.assumptions?.caveats || []) : [];
-        if (caveats.length) {
-          caveatEl.hidden = false;
-          caveatEl.innerHTML =
-            '<strong>Liquidation estimate assumes:</strong><ul>' +
-            caveats.map((c) => `<li>${c}</li>`).join('') +
-            '</ul>';
-        } else if (liq.marginMode === 'cross') {
-          caveatEl.hidden = false;
-          caveatEl.innerHTML =
-            '<strong>No liquidation estimate under cross margin.</strong> ' +
-            'Liquidation is determined by total account equity and every open position, not by this trade alone. ' +
-            'Switch to Isolated for an estimate, or read it from your exchange.';
-        } else {
-          caveatEl.hidden = true;
-        }
-      }
-
-      const rr = plan.riskReward;
-      document.getElementById('resRR').textContent = rr.available ? rr.label : '—';
-      document.getElementById('resRRSub').textContent = rr.available
-        ? `target ${usd(t.target)}`
-        : 'no target set';
-
-      document.getElementById('resUnits').textContent =
-        t.units >= 1 ? t.units.toFixed(3) : t.units.toPrecision(3);
-
-      status.textContent = plan.status;
-      status.className = 'rm-status ' + toneClass(plan.status);
-
-      const readout = document.getElementById('sliderReadout');
-      readout.textContent = `${Math.round(state.sizeFactor * 100)}% of rec.`;
-    }
-
-    /* ================================================================
-     * RENDER — PORTFOLIO IMPACT
-     * ============================================================= */
-    function renderImpact(plan) {
-      const set = (id, before, after, formatter, beforePct, afterPct) => {
-        const el = document.getElementById(id);
-        if (!plan.valid) { el.textContent = '—'; return; }
-        const suffix = Number.isFinite(afterPct)
-          ? ` <span style="font-size:0.6875rem;color:rgba(230,233,224,0.45)">(${pct(beforePct, 2)} → ${pct(afterPct, 2)})</span>`
-          : '';
-        el.innerHTML =
-          `${formatter(before)}<span class="rm-arrow">→</span>${formatter(after)}${suffix}`;
-      };
-
-      if (!plan.valid) {
-        ['impRisk', 'impMargin', 'impNotional'].forEach((id) => (document.getElementById(id).textContent = '—'));
-        return;
-      }
-
-      set('impRisk', plan.portfolio.before.openRisk, plan.portfolio.after.openRisk,
-        (v) => usd(v), plan.portfolio.before.openRiskPct, plan.portfolio.after.openRiskPct);
-      set('impMargin', plan.exposure.before.marginUsed, plan.exposure.after.marginUsed,
-        (v) => usd(v, true), plan.exposure.before.marginUtilizationPct, plan.exposure.after.marginUtilizationPct);
-      set('impNotional', plan.exposure.before.notionalExposure, plan.exposure.after.notionalExposure,
-        (v) => usd(v, true), plan.exposure.before.notionalExposurePct, plan.exposure.after.notionalExposurePct);
-    }
-
-    /* ================================================================
-     * RENDER — RISK CHECK
-     * ============================================================= */
-    function renderCheck(plan) {
-      const host = document.getElementById('checkList');
-      const heading = document.getElementById('checkHeading');
-
-      if (!plan.valid) {
-        heading.textContent = 'Risk Check';
-        host.innerHTML = '<p class="rm-prose">Enter an entry and a stop to run the check.</p>';
-        return;
-      }
-
-      const ev = plan.evaluation;
-      heading.textContent = `Risk Check — ${ev.passed} / ${ev.total} passed`;
-
-      const mark = { pass: '✓', fail: '✕', warn: '!', unknown: '?' };
-      const tone = {
-        pass: 'eco-tone-long', fail: 'eco-tone-short',
-        warn: 'eco-tone-neutral', unknown: 'eco-tone-neutral'
-      };
-
-      host.innerHTML = ev.checks.map((c) => `
-        <div class="rm-check-item">
-          <span class="rm-check-mark ${tone[c.state]}">${mark[c.state]}</span>
-          <span class="rm-check-label">${c.label}</span>
-          <span class="rm-check-detail">${c.detail || ''}</span>
-        </div>
-      `).join('');
-
-      // The concentration label is the one warning worth repeating loudly,
-      // since it is about the book rather than this trade.
-      if (plan.concentration && plan.concentration.concentrated) {
-        host.innerHTML += `
-          <p class="rm-prose" style="margin-top:0.75rem;">
-            <strong>${plan.concentration.label}</strong> —
-            ${plan.concentration.positions.join(', ')} all point ${plan.concentration.direction}.
-            Correlated positions are not independent bets; their risk is summed with no
-            diversification credit.
-          </p>`;
-      }
-    }
-
-    /* ================================================================
-     * RENDER — ACCOUNT
-     * ============================================================= */
-    function renderAccount() {
-      const wallet = state.profile?.walletBalance;
-      if (!Number.isFinite(wallet)) return;
-
-      const s = summarizeAccount({
-        walletBalance: wallet,
-        positions: state.positions,
-        policy: state.policy
-      });
-
-      document.getElementById('accWallet').textContent = usd(s.walletBalance);
-      document.getElementById('accAvailable').textContent = usd(s.available);
-      document.getElementById('accMargin').textContent = usd(s.marginUsed);
-      document.getElementById('accNotional').textContent = usd(s.notionalExposure);
-      document.getElementById('accOpenRisk').textContent =
-        `${usd(s.openRisk)} · ${pct(s.openRiskPct)}`;
-      document.getElementById('accPositions').textContent = String(s.positionCount);
-
-      const status = document.getElementById('accStatus');
-      status.textContent = s.status;
-      status.className = 'rm-status ' + toneClass(s.status);
-    }
-
-    /* ================================================================
-     * RENDER — POSITIONS
-     * ============================================================= */
-    function renderPositions() {
-      const host = document.getElementById('positionsList');
-      const all = loadTrades().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-
-      if (all.length === 0) {
-        host.innerHTML = '<p class="rm-prose" id="positionsEmpty">No planned or open positions yet.</p>';
-        return;
-      }
-
-      host.innerHTML = all.map((t) => {
-        const dirTone = t.direction === 'SHORT' ? 'eco-tone-short' : 'eco-tone-long';
-        const dim = t.status === 'CLOSED' || t.status === 'CANCELLED' ? 'opacity:0.45;' : '';
-        const pnl = Number.isFinite(t.actualPnl)
-          ? `<span class="${t.actualPnl >= 0 ? 'eco-tone-long' : 'eco-tone-short'}">${usd(t.actualPnl)}</span>`
-          : '';
-        return `
-          <div class="rm-position" style="${dim}">
-            <span class="rm-position-asset">${t.asset || '—'}</span>
-            <span class="${dirTone}">${t.direction || ''}</span>
-            <span style="color:rgba(230,233,224,0.6)">${usd(t.notional, true)}</span>
-            <span style="color:rgba(230,233,224,0.6)">risk ${usd(t.plannedRisk)}</span>
-            <span style="color:rgba(230,233,224,0.4)">${pct(t.plannedRiskPct)}</span>
-            ${pnl}
-            <span class="rm-position-spacer">
-              ${['PLANNED', 'OPEN', 'CLOSED', 'CANCELLED'].map((s) => `
-                <button class="rm-mini-btn" data-id="${t.id}" data-status="${s}"
-                        aria-pressed="${t.status === s}">${s}</button>`).join('')}
-              <button class="rm-mini-btn" data-delete="${t.id}">DEL</button>
-            </span>
-          </div>`;
-      }).join('');
-
-      host.querySelectorAll('[data-status]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const status = btn.dataset.status;
-          let extra = {};
-          // Closing a trade is the one point where the actual outcome can be
-          // captured, which is what makes planned-vs-actual analysis possible.
-          if (status === 'CLOSED') {
-            const raw = window.prompt('Actual P&L for this trade (optional, e.g. -250 or 400):', '');
-            if (raw !== null && raw.trim() !== '') {
-              const parsed = num(raw);
-              if (Number.isFinite(parsed)) extra.actualPnl = parsed;
-            }
-          }
-          await updateTradeStatus(btn.dataset.id, status, extra);
-          refreshAfterMutation();
-        });
-      });
-
-      host.querySelectorAll('[data-delete]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          if (!window.confirm('Delete this trade permanently?')) return;
-          await deleteTrade(btn.dataset.delete);
-          refreshAfterMutation();
-        });
-      });
-    }
-
-    function refreshAfterMutation() {
-      state.positions = loadLivePositions();
-      renderAccount();
-      renderPositions();
-      renderHistory();
-      recalculate();
-    }
-
-    /* ================================================================
-     * RENDER — HISTORY
-     * Deliberately a handful of measurements, not a trading journal.
-     * ============================================================= */
-    function renderHistory() {
-      const host = document.getElementById('historyStats');
-      const all = loadTrades();
-
-      if (all.length === 0) {
-        host.innerHTML = '<div class="rm-impact-item"><div class="eco-label">No history</div>' +
-          '<span class="eco-value">—</span></div>';
-        return;
-      }
-
-      const riskPcts = all.map((t) => t.plannedRiskPct).filter(Number.isFinite);
-      const levs = all.map((t) => t.leverage).filter(Number.isFinite);
-      const rrs = all.map((t) => t.riskReward).filter(Number.isFinite);
-      const closed = all.filter((t) => t.status === 'CLOSED' && Number.isFinite(t.actualPnl));
-      const overPolicy = all.filter((t) =>
-        Number.isFinite(t.plannedRiskPct) &&
-        t.plannedRiskPct > (t.policyAtEntry?.maxRiskPerTradePct ?? state.policy.maxRiskPerTradePct)
-      ).length;
-
-      const avg = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
-      const realized = closed.reduce((s, t) => s + t.actualPnl, 0);
-
-      const stats = [
-        ['Trades Recorded', String(all.length), ''],
-        ['Avg Planned Risk', pct(avg(riskPcts)), 'of wallet'],
-        ['Largest Planned Risk', pct(riskPcts.length ? Math.max(...riskPcts) : null), 'of wallet'],
-        ['Avg Leverage', levs.length ? avg(levs).toFixed(2) + 'x' : '—', ''],
-        ['Avg R:R', rrs.length ? '1 : ' + avg(rrs).toFixed(1) : '—', 'where target set'],
-        ['Above Policy', String(overPolicy), 'at time of planning'],
-        ['Closed P&L', closed.length ? usd(realized) : '—', `${closed.length} closed`]
-      ];
-
-      host.innerHTML = stats.map(([label, value, sub]) => `
-        <div class="rm-impact-item">
-          <div class="eco-label">${label}</div>
-          <span class="eco-value">${value}</span>
-          ${sub ? `<div class="rm-metric-sub">${sub}</div>` : ''}
-        </div>`).join('');
-    }
-
-    /* ================================================================
-     * POLICY FORM
-     * ============================================================= */
-    const POLICY_FIELDS = [
-      ['walletBalance', 'Trading Wallet', '$'],
-      ['defaultRiskPerTradePct', 'Default Risk / Trade', '%'],
-      ['maxRiskPerTradePct', 'Max Risk / Trade', '%'],
-      ['maxTotalOpenRiskPct', 'Max Total Open Risk', '%'],
-      ['maxCorrelatedDirectionRiskPct', 'Max Same-Direction Risk', '%'],
-      ['maxMarginUtilizationPct', 'Max Margin Used', '%'],
-      ['maxNotionalExposurePct', 'Max Notional Exposure', '%'],
-      ['maxLeverage', 'Max Leverage', 'x']
-    ];
-
-    function renderPolicyForm() {
-      const host = document.getElementById('policyForm');
-      host.innerHTML = POLICY_FIELDS.map(([key, label, unit]) => {
-        const value = key === 'walletBalance'
-          ? (state.profile?.walletBalance ?? '')
-          : (state.policy[key] ?? '');
-        return `
-          <div class="rm-field">
-            <label for="p_${key}">${label} <span style="opacity:0.5">${unit}</span></label>
-            <input class="rm-input" id="p_${key}" type="number" inputmode="decimal"
-                   min="0" step="any" value="${value}">
-          </div>`;
-      }).join('');
-
-      document.getElementById('policyNote').innerHTML =
-        `Defaults are starting presets, not universal best practice. 1% per trade is a
-         steady-state target; 2% is Elder's ceiling. 6% total open risk is Elder's 6% rule.
-         The 200% notional cap follows ESMA's 2:1 crypto limit and catches a tight stop
-         sizing to a huge position at nominally low risk.
-         <strong>Every value here is yours to change.</strong>`;
-    }
-
-    /* ================================================================
-     * COST FORM
-     * ============================================================= */
-    const COST_FIELDS = [
-      ['takerFeePct', 'Taker Fee', '% per side'],
-      ['slippagePct', 'Slippage', '% at stop'],
-      ['fundingPctPerDay', 'Funding', '% per day']
-    ];
-
-    function renderCostForm() {
-      document.getElementById('costForm').innerHTML = COST_FIELDS.map(([key, label, unit]) => `
-        <div class="rm-field">
-          <label for="c_${key}">${label} <span style="opacity:0.5">${unit}</span></label>
-          <input class="rm-input" id="c_${key}" type="number" inputmode="decimal" min="0" step="any"
-                 value="${state.policy.costs?.[key] ?? 0}">
-        </div>`).join('');
-
-      document.getElementById('costPresets').innerHTML =
-        Object.entries(SUGGESTED_COST_ASSUMPTIONS).map(([key, preset]) =>
-          `<button class="rm-mini-btn" data-preset="${key}">${preset.label}</button>`).join('') +
-        `<button class="rm-mini-btn" data-preset="zero">Clear</button>`;
-
-      document.getElementById('costPresets').querySelectorAll('[data-preset]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const key = btn.dataset.preset;
-          const preset = key === 'zero'
-            ? { takerFeePct: 0, slippagePct: 0, fundingPctPerDay: 0 }
-            : SUGGESTED_COST_ASSUMPTIONS[key];
-          state.policy.costs = {
-            takerFeePct: preset.takerFeePct,
-            slippagePct: preset.slippagePct,
-            fundingPctPerDay: preset.fundingPctPerDay
-          };
-          renderCostForm();
-          persistPolicy();
-          recalculate();
-        });
-      });
-
-      COST_FIELDS.forEach(([key]) => {
-        document.getElementById(`c_${key}`).addEventListener('input', (e) => {
-          state.policy.costs = { ...state.policy.costs, [key]: num(e.target.value) ?? 0 };
-          persistPolicy();
-          recalculate();
-        });
-      });
-    }
-
-    function renderCostSummary(plan) {
-      const el = document.getElementById('costSummary');
-      if (!plan || !plan.valid || !plan.costs.applied) {
-        el.textContent = 'No execution costs applied — the risk figure is the clean planned number.';
-        return;
-      }
-      const c = plan.costs;
-      el.innerHTML = `On a ${usd(plan.trade.notional)} position: fees ${usd(c.fees)},
-        slippage ${usd(c.slippage)}, funding ${usd(c.funding)} —
-        <strong>${usd(c.total)} total</strong> on top of the ${usd(plan.trade.riskAmount)}
-        planned loss. ${c.note}`;
-    }
-
-    /* ================================================================
-     * STORAGE PANEL
-     * ============================================================= */
-    function renderStorage() {
-      document.getElementById('storageBody').innerHTML = `
-        <p>Risk settings and trade history are stored <strong>in this browser only</strong>.
-        They do not sync across devices and are cleared if you clear site data.</p>
-        <p style="margin-top:0.75rem;">This is deliberate. The only durable alternative in
-        this deployment is a Firestore project with no authentication and open read/write
-        rules, and a trading-wallet balance is more sensitive than the trade signals
-        already stored there. Cloud sync is
-        <strong>${isCloudSyncEnabled() ? 'ON' : 'off'}</strong>.</p>
-        <p style="margin-top:0.75rem;">Export a backup before clearing your browser data.</p>
-        <button class="rm-mini-btn" id="exportBtn" style="margin-top:0.5rem;">Copy Backup JSON</button>`;
-
-      document.getElementById('exportBtn').addEventListener('click', async () => {
-        const json = JSON.stringify(exportAll(), null, 2);
-        try {
-          await navigator.clipboard.writeText(json);
-          document.getElementById('exportBtn').textContent = 'Copied';
-        } catch {
-          // Clipboard is blocked in some contexts; the console is a reliable fallback.
-          console.log(json);
-          document.getElementById('exportBtn').textContent = 'Logged to console';
-        }
-      });
-    }
-
-    /* ================================================================
-     * MACRO CONTEXT
-     * Secondary context only. It never alters risk percentages — that
-     * would need backtesting first.
-     * ============================================================= */
-    async function loadMacroContext() {
-      try {
-        const res = await fetch('/api/bitcoin/economic-value?view=summary');
-        if (!res.ok) return;
-        const data = await res.json();
-        const c = data.current;
-        if (!c) return;
-
-        state.macroContext = {
-          state: c.state,
-          premiumDiscountPct: c.premiumDiscount,
-          economicValue: c.economicValue,
-          asOf: c.date
-        };
-
-        const el = document.getElementById('macroContext');
-        el.hidden = false;
-        el.innerHTML = `BTC Macro — <span class="${toneClass(RISK_STATUS.CAUTION)}">${c.state}</span>
-          · ${c.premiumDiscount >= 0 ? '+' : ''}${c.premiumDiscount.toFixed(1)}% to economic value
-          <span style="opacity:0.6">· context only, does not change your sizing</span>`;
-      } catch (error) {
-        console.warn('[Risk] Macro context unavailable:', error.message);
-      }
-    }
-
-    /* ================================================================
-     * PERSISTENCE
-     * ============================================================= */
-    async function persistPolicy() {
-      await saveRiskProfile({
-        walletBalance: state.profile?.walletBalance,
-        policy: state.policy
-      });
-      state.profile = loadRiskProfile();
-    }
-
-    /* ================================================================
-     * EVENTS
-     * ============================================================= */
-    ['fAsset', 'fEntry', 'fStop', 'fTarget', 'fLeverage', 'fRisk'].forEach((id) => {
-      document.getElementById(id).addEventListener('input', () => {
-        readForm();
-        // Editing the risk or the trade invalidates any manual size the user
-        // dragged to, so the slider returns to the recommendation.
-        state.sizeFactor = 1;
-        document.getElementById('sizeSlider').value = 100;
-        recalculate();
-      });
-    });
-
-    // Instrument and margin mode change liquidation semantics, so they must
-    // trigger a recalculation like any other input.
-    ['fInstrument', 'fMarginMode'].forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.addEventListener('change', () => { readForm(); recalculate(); });
-    });
-
-    document.querySelectorAll('.rm-direction button').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        setDirection(btn.dataset.dir);
-        readForm();
-        recalculate();
-      });
-    });
-
-    document.getElementById('sizeSlider').addEventListener('input', (e) => {
-      state.sizeFactor = Number(e.target.value) / 100;
-      recalculate();
-    });
-
-    document.getElementById('sliderReset').addEventListener('click', () => {
-      state.sizeFactor = 1;
-      document.getElementById('sizeSlider').value = 100;
-      recalculate();
-    });
-
-    document.getElementById('setupSave').addEventListener('click', async () => {
-      const balance = num(document.getElementById('setupWallet').value);
-      if (!Number.isFinite(balance) || balance <= 0) {
-        showNotice('Enter a trading wallet balance greater than zero.');
-        return;
-      }
-      await saveRiskProfile({ walletBalance: balance, policy: state.policy });
-      hideNotice();
-      boot();
-    });
-
-    document.getElementById('policySave').addEventListener('click', async () => {
-      const wallet = num(document.getElementById('p_walletBalance').value);
-      const next = { ...state.policy };
-      POLICY_FIELDS.forEach(([key]) => {
-        if (key === 'walletBalance') return;
-        const value = num(document.getElementById(`p_${key}`).value);
-        if (Number.isFinite(value)) next[key] = value;
-      });
-      state.policy = next;
-      await saveRiskProfile({ walletBalance: wallet, policy: next });
-      state.profile = loadRiskProfile();
-      renderAccount();
-      recalculate();
-      showNotice('Policy saved.', 'ok');
-    });
-
-    document.getElementById('policyReset').addEventListener('click', async () => {
-      state.policy = { ...DEFAULT_RISK_POLICY };
-      await persistPolicy();
-      renderPolicyForm();
-      renderCostForm();
-      renderAccount();
-      recalculate();
-    });
-
-    document.getElementById('saveTrade').addEventListener('click', async () => {
-      const plan = state.plan;
-      if (!plan || !plan.valid) {
-        showNotice('Complete the trade details before saving.');
-        return;
-      }
-      const t = plan.trade;
-      await saveTrade({
-        asset: t.asset || 'UNTITLED',
-        direction: t.direction,
-        entry: t.entry,
-        stop: t.stop,
-        target: t.target,
-        leverage: t.leverage,
-        notional: t.notional,
-        units: t.units,
-        margin: t.margin,
-        plannedRisk: t.riskAmount,
-        plannedRiskPct: t.riskPct,
-        stopDistancePct: t.stopDistancePct,
-        riskReward: plan.riskReward.available ? plan.riskReward.ratio : null,
-        riskStatusAtEntry: plan.status,
-        policyAtEntry: state.policy,
-        // Semantics the liquidation estimate assumed, persisted with the trade
-        // so a later review knows what model produced the number.
-        marginMode: t.marginMode || 'isolated',
-        instrument: t.instrument || 'perpetual',
-        // Which checks actually failed or warned. Previously only the single
-        // status string was kept, so a trade saved as ABOVE PLAN carried no
-        // record of WHAT was breached — which is most of the value of a
-        // planned-vs-actual history.
-        warnings: (plan.evaluation?.checks || [])
-          .filter((c) => c.state === 'fail' || c.state === 'warn')
-          .map((c) => `${c.state.toUpperCase()} ${c.label}: ${c.detail}`),
-        // Modelled costs at plan time; computed and displayed, then discarded.
-        costsAtEntry: plan.costs || null,
-        // Recorded for the future research hook. Never used to alter sizing.
-        macroContext: state.macroContext || null,
-        setupContext: state.pendingSetupContext || null,
-        status: 'PLANNED'
-      });
-      state.pendingSetupContext = null;
-
-      // Clear the form after saving.
-      //
-      // Without this, refreshAfterMutation reloaded state.positions (which
-      // includes PLANNED) while the form still held the same trade, so
-      // planTrade appended a SECOND prospective copy: open risk 250 -> 500,
-      // margin 3600 -> 7200, "2 positions counted" for one saved trade. Every
-      // subsequent sizing decision was then made against inflated heat.
-      ['fAsset', 'fEntry', 'fStop', 'fTarget'].forEach((id) => {
-        document.getElementById(id).value = '';
-      });
-      document.getElementById('fLeverage').value = 1;
-      state.sizeFactor = 1;
-      document.getElementById('sizeSlider').value = 100;
-      readForm();
-
-      refreshAfterMutation();
-      showNotice('Trade saved as PLANNED. Form cleared.', 'ok');
-    });
-
-    document.getElementById('clearForm').addEventListener('click', () => {
-      ['fAsset', 'fEntry', 'fStop', 'fTarget'].forEach((id) => (document.getElementById(id).value = ''));
-      document.getElementById('fLeverage').value = 1;
-      document.getElementById('fRisk').value = state.policy.defaultRiskPerTradePct;
-      state.sizeFactor = 1;
-      document.getElementById('sizeSlider').value = 100;
-      state.pendingSetupContext = null;
-      readForm();
-      recalculate();
-    });
-
-    function showNotice(message, kind = 'error') {
-      const el = document.getElementById('rmNotice');
-      el.hidden = false;
-      el.textContent = message;
-      el.style.borderLeftColor = kind === 'ok' ? 'var(--accent-long)' : 'var(--accent-short)';
-      el.style.background = kind === 'ok' ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)';
-      if (kind === 'ok') setTimeout(hideNotice, 2500);
-    }
-
-    function hideNotice() {
-      document.getElementById('rmNotice').hidden = true;
-    }
-
-    window.addEventListener('DOMContentLoaded', boot);
-    if (document.readyState !== 'loading') boot();
+    import { initRiskPage } from '/js/riskPage.js';
+    initRiskPage();
   </script>
 
 </body>

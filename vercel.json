@@ -11,9 +11,9 @@
     { "src": "api/bitcoin-economic-value.js", "use": "@vercel/node" },
     { "src": "api/agent-review.js", "use": "@vercel/node" },
     { "src": "api/crypto-news.js", "use": "@vercel/node" },
-    { "src": "api/parse-trade-image.js", "use": "@vercel/node" },
+    { "src": "api/trade-tools.js", "use": "@vercel/node" },
     { "src": "api/execute-trade.js", "use": "@vercel/node" },
-    { "src": "api/review-trade.js", "use": "@vercel/node" }
+    { "src": "api/wallet.js", "use": "@vercel/node" }
   ],
   "routes": [
     { "src": "/api/health", "dest": "/api/health.js" },
@@ -25,9 +25,11 @@
     { "src": "/api/bitcoin/economic-value", "dest": "/api/bitcoin-economic-value.js" },
     { "src": "/api/agent-review", "dest": "/api/agent-review.js" },
     { "src": "/api/crypto-news", "dest": "/api/crypto-news.js" },
-    { "src": "/api/parse-trade-image", "dest": "/api/parse-trade-image.js" },
+    { "src": "/api/parse-trade-image", "dest": "/api/trade-tools.js" },
+    { "src": "/api/review-trade", "dest": "/api/trade-tools.js" },
     { "src": "/api/execute-trade", "dest": "/api/execute-trade.js" },
-    { "src": "/api/review-trade", "dest": "/api/review-trade.js" },
+    { "src": "/api/wallet/portfolio", "dest": "/api/wallet.js" },
+    { "src": "/api/wallet/trades", "dest": "/api/wallet.js" },
     { "src": "/risk", "dest": "/public/risk.html" },
     { "src": "/bitcoin-value", "dest": "/public/bitcoin-value.html" },
     { "src": "/scanner", "dest": "/public/scanner.html" },
