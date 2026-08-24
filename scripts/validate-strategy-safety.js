@@ -16,7 +16,12 @@
  * Run: npm run validate:strategy-safety
  */
 
-import { evaluateAllStrategies, calculateConfidenceWithHierarchy } from '../services/strategy.js';
+import {
+  evaluateAllStrategies,
+  calculateConfidenceWithHierarchy,
+  resolveStop,
+  ATR_STOP_FALLBACK_MULTIPLE
+} from '../services/strategy.js';
 
 let passed = 0;
 let failed = 0;
@@ -318,6 +323,62 @@ section('5. Empty and malformed payloads');
     assert(threw === null, `${label}: does not throw`, threw ? String(threw && threw.message) : '');
     assert(signals.length === 0, `${label}: emits no tradeable signal`, signals.map((s) => s.name).join(', '));
   }
+}
+
+// ---------------------------------------------------------------------------
+section('6. Stop resolution: structure first, volatility second, never a literal');
+// ---------------------------------------------------------------------------
+
+{
+  const entry = 110000;
+
+  // A structural level on the correct side wins outright.
+  const structural = resolveStop({ entry, direction: 'long', structuralCandidates: [108000, 107000], atr: 500 });
+  assert(structural && structural.source === 'STRUCTURE' && structural.price === 108000,
+    'long takes the tightest valid structural low',
+    JSON.stringify(structural));
+
+  const structuralShort = resolveStop({ entry, direction: 'short', structuralCandidates: [112000, 113000], atr: 500 });
+  assert(structuralShort && structuralShort.source === 'STRUCTURE' && structuralShort.price === 112000,
+    'short takes the tightest valid structural high',
+    JSON.stringify(structuralShort));
+
+  /* THE ROOT CAUSE OF THE INVERTED GEOMETRY. A rolling 20-bar "swing low" can
+   * sit ABOVE the current price; used as a long's stop it produces a negative
+   * R and targets below entry. A level on the wrong side of entry is a
+   * windowing artefact, not an invalidation level, and must be discarded. */
+  const wrongSide = resolveStop({ entry, direction: 'long', structuralCandidates: [111000], atr: 500 });
+  assert(wrongSide && wrongSide.source === 'ATR',
+    'a structural low ABOVE a long entry is rejected, not used',
+    JSON.stringify(wrongSide));
+  assert(wrongSide && wrongSide.price < entry,
+    'the resulting long stop is below entry',
+    JSON.stringify(wrongSide));
+
+  const wrongSideShort = resolveStop({ entry, direction: 'short', structuralCandidates: [109000], atr: 500 });
+  assert(wrongSideShort && wrongSideShort.price > entry,
+    'a structural high BELOW a short entry is rejected; resulting stop is above entry',
+    JSON.stringify(wrongSideShort));
+
+  // Volatility fallback is scaled by ATR, not by a fixed percentage.
+  const calm = resolveStop({ entry, direction: 'long', structuralCandidates: [], atr: 200 });
+  const wild = resolveStop({ entry, direction: 'long', structuralCandidates: [], atr: 2000 });
+  assert(calm && wild && (entry - calm.price) < (entry - wild.price),
+    'a higher ATR produces a wider stop',
+    `calm=${calm && calm.price} wild=${wild && wild.price}`);
+  assert(calm && Math.abs((entry - calm.price) - 200 * ATR_STOP_FALLBACK_MULTIPLE) < 1e-6,
+    'the ATR fallback distance is exactly the published multiple',
+    JSON.stringify(calm));
+
+  /* With neither structure nor volatility, the answer is NULL — not a
+   * percentage. A stop sets the position size, so inventing one is fabricating
+   * a risk level, the same class of defect as fabricating a candle. */
+  assert(resolveStop({ entry, direction: 'long', structuralCandidates: [], atr: null }) === null,
+    'no structure and no ATR yields null, never an invented percentage');
+  assert(resolveStop({ entry, direction: 'long', structuralCandidates: [NaN, null, 0], atr: undefined }) === null,
+    'unusable structural candidates do not become a stop');
+  assert(resolveStop({ entry: 0, direction: 'long', structuralCandidates: [], atr: 500 }) === null,
+    'a zero entry yields null');
 }
 
 // ---------------------------------------------------------------------------

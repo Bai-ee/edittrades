@@ -24,6 +24,80 @@ function normalizeTrend(trend) {
 }
 
 /**
+ * ATR multiple used when no structural level is available for a stop.
+ *
+ * A fixed percentage cannot be right on two timeframes at once, let alone two
+ * volatility regimes: a 3% stop is a scratch in an expansion and a mile away in
+ * a squeeze. An ATR multiple is the same statement about "how far is a normal
+ * adverse move" expressed in the units the market is currently using.
+ *
+ * 2.0 is a conventional starting point, NOT a validated optimum — no backtest
+ * in this repo has ever produced a trade to fit it against. Exported so it can
+ * be swept rather than edited in place.
+ */
+export const ATR_STOP_FALLBACK_MULTIPLE = 2.0;
+
+/**
+ * Read a swing level off a timeframe payload.
+ *
+ * Swing points live at `structure.swingHigh/swingLow` — the shape
+ * `calculateAllIndicators()` returns has no swing fields at all. Several call
+ * sites read `indicators.swingLow`, which is always undefined, so their
+ * "structural" stop silently degraded to a hardcoded percentage while the real
+ * level sat unread on the same object. This helper exists so that path cannot
+ * be spelled wrongly again.
+ */
+function swingLevel(tf, side) {
+  if (!tf || !tf.structure) return null;
+  const v = tf.structure[side === 'low' ? 'swingLow' : 'swingHigh'];
+  return Number.isFinite(v) ? v : null;
+}
+
+/** ATR for a timeframe, when the caller computed advanced indicators. */
+function atrOf(tf) {
+  const atr = tf && tf.volatility && tf.volatility.atr;
+  return Number.isFinite(atr) && atr > 0 ? atr : null;
+}
+
+/**
+ * Resolve a stop: nearest usable structural level, else a volatility-scaled
+ * distance, else null.
+ *
+ * Returning NULL rather than a percentage is deliberate. A stop is not a
+ * cosmetic field — it sets the position size — so inventing one when neither
+ * structure nor volatility is known is fabricating a risk level, which is the
+ * same class of defect as fabricating a candle. Callers must treat null as
+ * "no trade", not as "pick something".
+ *
+ * @returns {{price:number, source:'STRUCTURE'|'ATR'}|null}
+ */
+export function resolveStop({ entry, direction, structuralCandidates = [], atr }) {
+  if (!Number.isFinite(entry) || entry <= 0) return null;
+  const isLong = direction === 'long';
+
+  // A structural level only counts if it is on the correct side of entry.
+  // A "swing low" above a long's entry is a rolling-window artefact, not a
+  // level, and using it is what produced stops above entry with targets below.
+  const usable = structuralCandidates
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .filter((v) => (isLong ? v < entry : v > entry));
+
+  if (usable.length > 0) {
+    // Tightest valid invalidation: the highest low under a long, lowest high
+    // over a short.
+    return { price: isLong ? Math.max(...usable) : Math.min(...usable), source: 'STRUCTURE' };
+  }
+
+  if (Number.isFinite(atr) && atr > 0) {
+    const distance = atr * ATR_STOP_FALLBACK_MULTIPLE;
+    const price = isLong ? entry - distance : entry + distance;
+    if (price > 0) return { price, source: 'ATR' };
+  }
+
+  return null;
+}
+
+/**
  * Infer trend direction from price position relative to EMAs
  * Used when trend is "flat" but we need directional bias
  * @param {number} price - Current price
@@ -473,13 +547,20 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
         const ema21_1h = parseFloat(tf1h.indicators?.ema?.ema21) || currentPrice;
         const ema21_15m = parseFloat(tf15m.indicators?.ema?.ema21) || currentPrice;
         const entry = (ema21_1h + ema21_15m) / 2;
-        // Get swing lows with fallbacks
-        const swingLow15m = parseFloat(tf15m.indicators?.swingLow);
-        const swingLow1h = parseFloat(tf1h.indicators?.swingLow);
-        
-        // For aggressive scalp, use ONLY 15m swing low for tight invalidation
-        // Fallback to 1h only if 15m doesn't exist, then percentage
-        const stopLoss = swingLow15m || swingLow1h || (entry * 0.97);
+        // Swing levels live on `structure`, not on `indicators`. These two
+        // reads used to be `tf15m.indicators?.swingLow`, which is always
+        // undefined, so `NaN || NaN || entry * 0.97` made the hardcoded 3%
+        // stop UNCONDITIONAL — while the real 15m level sat unread on the same
+        // object, and the shipped copy told the user the stop was the 15m
+        // swing low.
+        const stopResolved = resolveStop({
+          entry,
+          direction: 'long',
+          structuralCandidates: [swingLevel(tf15m, 'low'), swingLevel(tf1h, 'low')],
+          atr: atrOf(tf15m) || atrOf(tf1h)
+        });
+        if (!stopResolved) return null;
+        const stopLoss = stopResolved.price;
         const R = Math.abs(entry - stopLoss);
         
         // Targets - ensure they're valid numbers
@@ -566,12 +647,15 @@ function tryAggressiveStrategies(symbol, analysis, htfBias, thresholds) {
         const ema21_15m = parseFloat(tf15m.indicators?.ema?.ema21) || currentPrice;
         const entry = (ema21_1h + ema21_15m) / 2;
         // Get swing highs with fallbacks
-        const swingHigh15m = parseFloat(tf15m.indicators?.swingHigh);
-        const swingHigh1h = parseFloat(tf1h.indicators?.swingHigh);
-        
-        // For aggressive scalp, use ONLY 15m swing high for tight invalidation
-        // Fallback to 1h only if 15m doesn't exist, then percentage
-        const stopLoss = swingHigh15m || swingHigh1h || (entry * 1.03);
+        // Mirror of the long side; same dead-field-path defect.
+        const stopResolved = resolveStop({
+          entry,
+          direction: 'short',
+          structuralCandidates: [swingLevel(tf15m, 'high'), swingLevel(tf1h, 'high')],
+          atr: atrOf(tf15m) || atrOf(tf1h)
+        });
+        if (!stopResolved) return null;
+        const stopLoss = stopResolved.price;
         const R = Math.abs(entry - stopLoss);
         
         // Targets - ensure they're valid numbers
@@ -2648,10 +2732,10 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
   const pullback5m = tf5m.indicators?.pullback;
   const stoch15m = tf15m.indicators?.stoch;
   const stoch5m = tf5m.indicators?.stoch;
-  const swingLow15m = tf15m.indicators?.swingLow;
-  const swingLow5m = tf5m.indicators?.swingLow;
-  const swingHigh15m = tf15m.indicators?.swingHigh;
-  const swingHigh5m = tf5m.indicators?.swingHigh;
+  const swingLow15m = swingLevel(tf15m, 'low');
+  const swingLow5m = swingLevel(tf5m, 'low');
+  const swingHigh15m = swingLevel(tf15m, 'high');
+  const swingHigh5m = swingLevel(tf5m, 'high');
   const currentPrice = tf5m.indicators?.currentPrice || tf15m.indicators?.currentPrice;
   
   // Guard: Need all data points
@@ -3507,8 +3591,9 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const aggressiveEntryZone = calculateAggressiveEntryZone(currentPrice, 'long');
         const entryMid = aggressiveEntryZone ? (aggressiveEntryZone.min + aggressiveEntryZone.max) / 2 : currentPrice * 1.0003;
         
-        const swingLow1h = tf1h?.indicators?.swingLow || currentPrice * 0.98;
-        const stopLoss = swingLow1h;
+        const stopResolved = resolveStop({ entry: entryMid, direction: 'long',
+          structuralCandidates: [swingLevel(tf1h, 'low')], atr: atrOf(tf1h) });
+        const stopLoss = stopResolved && stopResolved.price;
         const R = Math.abs(entryMid - stopLoss);
         
         const tp1 = entryMid + (R * 1.5);
@@ -3556,8 +3641,9 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const aggressiveEntryZoneScalp = calculateAggressiveEntryZone(currentPrice, 'long');
         const entryMid = aggressiveEntryZoneScalp ? (aggressiveEntryZoneScalp.min + aggressiveEntryZoneScalp.max) / 2 : currentPrice * 1.0003;
         
-        const swingLow15m = tf15m?.indicators?.swingLow || currentPrice * 0.995;
-        const stopLoss = swingLow15m;
+        const stopResolved = resolveStop({ entry: entryMid, direction: 'long',
+          structuralCandidates: [swingLevel(tf15m, 'low')], atr: atrOf(tf15m) });
+        const stopLoss = stopResolved && stopResolved.price;
         const R = Math.abs(entryMid - stopLoss);
         
         const tp1 = entryMid + (R * 1.5);
@@ -3686,8 +3772,9 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const aggressiveEntryZoneShort = calculateAggressiveEntryZone(currentPrice, 'short');
         const entryMid = aggressiveEntryZoneShort ? (aggressiveEntryZoneShort.min + aggressiveEntryZoneShort.max) / 2 : currentPrice * 0.9997;
         
-        const swingHigh1h = tf1h?.indicators?.swingHigh || currentPrice * 1.02;
-        const stopLoss = swingHigh1h;
+        const stopResolved = resolveStop({ entry: entryMid, direction: 'short',
+          structuralCandidates: [swingLevel(tf1h, 'high')], atr: atrOf(tf1h) });
+        const stopLoss = stopResolved && stopResolved.price;
         const R = Math.abs(stopLoss - entryMid);
         
         const tp1 = entryMid - (R * 1.5);
@@ -3735,8 +3822,9 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
         const aggressiveEntryZoneShortScalp2 = calculateAggressiveEntryZone(currentPrice, 'short');
         const entryMid = aggressiveEntryZoneShortScalp2 ? (aggressiveEntryZoneShortScalp2.min + aggressiveEntryZoneShortScalp2.max) / 2 : currentPrice * 0.9997;
         
-        const swingHigh15m = tf15m?.indicators?.swingHigh || currentPrice * 1.005;
-        const stopLoss = swingHigh15m;
+        const stopResolved = resolveStop({ entry: entryMid, direction: 'short',
+          structuralCandidates: [swingLevel(tf15m, 'high')], atr: atrOf(tf15m) });
+        const stopLoss = stopResolved && stopResolved.price;
         const R = Math.abs(stopLoss - entryMid);
         
         const tp1 = entryMid - (R * 1.5);
