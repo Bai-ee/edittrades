@@ -57,7 +57,7 @@ import {
   detectCorrelatedExposure
 } from './riskManager.js';
 
-export const STRATEGY_VERSION = '1.0.0';
+export const STRATEGY_VERSION = '1.1.0';
 
 /* ========================================================================
  * TUNABLE CONSTANTS
@@ -206,7 +206,29 @@ export const ADAPTIVE_CONSTANTS = {
   PROPOSAL_GOOD_EXPECTANCY_R: 0.35,
 
   /** Relative change below which a factor is not worth reporting. */
-  FACTOR_MATERIALITY: 0.02
+  FACTOR_MATERIALITY: 0.02,
+
+  /**
+   * Market-volatility haircut tiers, keyed on the symbol's own trailing ATR
+   * percentile. First match wins, so the deepest tier is listed first.
+   *
+   * There is no tier below the 70th percentile, and that is the point: a calm
+   * market earns nothing. Every factor here is < 1 by construction, and the
+   * code additionally clamps the result to <= 1 so a future edit cannot turn
+   * this into an upward path.
+   *
+   * These are a STARTING HYPOTHESIS, not validated constants. No backtest in
+   * this repo has yet produced a trade to fit them against — see
+   * docs/VOLATILITY_REGIME_HANDOFF.md §6 and §8.
+   */
+  VOLATILITY_HAIRCUT_TIERS: [
+    { atrPercentile: 90, factor: 0.60 },
+    { atrPercentile: 80, factor: 0.75 },
+    { atrPercentile: 70, factor: 0.90 }
+  ],
+
+  /** Floor, so an extreme or unusable volatility reading cannot zero the band. */
+  VOLATILITY_MIN_HAIRCUT: 0.5
 };
 
 const C = ADAPTIVE_CONSTANTS;
@@ -1536,7 +1558,7 @@ export function calculateDirectionalConcentration({ openPositions = [] } = {}) {
  * notional, directional and margin caps are STRUCTURAL and move only with the
  * level — a demotion is what tightens them, which is the point of demotion.
  */
-export function calculateStrategyEnvelope({ level, strategy, recentPerformance = null, drawdown = null } = {}) {
+export function calculateStrategyEnvelope({ level, strategy, recentPerformance = null, drawdown = null, marketVolatility = null } = {}) {
   const preset = resolvePreset(strategy);
   const resolvedLevel = clampLevel(level);
   const base = preset.levels[String(resolvedLevel)];
@@ -1599,7 +1621,59 @@ export function calculateStrategyEnvelope({ level, strategy, recentPerformance =
   const returning = recent ? recent.returning === true : false;
   const returnHaircut = returning ? C.RETURN_HAIRCUT : 1;
 
-  const combined = performanceHaircut * drawdownHaircut * returnHaircut;
+  /* ---- Market volatility haircut — DOWNWARD ONLY ---------------------
+   *
+   * The one rule that matters here: elevated volatility may REDUCE the risk
+   * band; a calm market must never widen it. Naive volatility targeting does
+   * the opposite — it sizes up when realised volatility is low, which is
+   * precisely when a spike is most damaging, and is the mechanism behind the
+   * February 2018 short-volatility blowup. The ceiling of 1 below is the whole
+   * safety property, so it is enforced in code rather than by convention.
+   *
+   * Driven by `atrPercentile` — the symbol's own trailing ATR percentile on
+   * its own timeframe — not by the coarse LOW/NORMAL/HIGH label, because a
+   * percentile is scale-free and timeframe-free while a bucket boundary is not.
+   *
+   * Computed from the volatility input ALONE. It must never read
+   * recentPerformance or drawdown: coupling them would let a good run offset a
+   * volatility haircut, which is the leak the one-way rule exists to prevent.
+   * For the same reason it is NOT scaled by recentPerformanceSensitivity —
+   * market volatility is a fact about the market, exactly as drawdown is a fact
+   * about capital, and AGGRESSIVE must not be able to soften it.
+   *
+   * Absent input is exactly neutral, so every existing caller is unchanged.
+   * Invalid input is NOT silently neutralised — it takes the deepest tier and
+   * says so, because a malformed volatility feed is a reason for less risk,
+   * not for ignoring volatility.
+   */
+  let volatilityHaircut = 1;
+  let volatilityReason = null;
+  let volatilityApplied = false;
+  let volatilityInvalid = false;
+
+  if (marketVolatility && marketVolatility !== null) {
+    const pct = marketVolatility.atrPercentile;
+    const tfLabel = marketVolatility.timeframe ? ` on ${marketVolatility.timeframe}` : '';
+
+    if (!isFiniteNumber(pct) || pct < 0 || pct > 100) {
+      volatilityInvalid = true;
+      volatilityHaircut = C.VOLATILITY_HAIRCUT_TIERS[0].factor;
+      volatilityReason = 'Volatility reading was unusable; treated as the most volatile tier';
+    } else {
+      const tier = C.VOLATILITY_HAIRCUT_TIERS.find((t) => pct >= t.atrPercentile);
+      if (tier) {
+        volatilityHaircut = tier.factor;
+        volatilityReason = `ATR at the ${round(pct, 0)}th percentile${tfLabel}`;
+      }
+    }
+
+    // Direction and floor enforced structurally: never above 1, never below
+    // the floor, whatever a future tier table says.
+    volatilityHaircut = clamp(volatilityHaircut, C.VOLATILITY_MIN_HAIRCUT, 1);
+    volatilityApplied = volatilityHaircut < 1;
+  }
+
+  const combined = performanceHaircut * drawdownHaircut * returnHaircut * volatilityHaircut;
 
   const minRiskPct = base.minRiskPct * combined;
   const baseRiskPct = base.baseRiskPct * combined;
@@ -1637,10 +1711,14 @@ export function calculateStrategyEnvelope({ level, strategy, recentPerformance =
       drawdownReason,
       returning: returnHaircut,
       returningApplied: returning,
+      volatility: volatilityHaircut,
+      volatilityApplied,
+      volatilityReason,
+      volatilityInvalid,
       combined
     },
 
-    note: 'Recent performance is a one-way DOWNWARD adjustment. It never increases the envelope; only the level does.'
+    note: 'Recent performance and market volatility are one-way DOWNWARD adjustments. Neither increases the envelope; only the level does.'
   };
 }
 
@@ -1987,7 +2065,20 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
       entry: request.entry ?? null,
       stop: request.stop ?? null,
       direction: request.direction ?? null,
-      override: request.override ?? null
+      override: request.override ?? null,
+      /* The RESOLVED volatility inputs, not the raw object. Hashing `applied`
+       * matters: canonical() maps null and undefined alike to 'null', so an
+       * absent reading and a REJECTED one would otherwise hash identically
+       * while producing different recommendations. Rounding to 4dp stops a
+       * noisy feed's last digits churning the hash on every refresh. */
+      marketVolatility: request.marketVolatility
+        ? {
+            atrPercentile: round(request.marketVolatility.atrPercentile, 4),
+            state: request.marketVolatility.volatilityState ?? null,
+            timeframe: request.marketVolatility.timeframe ?? null,
+            source: request.marketVolatility.source ?? null
+          }
+        : null
     }
   });
 
@@ -2052,7 +2143,8 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
     level,
     strategy: strategy.key,
     recentPerformance: recent,
-    drawdown
+    drawdown,
+    marketVolatility: request.marketVolatility ?? null
   });
 
   /* ---- 4. Confidence, strictly inside the envelope ------------------ */
@@ -2355,6 +2447,18 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
       'DOWN',
       `${envelope.haircut.drawdownReason} — band cut to ${round(envelope.haircut.drawdown * 100, 0)}% of the level ${level} table.`
     );
+  }
+  if (envelope.haircut.volatilityApplied) {
+    pushFactor(
+      factors,
+      'VOLATILITY_HAIRCUT',
+      'Market volatility reduced the risk band',
+      'DOWN',
+      `${envelope.haircut.volatilityReason} — band cut to ${round(envelope.haircut.volatility * 100, 0)}% of the level ${level} table. Volatility can only reduce the band; a calm market never widens it.`
+    );
+    if (envelope.haircut.volatilityInvalid) {
+      warnings.push('Volatility reading was unusable — the most conservative tier was applied.');
+    }
   }
   if (envelope.haircut.returningApplied) {
     pushFactor(

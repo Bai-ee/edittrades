@@ -1350,6 +1350,83 @@ section('22b. Fail-closed: the last-resort gate refuses on missing state');
     JSON.stringify(healthy.blockers));
 }
 
+section('22c. Market volatility is a one-way DOWNWARD haircut');
+
+{
+  const account = {
+    walletValue: 25000,
+    walletAvailable: true,
+    snapshots: [{ at: '2026-01-01', walletValue: 25000 }],
+    cashFlows: [],
+    trades: [],
+    openPositions: [],
+    now: '2026-01-02'
+  };
+  const base = {
+    asset: 'BTC', strategy: 'STANDARD', confidence: 70,
+    entry: 72000, stop: 69500, direction: 'long'
+  };
+  const run = (mv) => recommendTrade({ account, request: mv === undefined ? base : { ...base, marketVolatility: mv } });
+
+  const absent = run(undefined);
+
+  // The neutrality guarantee: without a volatility input NOTHING changes, which
+  // is what keeps every other assertion in this file valid unchanged.
+  ok('absent volatility leaves the recommendation byte-identical',
+    JSON.stringify(run(null)) === JSON.stringify(absent));
+
+  // A calm market must EARN NOTHING. This is the asymmetry that separates this
+  // from naive volatility targeting, which sizes up when realised volatility is
+  // low — precisely when a spike does the most damage.
+  for (const pct of [0, 5, 25, 50, 69]) {
+    const quiet = run({ atrPercentile: pct, timeframe: '4h' });
+    ok(`atrPercentile ${pct} does not widen the band`,
+      quiet.maxLoss.pct <= absent.maxLoss.pct + 1e-9,
+      `${quiet.maxLoss.pct} vs ${absent.maxLoss.pct}`);
+  }
+
+  // Monotonic: more volatility never means more risk.
+  let previous = Infinity;
+  let monotone = true;
+  for (const pct of [0, 10, 30, 50, 65, 70, 75, 80, 85, 90, 95, 100]) {
+    const r = run({ atrPercentile: pct, timeframe: '4h' });
+    if (r.maxLoss.pct > previous + 1e-9) monotone = false;
+    previous = r.maxLoss.pct;
+  }
+  ok('risk is non-increasing across the full volatility sweep', monotone);
+
+  // The haircut actually bites at the top of the distribution.
+  const extreme = run({ atrPercentile: 95, timeframe: '4h' });
+  ok('an extreme volatility reading reduces risk',
+    extreme.maxLoss.pct < absent.maxLoss.pct,
+    `${extreme.maxLoss.pct} vs ${absent.maxLoss.pct}`);
+  ok('the reduction is reported as a factor, not applied silently',
+    extreme.factors.some((f) => f.code === 'VOLATILITY_HAIRCUT' && f.direction === 'DOWN'));
+  ok('the haircut never exceeds 1',
+    extreme.envelope.haircut.volatility <= 1 && absent.envelope.haircut.volatility === 1);
+
+  // A malformed reading must not be silently neutralised — that is the same
+  // class of defect as an invalid confidence quietly becoming 50.
+  for (const bad of [NaN, 'abc', -5, 150, Infinity, null]) {
+    const r = run({ atrPercentile: bad, timeframe: '4h' });
+    ok(`atrPercentile ${String(bad)} does not silently become neutral`,
+      r.maxLoss.pct <= absent.maxLoss.pct + 1e-9,
+      `${r.maxLoss.pct} vs ${absent.maxLoss.pct}`);
+  }
+
+  // Determinism: the volatility input must reach the hash, or two materially
+  // different recommendations would be indistinguishable in stored history.
+  ok('the volatility input changes inputsHash',
+    extreme.inputsHash !== absent.inputsHash,
+    `${extreme.inputsHash} vs ${absent.inputsHash}`);
+  ok('identical volatility input reproduces the same hash',
+    run({ atrPercentile: 95, timeframe: '4h' }).inputsHash === extreme.inputsHash);
+
+  // Structural caps are the level's business, not volatility's.
+  ok('the haircut does not touch the leverage cap',
+    extreme.envelope.maxLeverage === absent.envelope.maxLeverage);
+}
+
 /* ======================================================================
  * SUMMARY
  * =================================================================== */
