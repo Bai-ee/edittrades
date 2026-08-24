@@ -635,16 +635,16 @@ app.get('/api/bitcoin/economic-value', async (req, res) => {
  * GET /api/scan
  * Scan all supported coins and return trading opportunities
  * Query params:
- *   - minConfidence: Minimum confidence score (0-1), default 0.5
+ *   - minConfidence: Minimum confidence score (0-100), default 50
  *   - maxResults: Maximum results to return, default 50
  *   - intervals: Comma-separated intervals, default '4h,1h,15m,5m'
  *   - direction: Filter by 'long' or 'short'
  *   - all: If 'true', scan ALL Kraken pairs instead of just supported ones
- * Example: /api/scan?minConfidence=0.6&maxResults=10&direction=long
+ * Example: /api/scan?minConfidence=60&maxResults=10&direction=long
  */
 app.get('/api/scan', async (req, res) => {
   try {
-    const minConfidence = parseFloat(req.query.minConfidence) || 0.5;
+    const minConfidence = parseFloat(req.query.minConfidence) || 50;
     const maxResults = parseInt(req.query.maxResults) || 50;
     const intervals = req.query.intervals 
       ? req.query.intervals.split(',') 

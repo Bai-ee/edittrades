@@ -303,6 +303,7 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     // Preserve new fields from enhanced confidence system
     entryType: rawSignal.entryType || 'pullback', // 'pullback' or 'breakout'
     penaltiesApplied: rawSignal.penaltiesApplied || [],
+    confidenceFactors: rawSignal.confidenceFactors || [],
     capsApplied: rawSignal.capsApplied || [],
     explanation: rawSignal.explanation || null,
     confluence: rawSignal.confluence || null,
@@ -1264,11 +1265,23 @@ export function calculateConfidenceWithHierarchy(multiTimeframeData, direction, 
   // explanation string, but never multiplied into the number — the UI told the
   // user a 30% exhaustion penalty had been applied when the real cost was
   // about two points.
-  baseConfidence = baseConfidence * (
-    (macroPresent ? macroMultiplier * 0.4 : 0) +
-    (primaryPresent ? primaryMultiplier * 0.35 : 0) +
-    (execPresent ? avgExecAlignment * execMultiplier * 0.25 : 0)
-  );
+  //
+  // Each layer's contribution is kept as its own number so the popup can show
+  // WHY a trade scored what it did. The rows must ADD UP to the score on
+  // screen — a breakdown that does not reconcile is worse than none, because
+  // it looks checkable and isn't.
+  const tableConfidence = baseConfidence;
+  const macroPoints = macroPresent ? tableConfidence * macroMultiplier * 0.4 : 0;
+  const primaryPoints = primaryPresent ? tableConfidence * primaryMultiplier * 0.35 : 0;
+  const execPoints = execPresent ? tableConfidence * avgExecAlignment * execMultiplier * 0.25 : 0;
+
+  baseConfidence = macroPoints + primaryPoints + execPoints;
+
+  // Snapshots taken between the adjustment blocks below, so each row's points
+  // are DERIVED from the arithmetic rather than restated alongside it. That
+  // way a future edit to a penalty cannot leave the breakdown lying about it,
+  // which is exactly how the old penaltiesApplied list drifted out of step.
+  const afterLayers = baseConfidence;
 
   // Apply volume quality filter
   // Apply volume quality filter with fallback for missing data
@@ -1287,6 +1300,8 @@ export function calculateConfidenceWithHierarchy(multiTimeframeData, direction, 
     volumeNote = 'Volume quality missing - no penalty applied';
   }
   
+  const afterVolume = baseConfidence;
+
   // Apply trade flow filter
   if (marketData && marketData.recentTrades) {
     const { buyPressure, sellPressure, overallFlow } = marketData.recentTrades;
@@ -1315,6 +1330,8 @@ export function calculateConfidenceWithHierarchy(multiTimeframeData, direction, 
     }
   }
   
+  const afterFlow = baseConfidence;
+
   // Apply dFlow alignment filter with fallback for missing data
   let dflowScore = 0;
   let dflowNote = null;
@@ -1352,6 +1369,8 @@ export function calculateConfidenceWithHierarchy(multiTimeframeData, direction, 
   // used to paper over exactly that outage with a fabricated 'MEDIUM'. With the
   // fabrication removed, requiring a real reading is what makes this a filter
   // again rather than a formality. Unmeasured now means "no 95% cap", not "pass".
+  const afterDflow = baseConfidence;
+
   const volumeMeasuredAcceptable =
     marketData?.volumeQuality === 'HIGH' || marketData?.volumeQuality === 'MEDIUM';
 
@@ -1402,8 +1421,112 @@ export function calculateConfidenceWithHierarchy(multiTimeframeData, direction, 
     exhaustionCount, penaltiesApplied, capsApplied, finalConfidence, baseConfidence
   );
   
+  /* ---- Confidence breakdown -----------------------------------------
+   *
+   * Named rows that sum to the score. This is what answers "WHY THIS TRADE?"
+   * on the recommendation card.
+   *
+   * A layer with no data contributes 0 and says so, rather than appearing as
+   * a negative penalty. Those are different statements — "the macro trend
+   * disagreed" and "there was no macro data" should not look alike to
+   * someone deciding whether to take the trade.
+   *
+   * Points are derived from the snapshots above, so the breakdown cannot
+   * drift away from the arithmetic it describes.
+   */
+  const factors = [
+    {
+      code: 'MACRO_TREND',
+      label: 'Higher timeframe trend',
+      points: macroPoints,
+      detail: macroPresent
+        ? (macroContradiction
+            ? `${macroContradictionLevel} contradiction on ${Object.keys(macroTrends).join('/') || 'macro'}`
+            : `aligned on ${Object.keys(macroTrends).join('/') || 'macro'}`)
+        : 'no macro timeframe data — contributes nothing'
+    },
+    {
+      code: 'PRIMARY_TREND',
+      label: 'Primary trend (4H + 1H)',
+      points: primaryPoints,
+      detail: primaryPresent
+        ? (primaryContradiction ? '4H contradicts the direction' : 'aligned')
+        : 'no 4H/1H data — contributes nothing'
+    },
+    {
+      code: 'EXECUTION_TIMING',
+      label: 'Execution timeframes',
+      points: execPoints,
+      detail: execPresent
+        ? (exhaustionCount >= 2
+            ? `${exhaustionCount} lower timeframes show exhaustion`
+            : 'no exhaustion')
+        : 'no execution timeframe data — contributes nothing'
+    },
+    {
+      code: 'VOLUME',
+      label: 'Volume quality',
+      points: afterVolume - afterLayers,
+      detail: volumeNote || `volume quality ${marketData && marketData.volumeQuality}`
+    },
+    {
+      code: 'ORDER_FLOW',
+      label: 'Trade flow',
+      points: afterFlow - afterVolume,
+      detail: 'buy/sell pressure versus the trade direction'
+    },
+    {
+      code: 'PREDICTION_MARKETS',
+      label: 'Prediction markets',
+      points: afterDflow - afterFlow,
+      detail: dflowNote || 'dFlow market agreement'
+    }
+  ];
+
+  /* Two separate ceilings act after the evidence, and each gets its own row so
+   * the arithmetic still reconciles:
+   *
+   *   1. the 0-100 clamp — which BITES when penalties drive a score negative,
+   *      e.g. a data blackout scoring 0 then losing 5 more for low volume
+   *   2. the contradiction caps, which are a ceiling placed OVER the evidence
+   *      rather than an adjustment to it
+   *
+   * Without row 1 a blackout's rows summed to -5 while the card showed 0. */
+  const clampedConfidence = Math.min(100, Math.max(0, afterDflow));
+
+  const clampAdjustment = clampedConfidence - afterDflow;
+  if (Math.abs(clampAdjustment) > 1e-9) {
+    factors.push({
+      code: 'RANGE_CLAMP',
+      label: 'Held to the 0-100 range',
+      points: clampAdjustment,
+      detail: afterDflow < 0
+        ? 'penalties took the score below zero'
+        : 'score exceeded 100'
+    });
+  }
+
+  const cappedBy = finalConfidence - clampedConfidence;
+  if (Math.abs(cappedBy) > 1e-9) {
+    factors.push({
+      code: 'CAP',
+      label: 'Ceiling applied',
+      points: cappedBy,
+      detail: capsApplied.join(', ')
+    });
+  }
+
   return {
     confidence: Math.round(finalConfidence),
+    /**
+     * Where the score came from. `points` are signed and sum to
+     * `confidence` (before rounding). Callers may drop rows worth 0, but must
+     * not reorder or re-weight them — the order is the decision hierarchy.
+     */
+    factors,
+    baseConfidence: tableConfidence,
+    evidenceCoverage,
+    missingLayers,
     penaltiesApplied,
     capsApplied,
     explanation,
@@ -2896,6 +3019,7 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
     setupType: 'MicroScalp',
     confidence: Math.round(confidence), // 0-100 scale, round to integer
     penaltiesApplied: confidenceResult.penaltiesApplied || [],
+    confidenceFactors: confidenceResult.factors || [],
     capsApplied: confidenceResult.capsApplied || [],
     explanation: confidenceResult.explanation || '',
     entryType: 'pullback', // MICRO_SCALP uses pullback-only entries
@@ -3236,6 +3360,7 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
       ? `${reason} [${confidenceResult.explanation}]`
       : reason,
     penaltiesApplied: confidenceResult.penaltiesApplied || [],
+    confidenceFactors: confidenceResult.factors || [],
     capsApplied: confidenceResult.capsApplied || [],
     explanation: confidenceResult.explanation || '',
     entryType: entryType, // 'pullback' or 'breakout'
@@ -4080,6 +4205,7 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD', overri
     validationErrors: [],
     // NEW FIELDS (optional, backward compatible)
     penaltiesApplied: signal.penaltiesApplied || [],
+    confidenceFactors: signal.confidenceFactors || [],
     capsApplied: signal.capsApplied || [],
     explanation: signal.explanation || null,
     override: signal.override || overrideUsed || false, // Mark if override was used

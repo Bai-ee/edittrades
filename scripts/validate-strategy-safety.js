@@ -382,6 +382,37 @@ section('6. Stop resolution: structure first, volatility second, never a literal
 }
 
 // ---------------------------------------------------------------------------
+section('7. A caller must supply the macro layer to get a STANDARD signal');
+// ---------------------------------------------------------------------------
+
+{
+  /* Since a missing evidence layer forfeits its weight, any caller that omits
+   * the macro timeframes caps a STANDARD signal at 60% of its table value —
+   * below every strategy's own admission gate. The scanner used to default to
+   * 4h/1h/15m/5m and would have returned NOTHING.
+   *
+   * This is a real constraint on callers, not an implementation detail, so it
+   * is pinned here: if someone trims a timeframe list to save a round trip,
+   * this fails loudly instead of the dashboard quietly going empty. */
+  const price = 110000;
+  const t = () => tf({ price, trend: 'uptrend', pullbackState: 'ENTRY_ZONE', distanceFrom21EMA: 0.4, ema21: 109500, ema200: 106000, stochCondition: 'BULLISH', stochK: 45, stochD: 42, swingLow: 108000, swingHigh: 112000 });
+
+  const withoutMacro = { '4h': t(), '1h': t(), '15m': t(), '5m': t() };
+  const withMacro = { ...withoutMacro, '1d': t(), '3d': t() };
+
+  const none = validSignals(evaluateAllStrategies('BTCUSDT', withoutMacro, 'STANDARD'));
+  const some = validSignals(evaluateAllStrategies('BTCUSDT', withMacro, 'STANDARD'));
+
+  assert(none.length === 0,
+    'omitting 1d/3d yields no STANDARD signal — evidence must be present to be scored',
+    none.map((s) => `${s.name}=${s.confidence}`).join(' '));
+
+  assert(some.length > 0,
+    'supplying 1d/3d lets the same setup qualify',
+    some.map((s) => `${s.name}=${s.confidence}`).join(' '));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\n' + '='.repeat(60));
 console.log(`Strategy safety: ${passed} passed, ${failed} failed`);
 if (failed > 0) {
