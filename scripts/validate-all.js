@@ -23,6 +23,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SUITES = [
   { name: 'Market data integrity', script: 'scripts/validate-market-data.js', network: false },
   { name: 'Risk Manager', script: 'scripts/validate-risk-manager.js', network: false },
+  { name: 'Adaptive Risk engine', script: 'scripts/validate-adaptive-risk.js', network: false },
+  { name: 'Volatility regime', script: 'scripts/validate-volatility-regime.js', network: false },
+  { name: 'Strategy safety invariants', script: 'scripts/validate-strategy-safety.js', network: false },
+  { name: 'BTC decision orchestrator', script: 'scripts/validate-orchestrator.js', network: false },
   { name: 'Decision desk integration', script: 'scripts/validate-decision-desk.js', network: false },
   { name: 'Bitcoin macro core', script: 'scripts/validate-macro-core.js', network: false },
   { name: 'Bitcoin Economic Value', script: 'scripts/validate-economic-value.js', network: true }

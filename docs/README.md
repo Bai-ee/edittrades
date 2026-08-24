@@ -4,6 +4,31 @@ Complete documentation for the trading system, including strategies, indicators,
 
 ---
 
+## 🚦 Start here (new agents and new contributors)
+
+Read these three, in this order, before anything else in this folder:
+
+1. **[`../CLAUDE.md`](../CLAUDE.md)** — orientation and the landmines. No build
+   step, a full Vercel function budget, the field paths that silently return
+   `undefined`, and the rule that missing data must never become a usable value.
+2. **[`ARCHITECTURE.md`](./ARCHITECTURE.md)** — how the system actually works,
+   with diagrams: data flow, the strategy engine, the two risk layers, the trade
+   card's decision gates, the three trade stores, and the P&L feedback loop.
+3. **[`BTC_DECISION_DESK_STATUS.md`](./BTC_DECISION_DESK_STATUS.md)** — the
+   honest current state, including a claim ledger and eight things explicitly
+   NOT verified.
+
+> ⚠️ **Everything below this section predates significant changes.** Several
+> documents describe behaviour that has since been fixed, and two were wrong
+> about their own work (corrections in `BTC_DECISION_DESK_STATUS.md` §2). Where
+> a document and the code disagree, **the code is authoritative.**
+>
+> Specifically known-stale: `STRATEGY_MODES.md` and `STRATEGY_SYSTEM_AUDIT.md`
+> carry thresholds, line numbers and a strategy (`AGGRO_MICRO_SCALP`) that do
+> not match the current engine.
+
+---
+
 ## Strategy Documentation
 
 ### Core Strategy Guides

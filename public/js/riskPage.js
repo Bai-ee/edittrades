@@ -105,6 +105,28 @@ const MAX_SCREENSHOT_BYTES = 6 * 1024 * 1024;
 
 const CONFIDENCE_DEFAULT = 50;
 
+/**
+ * Tickers this page can turn into a mint address WITHOUT guessing.
+ *
+ * A recommendation stores whatever ticker the user typed ("SOL"); the
+ * reconstruction reports a base58 mint. Matching one to the other needs a
+ * mapping, and the only mapping that can be trusted is one already relied on
+ * elsewhere in this repo: these four are the constants the reconstruction
+ * itself keys off (SOL_MINT and STABLE_MINTS in services/jupiterReconstruction.js).
+ *
+ * BTC and ETH are deliberately ABSENT. The only Solana addresses for them in
+ * this repo (services/tokenMapping.js) are commented "placeholder — verify
+ * address", and linking a recommendation to somebody else's trade is worse
+ * than leaving it unmatched. An unlisted ticker simply never matches, which is
+ * the behaviour this page already had.
+ */
+const KNOWN_MINTS = {
+  SOL: 'So11111111111111111111111111111111111111112',
+  WSOL: 'So11111111111111111111111111111111111111112',
+  USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'
+};
+
 /* ========================================================================
  * PURE FORMATTERS
  *
@@ -1717,24 +1739,73 @@ async function loadHistoryLayer() {
 }
 
 /**
+ * Does the asset on a recommendation name the same thing as the asset on an
+ * on-chain trade?
+ *
+ * WHY THIS EXISTS: `record.asset` is a ticker the user typed ("SOL");
+ * `trade.asset` is a base58 mint address. A plain string compare is never true,
+ * so before this every watching recommendation stayed WATCHING forever.
+ *
+ * COVERS: identical strings (two tickers, e.g. a MANUAL trade record, or a user
+ * who pasted the mint itself) and the tickers listed in KNOWN_MINTS.
+ * DOES NOT COVER: every other token, BTC and ETH included — see KNOWN_MINTS for
+ * why. Those stay unmatched, which is the safe failure.
+ */
+function assetMatches(recordAsset, tradeAsset) {
+  if (!recordAsset || !tradeAsset) return false;
+  const record = String(recordAsset).trim();
+  const trade = String(tradeAsset).trim();
+
+  // Mints are case-SENSITIVE base58, so the exact compare comes first.
+  if (record === trade) return true;
+  if (KNOWN_MINTS[record.toUpperCase()] === trade) return true;
+
+  // Tickers are case-insensitive. Only compare loosely when both sides are
+  // short: formatAsset treats anything over 12 chars as a mint, and folding the
+  // case of a mint would make two different mints look equal.
+  return record.length <= 12 && trade.length <= 12 && record.toUpperCase() === trade.toUpperCase();
+}
+
+/**
  * Link a planned recommendation to an execution that has since appeared
- * on-chain. The match is deliberately narrow — same asset, opened after the
- * recommendation — and it records what was ACTUALLY done beside what was
- * recommended. A near-miss is left unmatched rather than assumed.
+ * on-chain. The match is deliberately narrow — same asset, same direction,
+ * opened after the recommendation, and one trade per recommendation — and it
+ * records what was ACTUALLY done beside what was recommended. A near-miss is
+ * left unmatched rather than assumed.
+ *
+ * Matching also hands the engine back the ONE number the chain cannot know:
+ * what the trader intended to risk. Without it every reconstructed trade grades
+ * as 0R, so win rate, avgR and the level ladder all sit frozen on real data.
  */
 function matchWatchedRecommendations() {
   const watching = watchingRecommendations();
   if (watching.length === 0) return;
 
+  // One on-chain execution can back at most one recommendation. Seeded from
+  // every recommendation ever linked, not just this pass, so a second watching
+  // recommendation on the same asset cannot re-claim a trade that an earlier
+  // refresh already linked.
+  const claimed = new Set(loadRecommendations().map((r) => r.linkedTradeId).filter(Boolean));
+  let linkedAny = false;
+
   for (const record of watching) {
     const recordedAt = Date.parse(record.at);
     const match = state.history.trades.find((trade) => {
-      if (!trade.asset || !record.asset) return false;
-      if (String(trade.asset).toUpperCase() !== String(record.asset).toUpperCase()) return false;
+      if (claimed.has(trade.id)) return false;
+      if (!assetMatches(record.asset, trade.asset)) return false;
+      // DIRECTION: only a disagreement rejects. The spot reconstruction
+      // hardcodes LONG (a token balance cannot go negative) and reports null for
+      // anything it could not decode, so a SHORT recommendation will never match
+      // a spot trade — correct, because that short was not executed as spot. A
+      // missing direction on either side is unknown, not a contradiction.
+      if (record.direction && trade.direction &&
+          String(record.direction).toUpperCase() !== String(trade.direction).toUpperCase()) return false;
       const opened = Date.parse(trade.openedAt);
       return Number.isFinite(opened) && Number.isFinite(recordedAt) && opened >= recordedAt;
     });
     if (!match) continue;
+
+    claimed.add(match.id);
 
     persist(() =>
       linkRecommendationToTrade(record.id, match.id, {
@@ -1745,7 +1816,33 @@ function matchWatchedRecommendations() {
         dataConfidence: match.dataConfidence
       })
     );
+
+    // The engine grades closed trades in R, which needs a risk figure the chain
+    // never reports. The engine already sized this trade, so hand that figure
+    // back rather than leaving the trade to read as a 0R scratch. strategy /
+    // confidence / level come along because analyzeStrategyPerformance buckets
+    // everything without them into 'UNSPECIFIED'.
+    //
+    // A figure a human typed themselves is left alone: this fills a gap, it does
+    // not overrule a person.
+    // upsertTradeRecord deletes an override set to null or '', so a key that is
+    // still present is a figure a human meant to put there.
+    const existing = match.overrides || {};
+    const overrides = {};
+    if (existing.riskAmount === undefined) overrides.riskAmount = record.recommended?.maxLossAmount ?? null;
+    if (existing.strategy === undefined) overrides.strategy = record.strategy ?? null;
+    if (existing.confidence === undefined) overrides.confidence = record.confidence ?? null;
+    if (existing.level === undefined) overrides.level = record.level ?? null;
+    // A null here is dropped by the store, so a recommendation missing a figure
+    // writes nothing for that field. persist() returns null inside the
+    // simulation sandbox: nothing was written, so there is nothing to re-merge.
+    if (persist(() => upsertTradeRecord({ id: match.id, source: 'ONCHAIN', overrides }))) linkedAny = true;
   }
+
+  // state.history.trades was merged before those overrides existed. Re-merge
+  // from the untouched reconstruction so this same refresh grades with the risk
+  // figure present, instead of showing 0R until the next history load.
+  if (linkedAny) state.history.trades = mergeTradeRecords(state.history.onchain);
 }
 
 /* ========================================================================

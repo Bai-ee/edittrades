@@ -1,6 +1,6 @@
 /**
  * Vercel Serverless Function: Market Scanner Endpoint
- * GET /api/scan?minConfidence=0.5&maxResults=25&direction=long
+ * GET /api/scan?minConfidence=50&maxResults=25&direction=long
  * 
  * Scans all supported coins and returns trading opportunities
  */
@@ -32,7 +32,10 @@ export default async function handler(req, res) {
 
   try {
     // Parse query parameters
-    const minConfidence = parseFloat(req.query.minConfidence) || 0.5;
+    // 0-100, matching the scale the engine uses everywhere. This was 0.5 and
+    // was compared straight against a 0-100 confidence, so the filter passed
+    // every signal.
+    const minConfidence = parseFloat(req.query.minConfidence) || 50;
     const maxResults = parseInt(req.query.maxResults) || 50;
     const intervals = req.query.intervals 
       ? req.query.intervals.split(',').map(i => i.trim())

@@ -57,7 +57,7 @@ import {
   detectCorrelatedExposure
 } from './riskManager.js';
 
-export const STRATEGY_VERSION = '1.0.0';
+export const STRATEGY_VERSION = '1.1.0';
 
 /* ========================================================================
  * TUNABLE CONSTANTS
@@ -206,7 +206,29 @@ export const ADAPTIVE_CONSTANTS = {
   PROPOSAL_GOOD_EXPECTANCY_R: 0.35,
 
   /** Relative change below which a factor is not worth reporting. */
-  FACTOR_MATERIALITY: 0.02
+  FACTOR_MATERIALITY: 0.02,
+
+  /**
+   * Market-volatility haircut tiers, keyed on the symbol's own trailing ATR
+   * percentile. First match wins, so the deepest tier is listed first.
+   *
+   * There is no tier below the 70th percentile, and that is the point: a calm
+   * market earns nothing. Every factor here is < 1 by construction, and the
+   * code additionally clamps the result to <= 1 so a future edit cannot turn
+   * this into an upward path.
+   *
+   * These are a STARTING HYPOTHESIS, not validated constants. No backtest in
+   * this repo has yet produced a trade to fit them against — see
+   * docs/VOLATILITY_REGIME_HANDOFF.md §6 and §8.
+   */
+  VOLATILITY_HAIRCUT_TIERS: [
+    { atrPercentile: 90, factor: 0.60 },
+    { atrPercentile: 80, factor: 0.75 },
+    { atrPercentile: 70, factor: 0.90 }
+  ],
+
+  /** Floor, so an extreme or unusable volatility reading cannot zero the band. */
+  VOLATILITY_MIN_HAIRCUT: 0.5
 };
 
 const C = ADAPTIVE_CONSTANTS;
@@ -1536,7 +1558,7 @@ export function calculateDirectionalConcentration({ openPositions = [] } = {}) {
  * notional, directional and margin caps are STRUCTURAL and move only with the
  * level — a demotion is what tightens them, which is the point of demotion.
  */
-export function calculateStrategyEnvelope({ level, strategy, recentPerformance = null, drawdown = null } = {}) {
+export function calculateStrategyEnvelope({ level, strategy, recentPerformance = null, drawdown = null, marketVolatility = null } = {}) {
   const preset = resolvePreset(strategy);
   const resolvedLevel = clampLevel(level);
   const base = preset.levels[String(resolvedLevel)];
@@ -1599,7 +1621,59 @@ export function calculateStrategyEnvelope({ level, strategy, recentPerformance =
   const returning = recent ? recent.returning === true : false;
   const returnHaircut = returning ? C.RETURN_HAIRCUT : 1;
 
-  const combined = performanceHaircut * drawdownHaircut * returnHaircut;
+  /* ---- Market volatility haircut — DOWNWARD ONLY ---------------------
+   *
+   * The one rule that matters here: elevated volatility may REDUCE the risk
+   * band; a calm market must never widen it. Naive volatility targeting does
+   * the opposite — it sizes up when realised volatility is low, which is
+   * precisely when a spike is most damaging, and is the mechanism behind the
+   * February 2018 short-volatility blowup. The ceiling of 1 below is the whole
+   * safety property, so it is enforced in code rather than by convention.
+   *
+   * Driven by `atrPercentile` — the symbol's own trailing ATR percentile on
+   * its own timeframe — not by the coarse LOW/NORMAL/HIGH label, because a
+   * percentile is scale-free and timeframe-free while a bucket boundary is not.
+   *
+   * Computed from the volatility input ALONE. It must never read
+   * recentPerformance or drawdown: coupling them would let a good run offset a
+   * volatility haircut, which is the leak the one-way rule exists to prevent.
+   * For the same reason it is NOT scaled by recentPerformanceSensitivity —
+   * market volatility is a fact about the market, exactly as drawdown is a fact
+   * about capital, and AGGRESSIVE must not be able to soften it.
+   *
+   * Absent input is exactly neutral, so every existing caller is unchanged.
+   * Invalid input is NOT silently neutralised — it takes the deepest tier and
+   * says so, because a malformed volatility feed is a reason for less risk,
+   * not for ignoring volatility.
+   */
+  let volatilityHaircut = 1;
+  let volatilityReason = null;
+  let volatilityApplied = false;
+  let volatilityInvalid = false;
+
+  if (marketVolatility && marketVolatility !== null) {
+    const pct = marketVolatility.atrPercentile;
+    const tfLabel = marketVolatility.timeframe ? ` on ${marketVolatility.timeframe}` : '';
+
+    if (!isFiniteNumber(pct) || pct < 0 || pct > 100) {
+      volatilityInvalid = true;
+      volatilityHaircut = C.VOLATILITY_HAIRCUT_TIERS[0].factor;
+      volatilityReason = 'Volatility reading was unusable; treated as the most volatile tier';
+    } else {
+      const tier = C.VOLATILITY_HAIRCUT_TIERS.find((t) => pct >= t.atrPercentile);
+      if (tier) {
+        volatilityHaircut = tier.factor;
+        volatilityReason = `ATR at the ${round(pct, 0)}th percentile${tfLabel}`;
+      }
+    }
+
+    // Direction and floor enforced structurally: never above 1, never below
+    // the floor, whatever a future tier table says.
+    volatilityHaircut = clamp(volatilityHaircut, C.VOLATILITY_MIN_HAIRCUT, 1);
+    volatilityApplied = volatilityHaircut < 1;
+  }
+
+  const combined = performanceHaircut * drawdownHaircut * returnHaircut * volatilityHaircut;
 
   const minRiskPct = base.minRiskPct * combined;
   const baseRiskPct = base.baseRiskPct * combined;
@@ -1637,10 +1711,14 @@ export function calculateStrategyEnvelope({ level, strategy, recentPerformance =
       drawdownReason,
       returning: returnHaircut,
       returningApplied: returning,
+      volatility: volatilityHaircut,
+      volatilityApplied,
+      volatilityReason,
+      volatilityInvalid,
       combined
     },
 
-    note: 'Recent performance is a one-way DOWNWARD adjustment. It never increases the envelope; only the level does.'
+    note: 'Recent performance and market volatility are one-way DOWNWARD adjustments. Neither increases the envelope; only the level does.'
   };
 }
 
@@ -1746,7 +1824,48 @@ export function evaluateNoTradeConstraints({
   const blockers = [];
   const resolvedLevel = clampLevel(level);
   const equity = isPositiveNumber(adjustedEquity) ? adjustedEquity : 0;
-  const open = openRiskState || { consumedRiskPct: 0, count: 0, notionalExposurePct: 0, marginUtilizationPct: 0 };
+
+  /* ---- Missing state is a BLOCK, not a permission -------------------
+   *
+   * This function's contract is that it runs last and overrules everything
+   * above it. A last-resort gate must therefore fail CLOSED.
+   *
+   * It used to substitute `{consumedRiskPct: 0, count: 0, ...}` for an absent
+   * openRiskState — an empty, safe-looking book — and every envelope-dependent
+   * blocker was additionally guarded by `if (envelope && ...)`, so a null
+   * envelope silently disabled five of the seven blockers. Calling it with no
+   * state at all returned `{allowed: true, blockers: []}`: an unconditional
+   * permission produced by the absence of any evidence.
+   *
+   * Non-finite fields are rejected for the same reason. Every threshold test
+   * here is of the form `value >= limit`, and `NaN >= limit` is false, so a
+   * corrupt book passed all of them silently.
+   */
+  const openFieldsValid =
+    openRiskState &&
+    ['consumedRiskPct', 'count', 'notionalExposurePct', 'marginUtilizationPct']
+      .every((k) => Number.isFinite(openRiskState[k]));
+
+  if (!envelope || !openFieldsValid) {
+    const missing = [];
+    if (!envelope) missing.push('risk envelope');
+    if (!openRiskState) missing.push('open risk state');
+    else if (!openFieldsValid) missing.push('open risk state (non-numeric fields)');
+
+    blockers.push(
+      blocker(
+        'INCOMPLETE_STATE',
+        'Account state is incomplete',
+        missing.join(', '),
+        'complete, numeric state',
+        'Reload the Risk Manager so the wallet, open positions and level are all read before sizing a position.'
+      )
+    );
+
+    return { allowed: false, blockers, level: resolvedLevel };
+  }
+
+  const open = openRiskState;
   const dd = drawdown && Number.isFinite(drawdown.currentDrawdownPct) ? drawdown.currentDrawdownPct : 0;
 
   if (equity <= 0) {
@@ -1946,7 +2065,20 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
       entry: request.entry ?? null,
       stop: request.stop ?? null,
       direction: request.direction ?? null,
-      override: request.override ?? null
+      override: request.override ?? null,
+      /* The RESOLVED volatility inputs, not the raw object. Hashing `applied`
+       * matters: canonical() maps null and undefined alike to 'null', so an
+       * absent reading and a REJECTED one would otherwise hash identically
+       * while producing different recommendations. Rounding to 4dp stops a
+       * noisy feed's last digits churning the hash on every refresh. */
+      marketVolatility: request.marketVolatility
+        ? {
+            atrPercentile: round(request.marketVolatility.atrPercentile, 4),
+            state: request.marketVolatility.volatilityState ?? null,
+            timeframe: request.marketVolatility.timeframe ?? null,
+            source: request.marketVolatility.source ?? null
+          }
+        : null
     }
   });
 
@@ -2011,7 +2143,8 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
     level,
     strategy: strategy.key,
     recentPerformance: recent,
-    drawdown
+    drawdown,
+    marketVolatility: request.marketVolatility ?? null
   });
 
   /* ---- 4. Confidence, strictly inside the envelope ------------------ */
@@ -2172,7 +2305,44 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
     if (isPositiveNumber(request.override && request.override.leverage)) {
       // Simulation: the caller pins leverage. Notional is NOT adjusted for it,
       // which is what keeps max loss strictly leverage-independent.
-      leverage = request.override.leverage;
+      //
+      // The pin is still CLAMPED to the level's leverage cap. Without the
+      // clamp this branch was a hole straight through the structural caps:
+      // the only downstream leverage check is guarded by
+      // `margin > marginBudget`, and raising leverage SHRINKS margin, so a
+      // high enough pin skipped the check entirely. An override of 50 against
+      // a cap of 3 returned decision TRADE with an empty blockers array, an
+      // empty warnings array, and no factor — indistinguishable in the output
+      // from a genuine 50x recommendation, with a liquidation estimate
+      // computed at 50x to match.
+      //
+      // Leverage is the one input where a caller's request must never widen a
+      // structural limit: it does not change max loss at the stop, but it does
+      // change how close an ordinary wick sits to liquidation.
+      const requestedLeverage = request.override.leverage;
+      leverage = Math.min(requestedLeverage, envelope.maxLeverage);
+
+      if (requestedLeverage > envelope.maxLeverage) {
+        pushFactor(
+          factors,
+          'LEVERAGE_CAP',
+          'Requested leverage exceeded the level cap',
+          'DOWN',
+          `Requested ${round(requestedLeverage, 2)}x, capped at ${envelope.maxLeverage}x by the level ${level} table. Leverage cannot be raised past the cap by an override.`
+        );
+        warnings.push(
+          `Leverage override of ${round(requestedLeverage, 2)}x was reduced to the ${envelope.maxLeverage}x cap.`
+        );
+      } else {
+        pushFactor(
+          factors,
+          'SIMULATION_OVERRIDE',
+          'Leverage pinned for simulation',
+          'NEUTRAL',
+          `Leverage pinned at ${round(leverage, 2)}x. Max loss at the stop is unchanged by leverage; margin and liquidation distance are not.`
+        );
+        warnings.push('Simulation override active — this is not the engine\'s recommendation.');
+      }
     } else if (marginBudget > 0) {
       const needed = notional / marginBudget;
       leverage = clamp(Math.ceil(Math.max(1, needed) * 100) / 100, 1, envelope.maxLeverage);
@@ -2277,6 +2447,18 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
       'DOWN',
       `${envelope.haircut.drawdownReason} — band cut to ${round(envelope.haircut.drawdown * 100, 0)}% of the level ${level} table.`
     );
+  }
+  if (envelope.haircut.volatilityApplied) {
+    pushFactor(
+      factors,
+      'VOLATILITY_HAIRCUT',
+      'Market volatility reduced the risk band',
+      'DOWN',
+      `${envelope.haircut.volatilityReason} — band cut to ${round(envelope.haircut.volatility * 100, 0)}% of the level ${level} table. Volatility can only reduce the band; a calm market never widens it.`
+    );
+    if (envelope.haircut.volatilityInvalid) {
+      warnings.push('Volatility reading was unusable — the most conservative tier was applied.');
+    }
   }
   if (envelope.haircut.returningApplied) {
     pushFactor(

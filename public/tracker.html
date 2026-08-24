@@ -901,6 +901,14 @@
     // Trade storage
     let trades = [];
     let priceCache = {};
+
+    // Trade ids double as Firestore document ids (saveTrades does .doc(String(trade.id))),
+    // so two trades created in the same millisecond used to silently OVERWRITE each other.
+    // Timestamp keeps ids roughly sortable, the random suffix makes a collision effectively
+    // impossible. Same format as newId() in public/js/riskStoreLegacy.js.
+    function newTradeId() {
+      return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    }
     
     console.log('📦 Loading trades from Firebase...');
     
@@ -1044,10 +1052,20 @@
       // If there's a pending trade, automatically add it (whether autoTrack=true or not)
       if (pendingTradeData) {
           try {
+            // Claim the payload BEFORE the slow save below. A second tracker tab (or a second
+            // tap) that starts while we are still writing to Firebase would otherwise read the
+            // same payload and track the one real execution twice.
+            localStorage.removeItem('pendingTradeToTrack');
+            localStorage.removeItem('pendingSignal'); // Clear signal snapshot too
+
             const tradeToAdd = JSON.parse(pendingTradeData);
             console.log('🎯 Auto-tracking trade from homepage:', tradeToAdd);
             console.log('🔍 Current trades array length before add:', trades.length);
-            
+
+            // Same id normalisation as loadTrades() — see newTradeId(). The sender always
+            // supplies an id; mint one if it ever does not, so it never lands as "undefined".
+            tradeToAdd.id = String(tradeToAdd.id || newTradeId());
+
             // Ensure new fields exist for backward compatibility
             if (!tradeToAdd.signalSnapshot) {
               // Try to reconstruct from available data
@@ -1091,31 +1109,43 @@
               tradeToAdd.playbook = `${tradeToAdd.strategy} ${tradeToAdd.direction}`;
             }
             
-            // Add to trades array
-            trades.push(tradeToAdd);
-            console.log('🔍 Current trades array length after add:', trades.length);
-            console.log('🔍 All trades:', trades);
-            
-            // Save to Firebase
-            await saveTrades();
-            console.log('💾 Trade saved to Firebase');
-            
-            // Clear the pending trade and signal snapshot (prevent modal from opening)
-            localStorage.removeItem('pendingTradeToTrack');
-            localStorage.removeItem('pendingSignal'); // Clear signal snapshot too
-            
-            // Remove autoTrack param from URL (clean URL)
-            window.history.replaceState({}, document.title, window.location.pathname);
-            
-            console.log('✅ Trade auto-tracked successfully!');
-            
-            // IMPORTANT: Re-render trades immediately so the new trade appears
-            console.log('🔄 Re-rendering trades to show new trade...');
-            await renderTrades();
-            console.log('✅ Trades re-rendered with new trade');
-            
-            // Show success notification
-            alert(`✅ Trade tracked successfully!\n\n${tradeToAdd.symbol} ${tradeToAdd.direction} @ $${tradeToAdd.entry.toLocaleString()}\n\nTransaction: ${tradeToAdd.executionData?.signature?.substring(0, 16) || 'N/A'}...`);
+            // One on-chain execution must never become two tracked trades. The same payload can
+            // arrive twice (two taps, or a second tracker tab). Match on the trade id, and also
+            // on recommendation.recommendationId when it is present — older records predate that
+            // block, so read it defensively.
+            const recommendationId = tradeToAdd.recommendation?.recommendationId;
+            const alreadyTracked = trades.some(t =>
+              t.id === tradeToAdd.id ||
+              (!!recommendationId && t.recommendation?.recommendationId === recommendationId)
+            );
+
+            if (alreadyTracked) {
+              console.warn('⚠️ Duplicate pending trade ignored:', tradeToAdd.id, recommendationId);
+              // Remove autoTrack param from URL (clean URL)
+              window.history.replaceState({}, document.title, window.location.pathname);
+            } else {
+              // Add to trades array
+              trades.push(tradeToAdd);
+              console.log('🔍 Current trades array length after add:', trades.length);
+              console.log('🔍 All trades:', trades);
+
+              // Save to Firebase
+              await saveTrades();
+              console.log('💾 Trade saved to Firebase');
+
+              // Remove autoTrack param from URL (clean URL)
+              window.history.replaceState({}, document.title, window.location.pathname);
+
+              console.log('✅ Trade auto-tracked successfully!');
+
+              // IMPORTANT: Re-render trades immediately so the new trade appears
+              console.log('🔄 Re-rendering trades to show new trade...');
+              await renderTrades();
+              console.log('✅ Trades re-rendered with new trade');
+
+              // Show success notification
+              alert(`✅ Trade tracked successfully!\n\n${tradeToAdd.symbol} ${tradeToAdd.direction} @ $${tradeToAdd.entry.toLocaleString()}\n\nTransaction: ${tradeToAdd.executionData?.signature?.substring(0, 16) || 'N/A'}...`);
+            }
           } catch (error) {
             console.error('❌ Error auto-tracking trade:', error);
             console.error('Stack trace:', error.stack);
@@ -1260,7 +1290,7 @@
       };
       
       const trade = {
-        id: Date.now(),
+        id: newTradeId(),
         symbol: symbol,
         direction: direction,
         entry: entry,
@@ -1353,9 +1383,16 @@
             const tradeData = doc.data();
             console.log('  📄 Doc ID:', doc.id, '| Data:', tradeData);
             
+            // Ids are now strings ("<timestamp>-<random>"), but older records stored a plain
+            // number. Normalise on the way in so every id === id comparison on this page works
+            // against the string the rendered buttons hand back. saveTrades() uses the id as the
+            // document id, so doc.id is the right value when the field itself is missing.
+            tradeData.id = String(tradeData.id ?? doc.id);
+
             // Backward compatibility: add trackedAt if missing
             if (!tradeData.trackedAt) {
-              tradeData.trackedAt = tradeData.id || Date.now();
+              // Legacy ids were a millisecond timestamp; new ids are not, hence the Number() guard.
+              tradeData.trackedAt = Number(tradeData.id) || Date.now();
             }
             
             // Backward compatibility: add signalSnapshot if missing
@@ -1405,8 +1442,9 @@
             trades.push(tradeData);
           });
           
-          // Sort by ID (timestamp-based) descending
-          trades.sort((a, b) => b.id - a.id);
+          // Sort by ID (timestamp-prefixed string) descending — both old numeric ids and new
+          // ids start with a 13-digit millisecond timestamp, so text order is time order.
+          trades.sort((a, b) => String(b.id).localeCompare(String(a.id)));
           
           console.log('📦 LOADED', trades.length, 'trades from Firebase');
           console.log('📋 Trade IDs:', trades.map(t => t.id));
@@ -1419,6 +1457,7 @@
           console.error('❌ Stack trace:', error.stack);
           // Fallback to localStorage
           trades = JSON.parse(localStorage.getItem('trackedTrades') || '[]');
+          trades.forEach(t => { if (t.id) t.id = String(t.id); }); // same id normalisation as the Firebase path
           console.log('📦 FALLBACK: Loaded', trades.length, 'trades from localStorage');
           return trades;
         }
@@ -1428,6 +1467,7 @@
         const storedTrades = localStorage.getItem('trackedTrades');
         console.log('🔍 localStorage "trackedTrades":', storedTrades);
         trades = JSON.parse(storedTrades || '[]');
+        trades.forEach(t => { if (t.id) t.id = String(t.id); }); // same id normalisation as the Firebase path
         console.log('📦 Loaded', trades.length, 'trades from localStorage');
         console.log('📋 Full trades array:', trades);
         return trades;
@@ -1894,7 +1934,7 @@
         
         <td class="px-2 details-button-cell" data-label="Details:" style="padding-top: 1.65rem; padding-bottom: 1.65rem; width: 120px; min-width: 120px; max-width: 120px; white-space: nowrap;">
           <button 
-            onclick="toggleTradeDetails(${trade.id})"
+            onclick="toggleTradeDetails('${trade.id}')"
             class="px-3 py-1 text-xs font-mathias font-bold"
             style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; min-width: 80px; padding: 0.5rem 1rem;"
           >
@@ -2104,7 +2144,7 @@
                   No review generated yet. Click "Generate Review" to get AI-powered feedback on this trade.
                 </p>
                 <button 
-                  onclick="generateTradeReview(${trade.id})"
+                  onclick="generateTradeReview('${trade.id}')"
                   class="px-3 py-1 text-xs font-mathias font-bold"
                   style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; padding: 0.5rem 1rem;"
                 >
@@ -2128,7 +2168,7 @@
                 `}
               </div>
               <button 
-                onclick="analyzeTrade(${trade.id})"
+                onclick="analyzeTrade('${trade.id}')"
                 id="analyzeBtn-${trade.id}"
                 class="px-3 py-1 text-xs font-mathias font-bold"
                 style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; padding: 0.5rem 1rem; margin-top: 1rem;"
@@ -2165,22 +2205,31 @@
               <!-- Sell Section -->
               <div style="margin-bottom: 1.5rem;">
                 <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">Sell Position</div>
+                ${trade.direction === 'LONG' ? `
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem;">
-                  <input type="number" id="sellAmount-${trade.id}" placeholder="Amount (USD)" min="0.25" step="0.05" 
+                  <input type="number" id="sellAmount-${trade.id}" placeholder="Amount (USD)" min="0.25" step="0.05"
                     style="flex: 1; min-width: 150px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;">
-                  <button onclick="setSellAmount(${trade.id}, 'max')" 
+                  <button onclick="setSellAmount('${trade.id}', 'max')"
                     style="padding: 0.5rem 1rem; background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: var(--radius-sm); color: #ef4444; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
                     MAX
                   </button>
-                  <button onclick="setSellAmount(${trade.id}, '50')" 
+                  <button onclick="setSellAmount('${trade.id}', '50')"
                     style="padding: 0.5rem 1rem; background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: var(--radius-sm); color: #ef4444; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
                     50%
                   </button>
                 </div>
-                <button onclick="executeSell(${trade.id})" 
+                <button onclick="executeSell('${trade.id}')"
                   style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); border: none; border-radius: var(--radius-md); color: white; font-size: 0.875rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; font-family: var(--font-mathias);">
                   💰 SELL
                 </button>
+                ` : `
+                <div style="padding: 0.75rem; background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.8125rem; line-height: 1.5;">
+                  Selling is disabled for ${trade.direction} positions. This desk executes spot swaps
+                  only, so there is no borrowed ${trade.symbol.replace('USDT', '')} to buy back — a
+                  "sell" here would buy more of the asset. Close it on the exchange and update this
+                  trade by hand.
+                </div>
+                `}
               </div>
               
               <!-- Add to Position Section -->
@@ -2189,16 +2238,16 @@
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.75rem;">
                   <input type="number" id="addAmount-${trade.id}" placeholder="Amount (USD)" min="0.25" step="0.05" 
                     style="flex: 1; min-width: 150px; padding: 0.5rem; background-color: rgba(0, 0, 0, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: var(--radius-sm); color: var(--color-yellow-75); font-size: 0.875rem;">
-                  <button onclick="setAddAmount(${trade.id}, 'max')" 
+                  <button onclick="setAddAmount('${trade.id}', 'max')" 
                     style="padding: 0.5rem 1rem; background-color: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; border-radius: var(--radius-sm); color: #22c55e; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
                     MAX
                   </button>
-                  <button onclick="setAddAmount(${trade.id}, '50')" 
+                  <button onclick="setAddAmount('${trade.id}', '50')" 
                     style="padding: 0.5rem 1rem; background-color: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; border-radius: var(--radius-sm); color: #22c55e; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
                     50%
                   </button>
                 </div>
-                <button onclick="executeAddToTrade(${trade.id})" 
+                <button onclick="executeAddToTrade('${trade.id}')" 
                   style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border: none; border-radius: var(--radius-md); color: white; font-size: 0.875rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; font-family: var(--font-mathias);">
                   ➕ ADD TO TRADE
                 </button>
@@ -2208,14 +2257,14 @@
             
             <div style="text-align: center; padding: 1rem; display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
               <button 
-                onclick="toggleTradeDetails(${trade.id})"
+                onclick="toggleTradeDetails('${trade.id}')"
                 class="px-3 py-1 text-xs font-mathias font-bold"
                 style="background-color: var(--color-yellow-75); color: black; border: 2px solid var(--color-yellow-75); border-radius: var(--radius-md); transition: all 0.3s; min-width: 80px; padding: 0.5rem 1rem;"
               >
                 HIDE
               </button>
               <button 
-                onclick="deleteTrade(${trade.id})"
+                onclick="deleteTrade('${trade.id}')"
                 class="px-3 py-1 text-xs font-mathias font-bold"
                 style="background-color: #ef4444; color: #ffffff; border: 2px solid #ef4444; border-radius: var(--radius-md); transition: all 0.3s; padding: 0.5rem 1rem;"
               >
@@ -2638,8 +2687,10 @@
       
       // Sort each group by most recent first (trackedAt descending, or id descending as fallback)
       const sortByRecent = (a, b) => {
-        const timeA = a.trackedAt || a.id || 0;
-        const timeB = b.trackedAt || b.id || 0;
+        // Number() because ids are strings now — an unnumbered value here would make the
+        // comparator return NaN and leave the list in an arbitrary order.
+        const timeA = Number(a.trackedAt || a.id) || 0;
+        const timeB = Number(b.trackedAt || b.id) || 0;
         return timeB - timeA; // Descending (newest first)
       };
       
@@ -2741,7 +2792,7 @@
         const coinName = coinNames[trade.symbol] || trade.symbol.replace('USDT', '');
         
         html += `
-          <tr id="closed-trade-row-${trade.id}" style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer;" onclick="toggleClosedTradeDetails(${trade.id})">
+          <tr id="closed-trade-row-${trade.id}" style="border-bottom: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer;" onclick="toggleClosedTradeDetails('${trade.id}')">
             <td style="padding: 0.75rem; color: var(--color-yellow-75); font-weight: bold;">${coinName}</td>
             <td style="padding: 0.75rem; color: ${directionColor}; font-weight: bold;">${trade.direction}</td>
             <td style="padding: 0.75rem; color: var(--color-yellow-75);">$${trade.entry.toLocaleString()}</td>
@@ -2751,7 +2802,7 @@
             </td>
             <td style="padding: 0.75rem; color: ${outcomeColor}; font-weight: bold;">${trade.outcome || 'CLOSED'}</td>
             <td style="padding: 0.75rem;">
-              <button onclick="event.stopPropagation(); toggleClosedTradeDetails(${trade.id})" 
+              <button onclick="event.stopPropagation(); toggleClosedTradeDetails('${trade.id}')" 
                 style="background-color: var(--color-yellow-75); color: black; border: none; border-radius: var(--radius-sm); padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: bold; cursor: pointer; font-family: var(--font-mathias);">
                 ${expandedTradeIds.has(trade.id) ? 'HIDE' : 'SHOW'}
               </button>
@@ -3372,7 +3423,19 @@
         alert('Trade not found or not an executed trade');
         return;
       }
-      
+
+      // The desk only executes spot swaps (services/tradeExecution.js): 'long' spends USDC to
+      // BUY the base token, 'short' sells the base token for USDC. Nothing is borrowed, so a
+      // tracked SHORT holds no base token that selling could reduce — it already sold. Sending
+      // 'long' to reduce a short would BUY more of the asset while this page subtracted from the
+      // recorded size, so the record would shrink while the wallet grew. There is no safe way to
+      // express "reduce a short" in this execution model, so refuse rather than do the opposite
+      // of what the button says. Remove this guard only when a real short/perp path exists.
+      if (trade.direction !== 'LONG') {
+        alert(`Selling is only available for LONG positions.\n\nThis desk executes spot swaps only — there is no borrowed ${trade.symbol.replace('USDT', '')} to buy back, so a ${trade.direction} position cannot be reduced here. Close it manually on the exchange and update this trade by hand.`);
+        return;
+      }
+
       const input = document.getElementById(`sellAmount-${tradeId}`);
       if (!input) return;
       
@@ -3409,10 +3472,12 @@
         
         const sellSignal = {
           valid: true,
-          direction: trade.direction === 'LONG' ? 'short' : 'long',
+          // Always 'short': in the spot model that means inputMint = base token, outputMint =
+          // USDC, i.e. sell what we hold. Only LONG positions reach this line (guard above).
+          direction: 'short',
           entryZone: sellEntryZone,
-          stopLoss: currentPrice * (trade.direction === 'LONG' ? 1.1 : 0.9), // Dummy value for validation
-          targets: [currentPrice * (trade.direction === 'LONG' ? 0.95 : 1.05)], // Dummy value for validation
+          stopLoss: currentPrice * 1.1, // Dummy value for validation
+          targets: [currentPrice * 0.95], // Dummy value for validation
           symbol: trade.symbol,
           strategyName: 'SELL',
           confidence: 100,
@@ -3498,6 +3563,21 @@
       const trade = trades.find(t => t.id === tradeId);
       if (!trade || !trade.executedTrade) {
         alert('Trade not found or not an executed trade');
+        return;
+      }
+
+      // Same restriction as selling, and for the same reason: this desk
+      // executes SPOT swaps only. On a SHORT the swap direction happens to be
+      // right (sell more base), but the bookkeeping below is not — it treats
+      // the swap's USDC output as though it were base tokens, so the recorded
+      // position drifts from the wallet on every add. Blocking is honest;
+      // silently corrupting the record is not.
+      if (trade.direction !== 'LONG') {
+        alert(
+          'Adding is only supported on LONG positions.\n\n' +
+          'This desk executes spot swaps, and position accounting for a short ' +
+          'is not modelled here. Add on the exchange and update this record by hand.'
+        );
         return;
       }
       
@@ -3639,8 +3719,9 @@
         let uploadedImageUrl = null;
         if (storage) {
           try {
-            const timestamp = Date.now();
-            const fileName = `trade_images/${timestamp}_${file.name}`;
+            // Same collision problem as trade ids: two uploads in one millisecond would
+            // overwrite each other in Storage, so use the random-suffixed id here too.
+            const fileName = `trade_images/${newTradeId()}_${file.name}`;
             const storageRef = storage.ref(fileName);
             
             console.log('📤 Uploading image to Firebase Storage...');

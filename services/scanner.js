@@ -14,7 +14,19 @@ import * as strategyService from './strategy.js';
  * @param {Array<string>} intervals - Timeframes to analyze
  * @returns {Promise<Object>} Trade signal or null if no valid setup
  */
-async function scanSymbol(symbol, intervals = ['4h', '1h', '15m', '5m']) {
+// The macro timeframes are NOT optional.
+//
+// Confidence weights the macro layer at 40%, and a layer with no data forfeits
+// its weight rather than scoring as if it agreed. Scanning on 4h/1h/15m/5m
+// alone therefore caps a STANDARD signal at 60% of its table value — below
+// every strategy's own admission gate — so the scan returns nothing at all.
+// Verified: 0 valid signals without 1d/3d, 3 with them.
+//
+// 3d is aggregated from the same daily series (see services/marketData.js), so
+// the pair costs one extra provider round trip rather than two.
+const DEFAULT_SCAN_INTERVALS = ['3d', '1d', '4h', '1h', '15m', '5m'];
+
+async function scanSymbol(symbol, intervals = DEFAULT_SCAN_INTERVALS) {
   try {
     console.log(`🔍 Scanning ${symbol}...`);
     
@@ -113,16 +125,19 @@ async function scanSymbol(symbol, intervals = ['4h', '1h', '15m', '5m']) {
  */
 export async function scanAllCoins(options = {}) {
   const {
-    minConfidence = 0.5,  // Minimum confidence score (0-1)
+    // Confidence is on a 0-100 scale everywhere in the engine. This default
+    // was 0.5 and was compared directly against it, so the filter never
+    // rejected a single signal — it read as a safety control and was inert.
+    minConfidence = 50,   // Minimum confidence score (0-100)
     maxResults = 50,      // Maximum results to return
-    intervals = ['4h', '1h', '15m', '5m'],
+    intervals = DEFAULT_SCAN_INTERVALS,
     useAllKrakenPairs = false  // If true, scan ALL Kraken pairs dynamically
   } = options;
   
   console.log('\n' + '='.repeat(60));
   console.log('🔍 MARKET SCANNER STARTING');
   console.log('='.repeat(60));
-  console.log(`   Min Confidence: ${(minConfidence * 100).toFixed(0)}%`);
+  console.log(`   Min Confidence: ${minConfidence}%`);
   console.log(`   Max Results: ${maxResults}`);
   console.log(`   Intervals: ${intervals.join(', ')}`);
   console.log('='.repeat(60) + '\n');
