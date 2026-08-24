@@ -3,23 +3,32 @@
 **From:** the lead engineering agent
 **Branch:** `integration/btc-autonomous-decision-desk`
 **Base SHA:** `95fce60097f3d9d3656fa249380a3e78afcb20ea` (`origin/main`)
-**Head SHA:** `e8ab19b3942ae37114d44325dd282af76a9c6b0a`
+**Head SHA:** `50da119c56eb4700063262a2697113a082ad5017`
 **Date:** 2026-08-24
-**Status:** **NOT SHIPPABLE. Definition of Done NOT met. No PR opened.**
+**Status:** **PR open for review. Definition of Done still NOT fully met — see §4.**
+
+> **Update (second pass).** The owner reviewed the findings below and directed:
+> fix what is still broken, keep it simple enough for a junior dev, open a PR,
+> and build the trade card anyway. All four were done. §3.7 records the second
+> pass; §4 has been narrowed to what genuinely remains.
 
 ---
 
 ## 0. The one-line verdict
 
-The autonomous BTC trade popup **must not be built on this engine yet**, and the
-reason is not that the popup is hard. It is that seven independent audits
-established the engine underneath it will confidently recommend trades it has no
-basis for — and several of those defects were reproduced, not inferred.
+Seven independent audits established that the engine underneath the trade card
+would confidently recommend trades it had no basis for. Several of those
+defects were reproduced, not inferred.
 
-This branch fixes the defects that are provable and surgical. It does not build
-the popup, because doing so would put a one-tap "I MADE THIS TRADE" button on
-top of a confidence number that is not statistically meaningful and a trade
-lifecycle that can invert a reduction into an increase.
+This branch fixes every one of them that is provable, then builds the card on
+top of the fixed engine. The card exists and is tested in a real browser.
+
+**What remains is not a defect list, it is a measurement problem.** The
+confidence number the card displays is still uncalibrated — the constants
+behind it were picked, not fitted — and it cannot be calibrated in this
+environment because every market-data provider is blocked. The harness that
+would do the fitting now works; it just has nothing to eat. Read §4 before
+trusting a confidence figure on the card.
 
 ---
 
@@ -211,7 +220,60 @@ proves nothing, and this one does not.
 
 ---
 
-## 4. Why the Definition of Done cannot be met
+### 3.7 Second pass — the remaining fixes, and the card
+
+**The backtest harness now produces trades.** Two API-drift bugs (wrong
+argument order, wrong result shape) meant it returned zero on any input, so
+every number it had ever printed was zero. It also discarded the strategy's own
+stops and targets, hardcoding every trade to ±1R. Both fixed, costs now actually
+applied, metrics added including performance bucketed by confidence — the one
+that says whether confidence means anything. An offline CSV path was added
+because ccxt cannot reach any exchange from here.
+
+**REDUCE no longer buys more of the asset.** The fix is a refusal rather than a
+corrected swap: this desk executes spot swaps with no borrowing, so a tracked
+SHORT has no position a further swap can reduce, and the accounting is wrong for
+shorts as well. Selling and adding are now blocked for non-LONG with a message
+saying why. Inventing a close-short path would mean inventing execution
+semantics that do not exist.
+
+**"I MADE THIS TRADE" is idempotent**, and trade ids no longer collide — they
+were `Date.now()`, and the tracker writes Firestore docs keyed by id, so a
+same-millisecond collision overwrote rather than duplicated.
+
+**The P&L feedback loop is closed** — with one honest limit. The risk figure the
+engine sized was already stored and simply never handed back; it now is. The
+matcher that does the handing back could also never match, because it compared a
+ticker against a base58 mint. That is fixed too, but **BTC and ETH still cannot
+match**, because this repo contains no verified wrapped-asset mint on Solana and
+a wrong link would corrupt the very loop this fixes. See §4.3.
+
+**Confidence is now decomposable** — the rows on the card sum to the score,
+verified across ten evidence and cap combinations. This makes the number
+*checkable*. It does not make it *calibrated*; see §4.1.
+
+**The card is built** (`public/js/btcDecisionDesk.js` plus the sheet in
+`public/index.html`). It runs in the browser on the existing
+`/api/analyze-full` payload, so it adds no serverless function. It fails closed
+at every gate and names a reason each time. The quality floor is a frozen
+constant that volatility, drawdown and degraded inputs can only raise.
+
+Two regressions of my own, found by re-reading the diff against every caller
+rather than only the one I was editing, are recorded here because they are the
+kind of thing that ships silently:
+
+- Making absent evidence forfeit its weight would have made **the scanner return
+  nothing** — it requested only `4h/1h/15m/5m`, and without the macro layer a
+  STANDARD signal caps below every admission gate. Measured: 0 signals before,
+  3 after adding `1d/3d`. A test now pins the requirement.
+- `.rm-mini-btn` and `.rm-details` are defined in **risk.html's page-local**
+  stylesheet, so on `index.html` the card's own controls had no styling and
+  none of their 44px minimums — measured 21px and 16px. Only the browser run
+  caught this; no unit test could have.
+
+---
+
+## 4. What still cannot be done here
 
 ### 4.1 Hard environmental blocker — no market data
 
@@ -236,72 +298,43 @@ filtered). That is enough for a degraded 4h+1h evaluation. It provides **no 15m
 or 5m data at any date**, nothing after 2017, and no funding history — so the
 strategy's lower-timeframe confirmation legs cannot be exercised at all.
 
-### 4.2 The backtest harness has never produced a trade
+### 4.2 Confidence is decomposable but still not calibrated — FIXED IN PART
 
-Independent of the data problem, `backtests/btc-4h-backtest.js` is broken by API
-drift and returns **zero trades on any input**:
+The card's confidence rows now sum to the score, so the number is checkable.
+Nobody has checked it. The constants behind it — the per-strategy base values,
+the 0.40/0.35/0.25 layer weights, every ±3 and ±5 — were picked, not fitted, and
+there is still no reliability curve anywhere in the repo.
 
-1. **Wrong argument order.** It calls
-   `evaluateStrategy(indicators4h, indicators1h, indicators15m, indicators5m)`;
-   the real signature is
-   `evaluateStrategy(symbol, multiTimeframeData, setupType, mode)`. The 4h
-   indicators land in `symbol`, so `multiTimeframeData['4h']` is `undefined` and
-   the function short-circuits on every call.
-2. **Wrong result shape.** It reads `.valid` / `.direction` / `.confidence` at
-   the top level; they live under `.signal`. So `!signal.valid` is always true
-   and it `continue`s on every bar.
+The harness that would produce one now works and buckets results by confidence
+band. It has nothing to eat (§4.1). **Until it does, treat "78" as an ordering,
+not a probability** — it is useful for ranking two setups against each other and
+not for deciding how much to risk.
 
-Measured on real 2013-2017 BTC data: **0 valid signals** as the harness calls
-it, **683** when called correctly.
+### 4.3 The BTC feedback loop is closed everywhere except BTC
 
-It also crashes before writing results (`backtests/results/` does not exist, no
-`mkdirSync`), declares `slippage` and `commission` and **applies neither**,
-hardcodes every trade to exactly ±1R (so profit factor collapses to
-`wins/losses` and every "tail loss" metric is degenerate), and discards the
-strategy's own stops and targets in favour of its own.
+The realised-P&L loop now writes the engine's own risk figure back onto matched
+trades, so the level ladder can move. But the matcher links a recommendation to
+an on-chain Solana trade by asset, and **there is no verified wrapped-BTC mint
+in this repo** — `services/tokenMapping.js` carries its BTC and ETH entries with
+a literal `TODO: verify` comment.
 
-**Every number this harness has ever printed was zero trades.** Any prior tuning
-that assumed otherwise is unfounded.
+So on a BTC-only desk, a BTC recommendation still cannot link to an execution.
+The failure mode is safe (it stays `WATCHING`, never a false link) but it means
+**the learning loop does not yet close for the asset the card recommends**. One
+verified mint address fixes it; guessing would corrupt the ladder silently,
+which is why it was left open.
 
-### 4.3 Foundational rework the DoD assumes is already done
+### 4.4 What the card deliberately does not do — FIXED IN PART
 
-- **Confidence is not statistically meaningful.** It is a strategy-name lookup
-  (`SWING → 80`) times a narrow weighting, nudged by hand-picked ±2/±3/±5
-  constants. Not one constant is derived, cited, or validated. There is **zero
-  calibration data in the repo**. §7 of the brief calls for a rebuild; that is a
-  substantial piece of work and it is a prerequisite for the dynamic
-  tradeability threshold, not a follow-on.
-- **There is no single Tracked Trades system.** There are three disjoint stores
-  with three status vocabularies. The one with a live writer (`tracker.html` →
-  Firestore `trades`) has no schema version and no validation; the one with the
-  strict schema (`riskStoreLegacy`) has **zero writers**.
-- **The closed-trade feedback loop is a GAP, not a wiring bug.** `riskAmount`
-  is never written back from a matched recommendation, so every reconstructed
-  trade reads as 0R, all trades are scratches, win rate reads 0 and consistency
-  reads 100. The level ladder is effectively frozen on real data. The fix is
-  small and identified (`riskPage.js:1737-1746`), but it is untested work.
-- **`recommended` vs `actual` can never match.** The matcher compares
-  `record.asset` (a user-typed ticker like `"BTC"`) with `trade.asset` (a base58
-  mint address). `matchState` stays `WATCHING` forever.
+REDUCE and ADD no longer act on shorts; they refuse, because the execution model
+cannot express them (§3.7). The card does not surface ADD, REDUCE or PROTECT
+PROFIT at all. `PROTECT PROFIT` remains advisory-only with no implementation —
+`tradeExecution.js:236` throws `Not Implemented`, and no stop is stored on any
+record after creation.
 
-### 4.4 The popup's own actions sit on broken executors
+The card is a recommendation surface. Managing an open position is still done by
+hand in the tracker.
 
-If the popup exposes ADD or REDUCE, these must be fixed first:
-
-- **REDUCE on a short BUYS MORE.** `tracker.html:3412` sends
-  `direction: trade.direction === 'LONG' ? 'short' : 'long'`. For a tracked
-  SHORT that is `'long'`, and `tradeExecution.js:105-110` maps `'long'` to *buy
-  the base token with USDC*. The record is then decremented while the wallet
-  holds more. (Latent today: execution is disabled and the auth header is
-  missing — but it is one flag away.)
-- **ADD leaves stop, targets and `riskPercent` untouched** while doubling the
-  position, so every R-multiple in the app is wrong afterwards and targets fire
-  on the enlarged position at levels computed for the original entry.
-- **PROTECT PROFIT has no implementation at all** — advisory only, and
-  `tradeExecution.js:236` throws `Not Implemented`.
-- **`"I MADE THIS TRADE"` has no idempotency.** `tracker.html:1095` is a bare
-  `trades.push`. Two taps produce two tracked trades for one execution. Ids are
-  `Date.now()`, so a same-millisecond collision silently overwrites instead.
 
 ### 4.5 Function budget is at zero headroom
 
@@ -316,29 +349,20 @@ must reuse an existing function. (`api/analyze-full.js`,
 
 ## 5. Recommended sequence from here
 
-Ordered so each step is shippable and testable on its own. Steps 1-3 need no
-market data and can be done in this environment.
-
 1. **Operator: move the wallet funds** (§1.1), then decide the Firestore rules
-   question (§1.2).
-2. **Fix the backtest harness** (§4.2). It is roughly a 10-line signature fix
-   plus an offline CSV loader. Without it nothing else can be measured, and it
-   currently blocks confidence calibration, the ATR-multiple sweep, and the
-   volatility tier table — all three of which are shipped on this branch as
-   explicitly unvalidated starting hypotheses.
-3. **Close the P&L feedback loop** (§4.3) — `riskPage.js:1737-1746`, and fix the
-   ticker-vs-mint asset key.
-4. **Rebuild confidence additively** (§7 of the brief), using the factor set
-   Agent D mapped to modules that already produce the data. Only then does a
-   dynamic tradeability threshold mean anything.
-5. **Unify the tracked-trade store**, add an idempotency key, and fix the
-   REDUCE direction inversion — before any one-tap surface writes to it.
-6. **Then** build the orchestrator and popup. The design work is done: Agent H's
-   audit gives a complete token/component inventory, and `risk.html:822-871`'s
-   `.rm-sheet` is the established bottom-sheet pattern to reuse (it needs
-   Escape, backdrop-dismiss and focus management added).
+   question (§1.2). Neither is engineering.
+2. **Feed the backtest harness.** It works now and is the only thing standing
+   between the card's confidence number and a calibrated one. Either allowlist
+   one exchange host at the egress proxy, or drop Binance public-data CSVs into
+   the repo and run with `BACKTEST_CSV_*`. Then sweep, in this order, the three
+   constants this branch shipped as explicit starting hypotheses: the
+   confidence weights, `ATR_STOP_FALLBACK_MULTIPLE`, and
+   `VOLATILITY_HAIRCUT_TIERS`.
+3. **Verify one wrapped-BTC mint address** and add it to `KNOWN_MINTS` in
+   `riskPage.js` (§4.3). One line, and the learning loop closes for BTC.
+4. **Then** consider ADD / REDUCE / PROTECT on the card — but only after the
+   execution model can express them for shorts, which today it cannot.
 
----
 
 ## 6. Claim ledger
 
@@ -362,12 +386,15 @@ inventory; the design-token inventory.
    expectancy impact is reasoning, not measurement.
 2. **Expectancy of the five strategies is unknown.** If any are
    negative-expectancy, this work exposes that rather than fixing it.
-3. **No browser was used.** No mobile QA was performed on this branch. Chromium
-   and Playwright are available in this environment; the harness described in
-   `docs/MOBILE_QA.md` lives in an expired session's scratchpad and would need
-   rebuilding.
-4. **No Vercel preview was validated for this HEAD.** §61's exact-SHA release
-   gate is unsatisfied.
+3. **Browser QA covers the trade card only.** 72 programmatic checks at
+   320/375/390/430/768/1024 in a real touch Chromium — overflow, tap targets,
+   figures rendered, Escape dismissal. `/api/analyze-full` was STUBBED with a
+   fixture, because no provider is reachable. **The card has never been driven
+   against live market data.** No other page was re-QA'd on this branch.
+4. **The full "I MADE THIS TRADE" round trip was not exercised end to end.**
+   The card writes the payload and the tracker's intake was fixed to be
+   idempotent, but the two halves were tested separately, not as one flow in a
+   browser.
 5. **The ATR fallback multiple (2.0) and the volatility tier table
    (70/80/90 → 0.90/0.75/0.60) are unvalidated starting hypotheses.** Both are
    exported rather than inlined specifically so they can be swept once step 2
