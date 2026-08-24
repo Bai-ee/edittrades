@@ -1746,7 +1746,48 @@ export function evaluateNoTradeConstraints({
   const blockers = [];
   const resolvedLevel = clampLevel(level);
   const equity = isPositiveNumber(adjustedEquity) ? adjustedEquity : 0;
-  const open = openRiskState || { consumedRiskPct: 0, count: 0, notionalExposurePct: 0, marginUtilizationPct: 0 };
+
+  /* ---- Missing state is a BLOCK, not a permission -------------------
+   *
+   * This function's contract is that it runs last and overrules everything
+   * above it. A last-resort gate must therefore fail CLOSED.
+   *
+   * It used to substitute `{consumedRiskPct: 0, count: 0, ...}` for an absent
+   * openRiskState — an empty, safe-looking book — and every envelope-dependent
+   * blocker was additionally guarded by `if (envelope && ...)`, so a null
+   * envelope silently disabled five of the seven blockers. Calling it with no
+   * state at all returned `{allowed: true, blockers: []}`: an unconditional
+   * permission produced by the absence of any evidence.
+   *
+   * Non-finite fields are rejected for the same reason. Every threshold test
+   * here is of the form `value >= limit`, and `NaN >= limit` is false, so a
+   * corrupt book passed all of them silently.
+   */
+  const openFieldsValid =
+    openRiskState &&
+    ['consumedRiskPct', 'count', 'notionalExposurePct', 'marginUtilizationPct']
+      .every((k) => Number.isFinite(openRiskState[k]));
+
+  if (!envelope || !openFieldsValid) {
+    const missing = [];
+    if (!envelope) missing.push('risk envelope');
+    if (!openRiskState) missing.push('open risk state');
+    else if (!openFieldsValid) missing.push('open risk state (non-numeric fields)');
+
+    blockers.push(
+      blocker(
+        'INCOMPLETE_STATE',
+        'Account state is incomplete',
+        missing.join(', '),
+        'complete, numeric state',
+        'Reload the Risk Manager so the wallet, open positions and level are all read before sizing a position.'
+      )
+    );
+
+    return { allowed: false, blockers, level: resolvedLevel };
+  }
+
+  const open = openRiskState;
   const dd = drawdown && Number.isFinite(drawdown.currentDrawdownPct) ? drawdown.currentDrawdownPct : 0;
 
   if (equity <= 0) {
@@ -2172,7 +2213,44 @@ export function recommendTrade({ account = {}, request = {} } = {}) {
     if (isPositiveNumber(request.override && request.override.leverage)) {
       // Simulation: the caller pins leverage. Notional is NOT adjusted for it,
       // which is what keeps max loss strictly leverage-independent.
-      leverage = request.override.leverage;
+      //
+      // The pin is still CLAMPED to the level's leverage cap. Without the
+      // clamp this branch was a hole straight through the structural caps:
+      // the only downstream leverage check is guarded by
+      // `margin > marginBudget`, and raising leverage SHRINKS margin, so a
+      // high enough pin skipped the check entirely. An override of 50 against
+      // a cap of 3 returned decision TRADE with an empty blockers array, an
+      // empty warnings array, and no factor — indistinguishable in the output
+      // from a genuine 50x recommendation, with a liquidation estimate
+      // computed at 50x to match.
+      //
+      // Leverage is the one input where a caller's request must never widen a
+      // structural limit: it does not change max loss at the stop, but it does
+      // change how close an ordinary wick sits to liquidation.
+      const requestedLeverage = request.override.leverage;
+      leverage = Math.min(requestedLeverage, envelope.maxLeverage);
+
+      if (requestedLeverage > envelope.maxLeverage) {
+        pushFactor(
+          factors,
+          'LEVERAGE_CAP',
+          'Requested leverage exceeded the level cap',
+          'DOWN',
+          `Requested ${round(requestedLeverage, 2)}x, capped at ${envelope.maxLeverage}x by the level ${level} table. Leverage cannot be raised past the cap by an override.`
+        );
+        warnings.push(
+          `Leverage override of ${round(requestedLeverage, 2)}x was reduced to the ${envelope.maxLeverage}x cap.`
+        );
+      } else {
+        pushFactor(
+          factors,
+          'SIMULATION_OVERRIDE',
+          'Leverage pinned for simulation',
+          'NEUTRAL',
+          `Leverage pinned at ${round(leverage, 2)}x. Max loss at the stop is unchanged by leverage; margin and liquidation distance are not.`
+        );
+        warnings.push('Simulation override active — this is not the engine\'s recommendation.');
+      }
     } else if (marginBudget > 0) {
       const needed = notional / marginBudget;
       leverage = clamp(Math.ceil(Math.max(1, needed) * 100) / 100, 1, envelope.maxLeverage);

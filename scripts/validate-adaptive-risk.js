@@ -1237,6 +1237,120 @@ ok('a winning run never lifts risk above the next level\'s base',
 console.log(`        improving history: ${improvingRisks.map((r) => r.toFixed(2)).join(' -> ')} (levels, not results, widen the envelope)`);
 
 /* ======================================================================
+ * 22. FAIL-CLOSED PROPERTIES
+ *
+ * Every assertion here pins a defect that was live and reproducible, and that
+ * the previous 21 sections could not have caught — because each fixture in
+ * them supplies complete, well-formed state, and the override sweep only ever
+ * requested leverage at or below the cap.
+ *
+ * The shared property: an input the engine cannot trust must REDUCE what is
+ * permitted, never widen it, and absence of evidence must never read as a
+ * passed check.
+ * =================================================================== */
+section('22. Fail-closed: overrides cannot widen structural caps');
+
+{
+  const account = {
+    walletValue: 25000,
+    walletAvailable: true,
+    snapshots: [{ at: '2026-01-01', walletValue: 25000 }],
+    cashFlows: [],
+    trades: [],
+    openPositions: [],
+    now: '2026-01-02'
+  };
+  const baseRequest = {
+    asset: 'BTC', strategy: 'STANDARD', confidence: 50,
+    entry: 72000, stop: 69500, direction: 'long'
+  };
+
+  // A leverage override far above the cap used to return TRADE at 50x with an
+  // empty blockers array and no warning. The only downstream leverage check is
+  // guarded by `margin > marginBudget`, and higher leverage shrinks margin, so
+  // the pin skipped the guard entirely.
+  const abusive = recommendTrade({
+    account,
+    request: { ...baseRequest, override: { leverage: 50 } }
+  });
+
+  ok('leverage override is clamped to the envelope cap',
+    abusive.position.leverage <= abusive.envelope.maxLeverage,
+    `got ${abusive.position.leverage}x against a ${abusive.envelope.maxLeverage}x cap`);
+
+  ok('a clamped leverage override is reported, not silent',
+    abusive.warnings.some((w) => /leverage/i.test(w)) &&
+    abusive.factors.some((f) => f.code === 'LEVERAGE_CAP'),
+    `warnings=${JSON.stringify(abusive.warnings)}`);
+
+  ok('a clamped leverage override never raises max loss above the envelope',
+    abusive.maxLoss.pct <= abusive.envelope.maxRiskPct + 1e-9,
+    `maxLoss ${abusive.maxLoss.pct}% vs cap ${abusive.envelope.maxRiskPct}%`);
+
+  // A pin at or below the cap must still be honoured — the clamp must not
+  // become a blanket refusal of simulation.
+  const legitimate = recommendTrade({
+    account,
+    request: { ...baseRequest, override: { leverage: 2 } }
+  });
+  near('a leverage override within the cap is honoured exactly',
+    legitimate.position.leverage, 2, 1e-9);
+
+  // Leverage must not change what is lost at the stop.
+  const noOverride = recommendTrade({ account, request: baseRequest });
+  near('leverage does not change max loss at the stop',
+    legitimate.maxLoss.amount, noOverride.maxLoss.amount, 0.01);
+}
+
+section('22b. Fail-closed: the last-resort gate refuses on missing state');
+
+{
+  // The gate's contract is that it runs last and overrules everything above.
+  // Called with no state it used to return { allowed: true, blockers: [] } —
+  // an unconditional permission manufactured from the absence of evidence.
+  const empty = evaluateNoTradeConstraints({ adjustedEquity: 25000 });
+  ok('no envelope and no open-risk state blocks',
+    empty.allowed === false && empty.blockers.some((b) => b.code === 'INCOMPLETE_STATE'),
+    JSON.stringify(empty));
+
+  const envelope = calculateStrategyEnvelope({ level: 0, strategy: 'STANDARD' });
+
+  // Every threshold test is `value >= limit`, and NaN >= limit is false, so a
+  // corrupt book silently passed all of them.
+  const corrupt = evaluateNoTradeConstraints({
+    adjustedEquity: 25000,
+    envelope,
+    openRiskState: {
+      consumedRiskPct: NaN, count: NaN,
+      notionalExposurePct: NaN, marginUtilizationPct: NaN
+    }
+  });
+  ok('non-finite open-risk fields block rather than pass every comparison',
+    corrupt.allowed === false && corrupt.blockers.some((b) => b.code === 'INCOMPLETE_STATE'),
+    JSON.stringify(corrupt));
+
+  const missingEnvelope = evaluateNoTradeConstraints({
+    adjustedEquity: 25000,
+    openRiskState: { consumedRiskPct: 0, count: 0, notionalExposurePct: 0, marginUtilizationPct: 0 }
+  });
+  ok('a missing envelope alone blocks',
+    missingEnvelope.allowed === false,
+    JSON.stringify(missingEnvelope));
+
+  // Complete, well-formed, unremarkable state must still be permitted, or the
+  // fix would have turned into a blanket refusal.
+  const healthy = evaluateNoTradeConstraints({
+    adjustedEquity: 25000,
+    envelope,
+    openRiskState: { consumedRiskPct: 0, count: 0, notionalExposurePct: 0, marginUtilizationPct: 0 },
+    level: 0
+  });
+  ok('complete, unremarkable state is still allowed',
+    healthy.allowed === true,
+    JSON.stringify(healthy.blockers));
+}
+
+/* ======================================================================
  * SUMMARY
  * =================================================================== */
 
