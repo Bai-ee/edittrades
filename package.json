@@ -15,6 +15,7 @@
     "validate:all": "node scripts/validate-all.js",
     "validate:macro-core": "node scripts/validate-macro-core.js",
     "validate:adaptive": "node scripts/validate-adaptive-risk.js",
+    "validate:volatility": "node scripts/validate-volatility-regime.js",
     "validate:wallet": "node scripts/validate-wallet-reconstruction.js"
   },
   "keywords": [
