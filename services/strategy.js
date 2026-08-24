@@ -99,7 +99,11 @@ function validateStrategySignal(signal) {
       return false;
     }
     
-    // Stop loss must be logically correct for direction
+    // Stop loss must be logically correct for direction.
+    //
+    // Note this compares against the NEAR edge of the entry zone, so a stop
+    // sitting anywhere inside the published zone is rejected, not merely one
+    // on the wrong side of its midpoint.
     if (signal.direction === 'long' && signal.stopLoss >= signal.entryZone.min) {
       console.error('❌ Invalid signal: long trade stopLoss >= entryZone.min', signal);
       return false;
@@ -108,8 +112,60 @@ function validateStrategySignal(signal) {
       console.error('❌ Invalid signal: short trade stopLoss <= entryZone.max', signal);
       return false;
     }
+
+    /* ---- Geometry invariants -------------------------------------------
+     *
+     * The checks above compare the stop to the entry zone but never look at
+     * the targets, and never establish that R is positive. calculateSLTP
+     * computes `risk = entryPrice - stopLoss` UNSIGNED, so a stop above entry
+     * on a long silently produces a negative R and targets BELOW the entry —
+     * a "long" that profits when price falls, shipped with a riskReward of
+     * 2.0 next to it.
+     *
+     * R === 0 is equally unshippable: a position-sizing engine dividing the
+     * risk budget by a per-unit risk of zero sizes infinitely.
+     */
+    const entryMid = (signal.entryZone.min + signal.entryZone.max) / 2;
+    const R = Math.abs(entryMid - signal.stopLoss);
+
+    if (!(R > 0)) {
+      console.error('❌ Invalid signal: risk per unit is zero — stop equals entry', signal);
+      return false;
+    }
+
+    const targets = signal.targets.filter((t) => t !== null && t !== undefined && !isNaN(t));
+    if (targets.length === 0) {
+      console.error('❌ Invalid signal: no finite targets', signal);
+      return false;
+    }
+
+    // Every target must sit on the profitable side of the entry zone.
+    const wrongSide = signal.direction === 'long'
+      ? targets.some((t) => t <= signal.entryZone.max)
+      : targets.some((t) => t >= signal.entryZone.min);
+
+    if (wrongSide) {
+      console.error(`❌ Invalid signal: ${signal.direction} trade has targets on the wrong side of the entry zone`, signal);
+      return false;
+    }
+
+    /* A target absurdly far from entry is not an ambitious trade, it is an
+     * arithmetic accident — it comes from an R inflated by a stop taken from a
+     * distant rolling extreme, then multiplied by an R:R factor. Rejecting it
+     * costs nothing real: no BTC 4H setup legitimately targets +160%.
+     *
+     * The bound is deliberately loose. It exists to catch nonsense, not to
+     * express a view on how far price can travel. */
+    const MAX_TARGET_DISTANCE_PCT = 50;
+    const tooFar = targets.some(
+      (t) => Math.abs(t - entryMid) / entryMid * 100 > MAX_TARGET_DISTANCE_PCT
+    );
+    if (tooFar) {
+      console.error(`❌ Invalid signal: a target is more than ${MAX_TARGET_DISTANCE_PCT}% from entry`, signal);
+      return false;
+    }
   }
-  
+
   return true;
 }
 
@@ -898,7 +954,9 @@ function checkDflowAlignment(dflowData, direction) {
  * @param {Object} dflowData - dFlow prediction market data for alignment check
  * @returns {Object} { confidence: 0-100, penaltiesApplied: [], capsApplied: [], explanation: string }
  */
-function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 'STANDARD', strategyName = null, marketData = null, dflowData = null) {
+// Exported so the evidence-coverage rule can be asserted directly rather than
+// inferred from whichever strategy happens to fire on a given fixture.
+export function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 'STANDARD', strategyName = null, marketData = null, dflowData = null) {
   const penaltiesApplied = [];
   const capsApplied = [];
   
@@ -1062,8 +1120,8 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
     }
   }
   
-  const avgExecAlignment = availableExecTfs > 0 ? execAlignment / availableExecTfs : 1.0;
-  
+  const avgExecAlignment = availableExecTfs > 0 ? execAlignment / availableExecTfs : 0;
+
   if (exhaustionCount >= 2) {
     execMultiplier = 0.7;
     penaltiesApplied.push({
@@ -1072,14 +1130,62 @@ function calculateConfidenceWithHierarchy(multiTimeframeData, direction, mode = 
       multiplier: 0.7
     });
   }
-  
-  // Apply hierarchical multipliers to base confidence
+
+  /* ---- Evidence coverage -------------------------------------------
+   *
+   * A layer that has NO DATA must not score the same as a layer that
+   * examined its data and found agreement. Previously every absent layer
+   * defaulted to a 1.0 multiplier — identical to perfect alignment — so a
+   * total market-data blackout produced a fully specified SWING signal at
+   * confidence 80, comfortably clear of its own 60 gate, built on nothing.
+   *
+   * The fix needs no new constant: an absent layer simply FORFEITS ITS
+   * WEIGHT. The existing 0.40 / 0.35 / 0.25 hierarchy already expresses how
+   * much each layer is worth, so summing only over layers that actually have
+   * evidence makes confidence proportional to the evidence behind it.
+   *
+   *   all three layers present  -> weights sum to 1.0, unchanged behaviour
+   *   execution layer missing   -> ceiling of 0.75
+   *   nothing available         -> 0, and the signal is rejected
+   *
+   * This can only ever LOWER confidence, never raise it.
+   */
+  const macroPresent = availableMacroTfs > 0;
+  const primaryPresent = Boolean(tf4h && tf1h && tf4h.indicators && tf1h.indicators);
+  const execPresent = availableExecTfs > 0;
+
+  const missingLayers = [];
+  if (!macroPresent) missingLayers.push('macro');
+  if (!primaryPresent) missingLayers.push('primary');
+  if (!execPresent) missingLayers.push('execution');
+  if (!marketData || !marketData.volumeQuality) missingLayers.push('volume');
+
+  const evidenceCoverage =
+    (macroPresent ? 0.4 : 0) +
+    (primaryPresent ? 0.35 : 0) +
+    (execPresent ? 0.25 : 0);
+
+  if (missingLayers.length > 0) {
+    penaltiesApplied.push({
+      layer: 'data',
+      reason: `No data for: ${missingLayers.join(', ')}`,
+      coverage: evidenceCoverage
+    });
+  }
+
+  // Apply hierarchical multipliers to base confidence.
+  //
+  // execMultiplier is applied to the execution term here. It used to be
+  // computed, pushed into penaltiesApplied and rendered into the user-facing
+  // explanation string, but never multiplied into the number — the UI told the
+  // user a 30% exhaustion penalty had been applied when the real cost was
+  // about two points.
   baseConfidence = baseConfidence * (
-    (macroMultiplier * 0.4) + 
-    (primaryMultiplier * 0.35) + 
-    (avgExecAlignment * 0.25)
+    (macroPresent ? macroMultiplier * 0.4 : 0) +
+    (primaryPresent ? primaryMultiplier * 0.35 : 0) +
+    (execPresent ? avgExecAlignment * execMultiplier * 0.25 : 0)
   );
-  
+
   // Apply volume quality filter
   // Apply volume quality filter with fallback for missing data
   let volumeNote = null;
@@ -1401,9 +1507,21 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
     htf1d: trend1dNorm === 'downtrend' && 
            (stoch1d.condition === 'BULLISH' || stoch1d.k < 25),
     
-    // HTF Pullback: 3D overextended below 21EMA
-    pullback3d: pullback3d.state === 'OVEREXTENDED' && 
-                (pullback3d.distanceFrom21EMA < -8 || pullback3d.distanceFrom21EMA > -15),
+    // HTF Pullback: 3D overextended below 21EMA, by between 8% and 15%.
+    //
+    // This read `(dist < -8 || dist > -15)`, which is true for EVERY real
+    // number — the two half-lines cover the line — so the gate was a no-op and
+    // SWING produced identical signals at 3D distances of -30%, -0.1% and
+    // +37.5%. The `&&` restores the band the comment describes. It can only
+    // make SWING more selective.
+    //
+    // The finiteness check is not decoration: distanceFrom21EMA is null when
+    // the 3D series is shorter than 21 bars, and under the old tautology a
+    // null passed the gate and then reached a .toFixed() call further down,
+    // throwing a TypeError that surfaced to the user as a market condition.
+    pullback3d: pullback3d.state === 'OVEREXTENDED' &&
+                Number.isFinite(pullback3d.distanceFrom21EMA) &&
+                (pullback3d.distanceFrom21EMA <= -8 && pullback3d.distanceFrom21EMA >= -15),
     
     // 1D pullback
     pullback1d: pullback1d.state === 'RETRACING' || pullback1d.state === 'ENTRY_ZONE',
@@ -1438,9 +1556,11 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
       htf1d: trend1dNorm === 'uptrend' && 
              (stoch1d.condition === 'BEARISH' || stoch1d.k > 75),
       
-      // HTF Pullback: 3D overextended above 21EMA
-      pullback3d: pullback3d.state === 'OVEREXTENDED' && 
-                  (pullback3d.distanceFrom21EMA > 8 || pullback3d.distanceFrom21EMA < 15),
+      // HTF Pullback: 3D overextended above 21EMA, by between 8% and 15%.
+      // Mirror of the long gate above, and tautological for the same reason.
+      pullback3d: pullback3d.state === 'OVEREXTENDED' &&
+                  Number.isFinite(pullback3d.distanceFrom21EMA) &&
+                  (pullback3d.distanceFrom21EMA >= 8 && pullback3d.distanceFrom21EMA <= 15),
       
       // 1D pullback
       pullback1d: pullback1d.state === 'RETRACING' || pullback1d.state === 'ENTRY_ZONE',
@@ -2306,9 +2426,23 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const minConfidenceAggressive = 50;
           const minConfidence = mode === 'STANDARD' ? minConfidenceSafe : minConfidenceAggressive;
           
-          // Fuzzy tolerance: Allow ±1% if HTF bias aligns
-          const htfBiasRaw = computeHTFBias(analysis);
-          const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+          // Fuzzy tolerance: Allow ±1% if HTF bias aligns.
+          //
+          // htfBias is the function-scoped binding computed once above. It used
+          // to be recomputed and re-declared with `const` HERE, in the same
+          // block that already reads htfBias earlier for the scalp bias bonus —
+          // which put that earlier read in the temporal dead zone and threw
+          // `ReferenceError: Cannot access 'htfBias' before initialization` on
+          // every SCALP_1H evaluation that reached this block.
+          //
+          // The throw was invisible: evaluateAllStrategies catches it, the
+          // normaliser rewrites TDZ messages to "Internal error", and that is
+          // then replaced by the generic "No trade setup available" — so a
+          // permanently broken strategy reported as a clean no-setup.
+          //
+          // The shadow was also a pure duplicate: `analysis` is an alias of
+          // `multiTimeframeData` (see the top of this function), so it
+          // recomputed the identical value.
           const fuzzyTolerance = 1.0;
           const withinFuzzyRange = confidence >= (minConfidence - fuzzyTolerance) && confidence < minConfidence;
           const allowFuzzyOverride = withinFuzzyRange && htfBias && htfBias.direction === direction && htfBias.confidence >= 60;
@@ -2654,7 +2788,15 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
   const avgDist = (dist15m + dist5m) / 2;
   // Adjust based on tight confluence (bonus for tight pullbacks)
   const confluenceBonus = avgDist < 0.5 ? 5 : avgDist < 1.0 ? 3 : 0;
-  confidence = Math.max(60, Math.min(75, confidence + confluenceBonus));
+  // Ceiling only. This used to read Math.max(60, Math.min(75, ...)), and 60 is
+  // exactly MICRO_SCALP's own pass threshold — so the floor RAISED every
+  // failing score to a pass and the strategy cleared its own gate by
+  // construction. A setup with a severe macro contradiction, a 4H
+  // contradiction and full exhaustion scores in the 30s and is capped at 45 by
+  // EXHAUSTION_CONTRADICTION; it then emerged as 60 and traded.
+  //
+  // A quality floor must reject, never clamp upward.
+  confidence = Math.min(75, confidence + confluenceBonus);
   
   // Volume quality soft block for MICRO_SCALP
   if (marketData && marketData.volumeQuality === 'LOW' && confidence < 60) {
@@ -3509,7 +3651,19 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       if (chosenStrategy && chosenName) {
         console.log(`[AGGRESSIVE_FORCE] ${symbol}: FORCING ${chosenName} LONG to valid=true, direction=${chosenStrategy.direction}`);
         console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: FORCED ${chosenName} valid=true, reason="${chosenStrategy.reason}"`);
-        strategies[chosenName] = chosenStrategy;
+        // The AGGRESSIVE forced signal is fabricated inline and assigned
+        // directly into the strategy slot, bypassing both normalisers — so it
+        // was the one producer that reached the payload having never been
+        // geometry-checked at all. Validate it here or it stays a NO_TRADE.
+        if (validateStrategySignal(chosenStrategy)) {
+          strategies[chosenName] = chosenStrategy;
+        } else {
+          console.error(`[AGGRESSIVE_FORCE] ${symbol}: ${chosenName} failed geometry validation — withheld`);
+          strategies[chosenName] = createNoTradeStrategy(
+            chosenName,
+            'Forced AGGRESSIVE signal failed geometry validation and was withheld'
+          );
+        }
       } else {
         console.log(`[AGGRESSIVE_FORCE] ${symbol}: No LONG strategy chosen despite conditions being met!`);
         console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: FAILED - No strategy forced despite conditions`);
@@ -3667,7 +3821,19 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
       if (chosenStrategy && chosenName) {
         console.log(`[AGGRESSIVE_FORCE] ${symbol}: FORCING ${chosenName} SHORT to valid=true`);
         console.log(`[TEST_CASE_B] ${symbol} AGGRESSIVE_MODE: FORCED ${chosenName} valid=true, reason="${chosenStrategy.reason}"`);
-        strategies[chosenName] = chosenStrategy;
+        // The AGGRESSIVE forced signal is fabricated inline and assigned
+        // directly into the strategy slot, bypassing both normalisers — so it
+        // was the one producer that reached the payload having never been
+        // geometry-checked at all. Validate it here or it stays a NO_TRADE.
+        if (validateStrategySignal(chosenStrategy)) {
+          strategies[chosenName] = chosenStrategy;
+        } else {
+          console.error(`[AGGRESSIVE_FORCE] ${symbol}: ${chosenName} failed geometry validation — withheld`);
+          strategies[chosenName] = createNoTradeStrategy(
+            chosenName,
+            'Forced AGGRESSIVE signal failed geometry validation and was withheld'
+          );
+        }
       }
     } else {
       console.log(`[AGGRESSIVE_FORCE] ${symbol}: SHORT conditions NOT met. HTF=${htfBias.direction}(${htfBias.confidence}%), 1H=${trend1hNorm}, 15m=${trend15mNorm}`);
@@ -3831,7 +3997,26 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD', overri
     override: signal.override || overrideUsed || false, // Mark if override was used
     notes: signal.notes || (overrideUsed && overrideNotes.length > 0 ? overrideNotes : overrideUsed ? ['SAFE override activated'] : []) // Add override notes if used
   };
-  
+
+  /* validateStrategySignal used to have exactly ONE caller —
+   * normalizeToCanonical — so only signals returned by evaluateStrategy() were
+   * ever geometry-checked. Everything routed through THIS normaliser (SWING,
+   * TREND_RIDER, AGGRO_SCALP_1H and the AGGRESSIVE forced signals) reached the
+   * payload unvalidated.
+   *
+   * The consequence was observable in a single response: on identical market
+   * data, TREND_4H was correctly rejected with "long trade stopLoss >=
+   * entryZone.min" while TREND_RIDER shipped that same inverted geometry as a
+   * valid LONG at 84% confidence, and won bestSignal.
+   *
+   * One validator, every path. */
+  if (!validateStrategySignal(normalized)) {
+    return createNoTradeStrategy(
+      strategyName,
+      'Signal failed geometry validation and was withheld'
+    );
+  }
+
   return normalized;
 }
 
@@ -3843,7 +4028,7 @@ function normalizeMicroScalpResult(microScalpSignal, symbol) {
     return createNoTradeStrategy('MICRO_SCALP', 'MicroScalp conditions not met');
   }
   
-  return {
+  const normalized = {
     valid: true,
     direction: microScalpSignal.direction || 'NO_TRADE',
     confidence: typeof microScalpSignal.confidence === 'number'
@@ -3853,14 +4038,24 @@ function normalizeMicroScalpResult(microScalpSignal, symbol) {
     entryZone: microScalpSignal.entry || { min: null, max: null },
     stopLoss: microScalpSignal.stopLoss || null,
     invalidationLevel: microScalpSignal.invalidation_level || null,
-    targets: microScalpSignal.targets 
-      ? (Array.isArray(microScalpSignal.targets) 
-          ? microScalpSignal.targets 
+    targets: microScalpSignal.targets
+      ? (Array.isArray(microScalpSignal.targets)
+          ? microScalpSignal.targets
           : [microScalpSignal.targets.tp1, microScalpSignal.targets.tp2].filter(t => t !== null))
       : [],
     riskReward: microScalpSignal.riskReward || { tp1RR: null, tp2RR: null },
     validationErrors: []
   };
+
+  // Same single-validator rule as normalizeStrategyResult.
+  if (!validateStrategySignal(normalized)) {
+    return createNoTradeStrategy(
+      'MICRO_SCALP',
+      'Signal failed geometry validation and was withheld'
+    );
+  }
+
+  return normalized;
 }
 
 /**
