@@ -682,8 +682,204 @@ export async function getDflowPredictionMarkets(symbol) {
   }
 }
 
+/**
+ * Intervals Kraken's OHLC endpoint actually accepts (minutes).
+ * 3m is deliberately absent: Kraken rejects interval=3, which is why the 3m feed
+ * must be derived from verified live 1m candles instead of requested directly.
+ */
+export const KRAKEN_NATIVE_INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+/** Timeframes this module derives from a smaller verified live timeframe. */
+export const DERIVED_INTERVALS = {
+  '3m': { base: '1m', factor: 3 }
+};
+
+/**
+ * Aggregate candles into larger UTC-aligned buckets.
+ *
+ * Buckets are aligned to the UTC epoch (floor(timestamp / bucketMs) * bucketMs) and
+ * an incomplete bucket - one that does not contain every source candle it should -
+ * is excluded, so a partially formed 3m bar can never reach a caller.
+ *
+ * @param {Array<Object>} sourceCandles - closed source candles, ascending by timestamp
+ * @param {number} sourceIntervalMs - source candle width in ms
+ * @param {number} bucketMs - target bucket width in ms
+ * @returns {Array<Object>} aggregated candles { timestamp, open, high, low, close, volume, closeTime }
+ */
+export function aggregateToBuckets(sourceCandles, sourceIntervalMs, bucketMs) {
+  if (!Array.isArray(sourceCandles) || sourceCandles.length === 0) return [];
+  if (!Number.isFinite(sourceIntervalMs) || sourceIntervalMs <= 0) return [];
+  if (!Number.isFinite(bucketMs) || bucketMs <= 0) return [];
+
+  const expectedPerBucket = Math.round(bucketMs / sourceIntervalMs);
+  if (expectedPerBucket < 1) return [];
+
+  const usable = sourceCandles
+    .filter((c) => c
+      && Number.isFinite(c.timestamp)
+      && Number.isFinite(c.open) && Number.isFinite(c.high)
+      && Number.isFinite(c.low) && Number.isFinite(c.close))
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const buckets = new Map();
+  for (const candle of usable) {
+    const bucketStart = Math.floor(candle.timestamp / bucketMs) * bucketMs;
+    let bucket = buckets.get(bucketStart);
+    if (!bucket) {
+      bucket = { members: [], seen: new Set() };
+      buckets.set(bucketStart, bucket);
+    }
+    // Guard against duplicate source candles inflating the completeness count.
+    if (bucket.seen.has(candle.timestamp)) continue;
+    bucket.seen.add(candle.timestamp);
+    bucket.members.push(candle);
+  }
+
+  const out = [];
+  for (const [bucketStart, bucket] of [...buckets.entries()].sort((a, b) => a[0] - b[0])) {
+    // Drop incomplete buckets - a 3m bar needs all three of its 1m candles.
+    if (bucket.members.length !== expectedPerBucket) continue;
+
+    const members = bucket.members.sort((a, b) => a.timestamp - b.timestamp);
+    out.push({
+      timestamp: bucketStart,
+      open: members[0].open,
+      high: Math.max(...members.map((c) => c.high)),
+      low: Math.min(...members.map((c) => c.low)),
+      close: members[members.length - 1].close,
+      volume: members.reduce((sum, c) => sum + (Number.isFinite(c.volume) ? c.volume : 0), 0),
+      closeTime: bucketStart + bucketMs
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Fetch candles with explicit provenance.
+ *
+ * Unlike getCandles(), this never silently substitutes synthetic candles: the caller
+ * is told which provider produced the data, whether it was derived from a smaller
+ * timeframe, and whether it is synthetic. Synthetic data is only produced when the
+ * caller explicitly opts in via allowSynthetic.
+ *
+ * @param {string} symbol - Trading pair (e.g. 'BTCUSDT')
+ * @param {string} interval - Timeframe
+ * @param {number} [limit=500] - Desired number of candles
+ * @param {Object} [options]
+ * @param {boolean} [options.allowSynthetic=false] - permit the synthetic fallback
+ * @param {Function} [options.fetchKraken=fetchFromKraken] - injectable for tests
+ * @param {number} [options.now=Date.now()] - clock override for deterministic tests
+ * @returns {Promise<Object>} { candles, provider, derivedFrom, synthetic, error, requestedIntervals }
+ */
+export async function getCandlesWithProvenance(symbol, interval, limit = 500, options = {}) {
+  const {
+    allowSynthetic = false,
+    fetchKraken = fetchFromKraken,
+    now = Date.now()
+  } = options || {};
+
+  const requestedIntervals = [];
+  const derived = DERIVED_INTERVALS[interval];
+
+  // Derived timeframe (currently 3m): build it from verified live base candles.
+  if (derived) {
+    const baseMinutes = INTERVAL_TO_MINUTES[derived.base];
+    const baseIntervalMs = baseMinutes * 60 * 1000;
+    const bucketMs = baseIntervalMs * derived.factor;
+    // Over-fetch so the requested number of complete buckets can be formed.
+    const baseLimit = Math.min(720, (limit + 2) * derived.factor);
+
+    try {
+      requestedIntervals.push(derived.base);
+      const baseCandles = await fetchKraken(symbol, derived.base, baseLimit);
+      // Only closed base candles may contribute, so a bucket is never completed by a
+      // still-forming 1m candle.
+      const closedBase = (Array.isArray(baseCandles) ? baseCandles : []).filter((c) => {
+        if (!c || !Number.isFinite(c.timestamp)) return false;
+        const closeTime = Number.isFinite(c.closeTime) ? c.closeTime : c.timestamp + baseIntervalMs;
+        return closeTime <= now;
+      });
+      const aggregated = aggregateToBuckets(closedBase, baseIntervalMs, bucketMs);
+
+      if (aggregated.length === 0) {
+        throw new Error(`No complete ${interval} buckets could be derived from ${derived.base}`);
+      }
+
+      return {
+        candles: aggregated.slice(-limit),
+        provider: 'kraken-derived',
+        derivedFrom: derived.base,
+        synthetic: false,
+        error: null,
+        requestedIntervals
+      };
+    } catch (error) {
+      if (!allowSynthetic) {
+        return {
+          candles: [],
+          provider: null,
+          derivedFrom: derived.base,
+          synthetic: false,
+          error: error.message,
+          requestedIntervals
+        };
+      }
+      const currentPrice = await getCurrentPrice(symbol);
+      return {
+        candles: generateSyntheticData(symbol, interval, limit, currentPrice),
+        provider: 'synthetic',
+        derivedFrom: null,
+        synthetic: true,
+        error: error.message,
+        requestedIntervals
+      };
+    }
+  }
+
+  // Native timeframe: straight from the provider.
+  try {
+    requestedIntervals.push(interval);
+    const candles = await fetchKraken(symbol, interval, limit);
+    if (!Array.isArray(candles) || candles.length === 0) {
+      throw new Error('Provider returned no candles');
+    }
+    return {
+      candles,
+      provider: 'kraken',
+      derivedFrom: null,
+      synthetic: false,
+      error: null,
+      requestedIntervals
+    };
+  } catch (error) {
+    if (!allowSynthetic) {
+      return {
+        candles: [],
+        provider: null,
+        derivedFrom: null,
+        synthetic: false,
+        error: error.message,
+        requestedIntervals
+      };
+    }
+    const currentPrice = await getCurrentPrice(symbol);
+    return {
+      candles: generateSyntheticData(symbol, interval, limit, currentPrice),
+      provider: 'synthetic',
+      derivedFrom: null,
+      synthetic: true,
+      error: error.message,
+      requestedIntervals
+    };
+  }
+}
+
 export default {
   getCandles,
+  getCandlesWithProvenance,
+  aggregateToBuckets,
   getMultiTimeframeData,
   getTickerPrice,
   isSymbolSupported,

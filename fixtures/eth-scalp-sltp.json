@@ -1,0 +1,32 @@
+{
+  "symbol": "ETHUSDT",
+  "capturedAt": "2026-09-21T22:07:31.448Z",
+  "structures": {
+    "5m": {
+      "swingHigh": 2804.94,
+      "swingLow": 2763.35
+    },
+    "15m": {
+      "swingHigh": 2806.69,
+      "swingLow": 2735.26
+    },
+    "1h": {
+      "swingHigh": 2806.69,
+      "swingLow": 2645.66
+    },
+    "4h": {
+      "swingHigh": 2806.69,
+      "swingLow": 2563.33
+    },
+    "1d": {
+      "swingHigh": 2806.69,
+      "swingLow": 2355.48
+    }
+  },
+  "ema21_1h": 2725.803616235038,
+  "price": 2772.08,
+  "entryZoneLong": {
+    "min": 2723.077812618803,
+    "max": 2728.529419851273
+  }
+}

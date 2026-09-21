@@ -953,66 +953,80 @@ function invalidNoTrade(reason) {
  * - Scalp: Uses LTF (5m/15m) structure
  * - 4H: Uses 4H swing levels
  * 
+ * Stops are side-validated: a long stop must sit below the entry zone and a short
+ * stop above it. Structure candidates are tried widest-last in setup order and the
+ * first candidate on the correct side wins; if none qualifies, a percentage stop is
+ * used. Without this guard a 5m swing low sitting above the entry (common in a fast
+ * uptrend) produced a long stop above entry, which validateStrategySignal rejected,
+ * turning an otherwise valid scalp into a false NO_TRADE.
+ *
  * @param {number} entryPrice - Entry price (mid of zone)
  * @param {string} direction - 'long' or 'short'
  * @param {Object} allStructures - Structures from all timeframes { '3d': {...}, '1d': {...}, '4h': {...}, '15m': {...}, '5m': {...} }
- * @param {string} setupType - 'Swing', 'Scalp', or '4h'
+ * @param {string} setupType - 'Swing', 'Scalp', 'TrendRider', or '4h'
  * @param {Array<number>} rrTargets - R:R multiples for TP1, TP2 [1.0, 2.0] or [3.0, 5.0]
+ * @param {Object|null} entryBounds - Optional { min, max } of the entry zone. Stops are
+ *                                    validated against these bounds instead of the mid.
  * @returns {Object} SL and TP levels
  */
-function calculateSLTP(entryPrice, direction, allStructures, setupType = '4h', rrTargets = [1.0, 2.0]) {
+export function calculateSLTP(entryPrice, direction, allStructures, setupType = '4h', rrTargets = [1.0, 2.0], entryBounds = null) {
   const buffer = 0.003; // 0.3% buffer
-  
-  let stopLoss, structure;
-  
-  // Select appropriate timeframe structure based on setup type
-  if (setupType === 'Swing') {
-    // Swing trades: Use HTF invalidation (3D or 1D)
-    structure = allStructures['3d'] || allStructures['1d'] || allStructures['4h'];
-  } else if (setupType === 'Scalp') {
-    // Scalp trades: Use LTF invalidation (5m or 15m)
-    structure = allStructures['5m'] || allStructures['15m'] || allStructures['4h'];
-  } else {
-    // 4H trades: Use 4H structure
-    structure = allStructures['4h'] || allStructures['1d'];
+  const isLong = direction === 'long';
+
+  // Structure candidates in priority order, widest fallback last
+  const candidateOrder = setupType === 'Swing'
+    ? ['3d', '1d', '4h']          // Swing trades: HTF invalidation
+    : setupType === 'Scalp'
+      ? ['5m', '15m', '4h']       // Scalp trades: LTF invalidation
+      : ['4h', '1d'];             // 4H and TrendRider: 4H structure
+
+  // A long stop must sit below the entry zone, a short stop above it. Fall back to
+  // the mid when the caller does not supply the zone bounds.
+  const lowerLimit = Number.isFinite(entryBounds?.min) ? entryBounds.min : entryPrice;
+  const upperLimit = Number.isFinite(entryBounds?.max) ? entryBounds.max : entryPrice;
+
+  let stopLoss = null;
+  let invalidationLevel = null;
+  let stopSource = null;
+
+  for (const tf of candidateOrder) {
+    const structure = allStructures?.[tf];
+    if (!structure) continue;
+
+    const level = isLong ? structure.swingLow : structure.swingHigh;
+    if (!Number.isFinite(level) || level <= 0) continue;
+
+    const candidate = isLong ? level * (1 - buffer) : level * (1 + buffer);
+    const onCorrectSide = isLong ? candidate < lowerLimit : candidate > upperLimit;
+    if (!onCorrectSide) continue;
+
+    stopLoss = candidate;
+    invalidationLevel = level;
+    stopSource = tf;
+    break;
   }
-  
-  const { swingHigh, swingLow } = structure;
-  
-  if (direction === 'long') {
-    // SL below swing low
-    stopLoss = swingLow ? swingLow * (1 - buffer) : entryPrice * 0.97;
-    const risk = entryPrice - stopLoss;
-    
-    // TP based on R:R targets from template
-    const tp1 = entryPrice + (risk * rrTargets[0]);
-    const tp2 = entryPrice + (risk * rrTargets[1]);
-    
-    return {
-      stopLoss,
-      targets: [tp1, tp2],
-      riskAmount: risk,
-      setupType: setupType,
-      invalidationLevel: swingLow || (entryPrice * 0.97)
-    };
-    
-  } else { // short
-    // SL above swing high
-    stopLoss = swingHigh ? swingHigh * (1 + buffer) : entryPrice * 1.03;
-    const risk = stopLoss - entryPrice;
-    
-    // TP based on R:R targets from template
-    const tp1 = entryPrice - (risk * rrTargets[0]);
-    const tp2 = entryPrice - (risk * rrTargets[1]);
-    
-    return {
-      stopLoss,
-      targets: [tp1, tp2],
-      riskAmount: risk,
-      setupType: setupType,
-      invalidationLevel: swingHigh || (entryPrice * 1.03)
-    };
+
+  if (stopLoss === null) {
+    // No structure on the correct side - fall back to a percentage stop anchored
+    // outside the entry zone so the signal still passes validation.
+    const anchor = isLong ? Math.min(entryPrice, lowerLimit) : Math.max(entryPrice, upperLimit);
+    stopLoss = isLong ? anchor * 0.97 : anchor * 1.03;
+    invalidationLevel = stopLoss;
+    stopSource = 'percentage';
   }
+
+  const risk = isLong ? entryPrice - stopLoss : stopLoss - entryPrice;
+  const tp1 = isLong ? entryPrice + (risk * rrTargets[0]) : entryPrice - (risk * rrTargets[0]);
+  const tp2 = isLong ? entryPrice + (risk * rrTargets[1]) : entryPrice - (risk * rrTargets[1]);
+
+  return {
+    stopLoss,
+    targets: [tp1, tp2],
+    riskAmount: risk,
+    setupType: setupType,
+    invalidationLevel,
+    stopSource
+  };
 }
 
 // Legacy calculateConfidence() function removed - now using calculateConfidenceWithHierarchy() exclusively
@@ -2476,7 +2490,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   }
   
   const entryMid = (entryZone.min + entryZone.max) / 2;
-  const sltp = calculateSLTP(entryMid, direction, allStructures, setupType, rrTargets);
+  const sltp = calculateSLTP(entryMid, direction, allStructures, setupType, rrTargets, entryZone);
   
   // Calculate confidence with hierarchical weighting system (pass strategy name and filters)
   const strategyName = setupType === 'Scalp' ? 'SCALP_1H' : 'TREND_4H';
@@ -2846,7 +2860,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           };
           
           const rrTargets = [3.0, 4.5]; // Scalp targets (minimum 3R for TP1)
-          const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets);
+          const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets, entryZone);
           
           // Use hierarchical confidence system for Scalp (pass strategy name and filters)
           const confidenceResult = calculateConfidenceWithHierarchy(
@@ -2972,8 +2986,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           const minConfidence = mode === 'STANDARD' ? minConfidenceSafe : minConfidenceAggressive;
           
           // Fuzzy tolerance: Allow ±1% if HTF bias aligns
-          const htfBiasRaw = computeHTFBias(analysis);
-          const htfBias = htfBiasRaw ?? { direction: 'neutral', confidence: 0, source: 'fallback' };
+          // Reuse the function-level htfBias computed at the top of evaluateStrategy.
+          // Re-declaring it here shadowed the outer const and put every earlier
+          // htfBias reference in this block into the temporal dead zone, which
+          // threw ReferenceError and silently killed the SCALP_1H evaluation.
           const fuzzyTolerance = 1.0;
           const withinFuzzyRange = confidence >= (minConfidence - fuzzyTolerance) && confidence < minConfidence;
           const allowFuzzyOverride = withinFuzzyRange && htfBias && htfBias.direction === direction && htfBias.confidence >= 60;
@@ -3155,7 +3171,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
  * @param {Object} multiTimeframeData - All timeframe data
  * @returns {Object} Micro-scalp signal or null
  */
-function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = null, overrideUsed = false) {
+export function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = null, overrideUsed = false) {
   const tf1h = multiTimeframeData['1h'];
   const tf15m = multiTimeframeData['15m'];
   const tf5m = multiTimeframeData['5m'];
@@ -3277,31 +3293,32 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
   }
   
   // 2.3 MICRO-SCALP SL/TP LOGIC
-  let stopLoss, entry, invalidationLevel;
-  
-  if (direction === 'long') {
-    // SL = min of 15m and 5m swing lows
-    stopLoss = Math.min(swingLow15m || currentPrice * 0.95, swingLow5m || currentPrice * 0.95);
-    invalidationLevel = stopLoss;
-  } else {
-    // SL = max of 15m and 5m swing highs
-    stopLoss = Math.max(swingHigh15m || currentPrice * 1.05, swingHigh5m || currentPrice * 1.05);
-    invalidationLevel = stopLoss;
-  }
-  
-  // Entry = average of 15m & 5m EMA21
-  entry = (ema21_15m + ema21_5m) / 2;
-  
-  // R = |entry - stopLoss|
-  const R = Math.abs(entry - stopLoss);
-  
-  // Targets: TP1 = 3.0R minimum, TP2 = 4.0R
-  const tp1 = direction === 'long' ? entry + (R * 3.0) : entry - (R * 3.0);
-  const tp2 = direction === 'long' ? entry + (R * 4.0) : entry - (R * 4.0);
-  
-  // Entry zone: ±0.5% around entry
+  // Entry = average of 15m & 5m EMA21, zone = ±0.5% around it.
+  const entry = (ema21_15m + ema21_5m) / 2;
   const entryMin = entry * 0.995;
   const entryMax = entry * 1.005;
+  const microEntryZone = { min: entryMin, max: entryMax };
+
+  // Stops go through the shared side-aware selector (5m -> 15m -> 4h -> percentage)
+  // instead of a bare Math.min/Math.max, so a long stop can never sit above the
+  // entry zone nor a short stop below it. Targets stay at the MICRO_SCALP 3R/4R.
+  const tf4hForStops = multiTimeframeData['4h'];
+  const microStructures = {
+    '5m': { swingHigh: swingHigh5m ?? null, swingLow: swingLow5m ?? null },
+    '15m': { swingHigh: swingHigh15m ?? null, swingLow: swingLow15m ?? null },
+    '4h': {
+      swingHigh: tf4hForStops?.indicators?.swingHigh ?? tf4hForStops?.structure?.swingHigh ?? null,
+      swingLow: tf4hForStops?.indicators?.swingLow ?? tf4hForStops?.structure?.swingLow ?? null
+    }
+  };
+
+  const microSltp = calculateSLTP(entry, direction, microStructures, 'Scalp', [3.0, 4.0], microEntryZone);
+  const stopLoss = microSltp.stopLoss;
+  const invalidationLevel = microSltp.invalidationLevel;
+  const stopSource = microSltp.stopSource;
+  const R = microSltp.riskAmount;
+  const tp1 = microSltp.targets[0];
+  const tp2 = microSltp.targets[1];
   
   // Use hierarchical confidence system for MicroScalp (pass strategy name and filters)
   const confidenceResult = calculateConfidenceWithHierarchy(
@@ -3401,6 +3418,7 @@ function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowData = n
       max: parseFloat(entryMax.toFixed(2))
     },
     stopLoss: parseFloat(stopLoss.toFixed(2)),
+    stopSource,
     targets: {
       tp1: parseFloat(tp1.toFixed(2)),
       tp2: parseFloat(tp2.toFixed(2))
@@ -3684,7 +3702,8 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     direction,
     allStructures,
     'TrendRider',
-    rrTargets
+    rrTargets,
+    { min: entryMin, max: entryMax }
   );
 
   // ---- Confidence scoring via hierarchy + small bonuses ----
@@ -4614,12 +4633,12 @@ function normalizeStrategyResult(result, strategyName, mode = 'STANDARD', overri
 /**
  * Normalize MicroScalp result
  */
-function normalizeMicroScalpResult(microScalpSignal, symbol) {
+export function normalizeMicroScalpResult(microScalpSignal, symbol) {
   if (!microScalpSignal || !microScalpSignal.valid) {
     return createNoTradeStrategy('MICRO_SCALP', 'MicroScalp conditions not met');
   }
   
-  return {
+  const normalized = {
     valid: true,
     direction: microScalpSignal.direction || 'NO_TRADE',
     confidence: typeof microScalpSignal.confidence === 'number'
@@ -4635,8 +4654,34 @@ function normalizeMicroScalpResult(microScalpSignal, symbol) {
           : [microScalpSignal.targets.tp1, microScalpSignal.targets.tp2].filter(t => t !== null))
       : [],
     riskReward: microScalpSignal.riskReward || { tp1RR: null, tp2RR: null },
+    stopSource: microScalpSignal.stopSource || null,
     validationErrors: []
   };
+
+  // A MicroScalp signal may only be exposed as valid once it passes the same
+  // validation every other strategy goes through - this is what stops a wrong-side
+  // stop (long stop above the entry zone, short stop below it) reaching a caller.
+  if (!validateStrategySignal(normalized)) {
+    return createNoTradeStrategy(
+      'MICRO_SCALP',
+      'MicroScalp signal failed validation - stop on the wrong side of entry or missing required fields'
+    );
+  }
+
+  const zone = normalized.entryZone || {};
+  const wrongSideLong = normalized.direction === 'long'
+    && Number.isFinite(zone.min) && !(normalized.stopLoss < zone.min);
+  const wrongSideShort = normalized.direction === 'short'
+    && Number.isFinite(zone.max) && !(normalized.stopLoss > zone.max);
+
+  if (wrongSideLong || wrongSideShort) {
+    return createNoTradeStrategy(
+      'MICRO_SCALP',
+      'MicroScalp signal failed validation - stop on the wrong side of entry zone'
+    );
+  }
+
+  return normalized;
 }
 
 /**

@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: EditTrades Scalp Context
+  version: 1.0.0
+  description: Read-only endpoint that returns the latest closed-candle BTC, SOL and ETH market context for scalp trading decisions.
+servers:
+  # Replace with your production domain if different.
+  - url: https://snapshottradingview.vercel.app
+paths:
+  /api/scalp-context:
+    get:
+      operationId: getScalpContext
+      description: Load the latest closed-candle BTC, SOL and ETH market context before answering questions about current setups.
+      responses:
+        "200":
+          description: Latest scalp context for tracked symbols.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScalpContext"
+        "401":
+          description: Missing or invalid bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          description: Method not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Upstream data source unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        requestId:
+          type: string
+      required:
+        - error
+        - requestId
+    Candle:
+      type: object
+      description: One closed candle.
+      properties:
+        t:
+          type: string
+        o:
+          type: number
+        h:
+          type: number
+        l:
+          type: number
+        c:
+          type: number
+        v:
+          type: number
+      required:
+        - t
+        - o
+        - h
+        - l
+        - c
+        - v
+    StochRsi:
+      type: object
+      properties:
+        k:
+          type: [number, "null"]
+        d:
+          type: [number, "null"]
+        state:
+          type: [string, "null"]
+        cross:
+          type: [string, "null"]
+        slopeK:
+          type: [number, "null"]
+        slopeD:
+          type: [number, "null"]
+    Timeframe:
+      type: object
+      description: Indicator and candle data for a single timeframe. Field shape is intentionally loose here; consult the live response for exact contents.
+      properties:
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Candle"
+        ema21:
+          type: [number, "null"]
+        ema200:
+          type: [number, "null"]
+        priceVs21Pct:
+          type: [number, "null"]
+        priceVs200Pct:
+          type: [number, "null"]
+        trend:
+          type: [string, "null"]
+        closedThrough:
+          type: [string, "null"]
+        candleCount:
+          type: integer
+        stochRsi:
+          $ref: "#/components/schemas/StochRsi"
+    Symbol:
+      type: object
+      description: Market context for a single tracked symbol. Nested objects are intentionally loose here; consult the live response for exact contents.
+      properties:
+        price:
+          type: number
+        source:
+          type: object
+        structure:
+          type: object
+        strategies:
+          type: object
+        bestSignal:
+          description: >-
+            Name of the strategy carrying the strongest signal for this symbol, or
+            null when no strategy produced one.
+          type: [string, "null"]
+          enum:
+            - SWING
+            - TREND_4H
+            - TREND_RIDER
+            - SCALP_1H
+            - MICRO_SCALP
+            - null
+        timeframes:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Timeframe"
+    ScalpContext:
+      type: object
+      properties:
+        schemaVersion:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        closedThrough:
+          type: string
+          format: date-time
+        sessionTimezone:
+          type: string
+        dataStatus:
+          type: string
+          enum:
+            - complete
+            - partial
+            - unavailable
+        requestId:
+          type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        symbols:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Symbol"
+      required:
+        - schemaVersion
+        - generatedAt
+        - closedThrough
+        - sessionTimezone
+        - dataStatus
+        - requestId
+        - warnings
+        - symbols
+security:
+  - bearerAuth: []

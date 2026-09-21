@@ -56,6 +56,10 @@
       "dest": "/api/trade-status.js"
     },
     {
+      "src": "/api/scalp-context",
+      "dest": "/api/scalp-context.js"
+    },
+    {
       "src": "/(.*)",
       "dest": "/public/$1"
     }

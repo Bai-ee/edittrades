@@ -8,6 +8,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "backtest:btc4h": "node backtests/btc-4h-backtest.js",
+    "test:scalp": "node test-scalp-context.js",
+    "test:sltp": "node test-strategy-sltp.js",
     "postinstall": "patch-package",
     "vercel-build": "npm install --legacy-peer-deps && npm run postinstall"
   },
