@@ -167,7 +167,8 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     entryZone: rawSignal.entry_zone || rawSignal.entryZone || { min: null, max: null },
     stopLoss: rawSignal.stop_loss || rawSignal.stopLoss || null,
     invalidationLevel: rawSignal.invalidation_level || rawSignal.invalidationLevel || null,
-    targets: Array.isArray(rawSignal.targets) ? rawSignal.targets : 
+    stopSource: typeof rawSignal.stopSource === 'string' ? rawSignal.stopSource : null,
+    targets: Array.isArray(rawSignal.targets) ? rawSignal.targets :
             (rawSignal.targets?.tp1 ? [rawSignal.targets.tp1, rawSignal.targets.tp2] : [null, null]),
     riskReward: rawSignal.risk_reward || rawSignal.riskReward || { tp1RR: null, tp2RR: null },
     // Preserve new fields from enhanced confidence system
@@ -192,6 +193,7 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     signal.entryZone = { min: null, max: null };
     signal.stopLoss = null;
     signal.invalidationLevel = null;
+    signal.stopSource = null;
     signal.targets = [null, null];
     signal.reason = 'Signal failed validation - missing required fields';
   }
@@ -205,6 +207,7 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
     }
     if (signal.stopLoss !== null) signal.stopLoss = null;
     if (signal.invalidationLevel !== null) signal.invalidationLevel = null;
+    if (signal.stopSource !== null) signal.stopSource = null;
     if (signal.targets && signal.targets[0] !== null) {
       signal.targets = [null, null];
     }
@@ -3144,6 +3147,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             },
             stop_loss: parseFloat(sltp.stopLoss.toFixed(2)),
             invalidation_level: parseFloat(sltp.invalidationLevel.toFixed(2)),
+            stopSource: sltp.stopSource, // '5m' | '15m' | '4h' | 'percentage'
     targets: [
       parseFloat(sltp.targets[0].toFixed(2)),
       parseFloat(sltp.targets[1].toFixed(2))

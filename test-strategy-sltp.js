@@ -564,6 +564,8 @@ async function main() {
         `expected a structural stop inside the limit, got ${distance.distancePct}%`);
       assert(isLong ? signal.stopLoss < signal.entryZone.min : signal.stopLoss > signal.entryZone.max,
         'stop must sit beyond the entry zone');
+      assert(['5m', '15m', '4h'].includes(signal.stopSource),
+        `a structural stop must publish its timeframe as stopSource, got ${JSON.stringify(signal.stopSource)}`);
     });
 
     await test(`SCALP_1H (${dir}): evaluateStrategy accepts the percentage fallback`, () => {
@@ -586,6 +588,8 @@ async function main() {
       const publishedDistance = validateScalpStopDistance(mid, signal.stopLoss);
       assert(publishedDistance.distancePct <= MAX_SCALP_STOP_DISTANCE_PCT + 0.01,
         `published stop is ${publishedDistance.distancePct}% from entry, beyond the policy`);
+      assertEqual(signal.stopSource, 'percentage',
+        'a percentage fallback must publish stopSource so a scheduled run can tell it from a structural stop');
     });
 
     // ---- MICRO_SCALP via evaluateMicroScalp -------------------------------
