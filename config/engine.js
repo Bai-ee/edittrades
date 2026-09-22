@@ -116,6 +116,11 @@
  *     choosing a side - the moment a chart is most useful.
  *   - coilOverlapPct (50): a bull and a bear flag sharing at least half of the narrower
  *     range are one consolidation read two ways, not two setups.
+ *
+ * `replay` block (phase 10, `scripts/replay.js` only; never read on the request path):
+ *   - minComputeCandles (200): the replay starts at the first close where every replayed
+ *     timeframe (3m included, derived from 1m) has at least 200 closed candles - enough
+ *     for EMA200 to exist, so early closes do not score a half-warmed pipeline.
  */
 
 import { readFileSync } from 'node:fs';

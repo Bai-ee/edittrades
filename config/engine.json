@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-7",
+  "configVersion": "2026.09.22-8",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -96,6 +96,10 @@
     "geometryConfidenceFloor": 60,
     "coilBreakAtr": 0.5,
     "coilOverlapPct": 50
+  },
+
+  "replay": {
+    "minComputeCandles": 200
   },
 
   "thresholds": {

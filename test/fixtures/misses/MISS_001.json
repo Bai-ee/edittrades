@@ -1,0 +1,21 @@
+{
+  "id": "MISS_001",
+  "date": "2026-09-22",
+  "symbol": "BTC",
+  "timeframe": "1m",
+  "preImageRead": "NO TRADE. Every strategy module, SCALP_1H included, was invalid, and the recommendation followed that state. The raw 1m candles were not inspected for a continuation flag.",
+  "missingFeature": "No candidate channel independent of strategies: nothing in the payload described the 1m impulse, EMA21 reclaim/hold, tight consolidation and local-high break while the strategy engine said NO_TRADE.",
+  "postImageRead": "The chart showed an impulse up, an EMA21 reclaim and hold, a tight flag above EMA21, then a local flag-high breakout: a valid 1m long continuation. Once the breakout expanded away from EMA21 the entry was missed, and the correct action was to wait for a new base or retest.",
+  "missClass": "MISSED_FLAG",
+  "fixLocation": "API pattern detector (lib/patternDetector.js, candidateSetups[] in services/scalpContext.js), lifecycle and visual gate (lib/patternLifecycle.js); GPT instruction secondarily.",
+  "proposedFeature": "candidateSetups[] with a 1m/3m/5m flag detector (impulse, compression, EMA21 hold, breakout, chase risk) that survives strategy NO_TRADE; lifecycle forming → triggering → confirmed; needsVisualConfirmation when the geometry is uncertain.",
+  "status": "implemented",
+  "regressionTest": [
+    { "file": "test-pattern-detector.js", "name": "REGRESSION_001_BTC_1M_FLAG: impulse → EMA21 hold → compression → break is confirmed (long + short mirror)" },
+    { "file": "test-pattern-detector.js", "name": "REGRESSION_001 (long): 1m candidate survives while SCALP_1H stays NO_TRADE" },
+    { "file": "test-pattern-detector.js", "name": "REGRESSION_001 (short mirror): 1m candidate survives while SCALP_1H stays NO_TRADE" },
+    { "file": "test-replay.js", "name": "REGRESSION_001 via replay (long): forming → triggering → confirmed on the 1m clock while SCALP_1H stays NO_TRADE" },
+    { "file": "test-replay.js", "name": "REGRESSION_001 via replay (short): forming → triggering → confirmed on the 1m clock while SCALP_1H stays NO_TRADE" }
+  ],
+  "source": "~/Downloads/EditTrades_Living_Scalp_Playbook_updated.docx §6 Miss 001; handoff §15 REGRESSION 001"
+}

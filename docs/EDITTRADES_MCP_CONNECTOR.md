@@ -36,16 +36,19 @@ Tests:
 | Command | File | Passing (2026-09-22) |
 | --- | --- | --- |
 | `npm run test:sltp` | `test-strategy-sltp.js` (section 6b = call-path guard tests) | 50 |
-| `npm run test:scalp` | `test-scalp-context.js` | 85 |
+| `npm run test:scalp` | `test-scalp-context.js` | 94 |
 | `npm run test:mcp` | `test-edittrades-mcp.js` | 51 |
 | `npm run test:wallet` | `test-wallet-tracker.js` | 28 |
 | `npm run test:config` | `test-engine-config.js` | 14 |
 | `npm run test:risk` | `test-risk-engine.js` | 24 |
-| `npm run test:pattern` | `test-pattern-detector.js` (fixtures `test/fixtures/flagFixtures.js`) | 14 |
-| `npm run test:geometry` | `test-geometry.js` (snapshot `test/fixtures/geometryPhase7Snapshot.json`) | 35 |
+| `npm run test:pattern` | `test-pattern-detector.js` (fixtures `test/fixtures/flagFixtures.js`) | 23 |
+| `npm run test:geometry` | `test-geometry.js` (snapshot `test/fixtures/geometryPhase7Snapshot.json`, builders `test/fixtures/geometryFixtures.js`) | 35 |
 | `npm run test:chart` | `test-chart-render.js` (sample `test/fixtures/chart-sample-btc-4h.png`) | 18 |
+| `npm run test:replay` | `test-replay.js` (replay harness, metrics, miss log `test/fixtures/misses/`) | 20 |
 
-The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all nine before a deploy.
+The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all ten before a deploy.
+
+Replay (Phase 10, dev only, never on the request path): `npm run replay -- --capture BTC,SOL,ETH --out test/fixtures/history/<date>/ [--backfill-1m 360]` saves a live pull; `npm run replay -- --history <dir> --symbols BTC --out btc.jsonl` runs `buildScalpContext()` once per closed candle with no lookahead; `npm run replay:metrics -- btc.jsonl` prints candidate counts, visual-gate rate by code, lifetime and label precision/recall. Details: master plan, Phase 10.
 
 ## Endpoint
 

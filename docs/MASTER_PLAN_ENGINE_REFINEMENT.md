@@ -1,7 +1,7 @@
 # EditTrades Engine Refinement — Phased Master Plan
 
 Last updated: 2026-09-22 (amended: Phase 3 position risk, 3b positions, 4 short mirrors, 8 channel, 9b bias matrix; docs sync after Phase 8, 8b in progress)
-Status: phases 0–8 and 8b done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 9 done locally (schema 1.9.0 / configVersion 2026.09.22-7), not deployed.
+Status: phases 0–8 and 8b done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 9 done locally (schema 1.9.0 / configVersion 2026.09.22-7), not deployed. Phase 10 done locally (replay harness, no payload change; configVersion 2026.09.22-8 for the `replay` config key), not deployed.
 Branch: `upgrade-signal-engine`
 Source inputs: `~/Downloads/EditTrades_Master_Orchestration_Handoff_v1.md` (product/orchestration intent), this repo (current truth).
 Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPECIFICATION.md`, `CLAUDE.md`.
@@ -66,10 +66,10 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium | ✅ done 2026-09-22 → `lib/chartRender.js`, `pureimage` 0.4.20, `assets/fonts/IBMPlexMono-Regular.ttf` + `OFL.txt`, `services/editTradesMcp.js` (`chart` arg, image block), `api/scalp-context.js` (`?chart`, image/png), `services/scalpContext.js` (`chart.onSeries` EMA hook, payload unchanged), `openapi/scalp-context.yaml`, no schema bump, `npm run test:chart` |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium | ✅ done 2026-09-22 → `lib/patternLifecycle.js` (snap, coil, visual gate), `lib/patternDetector.js` (`detectFlagLifecycle`), `lib/geometry.js` (`nearMissDiagonals`), `config/engine.json` (`lifecycle`, configVersion -6 → -7), `services/scalpContext.js`, `openapi/scalp-context.yaml` (CandidateSetup coil fields, LevelSource, DecisionTrace gate), schema 1.8.0 → 1.9.0, `test/fixtures/flagFixtures.js` (`invalidationClose`, `staleBreak`), `npm run test:pattern` / `npm run test:scalp` |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
-| 10 | Replay harness + miss-log fixtures | 1 day | low |
+| 10 | Replay harness + miss-log fixtures | 1 day | low | ✅ done 2026-09-22 → `scripts/replay.js`, `scripts/replay-metrics.js`, `test/fixtures/misses/` (MISS_001, MISS_002), `test/fixtures/replayHistories.js`, `test/fixtures/geometryFixtures.js` (moved from `test-geometry.js`), `config/engine.json` (`replay.minComputeCandles`, configVersion -7 → -8), no schema bump, `npm run test:replay` |
 | 11 | GPT instruction trim | 1 h | low |
 
-Execution order (updated 2026-09-22): 0–9 and 8b done → 10 (replay + miss log) → 9b (bias matrix) → 11 (GPT trim) → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
+Execution order (updated 2026-09-22): 0–10 and 8b done → 9b (bias matrix) → 11 (GPT trim) → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
 
 ---
 
@@ -404,6 +404,8 @@ New module `lib/biasMatrix.js`:
 
 Config: timeframe weights per horizon, `minRoomAtr`, counter-trend strength penalty.
 
+Also in 9b (from the Phase 10 replay baseline, 2026-09-22, 1,434 closes): the visual gate fired on 54 % of closes, and `15m:near_miss_*` codes made up ~65 % of that. Tune in 9b: `lifecycle.nearMissGate` config (default false) so near-miss diagonals no longer raise `needsVisualConfirmation` on their own; they still appear in `unresolvedGeometry` only when another code raised the gate. Also `visualTarget` must prefer a triggering/confirmed candidate over a forming one when both raised the gate. Re-run `npm run replay` + `replay:metrics` on `test/fixtures/history/2026-09-22` and report the new gate rate; target under 15 %.
+
 Also in 9b (found in GPT testing 2026-09-22): `decisionTrace.candidateSetups` strings for failed candidates carry the reason as a fourth token, e.g. `5m:short:failed:stale`, so "why did it fail" is answerable while `flag.includeFailed` stays false. Test: a failed candidate's trace string ends with its `failReason`.
 
 Payload: `biasMatrix`, `alignment[]`, `decisionInputs` per symbol, behind `include: bias`.
@@ -426,6 +428,15 @@ Acceptance: the two-sided scenario the user described is representable in one pa
 - Metrics: candidate precision/recall against hand-labelled fixtures; rate of `needsVisualConfirmation`. Track over time; it should fall.
 
 Acceptance: REGRESSION_001 and 002 reproduce from replay, not only from unit fixtures.
+
+Done 2026-09-22. As built:
+- Harness: `scripts/replay.js` imports `buildScalpContext` and `getCandlesWithProvenance` and re-implements nothing. At each close it builds with `now = cut` and an injected Kraken reader that holds only candles with `closeTime <= cut`, returning `limit - 1` closed rows (Kraken's `limit` rows minus the forming one). The pipeline sees production's windows: 499 closed per timeframe, 3m derived from 719 closed 1m (239). Wallet is stubbed unavailable; `includeFailed: true` so failed candidates carry `failReason`. It starts at the first close where every timeframe has `replay.minComputeCandles` (200) closed candles.
+- Proofs: scrambling every candle after the cut leaves payload and line byte-identical; scrambling the cut candle changes them (control). The same Kraken pull fed through production and through the replay gives an identical symbol payload, checked live on BTC and in `test:replay` on fixtures.
+- Line: `{ closedThrough, symbol, dataStatus, strategies{name:{valid,rejectedAt}}, candidates["tf:dir:state:conf"], candidateLifecycle[{ref,startedAt,state,failReason}], geometry, confluence["tf:components:distancePct"], gate{needsVisualConfirmation,codes} }`. `dataStatus`, `candidateLifecycle` and `confluence` are additions: the metrics need candidate identity and failReason, and the REGRESSION_002 proof needs confluence components.
+- Capture: `--capture BTC,SOL,ETH --out <dir>` saves the production fetch (Kraken, strict, closed only). Kraken OHLC serves only the newest 720 rows, so 3m ≥ 200 leaves ~120 replayable 1m closes. `--backfill-1m <minutes>` buckets Kraken public trades into older 1m candles; on the 2026-09-22 capture (360 min) the 60-minute overlap matched OHLC on 60/60 candles for all three symbols.
+- Regressions via the harness (synthetic, `test/fixtures/replayHistories.js`; real history for those dates is not retrievable): REGRESSION_001 steps forming → triggering → confirmed on the 1m clock with SCALP_1H NO_TRADE on every close. REGRESSION_002's 4h diagonal + horizontal confluence appears on the exact close the third touch pivots, not the close before. Both directions pass.
+- Timing: 300 closes of one symbol in 1.2 s on fixtures, 478 live BTC closes in 2.2 s (4.5 ms/close; M-series laptop).
+- First live measurement (capture 2026-09-22, 14:21–22:18 UTC, 478 closes per symbol, 1m clock): gate rate 0.54 overall (BTC 0.64, SOL 0.29, ETH 0.68). `15m:near_miss_resistance` 0.38, `15m:near_miss_support` 0.27, each `*:low_confidence` ≤ 0.02, `1m:coil_near_break` 0.01. The near-miss diagonal is the gate's dominant reason, as the phase 9 live observation predicted. Candidate appearances: forming 1,029, triggering 162, confirmed 265, failed 284; 240 distinct candidates, average lifetime 4.1 candles; 4 of 53 confirmed candidates later failed. No labels yet.
 
 ---
 

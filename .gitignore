@@ -15,3 +15,6 @@ build/
 # local AI workflow files
 CLAUDE.md
 .claude/
+
+# replay captures (large, regenerate with npm run replay -- --capture)
+test/fixtures/history/

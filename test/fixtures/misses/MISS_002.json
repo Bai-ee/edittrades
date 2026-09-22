@@ -1,0 +1,20 @@
+{
+  "id": "MISS_002",
+  "date": "2026-09-22",
+  "symbol": "BTC",
+  "timeframe": "1m",
+  "preImageRead": "Existing long: entry 86,289.01, 99.77x, notional 931.73, collateral 9.34, liquidation 85,657.61. Recommended a manual stop around 86,250 and to wait for a 1m close below it. Chart structure was treated as the primary stop constraint.",
+  "missingFeature": "No position-risk math: nothing solved stop distance %, dollar loss at the stop, loss as % of collateral, distance to liquidation, or whether the stop executes intrabar, before a stop was named. Thesis invalidation and the hard protective stop were not separated.",
+  "postImageRead": "86,289.01 → 86,250 is ~0.045% of price, ~0.42 USD before fees and slippage, already ~4.5% of the 9.34 collateral. Any structural invalidation more than ~0.7% away sits past liquidation at ~100x, so the position is overleveraged for that thesis: reduce leverage or size, never tighten the thesis. At ~100x the protective stop must be a pre-set executable price, not a 1m close.",
+  "missClass": "OTHER",
+  "fixLocation": "API risk engine (lib/riskEngine.js: positionRisk, maxStopDistanceForBudget, stopHierarchy); attached to account.positions[] in Phase 3b.",
+  "proposedFeature": "positionRisk / stopHierarchy: protective stop always before liquidation with fee and slippage allowance, thesis invalidation kept separate, compatible:false with a recommended leverage when structure needs more room than the loss budget.",
+  "status": "implemented",
+  "regressionTest": [
+    { "file": "test-risk-engine.js", "name": "MISS_002 long: stopDistancePct, lossAtStopUsd, lossAtStopPctOfCollateral, stopBeforeLiquidation" },
+    { "file": "test-risk-engine.js", "name": "MISS_002 short mirror: identical distances and figures, sides flipped" },
+    { "file": "test-risk-engine.js", "name": "long: a structural invalidation beyond the liquidation ceiling (\"~0.7% away\") is incompatible with a recommended leverage" },
+    { "file": "test-risk-engine.js", "name": "short mirror: same boundary, both outcomes" }
+  ],
+  "source": "~/Downloads/EditTrades_Living_Scalp_Playbook_updated.docx Miss 002; plan Phase 3 (exact numbers)"
+}
