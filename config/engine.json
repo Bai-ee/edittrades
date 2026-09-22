@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-6",
+  "configVersion": "2026.09.22-7",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -88,6 +88,14 @@
     "channelFlatSlope": 0.005,
     "confluenceTolAtr": 0.25,
     "maxConfluenceZones": 2
+  },
+
+  "lifecycle": {
+    "snapTolAtr": 1.0,
+    "visualConfidenceFloor": 60,
+    "geometryConfidenceFloor": 60,
+    "coilBreakAtr": 0.5,
+    "coilOverlapPct": 50
   },
 
   "thresholds": {

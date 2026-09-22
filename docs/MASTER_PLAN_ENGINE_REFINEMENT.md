@@ -1,7 +1,7 @@
 # EditTrades Engine Refinement — Phased Master Plan
 
 Last updated: 2026-09-22 (amended: Phase 3 position risk, 3b positions, 4 short mirrors, 8 channel, 9b bias matrix; docs sync after Phase 8, 8b in progress)
-Status: phases 0–8 done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 8b in progress.
+Status: phases 0–8 and 8b done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 9 done locally (schema 1.9.0 / configVersion 2026.09.22-7), not deployed.
 Branch: `upgrade-signal-engine`
 Source inputs: `~/Downloads/EditTrades_Master_Orchestration_Handoff_v1.md` (product/orchestration intent), this repo (current truth).
 Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPECIFICATION.md`, `CLAUDE.md`.
@@ -64,7 +64,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high | ✅ done 2026-09-22 → `lib/geometry.js` (`fitDiagonal`, `channel`, `confluenceZones`, `buildGeometryB`), `config/engine.json` (geometry B keys, `geometry.timeframes` drops 5m, configVersion -5 → -6), `services/scalpContext.js` (B fields on `geometryContext`), `openapi/scalp-context.yaml` (Diagonal, Channel, ConfluenceZone), schema 1.7.0 → 1.8.0, `test/fixtures/geometryPhase7Snapshot.json`, `npm run test:geometry` |
 | 8c | Trade journal, minimal: Blob file, one write op with its own key, account.journal with basic stats | 1 h | low |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium | ✅ done 2026-09-22 → `lib/chartRender.js`, `pureimage` 0.4.20, `assets/fonts/IBMPlexMono-Regular.ttf` + `OFL.txt`, `services/editTradesMcp.js` (`chart` arg, image block), `api/scalp-context.js` (`?chart`, image/png), `services/scalpContext.js` (`chart.onSeries` EMA hook, payload unchanged), `openapi/scalp-context.yaml`, no schema bump, `npm run test:chart` |
-| 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
+| 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium | ✅ done 2026-09-22 → `lib/patternLifecycle.js` (snap, coil, visual gate), `lib/patternDetector.js` (`detectFlagLifecycle`), `lib/geometry.js` (`nearMissDiagonals`), `config/engine.json` (`lifecycle`, configVersion -6 → -7), `services/scalpContext.js`, `openapi/scalp-context.yaml` (CandidateSetup coil fields, LevelSource, DecisionTrace gate), schema 1.8.0 → 1.9.0, `test/fixtures/flagFixtures.js` (`invalidationClose`, `staleBreak`), `npm run test:pattern` / `npm run test:scalp` |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
 | 11 | GPT instruction trim | 1 h | low |
@@ -377,7 +377,15 @@ Objective: unify phase 4 flags with phase 7–8 geometry into one pattern object
 
 Tests: state transitions on a scripted candle sequence; visual flag set exactly under the documented conditions.
 
-Acceptance: GPT instruction for the visual gate can be reduced to "if `needsVisualConfirmation`, request the chart named in `visualTarget` (Phase 8b) or ask the user for a screenshot of it".
+Acceptance: the GPT rule is "if needsVisualConfirmation, request chart visualTarget via MCP or ask the user for that screenshot".
+
+Done 2026-09-22. As built:
+- Levels: `snapCandidateLevels` moves `invalidation` and `breakoutLevel` only outward (never into the flag), to the nearest zone edge, detected diagonal, or confluence edge within `lifecycle.snapTolAtr` ATRs of the candidate timeframe. 1m/3m/5m read 15m geometry. `levelSource` records `flag|zone|diagonal|confluence` per level. State stays the flag's own read, so a triggering candidate can carry a snapped breakout above the last close.
+- Coil: overlapping (≥ `coilOverlapPct` of the narrower range) bull + bear flags, both forming → one `{ type: "coil", direction: "neutral", state: "forming" }` with `breakoutLevelUp/Down`; forming + triggering → the triggering flag only. Trace ref reads `"1m:neutral:forming"`.
+- Lifecycle: `durationCandles` (since the first flag candle), `ageCandles` (triggering/confirmed, since the break candle), `failReason` (`acceptance_below|acceptance_above|invalidation_close|stale`). `stale` is new: a break unconfirmed after `flag.maxBreakoutAge` candles reads failed instead of triggering. `detectFlag` output is unchanged; the lifecycle read is `detectFlagLifecycle`.
+- Gate: `decisionTrace.needsVisualConfirmation / visualTarget / unresolvedGeometry`, codes `<tf>:low_confidence`, `<gtf>:near_miss_support|resistance`, `<tf>:coil_near_break`, `<gtf>:low_geometry`. Failed candidates never raise it. `nearMissDiagonals` is a geometry export only; `geometryContext` is unchanged (phase 7/8 snapshot tests pass).
+- Budget, live 2026-09-22: 76,687 → 77,123 bytes full, 30,564 → 30,992 compact. +~100 bytes per flag candidate, +76 bytes per symbol trace with the gate off, ~+175 on.
+- Live observation: two-touch near-miss diagonals exist on 7 of 9 BTC/SOL/ETH geometry timeframes, so `near_miss_*` is the gate's most common reason. The chart renderer (8b) draws flag levels only; a coil target renders candles + EMAs without its breakout lines.
 
 ---
 

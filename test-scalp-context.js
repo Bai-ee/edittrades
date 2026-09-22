@@ -61,6 +61,8 @@ import {
 
 import { handleScalpContext } from './api/scalp-context.js';
 
+import { buildVisualGate } from './lib/patternLifecycle.js';
+
 // ---------------------------------------------------------------------------
 // Tiny test runner
 // ---------------------------------------------------------------------------
@@ -1414,9 +1416,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.8.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.9.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.8.0', 'schemaVersion must be bumped to 1.8.0');
+    assertEqual(case6Result.schemaVersion, '1.9.0', 'schemaVersion must be bumped to 1.9.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1545,6 +1547,117 @@ async function main() {
   // -------------------------------------------------------------------------
   // REST confirmation chart (phase 8b): ?chart=SYM:TF returns image/png after auth
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // 11) Visual gate (phase 9)
+  // -------------------------------------------------------------------------
+  console.log('\n11) visual gate (buildVisualGate, phase 9)');
+
+  {
+    const L = ENGINE_CONFIG.lifecycle;
+    const goodGeometry = { '15m': { confidence: 100 }, '1h': { confidence: 100 }, '4h': { confidence: 100 } };
+    const quiet = { '15m': { count: 0, sides: [] } };
+    const flag = (over) => ({ timeframe: '1m', type: 'flag', direction: 'long', state: 'forming', confidence: 70, breakoutLevel: 110, invalidation: 100, ...over });
+    const coil = (over) => ({ timeframe: '1m', type: 'coil', direction: 'neutral', state: 'forming', confidence: 70, high: 111, low: 100, breakoutLevelUp: 110, breakoutLevelDown: 101, ...over });
+    const gate = (candidates, over = {}) => buildVisualGate({
+      symbol: 'BTC', candidates, geometryByTf: goodGeometry, nearMissByTf: quiet, marketByTf: { '1m': { price: 105, atr: 1 } }, ...over
+    });
+    const off = (g, label) => {
+      assertEqual(g.needsVisualConfirmation, false, `${label}: needsVisualConfirmation`);
+      assertEqual(g.visualTarget, null, `${label}: visualTarget`);
+      assert(deepEqual(g.unresolvedGeometry, []), `${label}: unresolvedGeometry must be empty, got ${JSON.stringify(g.unresolvedGeometry)}`);
+    };
+
+    await test('lifecycle config keys exist and are numbers', () => {
+      for (const k of ['snapTolAtr', 'visualConfidenceFloor', 'geometryConfidenceFloor', 'coilBreakAtr', 'coilOverlapPct']) {
+        assert(typeof L[k] === 'number' && Number.isFinite(L[k]), `lifecycle.${k}`);
+      }
+    });
+
+    await test('never set without a candidate, even when every other condition holds', () => {
+      const worst = { geometryByTf: { '15m': { confidence: 0 } }, nearMissByTf: { '15m': { count: 2, sides: ['support', 'resistance'] } } };
+      off(gate([], worst), 'no candidates');
+      off(gate([flag({ state: 'failed', confidence: 1 })], worst), 'only failed candidates');
+    });
+
+    await test('a healthy candidate with good geometry does not set the gate', () => {
+      off(gate([flag({}), flag({ state: 'confirmed', confidence: L.visualConfidenceFloor })]), 'healthy');
+      off(gate([coil({})], { marketByTf: { '1m': { price: 105, atr: 1 } } }), 'coil mid-range');
+    });
+
+    await test('condition 1: triggering/confirmed with confidence < visualConfidenceFloor → <tf>:low_confidence', () => {
+      for (const state of ['triggering', 'confirmed']) {
+        const g = gate([flag({ state, confidence: L.visualConfidenceFloor - 1 })]);
+        assertEqual(g.needsVisualConfirmation, true, state);
+        assert(deepEqual(g.unresolvedGeometry, ['1m:low_confidence']), `${state}: codes ${JSON.stringify(g.unresolvedGeometry)}`);
+      }
+      off(gate([flag({ state: 'forming', confidence: 1 })]), 'forming is not gated on its own confidence');
+    });
+
+    await test('condition 2: diagonal one touch short on the geometry timeframe → <gtf>:near_miss_<side>', () => {
+      const g = gate([flag({ timeframe: '5m' })], { nearMissByTf: { '15m': { count: 1, sides: ['resistance'] } } });
+      assertEqual(g.needsVisualConfirmation, true, 'set');
+      assert(deepEqual(g.unresolvedGeometry, ['15m:near_miss_resistance']), `codes ${JSON.stringify(g.unresolvedGeometry)}`);
+      assert(deepEqual(g.visualTarget, { symbol: 'BTC', timeframe: '5m' }), 'target is the candidate timeframe');
+      off(gate([flag({ timeframe: '5m' })], { nearMissByTf: { '1h': { count: 1, sides: ['support'] } } }), 'near miss on an unrelated timeframe');
+    });
+
+    await test('condition 3: coil within coilBreakAtr ATRs of either breakout level → <tf>:coil_near_break', () => {
+      const reach = L.coilBreakAtr;
+      for (const price of [110 - reach, 101 + reach, 110 + 0.1]) {
+        const g = gate([coil({})], { marketByTf: { '1m': { price, atr: 1 } } });
+        assertEqual(g.needsVisualConfirmation, true, `price ${price}`);
+        assert(deepEqual(g.unresolvedGeometry, ['1m:coil_near_break']), `codes ${JSON.stringify(g.unresolvedGeometry)}`);
+      }
+      off(gate([coil({})], { marketByTf: { '1m': { price: 110 - reach - 0.01, atr: 1 } } }), 'just outside the reach');
+    });
+
+    await test('condition 4: geometry confidence < geometryConfidenceFloor (or missing) → <gtf>:low_geometry', () => {
+      const low = gate([flag({})], { geometryByTf: { ...goodGeometry, '15m': { confidence: L.geometryConfidenceFloor - 20 } } });
+      assertEqual(low.needsVisualConfirmation, true, 'low geometry');
+      assert(deepEqual(low.unresolvedGeometry, ['15m:low_geometry']), `codes ${JSON.stringify(low.unresolvedGeometry)}`);
+      const missing = gate([flag({})], { geometryByTf: { '15m': null } });
+      assert(deepEqual(missing.unresolvedGeometry, ['15m:low_geometry']), 'missing geometry counts as 0');
+      off(gate([flag({})], { geometryByTf: { ...goodGeometry, '15m': { confidence: L.geometryConfidenceFloor } } }), 'at the floor');
+    });
+
+    await test('visualTarget = highest-confidence flagged candidate; codes deduplicated in order', () => {
+      const g = gate([
+        flag({ timeframe: '1m', state: 'triggering', confidence: 40 }),
+        flag({ timeframe: '3m', state: 'forming', confidence: 95 }),
+        flag({ timeframe: '5m', state: 'confirmed', confidence: 55 }),
+        flag({ timeframe: '5m', direction: 'short', state: 'confirmed', confidence: 50 })
+      ]);
+      assert(deepEqual(g.visualTarget, { symbol: 'BTC', timeframe: '5m' }), `target ${JSON.stringify(g.visualTarget)} (3m at 95 is not flagged)`);
+      assert(deepEqual(g.unresolvedGeometry, ['1m:low_confidence', '5m:low_confidence']), `codes ${JSON.stringify(g.unresolvedGeometry)}`);
+      const all = gate([flag({ timeframe: '1m', confidence: 80 }), flag({ timeframe: '3m', confidence: 90 })],
+        { geometryByTf: { '15m': { confidence: 20 } }, nearMissByTf: { '15m': { count: 1, sides: ['support'] } } });
+      assert(deepEqual(all.visualTarget, { symbol: 'BTC', timeframe: '3m' }), 'highest confidence wins');
+      assert(deepEqual(all.unresolvedGeometry, ['15m:near_miss_support', '15m:low_geometry']), `dedup ${JSON.stringify(all.unresolvedGeometry)}`);
+    });
+
+    await test('buildScalpContext (case 6): every decisionTrace carries the gate, consistent with its candidates', () => {
+      assert(case6Result, 'case 6 result not available');
+      for (const [sym, symData] of Object.entries(case6Result.symbols)) {
+        const t = symData.decisionTrace;
+        assertEqual(typeof t.needsVisualConfirmation, 'boolean', `${sym}: needsVisualConfirmation`);
+        assert(Array.isArray(t.unresolvedGeometry), `${sym}: unresolvedGeometry`);
+        const live = symData.candidateSetups.filter((c) => c.state !== 'failed');
+        if (live.length === 0) assertEqual(t.needsVisualConfirmation, false, `${sym}: no candidate → no gate`);
+        if (t.needsVisualConfirmation) {
+          assertEqual(t.visualTarget.symbol, sym, `${sym}: visualTarget.symbol`);
+          assert(live.some((c) => c.timeframe === t.visualTarget.timeframe), `${sym}: visualTarget names a candidate timeframe`);
+          assert(t.unresolvedGeometry.length > 0, `${sym}: reasons listed`);
+        } else {
+          assertEqual(t.visualTarget, null, `${sym}: visualTarget null when off`);
+        }
+        for (const c of symData.candidateSetups) {
+          assert(c.levelSource && typeof c.levelSource === 'object', `${sym} ${c.timeframe}: levelSource`);
+          assert(Number.isInteger(c.durationCandles), `${sym} ${c.timeframe}: durationCandles`);
+        }
+      }
+    });
+  }
+
   console.log('\nREST chart');
 
   {

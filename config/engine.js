@@ -102,6 +102,20 @@
  *   - confluenceTolAtr (0.25): levels within a quarter ATR agree - half the zone
  *     tolerance, since confluence claims more than a single zone does.
  *   - maxConfluenceZones (2): the two best zones per timeframe; payload budget.
+ *
+ * `lifecycle` block (phase 9, `lib/patternLifecycle.js`), one line each:
+ *   - snapTolAtr (1.0): a zone edge, diagonal or confluence edge within one ATR of the
+ *     candidate's own timeframe is the same level as the flag edge - one bar's typical
+ *     range, so a snap never moves a scalp stop or entry by more than a bar.
+ *   - visualConfidenceFloor (60): a triggering/confirmed candidate under 60 has at most
+ *     a middling impulse/compression/EMA21 read; worth a look before acting on it.
+ *   - geometryConfidenceFloor (60): geometry confidence moves in steps of 20 (five
+ *     evidence items); under 60 means at most two of zones, structure and slopes were
+ *     measurable, so the levels behind the candidate are thin.
+ *   - coilBreakAtr (0.5): price within half an ATR of a coil edge is one bar from
+ *     choosing a side - the moment a chart is most useful.
+ *   - coilOverlapPct (50): a bull and a bear flag sharing at least half of the narrower
+ *     range are one consolidation read two ways, not two setups.
  */
 
 import { readFileSync } from 'node:fs';

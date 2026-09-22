@@ -325,51 +325,91 @@ components:
     CandidateSetup:
       type: object
       description: >-
-        Continuation flag found on closed candles for one timeframe (1m, 3m, 5m).
-        Separate from strategies: a candidate can exist while every strategy is
-        NO_TRADE, and it never changes a strategy decision. State is derived from
-        the last candles on every request (no memory between calls).
+        Pattern found on closed candles for one timeframe (1m, 3m, 5m). type flag is a
+        continuation flag; type coil (schema 1.9.0) replaces a bull and a bear flag over
+        the same range, both forming, with one neutral candidate that carries both
+        breakout levels. Separate from strategies: a candidate can exist while every
+        strategy is NO_TRADE, and it never changes a strategy decision. State and every
+        count are derived from the last candles on every request (no memory between
+        calls). Flag-only fields are absent on a coil.
       properties:
         timeframe:
           type: string
           enum: ["1m", "3m", "5m"]
         type:
           type: string
-          enum: [flag]
+          enum: [flag, coil]
         direction:
+          description: long or short for a flag, neutral for a coil.
           type: string
-          enum: [long, short]
+          enum: [long, short, neutral]
         state:
+          description: A coil is always forming; once one side triggers, that side's flag is published instead.
           type: string
           enum: [forming, triggering, confirmed, failed]
         impulseStrength:
-          description: Impulse range in ATR multiples.
+          description: Flag only. Impulse range in ATR multiples.
           type: number
         compressionScore:
-          description: 1 minus flag range over impulse range, 0-1. Higher is tighter.
+          description: Flag only. 1 minus flag range over impulse range, 0-1. Higher is tighter.
           type: number
         flagHigh:
+          description: Flag only.
           type: number
         flagLow:
+          description: Flag only.
           type: number
         breakoutLevel:
-          description: flagHigh for long, flagLow for short.
+          description: >-
+            Flag only. flagHigh for long, flagLow for short, unless snapped to geometry
+            (see levelSource).
           type: number
         invalidation:
-          description: flagLow for long, flagHigh for short.
+          description: >-
+            Flag only. flagLow for long, flagHigh for short, unless snapped to geometry
+            (see levelSource).
           type: number
+        high:
+          description: Coil only. Top of the combined range.
+          type: number
+        low:
+          description: Coil only. Bottom of the combined range.
+          type: number
+        breakoutLevelUp:
+          description: Coil only. The bull flag's breakout level.
+          type: number
+        breakoutLevelDown:
+          description: Coil only. The bear flag's breakout level.
+          type: number
+        levelSource:
+          $ref: "#/components/schemas/LevelSource"
+        durationCandles:
+          description: Candles since the pattern's first flag candle (0 = it started on the last closed candle).
+          type: integer
+        ageCandles:
+          description: Triggering and confirmed only. Candles since the break candle (0 = the break is the last closed candle).
+          type: integer
+        failReason:
+          description: >-
+            Failed only. acceptance_below / acceptance_above - closes held through EMA21;
+            invalidation_close - a close through invalidation after the break; stale -
+            the break sat flag.maxBreakoutAge candles without confirming.
+          type: string
+          enum: [acceptance_below, acceptance_above, invalidation_close, stale]
         ema21Hold:
           description: >-
-            How price treated EMA21 from flag start. Long - hold, wick,
+            Flag only. How price treated EMA21 from flag start. Long - hold, wick,
             acceptance_below. Short - hold_below, wick_above, acceptance_above.
             Acceptance means the flag failed.
           type: string
           enum: [hold, wick, acceptance_below, hold_below, wick_above, acceptance_above]
         confidence:
-          description: 0-100 score from impulse, compression, EMA21 hold, and Stoch RSI slope.
+          description: >-
+            0-100 score from impulse, compression, EMA21 hold, and Stoch RSI slope. A
+            coil carries the higher of its two sides.
           type: integer
         chaseRisk:
-          description: True when the last close is more than flag.chaseAtr ATRs past the breakout level.
+          description: Flag only. True when the last close is more than flag.chaseAtr ATRs past the breakout level.
           type: boolean
         risk:
           description: >-
@@ -383,15 +423,31 @@ components:
         - type
         - direction
         - state
-        - impulseStrength
-        - compressionScore
-        - flagHigh
-        - flagLow
-        - breakoutLevel
-        - invalidation
-        - ema21Hold
+        - levelSource
+        - durationCandles
         - confidence
-        - chaseRisk
+    LevelSource:
+      type: object
+      description: >-
+        Where each level came from. flag - the flag's own edge; zone - a horizontal
+        zone edge; diagonal - a detected diagonal's current level; confluence - a
+        confluence zone edge. Geometry is the candidate's own timeframe or the nearest
+        higher one with geometry (15m for 1m/3m/5m), within lifecycle.snapTolAtr ATRs.
+        A flag carries breakout and invalidation; a coil carries breakoutUp and
+        breakoutDown.
+      properties:
+        breakout:
+          type: string
+          enum: [flag, zone, diagonal, confluence]
+        invalidation:
+          type: string
+          enum: [flag, zone, diagonal, confluence]
+        breakoutUp:
+          type: string
+          enum: [flag, zone, diagonal, confluence]
+        breakoutDown:
+          type: string
+          enum: [flag, zone, diagonal, confluence]
     DecisionTrace:
       type: object
       description: >-
@@ -433,6 +489,33 @@ components:
           type: [array, "null"]
           items:
             type: string
+        needsVisualConfirmation:
+          description: >-
+            True when a non-failed candidate needs a chart before acting on it. Never
+            true without a candidate. If true, request the chart named in visualTarget
+            or ask the user for that screenshot.
+          type: boolean
+        visualTarget:
+          description: >-
+            The highest-confidence candidate that raised the gate; request it with chart
+            "SYMBOL:timeframe". Null when the gate is off.
+          type: [object, "null"]
+          properties:
+            symbol:
+              type: string
+            timeframe:
+              type: string
+        unresolvedGeometry:
+          description: >-
+            Why the gate is on, as "timeframe:code" strings. Codes - low_confidence
+            (triggering/confirmed under lifecycle.visualConfidenceFloor),
+            near_miss_support / near_miss_resistance (a diagonal one touch short of
+            geometry.diagonalMinTouches), coil_near_break (price within
+            lifecycle.coilBreakAtr ATRs of a coil breakout), low_geometry (geometry
+            confidence under lifecycle.geometryConfidenceFloor). Empty when off.
+          type: array
+          items:
+            type: string
       required:
         - configVersion
         - evaluatedAt
@@ -442,6 +525,9 @@ components:
         - window
         - candidateSetups
         - geometry
+        - needsVisualConfirmation
+        - visualTarget
+        - unresolvedGeometry
     Symbol:
       type: object
       description: Market context for a single tracked symbol. Nested objects are intentionally loose here; consult the live response for exact contents.

@@ -188,3 +188,26 @@ export function formingFlag() {
 export function triggeringFlag() {
   return regression001().slice(0, -1);
 }
+
+/**
+ * Phase 9: REGRESSION_001 through the break, then one close back under the flag low.
+ * EMA21 sits far below, so this is not acceptance. Expected: failed, invalidation_close.
+ */
+export function invalidationClose() {
+  return [...triggeringFlag(), { open: 100395, high: 100396, low: 100245, close: 100250 }];
+}
+
+/**
+ * Phase 9: REGRESSION_001 through the break, then four bars back inside the flag without
+ * a second close above it or a close below it. The break has sat `flag.maxBreakoutAge`
+ * candles unconfirmed. Expected: failed, stale.
+ */
+export function staleBreak() {
+  return [
+    ...triggeringFlag(),
+    { open: 100395, high: 100397, low: 100360, close: 100370 },
+    { open: 100370, high: 100380, low: 100340, close: 100350 },
+    { open: 100350, high: 100370, low: 100340, close: 100360 },
+    { open: 100360, high: 100370, low: 100345, close: 100355 }
+  ];
+}

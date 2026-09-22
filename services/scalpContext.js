@@ -14,8 +14,9 @@ import { buildStructure } from '../lib/structure.js';
 import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './walletTracker.js';
 import { ENGINE_CONFIG, CONFIG_VERSION } from '../config/engine.js';
 import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
-import { detectCandidateSetups } from '../lib/patternDetector.js';
-import { buildGeometryContext, buildGeometryB, geometryTraceSummary } from '../lib/geometry.js';
+import { DIRECTIONS, detectFlagLifecycle } from '../lib/patternDetector.js';
+import { buildGeometryContext, buildGeometryB, geometryTraceSummary, nearMissDiagonals, swingPivots } from '../lib/geometry.js';
+import { geometryTimeframeFor, snapCandidateLevels, resolveCoils, buildVisualGate } from '../lib/patternLifecycle.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -483,9 +484,10 @@ export function buildTimeframeWindow(closedByTf, tfEntries, timeframeList) {
  * @param {Object} params.window - buildTimeframeWindow(...) output
  * @param {Array<Object>} [params.candidateSetups] - the symbol's candidateSetups (phase 4)
  * @param {Object|null} [params.geometryContext] - the symbol's geometryContext by timeframe (phase 7)
+ * @param {Object|null} [params.visualGate] - buildVisualGate(...) output (phase 9)
  * @returns {Object}
  */
-export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window, candidateSetups = [], geometryContext = null }) {
+export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window, candidateSetups = [], geometryContext = null, visualGate = null }) {
   const bestEntry = bestSignal && rawStrategies ? rawStrategies[bestSignal] : null;
   return {
     configVersion: CONFIG_VERSION,
@@ -499,7 +501,12 @@ export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, win
     candidateSetups: candidateSetups.map(({ timeframe, direction, state }) => `${timeframe}:${direction}:${state}`),
     // Same idea for geometry (phase 7): one compact string per timeframe, full objects on
     // symbols.<SYM>.geometryContext. Null when no geometry was built for the symbol.
-    geometry: geometryContext ? geometryTraceSummary(geometryContext) : null
+    geometry: geometryContext ? geometryTraceSummary(geometryContext) : null,
+    // Visual gate (phase 9): when true, request the chart named in visualTarget (phase
+    // 8b) or ask the user for that screenshot. Never true without a candidate.
+    needsVisualConfirmation: visualGate ? visualGate.needsVisualConfirmation : false,
+    visualTarget: visualGate ? visualGate.visualTarget : null,
+    unresolvedGeometry: visualGate ? visualGate.unresolvedGeometry : []
   };
 }
 
@@ -1023,8 +1030,11 @@ export async function buildScalpContext(options = {}) {
     const closedByTf = {};
     const mtfForStrategy = {};
     const tfProviders = [];
-    const candidateSetups = [];
+    let candidateSetups = [];
     const geometryContext = {};
+    // Per candidate timeframe { price, atr } (phase 9): snap tolerance and the coil
+    // gate measure in the candidate timeframe's ATR. Internal, never published.
+    const marketByTf = {};
 
     for (const tf of timeframeList) {
       const fetched = bySymbolTf[symbol][tf];
@@ -1097,12 +1107,17 @@ export async function buildScalpContext(options = {}) {
       // A detector fault is logged, not warned, so it cannot move dataStatus.
       if (ENGINE_CONFIG.flag.timeframes.includes(tf)) {
         try {
-          const setups = detectCandidateSetups({
+          const flagInput = {
             candles: closed,
             ema21History: indicators.ema && indicators.ema.ema21History,
             stochRsi: tfEntries[tf].stochRsi
-          });
-          for (const setup of setups) candidateSetups.push({ timeframe: tf, ...setup });
+          };
+          for (const direction of DIRECTIONS) {
+            const found = detectFlagLifecycle(flagInput, direction);
+            if (!found) continue;
+            candidateSetups.push({ timeframe: tf, ...found.candidate });
+            marketByTf[tf] = { price: lastClose, atr: found.atr };
+          }
         } catch (err) {
           console.warn(`[ScalpContext] ${symbol} ${tf}: pattern detector failed - ${err.message}`);
         }
@@ -1191,6 +1206,32 @@ export async function buildScalpContext(options = {}) {
       }
     }
 
+    // Pattern lifecycle (phase 9): snap candidate levels to geometry, collapse bull/bear
+    // pairs into coils, then decide whether a chart is needed. Same separate-channel
+    // rule: a fault is logged and the unrefined candidates stand.
+    let visualGate = null;
+    try {
+      const nearMissByTf = {};
+      for (const [tf, g] of Object.entries(geometryContext)) {
+        if (!g) continue;
+        nearMissByTf[tf] = nearMissDiagonals(
+          swingPivots(closedByTf[tf], ENGINE_CONFIG.geometry.pivotLeft, ENGINE_CONFIG.geometry.pivotRight),
+          ENGINE_CONFIG.geometry,
+          { candles: closedByTf[tf], atr: g.atr }
+        );
+      }
+      const snapped = candidateSetups.map((c) => snapCandidateLevels(
+        c,
+        geometryContext[geometryTimeframeFor(c.timeframe)] || null,
+        marketByTf[c.timeframe] ? marketByTf[c.timeframe].atr : null
+      ));
+      candidateSetups = [...new Set(snapped.map((c) => c.timeframe))]
+        .flatMap((tf) => resolveCoils(snapped.filter((c) => c.timeframe === tf)));
+      visualGate = buildVisualGate({ symbol, candidates: candidateSetups, geometryByTf: geometryContext, nearMissByTf, marketByTf });
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: pattern lifecycle failed - ${err.message}`);
+    }
+
     let strategies = {};
     let bestSignal = null;
     let rawStrategies = null;
@@ -1213,7 +1254,8 @@ export async function buildScalpContext(options = {}) {
       evaluatedAt: new Date(safeNow).toISOString(),
       window: buildTimeframeWindow(closedByTf, tfEntries, timeframeList),
       candidateSetups,
-      geometryContext
+      geometryContext,
+      visualGate
     });
 
     symbolsOut[symbol] = {
@@ -1276,7 +1318,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.8.0',
+    schemaVersion: '1.9.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

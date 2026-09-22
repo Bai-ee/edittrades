@@ -11,7 +11,8 @@
 
 import { readFileSync } from 'node:fs';
 import { ENGINE_CONFIG } from './config/engine.js';
-import { detectFlag, detectCandidateSetups } from './lib/patternDetector.js';
+import { detectFlag, detectFlagLifecycle, detectCandidateSetups } from './lib/patternDetector.js';
+import { snapCandidateLevels, resolveCoils, geometryTimeframeFor } from './lib/patternLifecycle.js';
 import { calculateEMA21 } from './services/indicators.js';
 import { buildScalpContext, INTERVAL_MS } from './services/scalpContext.js';
 import {
@@ -24,7 +25,9 @@ import {
   extendedBreakout,
   noImpulse,
   formingFlag,
-  triggeringFlag
+  triggeringFlag,
+  invalidationClose,
+  staleBreak
 } from './test/fixtures/flagFixtures.js';
 
 // ---------------------------------------------------------------------------
@@ -134,6 +137,45 @@ function quietCandles(interval, count, now) {
     });
   }
   return out;
+}
+
+
+// --- Phase 9 helpers ---------------------------------------------------------
+
+/** Lifecycle read, long on the fixture and short on its mirror. */
+function lifecycleBoth(build) {
+  return {
+    long: detectFlagLifecycle(input(build()), 'long'),
+    short: detectFlagLifecycle(input(mirror(build())), 'short')
+  };
+}
+
+const reflect = (p) => 2 * FIXTURE_PIVOT - p;
+
+/** A geometryContext-shaped object carrying only the snappable levels. */
+function geometryWith({ zones = [], diagonals = [], confluence = [] }) {
+  return {
+    confidence: 100,
+    horizontalSupportZones: zones,
+    horizontalResistanceZones: [],
+    diagonalSupport: diagonals[0] !== undefined ? { detected: true, currentLevel: diagonals[0] } : { detected: false },
+    diagonalResistance: diagonals[1] !== undefined ? { detected: true, currentLevel: diagonals[1] } : { detected: false },
+    confluenceZones: confluence
+  };
+}
+
+/** The same geometry reflected around the fixture pivot (zone edges swap). */
+function mirrorGeometry({ zones = [], diagonals = [], confluence = [] }) {
+  const flip = (z) => ({ low: reflect(z.high), high: reflect(z.low) });
+  return geometryWith({
+    zones: zones.map(flip),
+    diagonals: [diagonals[1], diagonals[0]].map((d) => (d === undefined ? undefined : reflect(d))),
+    confluence: confluence.map(flip)
+  });
+}
+
+function flagCandidate(timeframe, overrides) {
+  return { timeframe, type: 'flag', confidence: 50, durationCandles: 4, levelSource: { breakout: 'flag', invalidation: 'flag' }, ...overrides };
 }
 
 const NOW = Date.UTC(2026, 8, 22, 12, 0, 0);
@@ -254,6 +296,169 @@ async function run() {
     assertEqual(detectFlag({ candles: regression001(), ema21History: null }, 'long'), null, 'no EMA21');
   });
 
+
+  // --- Phase 9: lifecycle ------------------------------------------------------
+
+  await test('phase 9: every phase 4 fixture keeps its state through the lifecycle read, levelSource "flag" with no geometry', () => {
+    for (const build of [regression001, formingFlag, triggeringFlag, wickReclaim, acceptanceBelow, extendedBreakout]) {
+      for (const [dir, candles] of [['long', build()], ['short', mirror(build())]]) {
+        const flag = detectFlag(input(candles), dir);
+        const life = detectFlagLifecycle(input(candles), dir);
+        assert(flag && life, `${build.name} ${dir}: both reads must find the flag`);
+        assertEqual(life.candidate.state, flag.state, `${build.name} ${dir}: state`);
+        for (const k of Object.keys(flag)) assertEqual(life.candidate[k], flag[k], `${build.name} ${dir}: ${k} unchanged`);
+        const snapped = snapCandidateLevels({ timeframe: '1m', ...life.candidate }, null, life.atr);
+        assertEqual(JSON.stringify(snapped.levelSource), JSON.stringify({ breakout: 'flag', invalidation: 'flag' }), `${build.name} ${dir}: levelSource`);
+        assertEqual(snapped.breakoutLevel, flag.breakoutLevel, `${build.name} ${dir}: breakoutLevel`);
+        assertEqual(snapped.invalidation, flag.invalidation, `${build.name} ${dir}: invalidation`);
+      }
+    }
+  });
+
+  await test('phase 9: durationCandles and ageCandles count on a scripted forming → triggering → confirmed sequence (long + short)', () => {
+    const full = regression001();
+    const reads = [3, 2, 1, 0].map((cut) => {
+      const candles = full.slice(0, full.length - cut);
+      return { long: detectFlagLifecycle(input(candles), 'long').candidate, short: detectFlagLifecycle(input(mirror(candles)), 'short').candidate };
+    });
+    assertEqual(reads.map((r) => r.long.state).join(','), 'forming,forming,triggering,confirmed', 'states');
+    for (let i = 1; i < reads.length; i++) {
+      assertEqual(reads[i].long.durationCandles, reads[i - 1].long.durationCandles + 1, `duration grows one per candle (step ${i})`);
+    }
+    assertEqual(reads[0].long.ageCandles, undefined, 'forming has no ageCandles');
+    assertEqual(reads[1].long.ageCandles, undefined, 'forming has no ageCandles');
+    assertEqual(reads[2].long.ageCandles, 0, 'break candle is the last candle → age 0');
+    assertEqual(reads[3].long.ageCandles, 1, 'one candle after the break → age 1');
+    for (const r of reads) {
+      assertEqual(r.short.state, r.long.state, 'short state mirrors');
+      assertEqual(r.short.durationCandles, r.long.durationCandles, 'short duration mirrors');
+      assertEqual(r.short.ageCandles, r.long.ageCandles, 'short age mirrors');
+      assertEqual(r.long.failReason, undefined, 'no failReason unless failed');
+    }
+  });
+
+  await test('phase 9: every failReason is reachable (acceptance_below/above, invalidation_close, stale), long + short', () => {
+    const cases = [
+      [acceptanceBelow, 'acceptance_below', 'acceptance_above'],
+      [invalidationClose, 'invalidation_close', 'invalidation_close'],
+      [staleBreak, 'stale', 'stale']
+    ];
+    for (const [build, longReason, shortReason] of cases) {
+      const { long, short } = lifecycleBoth(build);
+      assertEqual(long.candidate.state, 'failed', `${build.name}: long state`);
+      assertEqual(short.candidate.state, 'failed', `${build.name}: short state`);
+      assertEqual(long.candidate.failReason, longReason, `${build.name}: long failReason`);
+      assertEqual(short.candidate.failReason, shortReason, `${build.name}: short failReason`);
+      assertEqual(long.candidate.ageCandles, undefined, `${build.name}: failed has no ageCandles`);
+      assert(Number.isInteger(long.candidate.durationCandles), `${build.name}: durationCandles`);
+    }
+    // stale is a lifecycle read only: the phase 4 detector still calls that window triggering.
+    assertEqual(detectFlag(input(staleBreak()), 'long').state, 'triggering', 'detectFlag unchanged on the stale window');
+  });
+
+  // --- Phase 9: geometry snap --------------------------------------------------
+
+  await test('phase 9: invalidation and breakout snap outward to zone edges within snapTolAtr, levelSource "zone" (long + short mirror)', () => {
+    const { long, short } = lifecycleBoth(regression001);
+    const atr = long.atr;
+    const tol = ENGINE_CONFIG.lifecycle.snapTolAtr * atr;
+    const lc = long.candidate;
+    const spec = { zones: [
+      { low: lc.invalidation - 0.4 * tol, high: lc.invalidation + 0.1 * tol },
+      { low: lc.breakoutLevel + 0.3 * tol, high: lc.breakoutLevel + 2 * tol }
+    ] };
+    const snappedLong = snapCandidateLevels({ timeframe: '1m', ...lc }, geometryWith(spec), atr);
+    assertClose(snappedLong.invalidation, lc.invalidation - 0.4 * tol, 1e-6, 'long invalidation → zone edge beyond the flag low (the edge inside the flag is skipped)');
+    assertClose(snappedLong.breakoutLevel, lc.breakoutLevel + 0.3 * tol, 1e-6, 'long breakout → nearest zone edge above');
+    assertEqual(JSON.stringify(snappedLong.levelSource), JSON.stringify({ breakout: 'zone', invalidation: 'zone' }), 'long levelSource');
+
+    const snappedShort = snapCandidateLevels({ timeframe: '1m', ...short.candidate }, mirrorGeometry(spec), short.atr);
+    assertClose(snappedShort.invalidation, reflect(snappedLong.invalidation), 0.02, 'short invalidation mirrors');
+    assertClose(snappedShort.breakoutLevel, reflect(snappedLong.breakoutLevel), 0.02, 'short breakout mirrors');
+    assertEqual(JSON.stringify(snappedShort.levelSource), JSON.stringify(snappedLong.levelSource), 'short levelSource mirrors');
+    assertEqual(snappedShort.state, short.candidate.state, 'state unchanged by snapping');
+  });
+
+  await test('phase 9: diagonal and confluence sources are recorded; equal distance prefers confluence', () => {
+    const { long } = lifecycleBoth(regression001);
+    const lc = long.candidate;
+    const tol = ENGINE_CONFIG.lifecycle.snapTolAtr * long.atr;
+    const diag = snapCandidateLevels({ timeframe: '1m', ...lc }, geometryWith({ diagonals: [lc.invalidation - 0.5 * tol] }), long.atr);
+    assertEqual(diag.levelSource.invalidation, 'diagonal', 'diagonal support snaps invalidation');
+    assertEqual(diag.levelSource.breakout, 'flag', 'nothing near the breakout');
+    const both = snapCandidateLevels({ timeframe: '1m', ...lc }, geometryWith({
+      zones: [{ low: lc.breakoutLevel + 0.5 * tol, high: lc.breakoutLevel + 3 * tol }],
+      confluence: [{ low: lc.breakoutLevel + 0.5 * tol, high: lc.breakoutLevel + 3 * tol }]
+    }), long.atr);
+    assertEqual(both.levelSource.breakout, 'confluence', 'confluence wins a tie');
+  });
+
+  await test('phase 9: nothing within tolerance (or only on the wrong side) keeps the flag levels, levelSource "flag" (long + short)', () => {
+    const { long, short } = lifecycleBoth(regression001);
+    const lc = long.candidate;
+    const tol = ENGINE_CONFIG.lifecycle.snapTolAtr * long.atr;
+    const spec = { zones: [
+      { low: lc.invalidation - 3 * tol, high: lc.invalidation - 1.5 * tol },
+      { low: lc.breakoutLevel + 1.5 * tol, high: lc.breakoutLevel + 4 * tol }
+    ] };
+    for (const [c, g, atr] of [[lc, geometryWith(spec), long.atr], [short.candidate, mirrorGeometry(spec), short.atr]]) {
+      const out = snapCandidateLevels({ timeframe: '1m', ...c }, g, atr);
+      assertEqual(out.breakoutLevel, c.breakoutLevel, `${c.direction}: breakout kept`);
+      assertEqual(out.invalidation, c.invalidation, `${c.direction}: invalidation kept`);
+      assertEqual(JSON.stringify(out.levelSource), JSON.stringify({ breakout: 'flag', invalidation: 'flag' }), `${c.direction}: levelSource`);
+    }
+    // A level above the breakout is never an invalidation, even when it is the nearest.
+    const wrongSide = snapCandidateLevels({ timeframe: '1m', ...lc, invalidation: lc.breakoutLevel - 0.1 * tol },
+      geometryWith({ diagonals: [undefined, lc.breakoutLevel + 0.05 * tol] }), long.atr);
+    assertEqual(wrongSide.levelSource.invalidation, 'flag', 'wrong-side level ignored for invalidation');
+    // Levels inside the flag never tighten either edge.
+    const inside = snapCandidateLevels({ timeframe: '1m', ...lc }, geometryWith({ zones: [
+      { low: lc.invalidation + 0.05 * tol, high: lc.breakoutLevel - 0.05 * tol }
+    ] }), long.atr);
+    assertEqual(JSON.stringify(inside.levelSource), JSON.stringify({ breakout: 'flag', invalidation: 'flag' }), 'inside-flag levels ignored');
+  });
+
+  await test('phase 9: geometryTimeframeFor maps 1m/3m/5m to 15m and keeps a geometry timeframe as itself', () => {
+    for (const tf of ['1m', '3m', '5m']) assertEqual(geometryTimeframeFor(tf), '15m', tf);
+    for (const tf of ['15m', '1h', '4h']) assertEqual(geometryTimeframeFor(tf), tf, tf);
+  });
+
+  // --- Phase 9: coil -------------------------------------------------------------
+
+  await test('phase 9: an overlapping bull + bear forming pair becomes one neutral coil', () => {
+    const bull = flagCandidate('1m', { direction: 'long', state: 'forming', flagHigh: 110, flagLow: 100, breakoutLevel: 110, invalidation: 100, confidence: 55, durationCandles: 6 });
+    const bear = flagCandidate('1m', { direction: 'short', state: 'forming', flagHigh: 111, flagLow: 102, breakoutLevel: 102, invalidation: 111, confidence: 62, durationCandles: 4 });
+    const out = resolveCoils([bull, bear]);
+    assertEqual(out.length, 1, 'one coil replaces the pair');
+    const coil = out[0];
+    assertEqual(coil.type, 'coil', 'type');
+    assertEqual(coil.direction, 'neutral', 'direction');
+    assertEqual(coil.state, 'forming', 'state');
+    assertEqual(coil.high, 111, 'high = widest');
+    assertEqual(coil.low, 100, 'low = widest');
+    assertEqual(coil.breakoutLevelUp, 110, 'up = bull breakout');
+    assertEqual(coil.breakoutLevelDown, 102, 'down = bear breakout');
+    assertEqual(coil.durationCandles, 6, 'duration = the older side');
+    assertEqual(coil.confidence, 62, 'confidence = the stronger side');
+    // Order does not matter.
+    assertEqual(JSON.stringify(resolveCoils([bear, bull])), JSON.stringify(out), 'bear-first input gives the same coil');
+  });
+
+  await test('phase 9: coil resolves when one side triggers (either side); non-overlapping or settled pairs are untouched', () => {
+    const bull = flagCandidate('1m', { direction: 'long', state: 'forming', flagHigh: 110, flagLow: 100, breakoutLevel: 110, invalidation: 100 });
+    const bear = flagCandidate('1m', { direction: 'short', state: 'forming', flagHigh: 111, flagLow: 102, breakoutLevel: 102, invalidation: 111 });
+    const upBreak = resolveCoils([{ ...bull, state: 'triggering' }, bear]);
+    assertEqual(upBreak.length, 1, 'long triggers → one candidate');
+    assertEqual(upBreak[0].direction, 'long', 'long kept');
+    const downBreak = resolveCoils([bull, { ...bear, state: 'triggering' }]);
+    assertEqual(downBreak.length, 1, 'short triggers → one candidate');
+    assertEqual(downBreak[0].direction, 'short', 'short kept');
+    const apart = resolveCoils([bull, { ...bear, flagHigh: 130, flagLow: 120 }]);
+    assertEqual(apart.length, 2, 'no overlap → both flags stay');
+    const settled = resolveCoils([{ ...bull, state: 'confirmed' }, bear]);
+    assertEqual(settled.length, 2, 'confirmed + forming is not a coil case');
+  });
+
   // --- Integration through buildScalpContext ---------------------------------
 
   for (const [label, candles, direction] of [
@@ -263,7 +468,7 @@ async function run() {
     await test(`REGRESSION_001 (${label}): 1m candidate survives while SCALP_1H stays NO_TRADE`, async () => {
       const payload = await buildWith1m(candles);
       const btc = payload.symbols.BTC;
-      assertEqual(payload.schemaVersion, '1.8.0', 'schemaVersion');
+      assertEqual(payload.schemaVersion, '1.9.0', 'schemaVersion');
       assert(Array.isArray(btc.candidateSetups), 'candidateSetups must be an array');
       const hit = btc.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === direction);
       assert(hit, `expected a 1m ${direction} candidate, got ${JSON.stringify(btc.candidateSetups)}`);
@@ -272,6 +477,9 @@ async function run() {
       assertEqual(btc.strategies.SCALP_1H.direction, 'NO_TRADE', 'SCALP_1H.direction');
       assert(!('candidateSetups' in btc.strategies), 'candidates must not leak into strategies');
       assert(btc.decisionTrace.candidateSetups.includes(`1m:${direction}:confirmed`), 'decisionTrace references the candidate');
+      assert(hit.levelSource && typeof hit.levelSource.breakout === 'string' && typeof hit.levelSource.invalidation === 'string', 'levelSource recorded (phase 9)');
+      assertEqual(hit.ageCandles, 1, 'ageCandles (phase 9)');
+      assert(Number.isInteger(hit.durationCandles), 'durationCandles (phase 9)');
       for (const c of btc.candidateSetups) {
         assert(ENGINE_CONFIG.flag.timeframes.includes(c.timeframe), `unexpected timeframe ${c.timeframe}`);
       }
