@@ -35,6 +35,15 @@ export default async function handler(req, res) {
 
   res.setHeader('Cache-Control', 'no-store');
 
+  // Unmatched /api/* paths are routed here by vercel.json so they are LOGGED.
+  // Before this, a wrong path fell through to the static route and produced an
+  // unlogged 404, which made client-side failures impossible to diagnose.
+  if (req.query && req.query.__unknown === '1') {
+    const ua = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'].slice(0, 80) : null;
+    console.log(`[ScalpContext] unmatched-api-path method=${req.method} url=${String(req.url).slice(0, 120)} ua=${JSON.stringify(ua)}`);
+    return res.status(404).json({ error: 'Not found' });
+  }
+
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -53,7 +62,17 @@ export default async function handler(req, res) {
     const providedToken = match ? match[1].trim() : null;
 
     if (!expectedKey || !providedToken || !safeCompare(providedToken, expectedKey)) {
-      console.log(`[ScalpContext] requestId=${requestId} status=401 durationMs=${Date.now() - startedAt} symbols=0 warnings=0`);
+      // Permanent, non-secret shape of the failed credential: never the header
+      // value, the token, or the expected key. Enough to tell "no header" from
+      // "wrong token" from "wrong scheme" in one log line.
+      const authShape = {
+        present: typeof authHeader === 'string' && authHeader.length > 0,
+        scheme: typeof authHeader === 'string' ? (authHeader.split(' ')[0] || null) : null,
+        tokenLength: providedToken ? providedToken.length : 0,
+        keyConfigured: Boolean(expectedKey),
+        ua: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'].slice(0, 60) : null
+      };
+      console.log(`[ScalpContext] requestId=${requestId} status=401 durationMs=${Date.now() - startedAt} symbols=0 warnings=0 auth=${JSON.stringify(authShape)}`);
       return res.status(401).json({ error: 'Unauthorized' });
     }
 

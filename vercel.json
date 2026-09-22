@@ -56,12 +56,16 @@
       "dest": "/api/trade-status.js"
     },
     {
-      "src": "/api/scalp-context",
+      "src": "/api/scalp-context/?",
       "dest": "/api/scalp-context.js"
     },
     {
       "src": "/api/mcp/?",
       "dest": "/api/scalp-context.js?__mcp=1"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/scalp-context.js?__unknown=1"
     },
     {
       "src": "/(.*)",
