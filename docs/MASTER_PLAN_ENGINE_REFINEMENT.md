@@ -69,7 +69,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
 | 11 | GPT instruction trim | 1 h | low |
 
-Execution order (updated 2026-09-22): 7, 8 done → 8b (chart) → 9 → 9b → 10 → 11 → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision. Phase 3b is deferred to the end: its first attempt found the provider read path signer-bound and the rewrite is 4–6 h; screenshots of position panels cover the interactive case meanwhile. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
+Execution order (updated 2026-09-22): 0–9 and 8b done → 10 (replay + miss log) → 9b (bias matrix) → 11 (GPT trim) → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
 
 ---
 
