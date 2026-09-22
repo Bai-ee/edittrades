@@ -55,7 +55,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low | ✅ done 2026-09-22 → `lib/riskEngine.js`, `config/engine.json` (`risk`), `services/scalpContext.js` (`attachRisk`), `npm run test:risk` |
 | 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |
 | 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium | ✅ done 2026-09-22 → `lib/patternDetector.js`, `config/engine.json` (`flag`), `services/scalpContext.js` (`candidateSetups`), `test/fixtures/flagFixtures.js`, `npm run test:pattern` |
-| 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none |
+| 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none | ✅ done 2026-09-22 → `test-scalp-context.js` (compute-window assertion, production-sized fixture), `services/scalpContext.js` (build-duration log), `config/engine.json` (`configVersion` 2026.09.22-3 → -4, correcting Phase 5's unbumped `flag.includeFailed` addition) |
 | 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high |
@@ -215,11 +215,18 @@ Objective: prove the geometry phases already have the history they need, and put
 
 Change: no fetch change. Add a test asserting the compute window is ≥ 200 closed candles per timeframe (≥ 200 for 3m too, which 239 satisfies), and log build duration and payload bytes once per build.
 
+3m is the shallowest window at 239 candles (derived from 1m, capped by Kraken's 720-row limit on the base fetch — `services/marketData.js` `getCandlesWithProvenance`: `baseLimit = min(720, (limit + 2) * 3)`). This is acceptable for EMA200: 239 still clears the 200-candle floor a 200-period EMA needs to be fully warmed up, with 39 candles of margin. It is the tightest margin of any timeframe and is documented here so a future change to the 720-row cap or to `FETCH_LIMIT` is evaluated against it explicitly, not discovered later as a silently-degraded EMA200.
+
 Files: `services/scalpContext.js` (one duration/bytes log line), `test-scalp-context.js` (compute-window assertion).
 
 Tests: `test:scalp` — published candle counts unchanged (30/30/30/24/24/20/10); compute window ≥ 200 per timeframe; 3m documented as the shallowest at 239.
 
 Acceptance: duration and bytes logged; payload byte-identical; the assertion fails loudly if anyone lowers `FETCH_LIMIT`.
+
+Added 2026-09-22 after GPT testing (Phase 6 item F; if Phase 6 has already started, this moves to Phase 7):
+- F. Risk block on candidates. Each `candidateSetups[]` entry with `state` in {triggering, confirmed} and `chaseRisk: false` gets `risk` computed exactly as `attachRisk` does for strategies, with entry = `breakoutLevel` and stop = `invalidation` (direction-aware). Same shape: `{ maxLeverage, suggestedLeverage, lossAtStopUsd, lossAtStopPct, lossAtStopPctOfWallet, collateralUsd, reason }`; null-shaped with a reason when margin is unavailable. `forming` and `failed` entries get no `risk` key. Tests: long and short candidate through the real build path; forming has no key; margin unavailable → nulls. OpenAPI CandidateSetup gains `risk` (ref Risk). Schema bump 1.6.0 → 1.7.0. Reason: the GPT reports "risk not supplied for candidate setup" on every confirmed flag.
+
+Done 2026-09-22. The compute-window test injects a production-sized fixture (candle count derived from the `limit` argument `buildScalpContext` actually passes, not a hardcoded number) through the real `buildScalpContext` path, reading depth from `decisionTrace.window[tf].closedCandles`, so it fails if `FETCH_LIMIT` is ever lowered below the 200-candle floor. `configVersion` bumped 2026.09.22-3 → 2026.09.22-4 in the same phase — Phase 5 added `flag.includeFailed` to `config/engine.json` without a version bump; corrected here per governing rule 1 (config is versioned data, and `flag.includeFailed` changed the configured surface even though the schema didn't move).
 
 ---
 
