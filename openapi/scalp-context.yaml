@@ -179,6 +179,43 @@ components:
             - pullback
             - breakout
             - null
+        risk:
+          description: >-
+            Present only when valid is true. Sized against collateralUsd
+            (min(config risk.defaultMarginUsd, account.margin.usd)), never the whole
+            wallet; never invented. When margin is unavailable every numeric field is
+            null and reason names why.
+          $ref: "#/components/schemas/Risk"
+    Risk:
+      type: object
+      description: Leverage and loss-at-stop sizing for one valid strategy signal, phase 3.
+      properties:
+        maxLeverage:
+          description: Leverage cap from stop distance alone (this module's own conservative liquidation model).
+          type: [integer, "null"]
+        suggestedLeverage:
+          description: Leverage after the wallet-risk and exchange-max caps are also applied.
+          type: [integer, "null"]
+        lossAtStopUsd:
+          type: [number, "null"]
+        lossAtStopPct:
+          description: lossAtStopUsd as a percent of collateralUsd.
+          type: [number, "null"]
+        collateralUsd:
+          description: >-
+            min(config risk.defaultMarginUsd, account.margin.usd) - what this position was
+            actually sized against, not the whole wallet.
+          type: [number, "null"]
+        reason:
+          description: Null when the numbers above are populated; otherwise why they are not.
+          type: [string, "null"]
+      required:
+        - maxLeverage
+        - suggestedLeverage
+        - lossAtStopUsd
+        - lossAtStopPct
+        - collateralUsd
+        - reason
     StrategyTraceEntry:
       type: object
       description: Why one named strategy did or did not produce a signal, for this build.
@@ -254,10 +291,11 @@ components:
         candidateSetups:
           description: Reserved for a later phase. Always empty today.
           type: array
-          items: {}
+          items:
+            type: object
         geometry:
           description: Reserved for a later phase. Always null today.
-          type: "null"
+          type: [object, "null"]
       required:
         - configVersion
         - evaluatedAt

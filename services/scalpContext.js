@@ -12,7 +12,8 @@ import * as indicatorService from './indicators.js';
 import strategyService from './strategy.js';
 import { buildStructure } from '../lib/structure.js';
 import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './walletTracker.js';
-import { CONFIG_VERSION } from '../config/engine.js';
+import { ENGINE_CONFIG, CONFIG_VERSION } from '../config/engine.js';
+import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -355,7 +356,8 @@ const REJECTION_PATTERNS = [
   [/RR\s+[\d.]+R\s*(below|<)\s*minimum/i, 'risk-reward'],
   [/confidence\s+[\d.]+%\s*below minimum/i, 'confidence'],
   [/counter-trend|blocked by strong HTF/i, 'counter-trend'],
-  [/too far from EMA21|EMA distance/i, 'ema-distance'],
+  [/too far from (?:EMA21|21 EMA)|EMA distance/i, 'ema-distance'],
+  [/no signal returned/i, 'insufficient-data'],
   [/failed validation|wrong side/i, 'invalid-signal'],
   [/strategy evaluation failed|evaluation failed/i, 'evaluation-error'],
   [/insufficient .*data/i, 'insufficient-data']
@@ -507,6 +509,76 @@ function trimStrategies(strategies) {
     };
   }
   return out;
+}
+
+/**
+ * Attach a per-strategy `risk` block to already-trimmed VALID strategies, computed from
+ * account.margin.usd. Additive: invalid strategies are left untouched (no `risk` key at
+ * all - an invalid signal has nothing to size). Never invents margin: when it is
+ * unavailable, every valid strategy gets a risk block of nulls with a reason instead of
+ * numbers. Does not touch position-based fields - `account.positions[]` does not exist
+ * until Phase 3b.
+ *
+ * Sizing is against `collateralUsd = min(cfg.defaultMarginUsd, account.margin.usd)`, not
+ * the whole wallet: the "~$10, up to 100x" preference trades a slice of the wallet as
+ * collateral, not the entire balance. The 2% wallet-risk cap still measures against the
+ * full `account.margin.usd`, so a small collateralUsd cannot quietly loosen it (see
+ * `positionPlan`'s `walletMarginUsd` param). `collateralUsd` is published so a caller
+ * knows what the leverage/loss figures were sized against.
+ * @param {Object} strategies - trimStrategies(...) output, mutated in place
+ * @param {Object} account - buildScalpContext's fetched account snapshot
+ * @returns {Object} the same strategies object
+ */
+export function attachRisk(strategies, account) {
+  const cfg = ENGINE_CONFIG.risk;
+  const walletMarginUsd = account && account.margin && isFiniteNumber(account.margin.usd) && account.margin.usd > 0
+    ? account.margin.usd
+    : null;
+  const collateralUsd = walletMarginUsd !== null ? Math.min(cfg.defaultMarginUsd, walletMarginUsd) : null;
+
+  for (const s of Object.values(strategies || {})) {
+    if (!s || !s.valid) continue;
+
+    if (collateralUsd === null) {
+      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, collateralUsd: null, reason: 'account unavailable' };
+      continue;
+    }
+
+    const zoneMin = s.entryZone && isFiniteNumber(s.entryZone.min) ? s.entryZone.min : null;
+    const zoneMax = s.entryZone && isFiniteNumber(s.entryZone.max) ? s.entryZone.max : null;
+    const entryMid = zoneMin !== null && zoneMax !== null
+      ? (zoneMin + zoneMax) / 2
+      : (zoneMin !== null ? zoneMin : zoneMax);
+
+    const stopDistancePct = isFiniteNumber(entryMid) && entryMid > 0 && isFiniteNumber(s.stopLoss)
+      ? (Math.abs(entryMid - s.stopLoss) / entryMid) * 100
+      : null;
+
+    if (stopDistancePct === null || stopDistancePct <= 0) {
+      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, collateralUsd: null, reason: 'invalid entry/stop levels' };
+      continue;
+    }
+
+    const maxLev = maxLeverageForStop(stopDistancePct, cfg);
+    const plan = positionPlan({
+      marginUsd: collateralUsd,
+      walletMarginUsd,
+      stopDistancePct,
+      leverageRequested: cfg.maxLeverage,
+      maxWalletRiskPct: cfg.maxWalletRiskPct
+    }, cfg);
+
+    s.risk = {
+      maxLeverage: maxLev,
+      suggestedLeverage: plan.leverage,
+      lossAtStopUsd: plan.lossAtStopUsd,
+      lossAtStopPct: plan.lossAtStopPct,
+      collateralUsd: round2(collateralUsd),
+      reason: null
+    };
+  }
+
+  return strategies;
 }
 
 /**
@@ -853,8 +925,12 @@ export async function buildScalpContext(options = {}) {
     account = emptyAccountSnapshot('unavailable', `wallet read threw - ${err.message}`);
   }
 
+  for (const symbolEntry of Object.values(symbolsOut)) {
+    attachRisk(symbolEntry.strategies, account);
+  }
+
   const payload = {
-    schemaVersion: '1.3.0',
+    schemaVersion: '1.4.0',
     configVersion: CONFIG_VERSION,
     generatedAt: new Date(safeNow).toISOString(),
     closedThrough,

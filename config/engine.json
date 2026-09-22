@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-1",
+  "configVersion": "2026.09.22-2",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -28,6 +28,17 @@
       "TREND_RIDER": [3.0, 4.5],
       "MICRO_SCALP": [3.0, 4.0]
     }
+  },
+
+  "risk": {
+    "liquidationBufferPct": 0.05,
+    "maintenanceMarginPct": 0.3,
+    "maxWalletRiskPct": 2,
+    "defaultMarginUsd": 10,
+    "maxLeverage": 100,
+    "feeBps": 5,
+    "slippageBps": 5,
+    "defaultLossBudgetPctOfCollateral": 5
   },
 
   "thresholds": {

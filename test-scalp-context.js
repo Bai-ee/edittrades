@@ -38,10 +38,13 @@ import {
   classifyRejection,
   buildStrategyTrace,
   buildTimeframeWindow,
-  buildDecisionTrace
+  buildDecisionTrace,
+  attachRisk
 } from './services/scalpContext.js';
 
 import { findSwings, buildStructure } from './lib/structure.js';
+
+import { ENGINE_CONFIG } from './config/engine.js';
 
 import { evaluateAllStrategies } from './services/strategy.js';
 
@@ -1054,6 +1057,23 @@ async function main() {
     assertEqual(classifyRejection(null), 'unspecified');
   });
 
+  await test('classifyRejection recognizes "21 EMA" word order, not just "EMA21"', () => {
+    // evaluateSwingSetup's invalidationReasons push "Price too far from 21 EMA" -
+    // the reversed word order the original ema-distance regex missed entirely.
+    assertEqual(classifyRejection('Price too far from 21 EMA'), 'ema-distance');
+    assertEqual(classifyRejection('Price too far from 21 EMA; 1h breaking down'), 'ema-distance');
+    assertEqual(classifyRejection('Setup rejected: price too far from EMA21 (2.40% > 2%)'), 'ema-distance', 'the original EMA21 order must still classify');
+  });
+
+  await test('classifyRejection maps SWING\'s missing-3d/1d "no signal returned" to insufficient-data, not evaluation-error', () => {
+    // evaluateSwingSetup returns bare null when 3d/1d/4h data is missing, which
+    // normalizeStrategyResult turns into this exact generic reason text. It is a data
+    // gap, not a thrown exception, so it must not share evaluation-error's code.
+    assertEqual(classifyRejection('Strategy evaluation failed - no signal returned'), 'insufficient-data');
+    // A real exception's reason text still classifies as evaluation-error.
+    assertEqual(classifyRejection('Strategy evaluation failed: TypeError: boom'), 'evaluation-error');
+  });
+
   // Minimal multiTimeframeData that satisfies the SCALP_1H guardrails in
   // evaluateStrategy: 1h trending, 1h/15m near the 21 EMA and in the entry zone,
   // 15m Stoch RSI aligned, and a 4h structural swing far enough away to produce
@@ -1095,6 +1115,26 @@ async function main() {
     assert(scalpEntry.reason === result.strategies.SCALP_1H.reason, 'decisionTrace reason must match the engine-produced reason verbatim');
   });
 
+  await test('SWING with no 3d/1d data shows rejectedAt: "insufficient-data" via the real evaluateAllStrategies call path', () => {
+    const mtf = wideStopScalpMtf();
+    delete mtf['3d'];
+    delete mtf['1d'];
+
+    const result = evaluateAllStrategies('TESTUSDT', mtf, 'STANDARD');
+    assertEqual(result.strategies.SWING.valid, false, 'SWING must not produce a signal without 3d/1d data');
+    assert(/no signal returned/i.test(result.strategies.SWING.reason), `expected the "no signal returned" reason, got: ${result.strategies.SWING.reason}`);
+    assertEqual(classifyRejection(result.strategies.SWING.reason), 'insufficient-data');
+
+    const trace = buildDecisionTrace({
+      rawStrategies: result.strategies,
+      bestSignal: result.bestSignal,
+      evaluatedAt: new Date(NOW).toISOString(),
+      window: {}
+    });
+    const swingEntry = trace.strategies.find((e) => e.name === 'SWING');
+    assertEqual(swingEntry.rejectedAt, 'insufficient-data', `expected rejectedAt "insufficient-data", got: ${JSON.stringify(swingEntry.rejectedAt)}`);
+  });
+
   await test('buildStrategyTrace marks every canonical name ran:false when strategies is null (top-level evaluation failure)', () => {
     const entries = buildStrategyTrace(null);
     assertEqual(entries.length, STRATEGY_NAMES_LIST.length);
@@ -1110,6 +1150,146 @@ async function main() {
     assertEqual(window['1h'].from, null);
     assertEqual(window['1h'].to, null);
     assertEqual(window['1h'].closedCandles, 0);
+  });
+
+  // -------------------------------------------------------------------------
+  // 9) risk (phase 3)
+  // -------------------------------------------------------------------------
+  console.log('\n9) risk (buildScalpContext, phase 3)');
+
+  const RISK_FIXTURE_SYMBOL = 'INTEGRITY_C';
+  const riskFetchCandles = async (pair, interval) => ({
+    candles: makeCandles(interval, 520, { now: NOW, seed: seedFromString(`${pair}|${interval}`) }),
+    provider: interval === '3m' ? 'kraken-derived' : 'kraken',
+    synthetic: false,
+    error: null
+  });
+
+  async function fakeAccountWithMargin(usd) {
+    return {
+      status: 'available',
+      reason: null,
+      address: 'FAKE_TEST_ADDRESS',
+      fetchedAt: new Date(NOW).toISOString(),
+      margin: { usd, byAsset: { USDC: usd } },
+      holdings: [],
+      holdingsUsd: 0,
+      unpriced: [],
+      gas: { sol: 1, minSol: 0.02, sufficient: true },
+      performance: { baselineUsd: usd, netPnlUsd: 0, returnPct: 0, source: 'test' }
+    };
+  }
+
+  async function fakeAccountUnavailable() {
+    return {
+      status: 'unavailable',
+      reason: 'test stub',
+      address: null,
+      fetchedAt: null,
+      margin: { usd: null, byAsset: {} },
+      holdings: [],
+      holdingsUsd: null,
+      unpriced: [],
+      gas: { sol: null, minSol: 0.02, sufficient: null },
+      performance: { baselineUsd: null, netPnlUsd: null, returnPct: null, source: null }
+    };
+  }
+
+  let riskAvailableResult;
+  await test('setup: fixture produces at least one valid and one invalid strategy', async () => {
+    riskAvailableResult = await buildScalpContext({
+      symbols: [RISK_FIXTURE_SYMBOL],
+      timeframes: timeframesList,
+      now: NOW,
+      fetchCandles: riskFetchCandles,
+      fetchAccount: () => fakeAccountWithMargin(1000)
+    });
+    const s = riskAvailableResult.symbols[RISK_FIXTURE_SYMBOL].strategies;
+    assert(Object.values(s).some((v) => v.valid), 'fixture must produce at least one valid strategy');
+    assert(Object.values(s).some((v) => !v.valid), 'fixture must produce at least one invalid strategy');
+  });
+
+  await test('margin available: every valid strategy is sized against collateralUsd, not the whole wallet', () => {
+    const s = riskAvailableResult.symbols[RISK_FIXTURE_SYMBOL].strategies;
+    const expectedCollateral = Math.min(ENGINE_CONFIG.risk.defaultMarginUsd, 1000); // fakeAccountWithMargin(1000)
+    for (const [name, entry] of Object.entries(s)) {
+      if (!entry.valid) {
+        assert(!('risk' in entry), `${name}: an invalid strategy must not carry a risk block`);
+        continue;
+      }
+      assert(entry.risk && typeof entry.risk === 'object', `${name}: valid strategy missing a risk block`);
+      assertEqual(entry.risk.collateralUsd, expectedCollateral, `${name}: risk.collateralUsd must be min(defaultMarginUsd, wallet margin), not the whole wallet`);
+      assert(Number.isInteger(entry.risk.maxLeverage) && entry.risk.maxLeverage > 0, `${name}: risk.maxLeverage must be a positive integer`);
+      assert(Number.isInteger(entry.risk.suggestedLeverage) && entry.risk.suggestedLeverage > 0, `${name}: risk.suggestedLeverage must be a positive integer`);
+      assert(Number.isFinite(entry.risk.lossAtStopUsd), `${name}: risk.lossAtStopUsd must be finite`);
+      assert(entry.risk.lossAtStopUsd < expectedCollateral, `${name}: lossAtStopUsd (${entry.risk.lossAtStopUsd}) must stay under the tiny collateral it was sized against, not the $1000 wallet`);
+      assert(Number.isFinite(entry.risk.lossAtStopPct), `${name}: risk.lossAtStopPct must be finite`);
+      assertEqual(entry.risk.reason, null, `${name}: reason must be null when margin is available`);
+    }
+  });
+
+  await test('account unavailable: every valid strategy carries risk:null-shaped with a reason, invalid strategies still get none', async () => {
+    const result = await buildScalpContext({
+      symbols: [RISK_FIXTURE_SYMBOL],
+      timeframes: timeframesList,
+      now: NOW,
+      fetchCandles: riskFetchCandles,
+      fetchAccount: fakeAccountUnavailable
+    });
+    const s = result.symbols[RISK_FIXTURE_SYMBOL].strategies;
+    let sawValid = false;
+    for (const [name, entry] of Object.entries(s)) {
+      if (!entry.valid) {
+        assert(!('risk' in entry), `${name}: an invalid strategy must not carry a risk block`);
+        continue;
+      }
+      sawValid = true;
+      assertEqual(entry.risk.maxLeverage, null, `${name}: maxLeverage must be null without margin`);
+      assertEqual(entry.risk.suggestedLeverage, null, `${name}: suggestedLeverage must be null without margin`);
+      assertEqual(entry.risk.lossAtStopUsd, null, `${name}: lossAtStopUsd must be null without margin`);
+      assertEqual(entry.risk.lossAtStopPct, null, `${name}: lossAtStopPct must be null without margin`);
+      assertEqual(entry.risk.collateralUsd, null, `${name}: collateralUsd must be null without margin`);
+      assertEqual(entry.risk.reason, 'account unavailable', `${name}: expected the account-unavailable reason`);
+    }
+    assert(sawValid, 'fixture must still produce a valid strategy with the account unavailable');
+  });
+
+  await test('attachRisk never invents margin and never touches an invalid strategy', () => {
+    const strategies = {
+      VALID_ONE: { valid: true, entryZone: { min: 99, max: 101 }, stopLoss: 97 },
+      INVALID_ONE: { valid: false, entryZone: { min: null, max: null }, stopLoss: null }
+    };
+    attachRisk(strategies, { status: 'unavailable', margin: { usd: null } });
+    assertEqual(strategies.VALID_ONE.risk.reason, 'account unavailable');
+    assertEqual(strategies.VALID_ONE.risk.collateralUsd, null);
+    assertEqual(strategies.INVALID_ONE.risk, undefined, 'attachRisk must not add a risk key to an invalid strategy');
+  });
+
+  await test('attachRisk sizes against collateralUsd (min of config default and wallet margin), not the whole wallet', () => {
+    const bigWallet = {
+      VALID_ONE: { valid: true, entryZone: { min: 99, max: 101 }, stopLoss: 97 }
+    };
+    attachRisk(bigWallet, { status: 'available', margin: { usd: 5000 } });
+    assertEqual(bigWallet.VALID_ONE.risk.collateralUsd, ENGINE_CONFIG.risk.defaultMarginUsd, 'collateral must be capped at the config default, not the $5000 wallet');
+
+    const smallWallet = {
+      VALID_TWO: { valid: true, entryZone: { min: 99, max: 101 }, stopLoss: 97 }
+    };
+    attachRisk(smallWallet, { status: 'available', margin: { usd: 3 } });
+    assertEqual(smallWallet.VALID_TWO.risk.collateralUsd, 3, 'a wallet smaller than the default must not be inflated to it');
+  });
+
+  await test('the wallet-risk cap is measured against the whole wallet, not the small collateral it trades', () => {
+    // A large wallet with a very tight (0.1%) stop: if the wallet-risk cap were computed
+    // against the small $10 collateral instead of the $5000 wallet, 2% of $10 = $0.20
+    // would force leverage down to ~2x. Measured against the real wallet, 2% of $5000
+    // is a much larger budget and the stop-distance cap binds instead.
+    const strategies = {
+      TIGHT: { valid: true, entryZone: { min: 99.95, max: 100.05 }, stopLoss: 99.9 }
+    };
+    attachRisk(strategies, { status: 'available', margin: { usd: 5000 } });
+    const wrongBasisCap = Math.floor(((ENGINE_CONFIG.risk.maxWalletRiskPct / 100) * ENGINE_CONFIG.risk.defaultMarginUsd) / (0.1 / 100 * ENGINE_CONFIG.risk.defaultMarginUsd));
+    assert(strategies.TIGHT.risk.suggestedLeverage > wrongBasisCap, `expected the wallet-total basis to allow more leverage than the collateral-only basis (${wrongBasisCap}), got ${strategies.TIGHT.risk.suggestedLeverage}`);
   });
 
   // -------------------------------------------------------------------------

@@ -51,7 +51,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 0 | Field inventory + rule-to-owner matrix | 30 min | none | ✅ done 2026-09-22 → `docs/RULE_OWNER_MATRIX.md` |
 | 1 | `config/engine.json` + `configVersion` | 1 h | low | ✅ done 2026-09-22 → `config/engine.json`, `config/engine.js`, `npm run test:config` |
 | 2 | `decisionTrace` per symbol | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`buildDecisionTrace`, `buildStrategyTrace`, `buildTimeframeWindow`, `classifyRejection`), `openapi/scalp-context.yaml`, `npm run test:scalp` |
-| 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low |
+| 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low | ✅ done 2026-09-22 → `lib/riskEngine.js`, `config/engine.json` (`risk`), `services/scalpContext.js` (`attachRisk`), `npm run test:risk` |
 | 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |
 | 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium |
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none |
@@ -143,7 +143,7 @@ Config (phase 1 file): `liquidationBufferPct`, `maintenanceMarginPct`, `maxWalle
 Payload: per valid strategy signal, add `risk: { maxLeverage, suggestedLeverage, lossAtStopUsd, lossAtStopPct }` computed from `account.margin.usd` when available, else null with `reason: "account unavailable"`. Never invent margin.
 
 Existing-position risk (from playbook Miss 002). Same module, pure functions, no provider dependency:
-- `positionRisk(position, stopPrice, { feeBps, slippageBps })` where `position = { side, entry, notional, collateral, leverage, liquidationPrice }` → `{ stopDistancePct, lossAtStopUsd, lossAtStopPctOfCollateral, distanceToLiquidationPct, stopBeforeLiquidation: bool, executable: "intrabar" }`.
+- `positionRisk(position, stopPrice, { feeBps, slippageBps })` where `position = { side, entry, notional, collateral, leverage, liquidationPrice }` → `{ stopDistancePct, lossAtStopUsd, lossAtStopPctOfCollateral, distanceToLiquidationPct, stopBeforeLiquidation: bool, executable: "intrabar" | "gap_risk" }`. `executable` is `"intrabar"` when the stop sits before liquidation with room beyond the fee/slippage buffer, `"gap_risk"` otherwise (implementation detail beyond this plan's original single-value example, kept because it makes the fee/slippage config actually load-bearing).
 - `maxStopDistanceForBudget(position, lossBudgetUsd, { feeBps, slippageBps })` → price distance the budget allows.
 - `stopHierarchy(position, structuralInvalidation, lossBudgetUsd, cfg)` → `{ protectiveStop, thesisInvalidation, compatible: bool, reason, recommendedLeverage, recommendedNotional }`. `protectiveStop` is always an executable price before liquidation with fee and slippage allowance. `thesisInvalidation` is the structural level. When structure needs more room than the budget permits, `compatible: false` and the recommendation reduces leverage or size; the thesis level is never tightened to fit.
 

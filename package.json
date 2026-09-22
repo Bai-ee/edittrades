@@ -14,7 +14,8 @@
     "vercel-build": "npm install --legacy-peer-deps && npm run postinstall",
     "test:mcp": "node test-edittrades-mcp.js",
     "test:wallet": "node test-wallet-tracker.js",
-    "test:config": "node test-engine-config.js"
+    "test:config": "node test-engine-config.js",
+    "test:risk": "node test-risk-engine.js"
   },
   "keywords": [
     "trading",
