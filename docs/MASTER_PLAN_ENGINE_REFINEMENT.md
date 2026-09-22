@@ -66,7 +66,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
 | 11 | GPT instruction trim | 1 h | low |
 
-Execution order (updated 2026-09-22): 7 done → 8 → 8c (journal) → 8b (chart) → 9 → 9b → 10 → 11 → 3b. Phase 3b is deferred to the end: its first attempt found the provider read path signer-bound and the rewrite is 4–6 h; screenshots of position panels cover the interactive case meanwhile. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
+Execution order (updated 2026-09-22): 7, 8 done → 8b (chart) → 9 → 9b → 10 → 11 → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision. Phase 3b is deferred to the end: its first attempt found the provider read path signer-bound and the rewrite is 4–6 h; screenshots of position panels cover the interactive case meanwhile. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
 
 ---
 
@@ -353,6 +353,8 @@ Rules:
 - Delivery: MCP returns an `image` content block beside the summary text and `structuredContent`. REST returns `image/png` when `chart` is set, JSON otherwise. Auth on REST unchanged.
 
 Files: new `lib/chartRender.js`; `services/editTradesMcp.js` (arg + image block); `api/scalp-context.js` (query parse, content type; auth untouched); `services/scalpContext.js` (pass geometry to renderer).
+
+Renderer decision (2026-09-22): pure-JS only, no native binaries (Vercel Hobby, no build step for node-gyp). Use `pureimage` (pure-JS canvas + PNG encoder) with one bundled TTF under `assets/fonts/` for labels, or an equivalent pure-JS PNG encoder. `canvas` / `@napi-rs/canvas` / `sharp` are not allowed. Chart size 900×500, dark background, candles for the timeframe's published window (30 for 1m/3m/5m, 24 for 15m/1h, 20 for 4h), EMA21/EMA200 lines, horizontal zones as bands, diagonals as lines, channel as two lines, candidate flag high/low/breakout/invalidation as dashed lines with labels, title = symbol · timeframe · closedThrough. 1m/3m/5m draw candles + EMAs + candidate only (no geometry exists for them). Timeframe must be one the payload carries.
 
 Tests: `test-chart-render.js` — renders a fixture without throwing, PNG magic bytes, size under budget, overlays present at expected pixel rows for a synthetic series. `test:mcp` — tool still single and read-only; `chart` absent → no image block; two charts requested → error; image block only for the named symbol/timeframe.
 
