@@ -63,9 +63,10 @@
  *     structure first, Stoch RSI slope as a tiebreaker.
  *
  * `geometry` block (phase 7, `lib/geometry.js`), one line each:
- *   - timeframes (5m, 15m, 1h, 4h): where geometryContext is built and published. All
- *     seven measured 85 KB full payload against the 80 KB budget (2026-09-22); these four
- *     bring it back under. 1m/3m are covered by the flag detector, 1d by `structure`.
+ *   - timeframes (15m, 1h, 4h; phase 8 dropped 5m): where geometryContext is built and
+ *     published. All seven measured 85 KB full payload against the 80 KB budget; phase 8
+ *     dropped 5m (-3.4 KB) to make room for diagonals/channel/confluence on the other
+ *     three (2026-09-22). 1m/3m/5m are covered by the flag detector, 1d by `structure`.
  *   - atrPeriod (14): Wilder's standard length; same unit as the flag detector's ATR.
  *   - pivotLeft / pivotRight (3 / 3): same fractal width as lib/structure.js findSwings,
  *     so per-timeframe pivots and the symbol-level 1h swings agree on what a swing is.
@@ -79,6 +80,28 @@
  *     for a scalp read, long enough that one candle does not flip the sign.
  *   - extensionAtr.elevated / .high (1.5 / 3.0): price 1.5 ATR from EMA21 is stretched
  *     (1.5 matches flag.chaseAtr), 3 ATR is a chase.
+ *
+ * Geometry B (phase 8, same block). Precision over recall - a false line is worse than a
+ * missed one - so every gate below errs toward `detected: false`:
+ *   - diagonalMinTouches (3): two points define any line; a third touch is the first
+ *     evidence. Separate from minTouches (2, zones) so phase 7 zones are unchanged.
+ *   - maxDiagonalCandidates (10): lines are fit through pairs of the newest 10 pivots a
+ *     side (45 pairs) - recent structure, bounded compute.
+ *   - diagonalMinSpanCandles (20): touches must span 20 candles; three pivots bunched
+ *     together are a wiggle, not a trendline.
+ *   - diagonalMinBounceAtr (3.0): between touches price must close 3 ATR away from the
+ *     line. Chosen on fixtures + live data: 0/60 lines on iid-noise fixtures (2.0 let 8
+ *     through), and 2 of 18 live BTC/SOL/ETH 15m/1h/4h lines survived vs 18/18 with no
+ *     bounce rule, many of those 15-20% from price.
+ *   - diagonalFullTouches (5): confidence's touch score saturates at five touches.
+ *   - maxSlopeDivergence (0.02): support and resistance slopes may differ by 2% of the
+ *     channel width per candle (50 candles to change width by one width); steeper
+ *     convergence is a triangle or wedge, not a channel.
+ *   - channelFlatSlope (0.005): a channel whose mean slope moves under 0.5% of its width
+ *     per candle is flat (200 candles to climb one width).
+ *   - confluenceTolAtr (0.25): levels within a quarter ATR agree - half the zone
+ *     tolerance, since confluence claims more than a single zone does.
+ *   - maxConfluenceZones (2): the two best zones per timeframe; payload budget.
  */
 
 import { readFileSync } from 'node:fs';

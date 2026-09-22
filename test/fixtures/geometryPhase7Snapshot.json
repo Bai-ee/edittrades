@@ -1,0 +1,354 @@
+{
+ "regression002": {
+  "timeframe": "4h",
+  "atr": 1.88,
+  "atrPct": 1.8431,
+  "structure": "range",
+  "higherLows": {
+   "active": false,
+   "count": 0
+  },
+  "lowerHighs": {
+   "active": false,
+   "count": 0
+  },
+  "horizontalSupportZones": [
+   {
+    "low": 94.8,
+    "high": 95.2,
+    "touches": 3,
+    "lastTouchAt": "2026-07-23T20:00:00.000Z",
+    "side": "support"
+   }
+  ],
+  "horizontalResistanceZones": [],
+  "roomToNextSupport": 6.667,
+  "roomToNextResistance": null,
+  "extensionRisk": {
+   "atrFromEma21": 1.29,
+   "level": "low"
+  },
+  "ema21Slope": 0.0355,
+  "ema200Slope": 0.0355,
+  "stochAccelK": -100,
+  "confidence": 80
+ },
+ "triangle": {
+  "timeframe": "4h",
+  "atr": 3.59,
+  "atrPct": 3.7396,
+  "structure": "range",
+  "higherLows": {
+   "active": true,
+   "count": 2
+  },
+  "lowerHighs": {
+   "active": true,
+   "count": 2
+  },
+  "horizontalSupportZones": [],
+  "horizontalResistanceZones": [],
+  "roomToNextSupport": null,
+  "roomToNextResistance": null,
+  "extensionRisk": {
+   "atrFromEma21": -1.09,
+   "level": "low"
+  },
+  "ema21Slope": 0.0732,
+  "ema200Slope": 0.0732,
+  "stochAccelK": 0,
+  "confidence": 60
+ },
+ "regression001": {
+  "timeframe": "4h",
+  "atr": 34.86,
+  "atrPct": 0.0347,
+  "structure": "up",
+  "higherLows": {
+   "active": true,
+   "count": 1
+  },
+  "lowerHighs": {
+   "active": false,
+   "count": 0
+  },
+  "horizontalSupportZones": [
+   {
+    "low": 100009.48,
+    "high": 100013.94,
+    "touches": 5,
+    "lastTouchAt": null,
+    "side": "resistance"
+   },
+   {
+    "low": 99985.98,
+    "high": 99990.04,
+    "touches": 8,
+    "lastTouchAt": null,
+    "side": "support"
+   }
+  ],
+  "horizontalResistanceZones": [],
+  "roomToNextSupport": 0.387,
+  "roomToNextResistance": null,
+  "extensionRisk": {
+   "atrFromEma21": 4.76,
+   "level": "high"
+  },
+  "ema21Slope": 0.0164,
+  "ema200Slope": 0.0164,
+  "stochAccelK": 100,
+  "confidence": 80
+ },
+ "triggeringFlag": {
+  "timeframe": "4h",
+  "atr": 36.39,
+  "atrPct": 0.0362,
+  "structure": "up",
+  "higherLows": {
+   "active": true,
+   "count": 1
+  },
+  "lowerHighs": {
+   "active": false,
+   "count": 0
+  },
+  "horizontalSupportZones": [
+   {
+    "low": 100009.48,
+    "high": 100013.94,
+    "touches": 5,
+    "lastTouchAt": null,
+    "side": "resistance"
+   },
+   {
+    "low": 99985.98,
+    "high": 99990.04,
+    "touches": 8,
+    "lastTouchAt": null,
+    "side": "support"
+   }
+  ],
+  "horizontalResistanceZones": [],
+  "roomToNextSupport": 0.38,
+  "roomToNextResistance": null,
+  "extensionRisk": {
+   "atrFromEma21": 4.82,
+   "level": "high"
+  },
+  "ema21Slope": 0.0166,
+  "ema200Slope": 0.0166,
+  "stochAccelK": -100,
+  "confidence": 80
+ },
+ "acceptanceBelow": {
+  "timeframe": "4h",
+  "atr": 48.89,
+  "atrPct": 0.0488,
+  "structure": "up",
+  "higherLows": {
+   "active": true,
+   "count": 1
+  },
+  "lowerHighs": {
+   "active": false,
+   "count": 0
+  },
+  "horizontalSupportZones": [
+   {
+    "low": 99985.7,
+    "high": 100014.75,
+    "touches": 15,
+    "lastTouchAt": null,
+    "side": "both"
+   }
+  ],
+  "horizontalResistanceZones": [],
+  "roomToNextSupport": 0.168,
+  "roomToNextResistance": null,
+  "extensionRisk": {
+   "atrFromEma21": -0.65,
+   "level": "low"
+  },
+  "ema21Slope": 0.0062,
+  "ema200Slope": 0.0062,
+  "stochAccelK": 100,
+  "confidence": 80
+ },
+ "regression002Mirror": {
+  "timeframe": "4h",
+  "atr": 1.88,
+  "atrPct": 1.9184,
+  "structure": "range",
+  "higherLows": {
+   "active": false,
+   "count": 0
+  },
+  "lowerHighs": {
+   "active": false,
+   "count": 0
+  },
+  "horizontalSupportZones": [],
+  "horizontalResistanceZones": [
+   {
+    "low": 104.8,
+    "high": 105.2,
+    "touches": 3,
+    "lastTouchAt": "2026-07-23T20:00:00.000Z",
+    "side": "resistance"
+   }
+  ],
+  "roomToNextSupport": null,
+  "roomToNextResistance": 6.939,
+  "extensionRisk": {
+   "atrFromEma21": -1.29,
+   "level": "low"
+  },
+  "ema21Slope": -0.0351,
+  "ema200Slope": -0.0351,
+  "stochAccelK": -100,
+  "confidence": 80
+ },
+ "triangleMirror": {
+  "timeframe": "4h",
+  "atr": 3.59,
+  "atrPct": 3.4519,
+  "structure": "range",
+  "higherLows": {
+   "active": true,
+   "count": 2
+  },
+  "lowerHighs": {
+   "active": true,
+   "count": 2
+  },
+  "horizontalSupportZones": [],
+  "horizontalResistanceZones": [],
+  "roomToNextSupport": null,
+  "roomToNextResistance": null,
+  "extensionRisk": {
+   "atrFromEma21": 1.09,
+   "level": "low"
+  },
+  "ema21Slope": -0.0725,
+  "ema200Slope": -0.0725,
+  "stochAccelK": 0,
+  "confidence": 60
+ },
+ "regression001Mirror": {
+  "timeframe": "4h",
+  "atr": 34.86,
+  "atrPct": 0.035,
+  "structure": "down",
+  "higherLows": {
+   "active": false,
+   "count": 0
+  },
+  "lowerHighs": {
+   "active": true,
+   "count": 1
+  },
+  "horizontalSupportZones": [],
+  "horizontalResistanceZones": [
+   {
+    "low": 99986.06,
+    "high": 99990.52,
+    "touches": 5,
+    "lastTouchAt": null,
+    "side": "support"
+   },
+   {
+    "low": 100009.96,
+    "high": 100014.02,
+    "touches": 8,
+    "lastTouchAt": null,
+    "side": "resistance"
+   }
+  ],
+  "roomToNextSupport": null,
+  "roomToNextResistance": 0.39,
+  "extensionRisk": {
+   "atrFromEma21": -4.76,
+   "level": "high"
+  },
+  "ema21Slope": -0.0164,
+  "ema200Slope": -0.0164,
+  "stochAccelK": 100,
+  "confidence": 80
+ },
+ "triggeringFlagMirror": {
+  "timeframe": "4h",
+  "atr": 36.39,
+  "atrPct": 0.0365,
+  "structure": "down",
+  "higherLows": {
+   "active": false,
+   "count": 0
+  },
+  "lowerHighs": {
+   "active": true,
+   "count": 1
+  },
+  "horizontalSupportZones": [],
+  "horizontalResistanceZones": [
+   {
+    "low": 99986.06,
+    "high": 99990.52,
+    "touches": 5,
+    "lastTouchAt": null,
+    "side": "support"
+   },
+   {
+    "low": 100009.96,
+    "high": 100014.02,
+    "touches": 8,
+    "lastTouchAt": null,
+    "side": "resistance"
+   }
+  ],
+  "roomToNextSupport": null,
+  "roomToNextResistance": 0.383,
+  "extensionRisk": {
+   "atrFromEma21": -4.82,
+   "level": "high"
+  },
+  "ema21Slope": -0.0166,
+  "ema200Slope": -0.0166,
+  "stochAccelK": -100,
+  "confidence": 80
+ },
+ "acceptanceBelowMirror": {
+  "timeframe": "4h",
+  "atr": 48.89,
+  "atrPct": 0.049,
+  "structure": "down",
+  "higherLows": {
+   "active": false,
+   "count": 0
+  },
+  "lowerHighs": {
+   "active": true,
+   "count": 1
+  },
+  "horizontalSupportZones": [],
+  "horizontalResistanceZones": [
+   {
+    "low": 99985.25,
+    "high": 100014.3,
+    "touches": 15,
+    "lastTouchAt": null,
+    "side": "both"
+   }
+  ],
+  "roomToNextSupport": null,
+  "roomToNextResistance": 0.168,
+  "extensionRisk": {
+   "atrFromEma21": 0.65,
+   "level": "low"
+  },
+  "ema21Slope": -0.0062,
+  "ema200Slope": -0.0062,
+  "stochAccelK": 100,
+  "confidence": 80
+ }
+}

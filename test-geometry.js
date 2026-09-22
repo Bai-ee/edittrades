@@ -1,6 +1,7 @@
 /**
- * Deterministic, zero-network test suite for lib/geometry.js and the phase 7 payload
- * wiring (geometryContext, decisionTrace.geometry, candidate risk).
+ * Deterministic, zero-network test suite for lib/geometry.js and the phase 7/8 payload
+ * wiring (geometryContext incl. diagonals/channel/confluence, decisionTrace.geometry,
+ * candidate risk).
  *
  * Every directional feature is checked on a fixture and on its mirror (prices reflected
  * around a pivot): the mirrored series must give the mirrored geometry.
@@ -23,7 +24,11 @@ import {
   emaSlope,
   stochAcceleration,
   buildGeometryContext,
-  geometryTraceSummary
+  geometryTraceSummary,
+  fitDiagonal,
+  channel,
+  confluenceZones,
+  buildGeometryB
 } from './lib/geometry.js';
 import { calculateEMA21 } from './services/indicators.js';
 import { buildScalpContext, attachRisk, filterPayload, INTERVAL_MS } from './services/scalpContext.js';
@@ -146,6 +151,71 @@ function triangle() {
   return legs([100, 90, 110, 92, 108, 94, 106, 96], 4);
 }
 
+/**
+ * Rising channel: lower line 80 + 0.25/candle, upper line 10 above it, price alternating
+ * between them every 8 candles. The last leg stops halfway, so price sits mid-channel.
+ */
+function risingChannel() {
+  const points = [];
+  for (let k = 0; k <= 8; k++) points.push(r4(80 + 0.25 * k * 8 + (k % 2 ? 10 : 0)));
+  return legs(points, 8).slice(0, -4);
+}
+
+/**
+ * REGRESSION_002 (full): 4h demand zone at ~95 (lows 95, 95.2, then 95 again) with a
+ * rising diagonal support through the last three lows (91 → 93 → 95, one per 12
+ * candles). The final leg is cut 3 candles after the last low, so the diagonal's current
+ * level (~95.4) sits on top of the demand zone [94.9, 95.1]: one confluence zone.
+ */
+function regression002Confluence() {
+  return legs([80, 100, 95, 104, 95.2, 106, 91, 102, 93, 104, 95, 98], 6).slice(0, -3);
+}
+
+/** Only two rising lows: a line a trader might draw, but not evidence (needs 3). */
+function twoTouchLine() {
+  return legs([100, 90, 106, 93, 108, 104], 12);
+}
+
+/** Deterministic iid noise: closes uniform in 100 +/- 5, random wicks. */
+function noiseCandles(seed, n = 300) {
+  let x = seed;
+  const rnd = () => ((x = (x * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const out = [];
+  let prev = 100;
+  for (let i = 0; i < n; i++) {
+    const close = r4(100 + (rnd() - 0.5) * 10);
+    const t = NOW - (n - i) * STEP_4H;
+    out.push({ timestamp: t, open: prev, high: r4(Math.max(prev, close) + rnd() * 2), low: r4(Math.min(prev, close) - rnd() * 2), close, volume: 100, closeTime: t + STEP_4H });
+    prev = close;
+  }
+  return out;
+}
+
+/** Geometry B for a candle series, the way buildScalpContext computes it (no EMA/session levels). */
+function geometryB(candles) {
+  const g = buildGeometryContext({ timeframe: '4h', candles });
+  return buildGeometryB({ candles, geometry: g });
+}
+
+/**
+ * Inputs for the phase 7 snapshot (test/fixtures/geometryPhase7Snapshot.json). The
+ * snapshot was produced by the phase 7 lib/geometry.js (commit 19cce68) on exactly these
+ * inputs; phase 8 must reproduce it byte for byte.
+ */
+function phase7SnapshotInputs() {
+  const fixtures = {
+    regression002: regression002DemandZone(),
+    triangle: triangle(),
+    regression001: regression001(),
+    triggeringFlag: triggeringFlag(),
+    acceptanceBelow: acceptanceBelow()
+  };
+  for (const k of Object.keys(fixtures)) {
+    fixtures[`${k}Mirror`] = k === 'regression002' || k === 'triangle' ? mirrorAround(fixtures[k]) : mirror(fixtures[k]);
+  }
+  return fixtures;
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -155,10 +225,14 @@ async function run() {
 
   await test('config: every geometry constant lives in config/engine.json under "geometry"', () => {
     const g = ENGINE_CONFIG.geometry;
-    for (const key of ['atrPeriod', 'pivotLeft', 'pivotRight', 'zoneToleranceAtr', 'minTouches', 'maxZonesPerSide', 'slopeCandles']) {
+    for (const key of ['atrPeriod', 'pivotLeft', 'pivotRight', 'zoneToleranceAtr', 'minTouches', 'maxZonesPerSide', 'slopeCandles',
+      'diagonalMinTouches', 'maxDiagonalCandidates', 'diagonalMinSpanCandles', 'diagonalMinBounceAtr', 'diagonalFullTouches',
+      'maxSlopeDivergence', 'channelFlatSlope', 'confluenceTolAtr', 'maxConfluenceZones']) {
       assert(typeof g[key] === 'number' && Number.isFinite(g[key]), `geometry.${key} missing or not a number`);
     }
     assert(g.extensionAtr.elevated < g.extensionAtr.high, 'extension thresholds ordered');
+    assert(g.diagonalMinTouches >= 3, 'a diagonal needs at least three touches');
+    assertEqual(JSON.stringify(g.timeframes), JSON.stringify(['15m', '1h', '4h']), 'phase 8 budget: 5m dropped from the default geometry set');
     assert(Array.isArray(g.timeframes) && g.timeframes.length > 0, 'geometry.timeframes');
     assert(typeof ENGINE_CONFIG.flag.wickToleranceAtr === 'number', 'flag.wickToleranceAtr is an ATR multiple');
     assert(!('wickTolerancePct' in ENGINE_CONFIG.flag), 'flag.wickTolerancePct is gone');
@@ -364,6 +438,7 @@ async function run() {
   const GEOMETRY_KEYS = ['timeframe', 'atr', 'atrPct', 'structure', 'higherLows', 'lowerHighs',
     'horizontalSupportZones', 'horizontalResistanceZones', 'roomToNextSupport', 'roomToNextResistance',
     'extensionRisk', 'ema21Slope', 'ema200Slope', 'stochAccelK', 'confidence'].sort();
+  const GEOMETRY_B_KEYS = ['diagonalSupport', 'diagonalResistance', 'channel', 'confluenceZones'];
 
   await test('buildGeometryContext: full shape; demand zone published as support; mirror gives supply', () => {
     const c = regression002DemandZone();
@@ -392,6 +467,180 @@ async function run() {
     assertEqual(JSON.stringify(geometryTraceSummary({ '1h': null })), JSON.stringify(['1h:na:na:na:na']), 'missing geometry');
   });
 
+  // --- Geometry B (phase 8) --------------------------------------------------
+
+  await test('phase 7 snapshot: buildGeometryContext output is byte-identical to phase 7 on every fixture (long + mirror)', () => {
+    const snapshot = JSON.parse(readFileSync(new URL('./test/fixtures/geometryPhase7Snapshot.json', import.meta.url), 'utf8'));
+    const inputs = phase7SnapshotInputs();
+    assertEqual(JSON.stringify(Object.keys(inputs)), JSON.stringify(Object.keys(snapshot)), 'fixture set');
+    for (const [name, c] of Object.entries(inputs)) {
+      const closes = c.map((x) => x.close);
+      const g = buildGeometryContext({
+        timeframe: '4h',
+        candles: c,
+        ema21History: calculateEMA21(closes),
+        ema200History: calculateEMA21(closes.map((x) => x * 1.01)),
+        stochHistory: closes.map((_, i) => ({ k: (i * 37) % 100, d: (i * 23) % 100 }))
+      });
+      assertEqual(JSON.stringify(g), JSON.stringify(snapshot[name]), `${name} differs from phase 7`);
+    }
+  });
+
+  await test('rising channel: diagonal support ≥ 3 touches, resistance, channel detected with positionPct in range', () => {
+    const c = risingChannel();
+    const b = geometryB(c);
+    const s = b.diagonalSupport;
+    const r = b.diagonalResistance;
+    assert(s.detected && r.detected, `both lines expected, got ${JSON.stringify(b)}`);
+    assert(s.touches >= 3, `support touches ${s.touches}`);
+    assert(r.touches >= 3, `resistance touches ${r.touches}`);
+    assert(s.slope > 0 && r.slope > 0, 'both rising');
+    assertEqual(s.fitError, 0, 'exact line');
+    // Turning point k closes candle 8k-1, so the line is 80 + 0.25(i+1) minus the 0.1 wick.
+    assertClose(s.currentLevel, 80 + 0.25 * c.length - 0.1, 1e-3, 'support level at the newest candle');
+    assertClose(s.currentDistancePct, ((c[c.length - 1].close - s.currentLevel) / c[c.length - 1].close) * 100, 1e-3, 'distance');
+    assertEqual(typeof s.lastTouchAt, 'string', 'lastTouchAt ISO');
+    assert(s.confidence > 0 && s.confidence <= 100, 'confidence 0-100');
+    const ch = b.channel;
+    assert(ch.detected, 'channel detected');
+    assertEqual(ch.lower, s.currentLevel, 'lower = support');
+    assertEqual(ch.upper, r.currentLevel, 'upper = resistance');
+    assert(ch.positionPct >= 0 && ch.positionPct <= 100, `positionPct ${ch.positionPct}`);
+    assertClose(ch.positionPct, 50, 1, 'mid-channel');
+    assertEqual(ch.slope, 'rising', 'slope');
+    assertClose(ch.widthPct, ((ch.upper - ch.lower) / c[c.length - 1].close) * 100, 1e-3, 'widthPct');
+  });
+
+  await test('falling channel (mirror): support and resistance swap, positionPct mirrors, slope falling', () => {
+    const long = geometryB(risingChannel());
+    const short = geometryB(mirrorAround(risingChannel()));
+    assert(short.channel.detected, 'mirrored channel detected');
+    assertEqual(short.channel.slope, 'falling', 'slope');
+    assertEqual(short.diagonalResistance.touches, long.diagonalSupport.touches, 'resistance touches = support touches');
+    assertEqual(short.diagonalSupport.touches, long.diagonalResistance.touches, 'support touches = resistance touches');
+    assertClose(short.diagonalResistance.currentLevel, 2 * PIVOT - long.diagonalSupport.currentLevel, 1e-3, 'mirrored level');
+    assertClose(short.channel.positionPct, 100 - long.channel.positionPct, 0.1, 'position mirrors');
+    assertEqual(short.diagonalResistance.fitError, long.diagonalSupport.fitError, 'fitError');
+    assertEqual(short.diagonalResistance.confidence, long.diagonalSupport.confidence, 'confidence');
+    assert(short.diagonalResistance.slope < 0 && short.diagonalSupport.slope < 0, 'both falling');
+  });
+
+  await test('noisy data: no diagonal and no channel on 30 seeds of iid noise (both sides)', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      for (const c of [noiseCandles(seed), mirrorAround(noiseCandles(seed))]) {
+        const b = geometryB(c);
+        assertEqual(b.diagonalSupport.detected, false, `seed ${seed} support`);
+        assertEqual(b.diagonalResistance.detected, false, `seed ${seed} resistance`);
+        assertEqual(b.channel.detected, false, `seed ${seed} channel`);
+        assertEqual(JSON.stringify(b.diagonalSupport), JSON.stringify({ detected: false }), 'not-detected shape carries nothing else');
+      }
+    }
+  });
+
+  await test('a line with only 2 touches is never exposed (long + mirror); lowering the gate proves it is the gate', () => {
+    const c = twoTouchLine();
+    const tol = atr(c, 14).atr;
+    for (const [candles, side] of [[c, 'support'], [mirrorAround(c), 'resistance']]) {
+      const ctx = { candles, atr: tol };
+      const pivots = swingPivots(candles, 3, 3);
+      assertEqual(fitDiagonal(pivots, side, ENGINE_CONFIG.geometry, ctx).detected, false, `${side}: 2 touches must not be exposed`);
+      const loose = fitDiagonal(pivots, side, { ...ENGINE_CONFIG.geometry, diagonalMinTouches: 2 }, ctx);
+      assert(loose.detected && loose.touches === 2, `${side}: with minTouches 2 the same line appears (${JSON.stringify(loose)})`);
+    }
+    // Property: nothing detected anywhere in this suite has fewer than diagonalMinTouches.
+    for (const candles of [risingChannel(), regression002Confluence(), triangle(), regression002DemandZone(), c]) {
+      for (const cc of [candles, mirrorAround(candles)]) {
+        const b = geometryB(cc);
+        for (const line of [b.diagonalSupport, b.diagonalResistance]) {
+          if (line.detected) assert(line.touches >= ENGINE_CONFIG.geometry.diagonalMinTouches, `exposed line with ${line.touches} touches`);
+        }
+      }
+    }
+  });
+
+  await test('REGRESSION_002 (full): rising diagonal support + horizontal demand form one confluence zone with current distance', () => {
+    const c = regression002Confluence();
+    const price = c[c.length - 1].close;
+    const b = geometryB(c);
+    const s = b.diagonalSupport;
+    assert(s.detected && s.slope > 0 && s.touches >= 3, `rising diagonal support expected, got ${JSON.stringify(s)}`);
+    const g = buildGeometryContext({ timeframe: '4h', candles: c });
+    const demand = g.horizontalSupportZones.find((z) => z.touches >= 2);
+    assert(demand, 'horizontal demand zone');
+    assertClose(demand.low, 94.9, 1e-9, 'demand low');
+    assertClose(demand.high, 95.1, 1e-9, 'demand high');
+    const zone = b.confluenceZones.find((z) => z.components.includes('diagonalSupport') && z.components.includes('horizontalZone'));
+    assert(zone, `one zone with both components, got ${JSON.stringify(b.confluenceZones)}`);
+    assertEqual(b.confluenceZones.filter((z) => z.components.includes('diagonalSupport')).length, 1, 'exactly one zone carries the diagonal');
+    assertEqual(zone.low, demand.low, 'zone spans the demand zone');
+    assertEqual(zone.high, s.currentLevel, 'zone spans the diagonal level');
+    assertEqual(zone.score, 2, 'two components');
+    assertClose(zone.distancePct, ((price - zone.high) / price) * 100, 1e-3, 'current distance from price');
+    assert(zone.distancePct > 0, 'price is above the zone');
+  });
+
+  await test('REGRESSION_002 short mirror: falling diagonal resistance + horizontal supply, same distance', () => {
+    const long = geometryB(regression002Confluence());
+    const short = geometryB(mirrorAround(regression002Confluence()));
+    const r = short.diagonalResistance;
+    assert(r.detected && r.slope < 0, 'falling diagonal resistance');
+    assertEqual(r.touches, long.diagonalSupport.touches, 'touches');
+    const lz = long.confluenceZones[0];
+    const sz = short.confluenceZones.find((z) => z.components.includes('diagonalResistance') && z.components.includes('horizontalZone'));
+    assert(sz, `mirrored confluence zone, got ${JSON.stringify(short.confluenceZones)}`);
+    assertClose(sz.low, 2 * PIVOT - lz.high, 1e-3, 'mirrored low');
+    assertClose(sz.high, 2 * PIVOT - lz.low, 1e-3, 'mirrored high');
+    assertEqual(sz.score, lz.score, 'score');
+    assert(sz.distancePct > 0, 'price is below the supply zone');
+  });
+
+  await test('confluence scoring prefers more components; one component alone is never a zone (long + mirror)', () => {
+    const base = {
+      price: 104,
+      atr: 2,
+      horizontalZones: [{ low: 99.8, high: 100.2 }, { low: 109.9, high: 110.1 }],
+      ema21: 100.1,
+      ema200: 110,
+      levels: { prevDayHigh: 110.2, sessionLow: 90 }
+    };
+    const zones = confluenceZones(base);
+    assertEqual(zones.length, 2, `two zones, got ${JSON.stringify(zones)}`);
+    assertEqual(zones[0].score, 3, 'the three-component zone ranks first although it is farther');
+    assertEqual(JSON.stringify(zones[0].components), JSON.stringify(['horizontalZone', 'ema200', 'prevDayHigh']), 'components');
+    assertEqual(zones[1].score, 2, 'two-component zone second');
+    assert(zones[0].distancePct > zones[1].distancePct, 'ranking is by score, not distance');
+    assert(!zones.some((z) => z.low <= 90 && z.high >= 90), 'lone sessionLow is not a zone');
+
+    const m = (v) => 2 * PIVOT - v;
+    const mirrored = confluenceZones({
+      price: m(104),
+      atr: 2,
+      horizontalZones: base.horizontalZones.map((z) => ({ low: m(z.high), high: m(z.low) })),
+      ema21: m(100.1),
+      ema200: m(110),
+      levels: { prevDayLow: m(110.2), sessionHigh: m(90) }
+    });
+    assertEqual(mirrored[0].score, 3, 'mirror: score');
+    assertEqual(JSON.stringify(mirrored[0].components), JSON.stringify(['horizontalZone', 'ema200', 'prevDayLow']), 'mirror: components');
+    assertClose(mirrored[0].distancePct, zones[0].distancePct * (104 / m(104)), 1e-3, 'mirror: same price distance');
+    assertEqual(JSON.stringify(confluenceZones({ price: 100, atr: 0 })), '[]', 'no ATR → no zones');
+  });
+
+  await test('channel: converging lines (triangle) and a missing side are not channels', () => {
+    const line = (level, slope) => ({ detected: true, slope, touches: 3, currentLevel: level, currentDistancePct: 0, lastTouchAt: null, fitError: 0, confidence: 60 });
+    assertEqual(channel(line(95, 0.5), line(105, -0.5), 100).detected, false, 'triangle (long view)');
+    assertEqual(channel(line(95, -0.5), line(105, 0.5), 100).detected, false, 'broadening');
+    assertEqual(channel(line(95, 0.1), { detected: false }, 100).detected, false, 'no resistance');
+    assertEqual(channel({ detected: false }, line(105, 0.1), 100).detected, false, 'no support');
+    assertEqual(channel(line(105, 0.1), line(95, 0.1), 100).detected, false, 'upper below lower');
+    const flat = channel(line(95, 0), line(105, 0), 100);
+    assert(flat.detected && flat.slope === 'flat' && flat.positionPct === 50, `flat channel ${JSON.stringify(flat)}`);
+    const up = channel(line(95, 0.2), line(105, 0.2), 100);
+    const down = channel(line(95, -0.2), line(105, -0.2), 100);
+    assertEqual(up.slope, 'rising', 'rising');
+    assertEqual(down.slope, 'falling', 'falling mirror');
+  });
+
   // --- Through buildScalpContext --------------------------------------------
 
   function quietCandles(interval, count) {
@@ -417,14 +666,18 @@ async function run() {
     });
   }
 
-  await test('payload: schema 1.7.0; geometryContext per configured timeframe; trace summary ≤ 300 bytes', async () => {
+  await test('payload: schema 1.8.0; geometryContext per configured timeframe with geometry B; trace summary ≤ 300 bytes', async () => {
     const payload = await build(regression001());
-    assertEqual(payload.schemaVersion, '1.7.0', 'schemaVersion');
+    assertEqual(payload.schemaVersion, '1.8.0', 'schemaVersion');
     const btc = payload.symbols.BTC;
     assertEqual(JSON.stringify(Object.keys(btc.geometryContext)), JSON.stringify(ENGINE_CONFIG.geometry.timeframes), 'geometry timeframes');
+    const withB = [...GEOMETRY_KEYS, ...GEOMETRY_B_KEYS].sort();
     for (const tf of ENGINE_CONFIG.geometry.timeframes) {
-      assertEqual(JSON.stringify(Object.keys(btc.geometryContext[tf]).sort()), JSON.stringify(GEOMETRY_KEYS), `${tf} keys`);
+      assertEqual(JSON.stringify(Object.keys(btc.geometryContext[tf]).sort()), JSON.stringify(withB), `${tf} keys`);
       assertEqual(btc.geometryContext[tf].timeframe, tf, `${tf} label`);
+      assertEqual(typeof btc.geometryContext[tf].diagonalSupport.detected, 'boolean', `${tf} diagonalSupport.detected`);
+      assertEqual(typeof btc.geometryContext[tf].channel.detected, 'boolean', `${tf} channel.detected`);
+      assert(Array.isArray(btc.geometryContext[tf].confluenceZones), `${tf} confluenceZones array`);
     }
     assert(Array.isArray(btc.decisionTrace.geometry), 'trace.geometry is an array');
     assertEqual(btc.decisionTrace.geometry.length, ENGINE_CONFIG.geometry.timeframes.length, 'one string per timeframe');
@@ -512,13 +765,16 @@ async function run() {
     }
   });
 
-  await test('OpenAPI: GeometryContext schema, CandidateSetup.risk, schema-safe constructs only', () => {
+  await test('OpenAPI: GeometryContext + Diagonal/Channel/ConfluenceZone schemas, CandidateSetup.risk, schema-safe constructs only', () => {
     const yaml = readFileSync(new URL('./openapi/scalp-context.yaml', import.meta.url), 'utf8');
     assert(/^ {4}GeometryContext:\s*$/m.test(yaml), 'GeometryContext schema');
     assert(/^ {4}GeometryZone:\s*$/m.test(yaml), 'GeometryZone schema');
     const candidate = yaml.slice(yaml.indexOf('    CandidateSetup:'), yaml.indexOf('    DecisionTrace:'));
     assert(/risk:[\s\S]*\$ref: "#\/components\/schemas\/Risk"/.test(candidate), 'CandidateSetup.risk refs Risk');
     assert(/geometryContext:/.test(yaml), 'Symbol.geometryContext documented');
+    for (const name of ['Diagonal', 'Channel', 'ConfluenceZone']) assert(new RegExp(`^ {4}${name}:\\s*$`, 'm').test(yaml), `${name} schema`);
+    const gc = yaml.slice(yaml.indexOf('    GeometryContext:'), yaml.indexOf('    ConfigSnapshot:'));
+    for (const key of ['diagonalSupport', 'diagonalResistance', 'channel', 'confluenceZones']) assert(new RegExp(`\\n {8}${key}:`).test(gc), `GeometryContext.${key}`);
     assert(!/\b(oneOf|anyOf|allOf|not):/.test(yaml), 'no composition keywords');
   });
 

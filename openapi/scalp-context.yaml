@@ -458,8 +458,9 @@ components:
         geometryContext:
           description: >-
             Per-timeframe geometry (pivots, horizontal zones, ATR, room, extension, EMA
-            slopes), keyed by timeframe. Built for config geometry.timeframes (5m, 15m,
-            1h, 4h by default). A timeframe whose geometry could not be built is null.
+            slopes, diagonals, channel, confluence), keyed by timeframe. Built for config
+            geometry.timeframes (15m, 1h, 4h by default). A timeframe whose geometry could
+            not be built is null.
             Droppable via the include parameter (token "geometry").
           type: object
           additionalProperties:
@@ -515,7 +516,8 @@ components:
     GeometryContext:
       type: [object, "null"]
       description: >-
-        Geometry for one timeframe on closed candles (phase 7). Separate from
+        Geometry for one timeframe on closed candles (phase 7, diagonals/channel/
+        confluence phase 8). Separate from
         strategies; never changes a strategy decision. Null when the timeframe has
         too few closed candles for ATR.
       properties:
@@ -577,6 +579,19 @@ components:
         confidence:
           description: Evidence completeness 0-100 in steps of 20 (ATR, pivot structure, support zone, resistance zone, EMA slopes). Not a trade score.
           type: integer
+        diagonalSupport:
+          $ref: "#/components/schemas/Diagonal"
+        diagonalResistance:
+          $ref: "#/components/schemas/Diagonal"
+        channel:
+          $ref: "#/components/schemas/Channel"
+        confluenceZones:
+          description: >-
+            Places where two or more independent levels overlap, highest score first,
+            then nearest; at most config geometry.maxConfluenceZones.
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfluenceZone"
       required:
         - timeframe
         - atr
@@ -593,6 +608,100 @@ components:
         - ema200Slope
         - stochAccelK
         - confidence
+        - diagonalSupport
+        - diagonalResistance
+        - channel
+        - confluenceZones
+    Diagonal:
+      type: object
+      description: >-
+        Diagonal support (through swing lows) or resistance (through swing highs). Only
+        detected with at least config geometry.diagonalMinTouches pivots within
+        geometry.zoneToleranceAtr ATRs of the line, spanning geometry.diagonalMinSpanCandles
+        candles, a bounce of geometry.diagonalMinBounceAtr ATRs between touches, and no
+        close beyond it since the first touch. When detected is false no other field is
+        present - a missing line is never guessed.
+      properties:
+        detected:
+          type: boolean
+        slope:
+          description: Percent of the current level per candle; positive = rising.
+          type: number
+        touches:
+          type: integer
+        currentLevel:
+          description: The line's value at the newest closed candle.
+          type: number
+        currentDistancePct:
+          description: Percent of price from price to the line; positive while price is on the line's side.
+          type: number
+        lastTouchAt:
+          description: Close time of the newest touching pivot.
+          type: [string, "null"]
+          format: date-time
+        fitError:
+          description: RMS distance of the touches from the line, in ATRs.
+          type: number
+        confidence:
+          description: 0-100 from touch count (full at geometry.diagonalFullTouches) and fit; a fit at the tolerance edge halves it.
+          type: integer
+      required:
+        - detected
+    Channel:
+      type: object
+      description: >-
+        Channel between a detected diagonal support and resistance whose slopes differ
+        by at most config geometry.maxSlopeDivergence of the channel width per candle.
+        When detected is false no other field is present.
+      properties:
+        detected:
+          type: boolean
+        upper:
+          description: Diagonal resistance level now.
+          type: number
+        lower:
+          description: Diagonal support level now.
+          type: number
+        widthPct:
+          description: (upper - lower) as a percent of price.
+          type: number
+        positionPct:
+          description: Where price sits in the channel; 0 = at lower, 100 = at upper.
+          type: number
+        slope:
+          description: Mean slope; flat when it moves less than config geometry.channelFlatSlope of the width per candle.
+          type: string
+          enum: [rising, falling, flat]
+      required:
+        - detected
+    ConfluenceZone:
+      type: object
+      description: >-
+        Overlap of independent levels within config geometry.confluenceTolAtr ATRs:
+        diagonal support/resistance, horizontal zones, EMA21, EMA200, session and
+        previous-day high/low. Always two or more distinct components.
+      properties:
+        low:
+          type: number
+        high:
+          type: number
+        components:
+          type: array
+          items:
+            type: string
+            enum: [diagonalSupport, diagonalResistance, horizontalZone, ema21, ema200, sessionHigh, sessionLow, prevDayHigh, prevDayLow]
+        score:
+          description: Number of distinct components; higher = more agreement.
+          type: integer
+        distancePct:
+          description: Percent from price to the zone's near edge; 0 when price is inside it.
+          type: number
+      required:
+        - low
+        - high
+        - components
+        - score
+        - distancePct
     ConfigSnapshot:
       type: object
       description: >-

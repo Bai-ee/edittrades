@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-5",
+  "configVersion": "2026.09.22-6",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -67,7 +67,7 @@
   },
 
   "geometry": {
-    "timeframes": ["5m", "15m", "1h", "4h"],
+    "timeframes": ["15m", "1h", "4h"],
     "atrPeriod": 14,
     "pivotLeft": 3,
     "pivotRight": 3,
@@ -78,7 +78,16 @@
     "extensionAtr": {
       "elevated": 1.5,
       "high": 3.0
-    }
+    },
+    "diagonalMinTouches": 3,
+    "maxDiagonalCandidates": 10,
+    "diagonalMinSpanCandles": 20,
+    "diagonalMinBounceAtr": 3.0,
+    "diagonalFullTouches": 5,
+    "maxSlopeDivergence": 0.02,
+    "channelFlatSlope": 0.005,
+    "confluenceTolAtr": 0.25,
+    "maxConfluenceZones": 2
   },
 
   "thresholds": {

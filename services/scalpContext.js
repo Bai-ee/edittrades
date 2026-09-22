@@ -15,7 +15,7 @@ import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './wal
 import { ENGINE_CONFIG, CONFIG_VERSION } from '../config/engine.js';
 import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
 import { detectCandidateSetups } from '../lib/patternDetector.js';
-import { buildGeometryContext, geometryTraceSummary } from '../lib/geometry.js';
+import { buildGeometryContext, buildGeometryB, geometryTraceSummary } from '../lib/geometry.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -1138,6 +1138,30 @@ export async function buildScalpContext(options = {}) {
       structure = nullStructure();
     }
 
+    // Geometry B (phase 8): diagonals, channel, confluence per geometry timeframe. Runs
+    // after structure because confluence reads the session and prev-day levels. Same
+    // separate-channel rule as phase 7: a fault is logged, never warned.
+    for (const [tf, g] of Object.entries(geometryContext)) {
+      if (!g) continue;
+      try {
+        const b = buildGeometryB({
+          candles: closedByTf[tf],
+          geometry: g,
+          ema21: tfEntries[tf].ema21,
+          ema200: tfEntries[tf].ema200,
+          levels: {
+            sessionHigh: structure.sessionHigh,
+            sessionLow: structure.sessionLow,
+            prevDayHigh: structure.prevDayHigh,
+            prevDayLow: structure.prevDayLow
+          }
+        });
+        if (b) geometryContext[tf] = { ...g, ...b };
+      } catch (err) {
+        console.warn(`[ScalpContext] ${symbol} ${tf}: geometry B failed - ${err.message}`);
+      }
+    }
+
     let strategies = {};
     let bestSignal = null;
     let rawStrategies = null;
@@ -1223,7 +1247,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.7.0',
+    schemaVersion: '1.8.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

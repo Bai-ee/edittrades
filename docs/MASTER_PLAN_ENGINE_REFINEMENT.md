@@ -58,7 +58,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none | ✅ done 2026-09-22 (item F deferred to Phase 7) | ✅ done 2026-09-22 → `test-scalp-context.js` (compute-window assertion, production-sized fixture), `services/scalpContext.js` (build-duration log), `config/engine.json` (`configVersion` 2026.09.22-3 → -4, correcting Phase 5's unbumped `flag.includeFailed` addition) |
 | 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium | ✅ done 2026-09-22 → `lib/geometry.js`, `lib/patternDetector.js` (`wilderAtr` → shared `calculateATR`, `flag.wickTolerancePct` → `flag.wickToleranceAtr`), `config/engine.json` (`geometry`, configVersion -4 → -5), `services/scalpContext.js` (`geometryContext`, `decisionTrace.geometry`, `attachCandidateRisk` = Phase 6 item F), `openapi/scalp-context.yaml`, schema 1.6.0 → 1.7.0, `npm run test:geometry` |
-| 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high |
+| 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high | ✅ done 2026-09-22 → `lib/geometry.js` (`fitDiagonal`, `channel`, `confluenceZones`, `buildGeometryB`), `config/engine.json` (geometry B keys, `geometry.timeframes` drops 5m, configVersion -5 → -6), `services/scalpContext.js` (B fields on `geometryContext`), `openapi/scalp-context.yaml` (Diagonal, Channel, ConfluenceZone), schema 1.7.0 → 1.8.0, `test/fixtures/geometryPhase7Snapshot.json`, `npm run test:geometry` |
 | 8c | Trade journal, minimal: KV store, one write op with its own key, account.journal with basic stats | 1 h | low |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
@@ -312,6 +312,14 @@ Payload: add `diagonalSupport`, `diagonalResistance`, `channel`, `confluenceZone
 Tests: synthetic rising channel → diagonal support with 3+ touches; noisy data → `detected: false`. REGRESSION_002 full: 4h fixture exposes rising support + horizontal demand as one confluence zone with current distance.
 
 Acceptance: fixture passes. Precision over recall: false lines are worse than missed lines.
+
+Done 2026-09-22. As built:
+- Include option: **B default-included** (no `geometryB` token). Budget steps, live BTC/SOL/ETH, bytes: baseline 77,448 full → drop 5m geometry 74,022 → add B on 15m/1h/4h 76,781 (re-measured at close: 74,553 → 77,312; compact 31,143). Under the 78 KB switch line, so `decisionTrace.geometry` strings are unchanged. Measured B cost 2,759 bytes for 9 timeframe blocks. Theoretical worst case (every block with both lines, a channel, two five-component zones) is ~827 bytes a block, ~82.0 KB full - over 80 KB. Very unlikely under the precision gates (2 of 18 live lines survive), but if the 80 KB guard ever warns, the fallback is the `geometryB` include token.
+- `diagonalMinTouches` (3) is its own key: `minTouches` (2) drives phase 7 zones, and changing it would have changed zone output.
+- Precision gates beyond the spec's touch count: span ≥ `diagonalMinSpanCandles` (20), bounce ≥ `diagonalMinBounceAtr` (3 ATR) between touches, no close or pivot beyond the line since the first touch. Without the bounce rule, iid noise produced lines on 60 of 60 fixture sides and live data on 18 of 18. With it: 0 of 60 and 2 of 18.
+- `confluenceZones` entries carry `distancePct` beside `{ low, high, components[], score }`: the REGRESSION_002 acceptance needs current distance. `score` = number of distinct components.
+- Phase 7 outputs byte-identical: `buildGeometryContext` is unchanged and B is merged on after it. A snapshot produced by commit 19cce68 on 10 fixtures (long + mirror) is asserted in `test-geometry.js`.
+- Build 1.09-1.52 s locally (live), per-symbol compute 9-35 ms.
 
 ---
 
