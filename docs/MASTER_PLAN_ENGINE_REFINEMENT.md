@@ -59,7 +59,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium | ✅ done 2026-09-22 → `lib/geometry.js`, `lib/patternDetector.js` (`wilderAtr` → shared `calculateATR`, `flag.wickTolerancePct` → `flag.wickToleranceAtr`), `config/engine.json` (`geometry`, configVersion -4 → -5), `services/scalpContext.js` (`geometryContext`, `decisionTrace.geometry`, `attachCandidateRisk` = Phase 6 item F), `openapi/scalp-context.yaml`, schema 1.6.0 → 1.7.0, `npm run test:geometry` |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high | ✅ done 2026-09-22 → `lib/geometry.js` (`fitDiagonal`, `channel`, `confluenceZones`, `buildGeometryB`), `config/engine.json` (geometry B keys, `geometry.timeframes` drops 5m, configVersion -5 → -6), `services/scalpContext.js` (B fields on `geometryContext`), `openapi/scalp-context.yaml` (Diagonal, Channel, ConfluenceZone), schema 1.7.0 → 1.8.0, `test/fixtures/geometryPhase7Snapshot.json`, `npm run test:geometry` |
-| 8c | Trade journal, minimal: KV store, one write op with its own key, account.journal with basic stats | 1 h | low |
+| 8c | Trade journal, minimal: Blob file, one write op with its own key, account.journal with basic stats | 1 h | low |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
@@ -323,26 +323,22 @@ Done 2026-09-22. As built:
 
 ---
 
-## Phase 8c — Trade journal (minimal)
+## Phase 8c — Trade journal (minimal, four items)
 
-Objective: remember the trades the user says they took and serve them back with basic stats. Nothing else. No confirmation logic, no risk hooks, no positions read.
+Objective: the user takes a position, it is written to a ledger, the GPT reads it back. Nothing confirms it, nothing reasons about it.
 
-Decision recorded 2026-09-22: this is the one write path allowed. Stores user-asserted records only. MCP stays read-only; only the Custom GPT Action gets the write op. `JOURNAL_API_KEY` is separate from the read key and from any trading key.
+Facts that shape this: the repo has no database. `services/positionManager.js` is an in-memory Map with browser `localStorage` calls that do nothing on Vercel. The dashboard's `pendingTradeToTrack` is browser-only. A serverless function has no durable state, so one store is unavoidable.
 
-Deliverables:
-- `lib/journalStore.js` on `@vercel/kv` (the only new dependency): `getTrades()`, `putTrades()`, key `journal:<maskedAddress>`, 5 s timeout; on KV error → `status: unavailable`, never an empty list.
-- Record: `{ id, symbol, side, entry, notionalUsd, collateralUsd, leverage, stop, tp1, tp2, openedAt, status: open|closed, exit, closedAt, pnlUsd, note }`. Validation: finite numbers > 0 where applicable, side ∈ long|short, symbol ∈ tracked set; else 400 naming the field.
-- Write op: `POST /api/trade-log` via `vercel.json` → `api/scalp-context.js?__journal=1` (same pattern as `__mcp`). Bearer `JOURNAL_API_KEY`, timing-safe compare, 401 otherwise. Body `{ action: "open", trade }` or `{ action: "close", id, exit, closedAt? }`. Close computes `pnlUsd = (exit − entry) / entry × notionalUsd × (long ? 1 : −1)`, no fees. Hard cap 200 records; oldest closed dropped.
-- Read: `account.journal = { status, open, recentClosed (last 20), performance: { trades, wins, losses, winRate, realizedPnlUsd } }` in `buildScalpContext`. Closed trades only count. Never affects `dataStatus`. Droppable via include "account".
-- OpenAPI: `logTrade` op with `journalAuth` scheme; Journal, TradeRecord schemas; ChatGPT-safe constructs. Schema minor bump, configVersion bump (config `journal { maxRecords: 200, recentClosed: 20 }`).
+Decision recorded 2026-09-22: this is the one write path allowed. User-asserted records only. MCP stays read-only; only the Custom GPT Action gets the write op. `JOURNAL_API_KEY` is separate from the read key and any trading key.
 
-Deferred (not in this phase): margin-delta confirmation, losing-streak leverage hook, R-multiples, streaks, on-chain matching (3b).
+1. Store: Vercel Blob, one JSON file `journal.json` (array of records). `lib/journalStore.js`: `readJournal()`, `writeJournal(records)`, 5 s timeout, on error → `{ status: "unavailable", records: null }`. Only new dependency: `@vercel/blob`.
+2. Write op: `POST /api/trade-log` via `vercel.json` → `api/scalp-context.js?__journal=1` (same dispatch pattern as `__mcp`). Bearer `JOURNAL_API_KEY`, timing-safe, 401 otherwise. Body `{ action: "open", trade: { symbol, side, entry, sizeUsd, leverage, stop, tp1?, tp2?, note? } }` → appends `{ id, ...trade, openedAt, status: "open" }`; or `{ action: "close", id, exit }` → sets `exit, closedAt, status: "closed", pnlUsd = (exit − entry) / entry × sizeUsd × (long ? 1 : −1)`. Minimal validation: symbol in tracked set, side long|short, numbers finite and > 0. Cap 200 records, oldest closed dropped. Returns the record.
+3. Read: `account.journal = { status, open: [...], recentClosed: [last 20], performance: { trades, wins, losses, winRate, realizedPnlUsd } }` in `buildScalpContext` (closed trades only; never affects `dataStatus`; droppable via include "account"). OpenAPI: `logTrade` op with `journalAuth` scheme, Journal + TradeRecord schemas, ChatGPT-safe constructs. Schema minor bump, configVersion bump.
+4. Tests: `test-journal.js` (`test:journal`), mocked Blob: open/close round trip, PnL long and short, cap, stats, store error → unavailable. Auth: read key rejected on the write op and journal key rejected on the read op. `test:mcp`: tool list unchanged, nothing writable via MCP.
 
-Do NOT: touch MCP registration, strategy, guards, geometry, pattern, wallet tracking, riskEngine; import execution or signing layers; read `SOLANA_PRIVATE_KEY`.
+Not in scope: confirmation of any kind, risk hooks, R-multiples, streaks, positions (3b).
 
-Tests: `test-journal.js` (`test:journal`), mocked KV: open/close round trip, validation names the bad field, PnL long and short, cap at 200, stats on a fixture, KV error → unavailable. `test:scalp`: journal present, `dataStatus` unaffected. `test:mcp`: tool list unchanged, no write reachable via MCP, no execution imports. Auth: read key rejected on the write op, journal key rejected on the read op.
-
-Acceptance: log a trade, close it, `balance` shows the stats and `signals` sees the open one.
+Acceptance: log a trade, close it, `balance` shows the stats, `signals` sees the open one.
 
 ## Phase 8b — Confirmation chart (on demand, never bulk)
 
