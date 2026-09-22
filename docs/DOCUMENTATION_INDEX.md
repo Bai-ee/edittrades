@@ -8,6 +8,9 @@
 
 ## Quick Navigation
 
+### 🔌 ChatGPT / MCP Connector
+- **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** - Read-only MCP tool, REST Action parity, payload schema 1.1.0, scalp stop-distance guard, prod verification
+
 ### 🏗️ Architecture & Pipeline
 - **[DATA_PIPELINE_ARCHITECTURE.md](./DATA_PIPELINE_ARCHITECTURE.md)** - Complete data flow from ingestion to export
 - **[SYSTEM_WORKFLOW.md](./SYSTEM_WORKFLOW.md)** - End-to-end system workflow

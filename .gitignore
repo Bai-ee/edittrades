@@ -11,3 +11,7 @@ build/
 .vercel
 .env*.local
 .cursor/
+
+# local AI workflow files
+CLAUDE.md
+.claude/
