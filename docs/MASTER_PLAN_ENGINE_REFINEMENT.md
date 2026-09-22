@@ -50,7 +50,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | --- | --- | --- | --- | --- |
 | 0 | Field inventory + rule-to-owner matrix | 30 min | none | ✅ done 2026-09-22 → `docs/RULE_OWNER_MATRIX.md` |
 | 1 | `config/engine.json` + `configVersion` | 1 h | low | ✅ done 2026-09-22 → `config/engine.json`, `config/engine.js`, `npm run test:config` |
-| 2 | `decisionTrace` per symbol | 1–2 h | low |
+| 2 | `decisionTrace` per symbol | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`buildDecisionTrace`, `buildStrategyTrace`, `buildTimeframeWindow`, `classifyRejection`), `openapi/scalp-context.yaml`, `npm run test:scalp` |
 | 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low |
 | 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |
 | 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium |
@@ -58,6 +58,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 5 | Payload controls: tool args `symbols`, `include`; compact mode | 1–2 h | low |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high |
+| 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
@@ -284,17 +285,37 @@ Acceptance: fixture passes. Precision over recall: false lines are worse than mi
 
 ---
 
+## Phase 8b — Confirmation chart (on demand, never bulk)
+
+Objective: when the data says a flag may be forming, the GPT or the scheduled run can pull ONE image of THAT symbol and timeframe to confirm. The image is a confirmation layer, not a data source. Detection stays in Phase 4/9 from candles.
+
+Rules:
+- Never included in the default payload. Never all symbols. Never all timeframes.
+- Triggered only by an explicit request: MCP tool arg `chart: "BTC:1m"` or REST `?chart=BTC:1m`. The GPT requests it when `needsVisualConfirmation` (Phase 9) names that symbol/timeframe, or when the user asks.
+- One chart per request. A request for more than one is rejected with a clear error.
+- Rendered server-side inside the existing function (no new `api/` file), pure-JS canvas, no native binaries. Draw: closed candles for the timeframe's publish window, EMA21/EMA200, detected zones, diagonals, channel, and the candidate flag's high/low/breakout/invalidation from Phases 4/7/8. Label the timeframe and `closedThrough`.
+- Size budget: ≤ 150 KB PNG. Duration budget: ≤ 1.5 s added.
+- Delivery: MCP returns an `image` content block beside the summary text and `structuredContent`. REST returns `image/png` when `chart` is set, JSON otherwise. Auth on REST unchanged.
+
+Files: new `lib/chartRender.js`; `services/editTradesMcp.js` (arg + image block); `api/scalp-context.js` (query parse, content type; auth untouched); `services/scalpContext.js` (pass geometry to renderer).
+
+Tests: `test-chart-render.js` — renders a fixture without throwing, PNG magic bytes, size under budget, overlays present at expected pixel rows for a synthetic series. `test:mcp` — tool still single and read-only; `chart` absent → no image block; two charts requested → error; image block only for the named symbol/timeframe.
+
+Acceptance: hourly MCP run with no `chart` arg is byte-identical to before. With `chart: "BTC:1m"` the response carries exactly one image that shows the lines the payload describes.
+
+---
+
 ## Phase 9 — Pattern lifecycle and visual gate
 
 Objective: unify phase 4 flags with phase 7–8 geometry into one pattern object with lifecycle, and tell the GPT when it should ask for a screenshot.
 
 - Extend `lib/patternDetector.js` to use zones/diagonals for `breakoutLevel` and `invalidation`.
 - Lifecycle `none → forming → triggering → confirmed → failed`, derived per request from the candle window (no store).
-- `needsVisualConfirmation: boolean`, `unresolvedGeometry: []` set when: candidate present but `geometryContext.confidence` below config threshold, or diagonal candidates exist with touches = minTouches − 1.
+- `needsVisualConfirmation: boolean`, `visualTarget: { symbol, timeframe }`, `unresolvedGeometry: []` set when: candidate present but `geometryContext.confidence` below config threshold, or diagonal candidates exist with touches = minTouches − 1.
 
 Tests: state transitions on a scripted candle sequence; visual flag set exactly under the documented conditions.
 
-Acceptance: GPT instruction for the visual gate can be reduced to "if `needsVisualConfirmation`, ask for the named timeframe".
+Acceptance: GPT instruction for the visual gate can be reduced to "if `needsVisualConfirmation`, request the chart named in `visualTarget` (Phase 8b) or ask the user for a screenshot of it".
 
 ---
 
