@@ -53,7 +53,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 1 | `config/engine.json` + `configVersion` | 1 h | low | ✅ done 2026-09-22 → `config/engine.json`, `config/engine.js`, `npm run test:config` |
 | 2 | `decisionTrace` per symbol | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`buildDecisionTrace`, `buildStrategyTrace`, `buildTimeframeWindow`, `classifyRejection`), `openapi/scalp-context.yaml`, `npm run test:scalp` |
 | 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low | ✅ done 2026-09-22 → `lib/riskEngine.js`, `config/engine.json` (`risk`), `services/scalpContext.js` (`attachRisk`), `npm run test:risk` |
-| 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |
+| 3b | Read-only `account.positions[]` via throwaway-wallet SDK reads (existing provider path is signer-bound; see section) | 4–6 h | medium |
 | 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium | ✅ done 2026-09-22 → `lib/patternDetector.js`, `config/engine.json` (`flag`), `services/scalpContext.js` (`candidateSetups`), `test/fixtures/flagFixtures.js`, `npm run test:pattern` |
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none | ✅ done 2026-09-22 (item F deferred to Phase 7) | ✅ done 2026-09-22 → `test-scalp-context.js` (compute-window assertion, production-sized fixture), `services/scalpContext.js` (build-duration log), `config/engine.json` (`configVersion` 2026.09.22-3 → -4, correcting Phase 5's unbumped `flag.includeFailed` addition) |
 | 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
@@ -163,7 +163,13 @@ Acceptance: at 100x request with a 3% stop, payload shows capped leverage and th
 
 Objective: the risk engine works on real positions, not user-typed numbers. Miss 002 came from the GPT reasoning about a position the API never saw.
 
-Source: the perps provider already integrated for reads (`services/jupiterPerps.js` / `services/driftPerps.js` via `services/perpsProvider.js`). Read path only.
+Source: NOT the existing provider read path. Blocker found 2026-09-22: `perpsProvider.getPerpPositions` → Drift/Mango/Jupiter all call `walletManager.getWallet()` (Keypair from `SOLANA_PRIVATE_KEY`) and query the signer's own account; the `walletAddress` argument is dead. Jupiter's query is unimplemented (returns []). None is usable.
+
+Revised source: a new read-only client per venue built with a THROWAWAY wallet (fresh random `Keypair.generate()`, never funded, never signs, not a secret), querying the tracked address directly:
+- Drift: `DriftClient` with the throwaway wallet → `getUserAccountPublicKey(programId, trackedAuthority, subAccountId)` → `program.account.user.fetch(pda)` → decode `perpPositions` (market index → symbol, baseAssetAmount sign = side, quoteEntryAmount / baseAssetAmount = entry, leverage from margin, liquidation via `driftClient.getUser(...)` liquidation price helper if it accepts an arbitrary user account, else null).
+- Mango: `MangoClient.connect` with a throwaway-wallet provider → `getMangoAccountsForOwner(group, trackedOwner)` → `perpActive()` → entry, notional, liquidation via the account's health helpers.
+- Jupiter: skipped (upstream stub). `status: disabled, reason: "provider unsupported"` when `PERPS_PROVIDER=jupiter`.
+Only `TRACKED_WALLET_ADDRESS` and `SOLANA_RPC_URL` are read. Any import of `walletManager.js`, `tradeExecution.js`, `positionManager.js`, or any read of `SOLANA_PRIVATE_KEY` is a phase failure. Estimate raised to 4–6 h.
 
 Isolation rules, identical to `walletTracker.js`:
 - New `services/positionTracker.js`. Imports the provider's read functions only. Never imports `walletManager.js`, `tradeExecution.js`, `positionManager.js`, or any keypair-capable module. Lazy import inside the function so a failed read cannot load more than needed.
