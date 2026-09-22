@@ -19,6 +19,7 @@ Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPEC
 4. Four suites must pass after every phase: `test:sltp`, `test:scalp`, `test:mcp`, `test:wallet`. Add a suite per new module.
 5. Payload schema bumps are minor and additive: 1.1.0 → 1.2.0 → 1.3.0. Keep `openapi/scalp-context.yaml` in step.
 6. Vercel Hobby: 12 functions, 10 s per invocation. No new `api/` files. Compute budgets matter.
+9. When any phase edits `services/strategy.js`, emit a stable `rejectionCode` from the engine and demote the regex classifier in `services/scalpContext.js` to a fallback. Until then, classifier patterns must be tested through the real `evaluateAllStrategies` path.
 7. Do not revive dead modules. `lib/signalEngine.js`, `services/strategy-refactored.js`, `lib/chartAnalysis.js`, `lib/advancedChartAnalysis.js` and `lib/levels.js` are unreachable from `buildScalpContext()`. No phase imports them without an explicit decision recorded here. `lib/advancedIndicators.js` is the one exception: phase 7 imports `calculateATR` from it.
 8. Direction symmetry is a requirement, not a nice-to-have. Every detector, geometry feature, risk function, and fixture handles short and long through one parameterised path, with mirrored tests. A long-only implementation fails the phase.
 9. Execution order is not phase number order: 0 → 1 → 2 → 3 → 4 → 6 → 5 → 7 → 8 → 9 → 10 → 11. Phase 6 is a cheap precondition for the geometry phases; phase 5 sits directly before phase 7 so payload controls land right before the payload grows.
@@ -237,6 +238,14 @@ Files: `services/editTradesMcp.js` (input schema + pass-through), `api/scalp-con
 Tests: `test:mcp` — tool still single, read-only; `symbols: ["BTC"]` returns one symbol; unknown include ignored; `{}` unchanged. `test:scalp` — REST filtering. Auth matrix unchanged.
 
 Acceptance: hourly MCP run can request `compact` and stay small. Full payload byte-identical when no args.
+
+Merged into Phase 5 (payload hygiene items from the Phase 1–3 reviews and GPT tests, 2026-09-22):
+
+- G. Top-level `config` snapshot next to `configVersion`: `{ scalp: { maxStopDistancePct }, riskReward: { bySetupType, byStrategy }, risk: { maxLeverage, maxWalletRiskPct, defaultMarginUsd, liquidationBufferPct, maintenanceMarginPct, feeBps, slippageBps }, flag: { includeFailed } }`. Values from `ENGINE_CONFIG` only, ≤ 600 bytes, included by default, droppable via `include`. Reason: the GPT could cite `configVersion` but not the stop cap or risk caps.
+- H. `risk.lossAtStopPctOfWallet` beside `risk.lossAtStopPct` in `attachRisk`, measured against `account.margin.usd`; null when margin unavailable. OpenAPI Risk schema updated. Reason: `lossAtStopPct` is percent of collateral and reads as wallet risk.
+- I. Classifier: the engine's final fallback text beginning "No clean SWING / 4H Trend" classifies as `no-setup`, ordered before the generic catch; test through the real `evaluateAllStrategies` path.
+- J. Config `flag.includeFailed` (default false): when false, `candidateSetups[]` omits `state: failed`; `decisionTrace.candidateSetups` strings keep them. Test both settings.
+- Schema bump stays one step, 1.5.0 → 1.6.0.
 
 ---
 
