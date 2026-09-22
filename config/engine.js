@@ -116,6 +116,30 @@
  *     choosing a side - the moment a chart is most useful.
  *   - coilOverlapPct (50): a bull and a bear flag sharing at least half of the narrower
  *     range are one consolidation read two ways, not two setups.
+ *   - nearMissGate (false, phase 9b): a diagonal one touch short does not raise the gate on
+ *     its own. The phase 10 replay (2026-09-22, 1,434 closes) had the gate on 54% of closes,
+ *     ~65% of it from near-miss codes alone; a two-touch line is too common to be a reason
+ *     to ask for a chart. Near-miss codes still ride along when another code raised it.
+ *
+ * `bias` block (phase 9b, `lib/biasMatrix.js`), one line each:
+ *   - neutralBelow (20): under 20% net weighted agreement of a timeframe's signals, its
+ *     lean is mixed and reads neutral.
+ *   - channelEdgePct (20): the outer fifth of a detected channel counts as "at the edge"
+ *     (bottom leans long, top leans short).
+ *   - basisWeights: trend 2 (the engine's own trend label already combines price and EMA),
+ *     structure 1.5 (pivots are the slowest-changing evidence), EMA stack / price vs EMA21 /
+ *     EMA slopes / channel edge 1 each, Stoch 0.5 (fastest and noisiest).
+ *   - contextTimeframes: the timeframes that judge "with or against the trend" for an idea
+ *     executed on each timeframe - one to three steps up, never the execution timeframe.
+ *   - contextWeights: slower context counts more (15m 1, 1h 2, 4h and 1d 3).
+ *   - horizons: scalp reads 1m-1h with 15m doubled (the scalp context timeframe); swing
+ *     reads 1h-1d with 4h and 1d doubled.
+ *   - strategyTimeframes: each strategy's execution timeframe for alignment (SWING 1d,
+ *     TREND_4H / TREND_RIDER 4h, SCALP_1H 1h, MICRO_SCALP 15m).
+ *   - minRoomAtr (1.0): less than one ATR of the zone's timeframe to the nearest
+ *     higher-timeframe zone ahead is inside one bar's range: roomTooSmall.
+ *   - counterTrendPenalty (0.5): on the scalp horizon, a timeframe leaning against the
+ *     swing horizon keeps half its strength; the other half moves to neutral.
  *
  * `replay` block (phase 10, `scripts/replay.js` only; never read on the request path):
  *   - minComputeCandles (200): the replay starts at the first close where every replayed

@@ -1416,9 +1416,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.9.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.10.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.9.0', 'schemaVersion must be bumped to 1.9.0');
+    assertEqual(case6Result.schemaVersion, '1.10.0', 'schemaVersion must be bumped to 1.10.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1593,12 +1593,43 @@ async function main() {
       off(gate([flag({ state: 'forming', confidence: 1 })]), 'forming is not gated on its own confidence');
     });
 
-    await test('condition 2: diagonal one touch short on the geometry timeframe → <gtf>:near_miss_<side>', () => {
-      const g = gate([flag({ timeframe: '5m' })], { nearMissByTf: { '15m': { count: 1, sides: ['resistance'] } } });
-      assertEqual(g.needsVisualConfirmation, true, 'set');
-      assert(deepEqual(g.unresolvedGeometry, ['15m:near_miss_resistance']), `codes ${JSON.stringify(g.unresolvedGeometry)}`);
-      assert(deepEqual(g.visualTarget, { symbol: 'BTC', timeframe: '5m' }), 'target is the candidate timeframe');
+    await test('condition 2: near-miss diagonal → <gtf>:near_miss_<side>; raises the gate alone only with nearMissGate true (phase 9b)', () => {
+      const nearMiss = { '15m': { count: 1, sides: ['resistance'] } };
+      assertEqual(L.nearMissGate, false, 'nearMissGate default');
+      // Phase 9 expectation, now behind nearMissGate: true.
+      const on = buildVisualGate({ symbol: 'BTC', candidates: [flag({ timeframe: '5m' })], geometryByTf: goodGeometry, nearMissByTf: nearMiss, marketByTf: {} }, { ...L, nearMissGate: true });
+      assertEqual(on.needsVisualConfirmation, true, 'set with nearMissGate true');
+      assert(deepEqual(on.unresolvedGeometry, ['15m:near_miss_resistance']), `codes ${JSON.stringify(on.unresolvedGeometry)}`);
+      assert(deepEqual(on.visualTarget, { symbol: 'BTC', timeframe: '5m' }), 'target is the candidate timeframe');
+      // Phase 9b default: a near miss alone no longer gates.
+      off(gate([flag({ timeframe: '5m' })], { nearMissByTf: nearMiss }), 'near miss alone (default)');
       off(gate([flag({ timeframe: '5m' })], { nearMissByTf: { '1h': { count: 1, sides: ['support'] } } }), 'near miss on an unrelated timeframe');
+    });
+
+    await test('phase 9b: near-miss codes ride along when another code raised the gate (same or another candidate)', () => {
+      const nearMiss = { nearMissByTf: { '15m': { count: 1, sides: ['resistance'] } } };
+      const same = gate([flag({ timeframe: '5m', state: 'confirmed', confidence: L.visualConfidenceFloor - 1 })], nearMiss);
+      assertEqual(same.needsVisualConfirmation, true, 'raised by low_confidence');
+      assert(deepEqual(same.unresolvedGeometry, ['5m:low_confidence', '15m:near_miss_resistance']), `codes ${JSON.stringify(same.unresolvedGeometry)}`);
+      const other = gate([flag({ timeframe: '1m' }), flag({ timeframe: '3m', state: 'triggering', confidence: L.visualConfidenceFloor - 1 })], nearMiss);
+      assert(deepEqual(other.unresolvedGeometry, ['15m:near_miss_resistance', '3m:low_confidence']), `codes ${JSON.stringify(other.unresolvedGeometry)}`);
+      assert(deepEqual(other.visualTarget, { symbol: 'BTC', timeframe: '3m' }), 'target is the candidate that raised it');
+    });
+
+    await test('phase 9b: visualTarget prefers triggering/confirmed over forming, then confidence (long + short)', () => {
+      for (const direction of ['long', 'short']) {
+        const lowGeometry = { geometryByTf: { '15m': { confidence: 20 } } };
+        const g = gate([
+          flag({ timeframe: '3m', direction, state: 'forming', confidence: 95 }),
+          flag({ timeframe: '1m', direction, state: 'triggering', confidence: 40 })
+        ], lowGeometry);
+        assert(deepEqual(g.visualTarget, { symbol: 'BTC', timeframe: '1m' }), `${direction}: triggering beats a higher-confidence forming, got ${JSON.stringify(g.visualTarget)}`);
+        const both = gate([
+          flag({ timeframe: '1m', direction, state: 'triggering', confidence: 40 }),
+          flag({ timeframe: '5m', direction, state: 'confirmed', confidence: 50 })
+        ], lowGeometry);
+        assert(deepEqual(both.visualTarget, { symbol: 'BTC', timeframe: '5m' }), `${direction}: among active, confidence decides`);
+      }
     });
 
     await test('condition 3: coil within coilBreakAtr ATRs of either breakout level → <tf>:coil_near_break', () => {
@@ -1655,6 +1686,76 @@ async function main() {
           assert(Number.isInteger(c.durationCandles), `${sym} ${c.timeframe}: durationCandles`);
         }
       }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 12) Bias matrix payload (phase 9b)
+  // -------------------------------------------------------------------------
+  console.log('\n12) bias matrix payload (phase 9b)');
+
+  {
+    const BIAS_KEYS = ['biasMatrix', 'alignment', 'decisionInputs'];
+    let biasResult;
+
+    await test('default payload: no biasMatrix/alignment/decisionInputs; decisionTrace.bias is one string ≤ 120 bytes', () => {
+      assert(case6Result, 'case 6 result not available');
+      for (const [sym, symData] of Object.entries(case6Result.symbols)) {
+        for (const k of BIAS_KEYS) assert(!(k in symData), `${sym}: ${k} must be opt-in`);
+        const b = symData.decisionTrace.bias;
+        assertEqual(typeof b, 'string', `${sym}: decisionTrace.bias`);
+        assert(Buffer.byteLength(b, 'utf8') <= 120, `${sym}: ${Buffer.byteLength(b, 'utf8')} bytes`);
+        assert(/^scalp:L\d+,S\d+,N\d+\|swing:L\d+,S\d+,N\d+\|tf:(1m|3m|5m|15m|1h|4h|1d)=[LSN-](,(3m|5m|15m|1h|4h|1d)=[LSN-]){6}\|ct:\d+$/.test(b), `${sym}: format ${b}`);
+      }
+    });
+
+    await test('includeBias adds exactly the three objects; everything else is byte-identical', async () => {
+      biasResult = await buildScalpContext({
+        symbols: [HEALTHY_A, HEALTHY_B],
+        timeframes: timeframesList,
+        now: NOW,
+        fetchCandles: makeFetchCandles({ deadMatch: null, badMatch: null }),
+        includeBias: true
+      });
+      for (const sym of [HEALTHY_A, HEALTHY_B]) {
+        const s = biasResult.symbols[sym];
+        assert(s.biasMatrix && typeof s.biasMatrix === 'object', `${sym}: biasMatrix`);
+        assertEqual(JSON.stringify(Object.keys(s.biasMatrix)), JSON.stringify(['1m', '3m', '5m', '15m', '1h', '4h', '1d']), `${sym}: matrix timeframes`);
+        assert(Array.isArray(s.alignment), `${sym}: alignment`);
+        for (const h of ['scalp', 'swing']) {
+          const t = s.decisionInputs.directionalBias[h];
+          assertEqual(t.long + t.short + t.neutral, 100, `${sym}: ${h} sums to 100`);
+        }
+      }
+      const stripped = JSON.parse(JSON.stringify(biasResult));
+      for (const sym of Object.keys(stripped.symbols)) for (const k of BIAS_KEYS) delete stripped.symbols[sym][k];
+      assertEqual(JSON.stringify(stripped), JSON.stringify(case6Result), 'rest of the payload unchanged');
+    });
+
+    await test('filterPayload: include bias keeps the bias objects; include without bias drops them; {} is identity', () => {
+      const only = filterPayload(biasResult, { include: ['bias'] });
+      assert('biasMatrix' in only.symbols[HEALTHY_A] && !('timeframes' in only.symbols[HEALTHY_A]), 'bias only');
+      const without = filterPayload(biasResult, { include: ['strategies', 'trace'] });
+      for (const k of BIAS_KEYS) assert(!(k in without.symbols[HEALTHY_A]), `${k} dropped`);
+      assertEqual(JSON.stringify(filterPayload(biasResult, {})), JSON.stringify(biasResult), '{} identity');
+      assert(INCLUDE_TOKENS.includes('bias'), 'bias is a known include token');
+      assert(!filterPayload(biasResult, { include: ['bias'] }).warnings.some((w) => w.includes('bias')), 'no unknown-token warning');
+    });
+
+    await test('failed candidate trace string carries failReason as a fourth token; live ones keep three', () => {
+      const t = buildDecisionTrace({
+        rawStrategies: null,
+        bestSignal: null,
+        evaluatedAt: 'x',
+        window: {},
+        candidateSetups: [
+          { timeframe: '5m', direction: 'short', state: 'failed', failReason: 'stale' },
+          { timeframe: '1m', direction: 'long', state: 'failed', failReason: 'acceptance_below' },
+          { timeframe: '1m', direction: 'long', state: 'confirmed' }
+        ]
+      });
+      assert(deepEqual(t.candidateSetups, ['5m:short:failed:stale', '1m:long:failed:acceptance_below', '1m:long:confirmed']), JSON.stringify(t.candidateSetups));
+      assertEqual(t.bias, null, 'bias defaults to null when not supplied');
     });
   }
 
@@ -1742,6 +1843,15 @@ async function main() {
         const { requestId, ...rest } = res.body;
         assert(typeof requestId === 'string', 'requestId');
         assertEqual(JSON.stringify(rest), JSON.stringify(restPayload), 'body identical to the unfiltered build');
+      });
+
+      await test('REST ?include=bias builds with includeBias; any other include keeps build() argument-free (phase 9b)', async () => {
+        buildCalls.length = 0;
+        await call({ include: 'strategies,bias' });
+        assert(deepEqual(buildCalls[0][0], { includeBias: true }), `build args ${JSON.stringify(buildCalls[0])}`);
+        buildCalls.length = 0;
+        await call({ include: 'strategies' });
+        assertEqual(buildCalls[0].length, 0, 'no bias requested → build()');
       });
     } finally {
       if (savedKey === undefined) delete process.env.SCALP_CONTEXT_API_KEY;

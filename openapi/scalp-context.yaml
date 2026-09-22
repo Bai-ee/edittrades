@@ -31,12 +31,15 @@ paths:
           required: false
           description: >-
             Comma-separated sections to keep, per symbol plus account/config. Unknown
-            values are ignored (noted in warnings). Omit for the full payload.
+            values are ignored (noted in warnings). Omit for the full payload. "bias"
+            (biasMatrix, alignment, decisionInputs; schema 1.10.0) is opt-in: those
+            objects are only returned when bias is listed, e.g. include=bias or
+            include=strategies,trace,bias. Pair with compact=1 to stay small.
           schema:
             type: array
             items:
               type: string
-              enum: [timeframes, strategies, candidates, geometry, account, trace, config]
+              enum: [timeframes, strategies, candidates, geometry, account, trace, config, bias]
           style: form
           explode: false
         - name: compact
@@ -474,9 +477,10 @@ components:
             $ref: "#/components/schemas/TimeframeWindowEntry"
         candidateSetups:
           description: >-
-            One "timeframe:direction:state" string per entry in the symbol's
-            candidateSetups, same order (e.g. "1m:long:confirmed"). Full candidates
-            live on the symbol.
+            One "timeframe:direction:state" string per candidate, failed ones included
+            even when candidateSetups omits them (e.g. "1m:long:confirmed"). A failed
+            candidate adds its failReason as a fourth token (schema 1.10.0), e.g.
+            "5m:short:failed:stale". Full candidates live on the symbol.
           type: array
           items:
             type: string
@@ -497,7 +501,8 @@ components:
           type: boolean
         visualTarget:
           description: >-
-            The highest-confidence candidate that raised the gate; request it with chart
+            The candidate that raised the gate, preferring triggering/confirmed over
+            forming, then the highest confidence; request it with chart
             "SYMBOL:timeframe". Null when the gate is off.
           type: [object, "null"]
           properties:
@@ -512,10 +517,21 @@ components:
             near_miss_support / near_miss_resistance (a diagonal one touch short of
             geometry.diagonalMinTouches), coil_near_break (price within
             lifecycle.coilBreakAtr ATRs of a coil breakout), low_geometry (geometry
-            confidence under lifecycle.geometryConfidenceFloor). Empty when off.
+            confidence under lifecycle.geometryConfidenceFloor). Empty when off. With
+            lifecycle.nearMissGate false (default, schema 1.10.0) near_miss codes never
+            turn the gate on alone; they are listed only when another code did.
           type: array
           items:
             type: string
+        bias:
+          description: >-
+            Compact bias summary (schema 1.10.0), always present, at most 120 bytes:
+            "scalp:L14,S16,N70|swing:L74,S0,N26|tf:1m=S,3m=S,5m=S,15m=N,1h=L,4h=L,1d=L|ct:2".
+            scalp/swing are decisionInputs.directionalBias percentages (long, short,
+            neutral); tf is each timeframe's bias letter (L long, S short, N neutral, -
+            no data); ct counts counter-trend alignment entries. Full objects via
+            include=bias. Null if the bias layer failed.
+          type: [string, "null"]
       required:
         - configVersion
         - evaluatedAt
@@ -577,6 +593,115 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/Timeframe"
+        biasMatrix:
+          description: >-
+            Opt-in (include=bias). Per-timeframe lean for 1m, 3m, 5m, 15m, 1h, 4h, 1d; a
+            timeframe without data is null.
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/BiasEntry"
+        alignment:
+          description: >-
+            Opt-in (include=bias). One entry per non-failed candidate, then per valid
+            strategy: is it with or against the higher-timeframe lean, and how much room
+            it has to the nearest higher-timeframe zone ahead.
+          type: array
+          items:
+            $ref: "#/components/schemas/Alignment"
+        decisionInputs:
+          $ref: "#/components/schemas/DecisionInputs"
+    BiasEntry:
+      type: object
+      description: >-
+        One timeframe's lean from its trend, EMA21/EMA200 stack, price vs EMA21, EMA
+        slopes, higher lows / lower highs, channel edge and Stoch RSI state. Same rules
+        for long and short.
+      properties:
+        bias:
+          type: string
+          enum: [long, short, neutral]
+        strength:
+          description: Weighted agreement of the signals, 0-100. Under bias.neutralBelow reads neutral.
+          type: integer
+        basis:
+          description: >-
+            The signals that leaned, e.g. trend:up, ema21>ema200, price>ema21,
+            ema:rising, higherLows, channel:bottom, stoch:bullish (short-side twins
+            trend:down, ema21<ema200, price<ema21, ema:falling, lowerHighs,
+            channel:top, stoch:bearish).
+          type: array
+          items:
+            type: string
+      required: [bias, strength, basis]
+    Alignment:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [candidate, strategy]
+        ref:
+          description: Candidate trace ref ("1m:short:forming") or strategy name.
+          type: string
+        direction:
+          type: string
+          enum: [long, short, neutral]
+        executionTf:
+          type: string
+        contextTfs:
+          description: Higher timeframes that judge the trend for this execution timeframe (config bias.contextTimeframes).
+          type: array
+          items:
+            type: string
+        withTrend:
+          type: boolean
+        counterTrend:
+          type: boolean
+        htfBias:
+          type: string
+          enum: [long, short, neutral]
+        htfBiasStrength:
+          type: integer
+        nearestHtfZoneDistancePct:
+          description: >-
+            Percent from price to the nearest context-timeframe zone ahead of the trade
+            (resistance for a long, support for a short); 0 when price is inside it;
+            null when none.
+          type: [number, "null"]
+        room:
+          description: That distance in ATRs of the zone's timeframe; null when no zone.
+          type: [number, "null"]
+        roomTooSmall:
+          description: True when room is under bias.minRoomAtr.
+          type: boolean
+      required: [source, ref, direction, executionTf, contextTfs, withTrend, counterTrend, htfBias, htfBiasStrength, nearestHtfZoneDistancePct, room, roomTooSmall]
+    DirectionalTriple:
+      type: object
+      description: Integer percentages summing to 100.
+      properties:
+        long:
+          type: integer
+        short:
+          type: integer
+        neutral:
+          type: integer
+      required: [long, short, neutral]
+    DecisionInputs:
+      type: object
+      description: >-
+        Opt-in (include=bias). Named inputs for the GPT's own GO IN / HOLD-WAIT / DON'T
+        allocation; the API never emits that allocation. scalp weighs 1m-1h, swing
+        1h-1d (config bias.horizons); on scalp, a timeframe leaning against the swing
+        horizon keeps (1 - bias.counterTrendPenalty) of its strength.
+      properties:
+        directionalBias:
+          type: object
+          properties:
+            scalp:
+              $ref: "#/components/schemas/DirectionalTriple"
+            swing:
+              $ref: "#/components/schemas/DirectionalTriple"
+          required: [scalp, swing]
+      required: [directionalBias]
     GeometryZone:
       type: object
       description: >-

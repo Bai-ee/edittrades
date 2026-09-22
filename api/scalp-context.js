@@ -10,7 +10,7 @@
  * JSON; it is read after auth.
  */
 
-import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
+import { buildScalpContext, filterPayload, wantsBias } from '../services/scalpContext.js';
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import crypto from 'crypto';
@@ -128,9 +128,11 @@ export async function handleScalpContext(req, res, { build = buildScalpContext }
       return res.status(400).json({ error: err.message, requestId });
     }
     let chartSeries;
+    // Bias objects (phase 9b) are opt-in: build() is unchanged unless include lists "bias".
+    const biasOpt = wantsBias(parseListParam(req.query && req.query.include)) ? { includeBias: true } : null;
     const payload = chartRequest
-      ? await build({ chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
-      : await build();
+      ? await build({ ...biasOpt, chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
+      : await (biasOpt ? build(biasOpt) : build());
 
     // Query-param filtering (phase 5): parsed after auth, auth code above is untouched.
     // No params -> filterPayload is a no-op and the response is today's full payload.

@@ -671,6 +671,19 @@ async function main() {
     assert(!res.content[0].text.includes('chart='), 'summary must not mention a chart');
   });
 
+  await test('include ["bias"] builds with includeBias; include without bias keeps build() argument-free (phase 9b)', async () => {
+    buildCalls.length = 0;
+    await chartClient.callTool({ name: TOOL_NAME, arguments: { include: ['strategies', 'bias'] } });
+    assertEqual(JSON.stringify(buildCalls[0]), JSON.stringify([{ includeBias: true }]), 'build args with bias');
+    buildCalls.length = 0;
+    await chartClient.callTool({ name: TOOL_NAME, arguments: { include: ['strategies'] } });
+    assertEqual(buildCalls[0].length, 0, 'no bias requested → build()');
+    buildCalls.length = 0;
+    await chartClient.callTool({ name: TOOL_NAME, arguments: { include: ['bias'], chart: 'BTC:1m' } });
+    assertEqual(buildCalls[0][0].includeBias, true, 'bias + chart');
+    assertEqual(buildCalls[0][0].chart.symbol, 'BTC', 'chart kept');
+  });
+
   await test('chart "BTC:1m": exactly one PNG image block for that symbol/timeframe', async () => {
     buildCalls.length = 0;
     const res = await chartClient.callTool({ name: TOOL_NAME, arguments: { chart: 'BTC:1m' } });

@@ -17,6 +17,7 @@ import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
 import { DIRECTIONS, detectFlagLifecycle } from '../lib/patternDetector.js';
 import { buildGeometryContext, buildGeometryB, geometryTraceSummary, nearMissDiagonals, swingPivots } from '../lib/geometry.js';
 import { geometryTimeframeFor, snapCandidateLevels, resolveCoils, buildVisualGate } from '../lib/patternLifecycle.js';
+import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -487,7 +488,7 @@ export function buildTimeframeWindow(closedByTf, tfEntries, timeframeList) {
  * @param {Object|null} [params.visualGate] - buildVisualGate(...) output (phase 9)
  * @returns {Object}
  */
-export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window, candidateSetups = [], geometryContext = null, visualGate = null }) {
+export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window, candidateSetups = [], geometryContext = null, visualGate = null, bias = null }) {
   const bestEntry = bestSignal && rawStrategies ? rawStrategies[bestSignal] : null;
   return {
     configVersion: CONFIG_VERSION,
@@ -498,7 +499,10 @@ export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, win
     window,
     // Compact "timeframe:direction:state" references only: the full candidates live on
     // symbols.<SYM>.candidateSetups, and copying them here breaks the ~2KB trace budget.
-    candidateSetups: candidateSetups.map(({ timeframe, direction, state }) => `${timeframe}:${direction}:${state}`),
+    // A failed candidate adds its failReason as a fourth token (phase 9b), so "why did it
+    // fail" is answerable while flag.includeFailed keeps the full object out.
+    candidateSetups: candidateSetups.map(({ timeframe, direction, state, failReason }) => (
+      state === 'failed' && failReason ? `${timeframe}:${direction}:${state}:${failReason}` : `${timeframe}:${direction}:${state}`)),
     // Same idea for geometry (phase 7): one compact string per timeframe, full objects on
     // symbols.<SYM>.geometryContext. Null when no geometry was built for the symbol.
     geometry: geometryContext ? geometryTraceSummary(geometryContext) : null,
@@ -506,7 +510,10 @@ export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, win
     // 8b) or ask the user for that screenshot. Never true without a candidate.
     needsVisualConfirmation: visualGate ? visualGate.needsVisualConfirmation : false,
     visualTarget: visualGate ? visualGate.visualTarget : null,
-    unresolvedGeometry: visualGate ? visualGate.unresolvedGeometry : []
+    unresolvedGeometry: visualGate ? visualGate.unresolvedGeometry : [],
+    // Bias summary (phase 9b): biasTraceSummary(...) string, the only bias field in the
+    // default payload. Full objects are opt-in via includeBias / include: bias.
+    bias
   };
 }
 
@@ -717,7 +724,21 @@ export function filterFailedCandidateSetups(setups, includeFailed) {
 
 // Valid `include` tokens for filterPayload (phase 5, item A + G). 'geometry' gates
 // symbols.<SYM>.geometryContext (phase 7).
-export const INCLUDE_TOKENS = ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config'];
+export const INCLUDE_TOKENS = ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config', 'bias'];
+
+/** Phase 9b: symbol keys carried only when the build ran with includeBias. */
+const BIAS_SECTION_KEYS = ['biasMatrix', 'alignment', 'decisionInputs'];
+
+/**
+ * True when an include list asks for the bias section. Callers pass the result to
+ * buildScalpContext({ includeBias }) because bias objects are opt-in: a build without it
+ * never carries them, so filterPayload(payload, {}) stays the identity.
+ * @param {*} include
+ * @returns {boolean}
+ */
+export function wantsBias(include) {
+  return Array.isArray(include) && include.some((s) => typeof s === 'string' && s.trim().toLowerCase() === 'bias');
+}
 
 const SYMBOL_SECTION_KEYS = {
   timeframes: 'timeframes',
@@ -773,6 +794,9 @@ function filterSymbol(sym, tokens, compactMode) {
     } else if (key === SYMBOL_SECTION_KEYS.trace) {
       if (tokens && !tokens.has('trace')) continue;
       out.decisionTrace = value;
+    } else if (BIAS_SECTION_KEYS.includes(key)) {
+      if (tokens && !tokens.has('bias')) continue;
+      out[key] = value;
     } else {
       out[key] = value;
     }
@@ -943,6 +967,8 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  * @param {number} [options.now=Date.now()]
  * @param {(pair:string, interval:string, limit:number)=>Promise<Array>} [options.fetchCandles] - injectable for tests
  * @param {Function} [options.fetchAccount] - injectable wallet snapshot reader, for tests
+ * @param {boolean} [options.includeBias=false] - phase 9b: attach biasMatrix, alignment and
+ *   decisionInputs per symbol. decisionTrace.bias is always present.
  * @param {{symbol:string, timeframe:string, onSeries:Function}|null} [options.chart] - phase 8b:
  *   receives `{ ema21, ema200 }` aligned to that timeframe's published candles. Payload unchanged.
  * @returns {Promise<Object>} normalized JSON-safe payload
@@ -956,6 +982,7 @@ export async function buildScalpContext(options = {}) {
     fetchCandles = defaultStrictFetch,
     fetchAccount = getAccountSnapshot,
     includeFailed = ENGINE_CONFIG.flag.includeFailed,
+    includeBias = false,
     chart = null
   } = options || {};
 
@@ -1035,6 +1062,9 @@ export async function buildScalpContext(options = {}) {
     // Per candidate timeframe { price, atr } (phase 9): snap tolerance and the coil
     // gate measure in the candidate timeframe's ATR. Internal, never published.
     const marketByTf = {};
+    // EMA/Stoch series per timeframe, kept for the bias layer's own geometry on
+    // timeframes geometryContext does not publish (phase 9b). Internal, never published.
+    const seriesByTf = {};
 
     for (const tf of timeframeList) {
       const fetched = bySymbolTf[symbol][tf];
@@ -1069,6 +1099,11 @@ export async function buildScalpContext(options = {}) {
 
       const limitCount = CANDLE_LIMITS[tf] || closed.length;
       const trimmed = closed.slice(-limitCount);
+      seriesByTf[tf] = {
+        ema21History: indicators.ema && indicators.ema.ema21History,
+        ema200History: indicators.ema && indicators.ema.ema200History,
+        stochHistory: indicators.stochRSI && indicators.stochRSI.history
+      };
 
       const ema21 = isFiniteNumber(indicators.ema && indicators.ema.ema21) ? indicators.ema.ema21 : null;
       const ema200 = isFiniteNumber(indicators.ema && indicators.ema.ema200) ? indicators.ema.ema200 : null;
@@ -1248,6 +1283,29 @@ export async function buildScalpContext(options = {}) {
       rawStrategies = null;
     }
 
+    // Bias matrix (phase 9b): a layer above strategies and candidates, never an input to
+    // them. Timeframes without published geometry get the same geometry functions run
+    // here for the bias read only. Same separate-channel rule: a fault is logged, the
+    // trace string is null and the opt-in objects are omitted.
+    let bias = null;
+    try {
+      const biasGeometry = {};
+      for (const tf of timeframeList) {
+        if (geometryContext[tf]) { biasGeometry[tf] = geometryContext[tf]; continue; }
+        if (!seriesByTf[tf] || !closedByTf[tf]) continue;
+        const g = buildGeometryContext({ timeframe: tf, candles: closedByTf[tf], ...seriesByTf[tf] });
+        if (!g) continue;
+        const b = buildGeometryB({ candles: closedByTf[tf], geometry: g, ema21: tfEntries[tf].ema21, ema200: tfEntries[tf].ema200 });
+        biasGeometry[tf] = b ? { ...g, ...b } : g;
+      }
+      const matrix = buildBiasMatrix(tfEntries, biasGeometry);
+      const alignment = buildAlignment({ price, candidates: candidateSetups, strategies, matrix, zonesByTf: zonesFromGeometry(biasGeometry) });
+      const decisionInputs = buildDecisionInputs(matrix);
+      bias = { matrix, alignment, decisionInputs, summary: biasTraceSummary(matrix, decisionInputs, alignment) };
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: bias matrix failed - ${err.message}`);
+    }
+
     const decisionTrace = buildDecisionTrace({
       rawStrategies,
       bestSignal,
@@ -1255,7 +1313,8 @@ export async function buildScalpContext(options = {}) {
       window: buildTimeframeWindow(closedByTf, tfEntries, timeframeList),
       candidateSetups,
       geometryContext,
-      visualGate
+      visualGate,
+      bias: bias ? bias.summary : null
     });
 
     symbolsOut[symbol] = {
@@ -1273,6 +1332,11 @@ export async function buildScalpContext(options = {}) {
       geometryContext,
       decisionTrace
     };
+    if (includeBias && bias) {
+      symbolsOut[symbol].biasMatrix = bias.matrix;
+      symbolsOut[symbol].alignment = bias.alignment;
+      symbolsOut[symbol].decisionInputs = bias.decisionInputs;
+    }
 
     symbolDurationsMs[symbol] = Date.now() - symbolStartMs;
   }
@@ -1318,7 +1382,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.9.0',
+    schemaVersion: '1.10.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

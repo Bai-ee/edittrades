@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-8",
+  "configVersion": "2026.09.22-9",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -95,7 +95,45 @@
     "visualConfidenceFloor": 60,
     "geometryConfidenceFloor": 60,
     "coilBreakAtr": 0.5,
-    "coilOverlapPct": 50
+    "coilOverlapPct": 50,
+    "nearMissGate": false
+  },
+
+  "bias": {
+    "neutralBelow": 20,
+    "channelEdgePct": 20,
+    "basisWeights": {
+      "trend": 2,
+      "emaStack": 1,
+      "price21": 1,
+      "emaSlope": 1,
+      "structure": 1.5,
+      "channel": 1,
+      "stoch": 0.5
+    },
+    "contextTimeframes": {
+      "1m": ["15m", "1h", "4h"],
+      "3m": ["15m", "1h", "4h"],
+      "5m": ["15m", "1h", "4h"],
+      "15m": ["1h", "4h"],
+      "1h": ["4h", "1d"],
+      "4h": ["1d"],
+      "1d": []
+    },
+    "contextWeights": { "15m": 1, "1h": 2, "4h": 3, "1d": 3 },
+    "horizons": {
+      "scalp": { "1m": 1, "3m": 1, "5m": 1, "15m": 2, "1h": 1 },
+      "swing": { "1h": 1, "4h": 2, "1d": 2 }
+    },
+    "strategyTimeframes": {
+      "SWING": "1d",
+      "TREND_4H": "4h",
+      "TREND_RIDER": "4h",
+      "SCALP_1H": "1h",
+      "MICRO_SCALP": "15m"
+    },
+    "minRoomAtr": 1.0,
+    "counterTrendPenalty": 0.5
   },
 
   "replay": {

@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-22 (docs sync after Phase 8; Phase 8b in progress)
 Branch: `upgrade-signal-engine`
-Payload: `schemaVersion` 1.8.0, `configVersion` 2026.09.22-6
+Payload: `schemaVersion` 1.8.0, `configVersion` 2026.09.22-6 live; 1.10.0 / 2026.09.22-9 local (Phases 9, 10, 9b), not deployed
 Commits: `06ddb1d` (connector, wallet tracking, guard, call-path tests), `843c16f` (`stopSource` on SCALP_1H); engine phases 1–8 per `docs/MASTER_PLAN_ENGINE_REFINEMENT.md`
 Shared spec page: https://claude.ai/code/artifact/0fa3fa7e-96f1-4931-b09f-565282bb9215
 Thread handoff (local, outside repo): `~/Documents/ChatGPT/EditTrades/THREAD_HANDOFF.md`
@@ -36,8 +36,8 @@ Tests:
 | Command | File | Passing (2026-09-22) |
 | --- | --- | --- |
 | `npm run test:sltp` | `test-strategy-sltp.js` (section 6b = call-path guard tests) | 50 |
-| `npm run test:scalp` | `test-scalp-context.js` | 94 |
-| `npm run test:mcp` | `test-edittrades-mcp.js` | 51 |
+| `npm run test:scalp` | `test-scalp-context.js` | 101 |
+| `npm run test:mcp` | `test-edittrades-mcp.js` | 52 |
 | `npm run test:wallet` | `test-wallet-tracker.js` | 28 |
 | `npm run test:config` | `test-engine-config.js` | 14 |
 | `npm run test:risk` | `test-risk-engine.js` | 24 |
@@ -45,8 +45,9 @@ Tests:
 | `npm run test:geometry` | `test-geometry.js` (snapshot `test/fixtures/geometryPhase7Snapshot.json`, builders `test/fixtures/geometryFixtures.js`) | 35 |
 | `npm run test:chart` | `test-chart-render.js` (sample `test/fixtures/chart-sample-btc-4h.png`) | 18 |
 | `npm run test:replay` | `test-replay.js` (replay harness, metrics, miss log `test/fixtures/misses/`) | 20 |
+| `npm run test:bias` | `test-bias-matrix.js` (bias matrix, alignment, decision inputs, mirrors) | 14 |
 
-The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all ten before a deploy.
+The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all eleven before a deploy.
 
 Replay (Phase 10, dev only, never on the request path): `npm run replay -- --capture BTC,SOL,ETH --out test/fixtures/history/<date>/ [--backfill-1m 360]` saves a live pull; `npm run replay -- --history <dir> --symbols BTC --out btc.jsonl` runs `buildScalpContext()` once per closed candle with no lookahead; `npm run replay:metrics -- btc.jsonl` prints candidate counts, visual-gate rate by code, lifetime and label precision/recall. Details: master plan, Phase 10.
 
@@ -83,7 +84,8 @@ Errors (`isError: true`, sanitized text, no structured content): build threw/tim
 ### Payload controls (Phase 5)
 
 - `symbols`: any of `BTC`, `SOL`, `ETH`, case-insensitive.
-- `include` tokens: `timeframes`, `strategies`, `candidates` (→ `candidateSetups`), `geometry` (→ `geometryContext`), `trace` (→ `decisionTrace`), `account`, `config`. `price`, `source`, `structure`, `bestSignal` are always kept.
+- `include` tokens: `timeframes`, `strategies`, `candidates` (→ `candidateSetups`), `geometry` (→ `geometryContext`), `trace` (→ `decisionTrace`), `account`, `config`, `bias` (→ `biasMatrix`, `alignment`, `decisionInputs`; Phase 9b). `price`, `source`, `structure`, `bestSignal` are always kept.
+- `bias` is opt-in, unlike the other tokens: the bias objects are only built into the response when `include` lists `bias` (REST/MCP then call `buildScalpContext({ includeBias: true })`). Without it the only bias field is `decisionTrace.bias`. Measured 2026-09-22 on the replay capture: default 76.8 KB (+264 bytes for 9b), default + bias 79.6 KB, compact + bias 33.4 KB, `include=bias` alone 5.4 KB. Prefer `compact` with `bias`.
 - `compact: true`: every `timeframes.<tf>.candles` becomes `[]`; indicator summaries stay.
 - Unknown values are ignored with one `payload controls: ...` line in `warnings`, never rejected. If every requested value is unknown the filter is treated as absent. These warnings are added after `dataStatus` is computed and do not change it.
 - Measured 2026-09-22, live BTC/SOL/ETH: full ~77 KB, compact ~31 KB. The builder logs a soft warning above 80 KB.
@@ -95,7 +97,7 @@ Errors (`isError: true`, sanitized text, no structured content): build threw/tim
 - One chart per call. Two charts, an unknown symbol/timeframe, or a malformed value: MCP `isError`, REST 400 JSON. No candles for that timeframe in the build: MCP `isError`, REST 503. Rejected before the build runs.
 - Draws the published candle window, EMA21/EMA200, horizontal zones (bands), diagonals, channel, candidate flag levels (dashed). 1m/3m/5m: candles + EMAs + candidate only.
 
-## Payload schema 1.8.0
+## Payload schema 1.10.0
 
 Field-level definitions live in `openapi/scalp-context.yaml`. This is the map.
 
@@ -105,7 +107,7 @@ Top level: `schemaVersion`, `configVersion`, `config`, `generatedAt`, `closedThr
 
 `account`: `status` (available | partial | disabled | unavailable), `reason`, `address` (masked), `fetchedAt`, `margin{usd, byAsset}` (USDC/USDT = risk capital and P&L base), `holdings[]`, `holdingsUsd` (exposure, not P&L), `unpriced[]`, `gas{sol, minSol, sufficient}`, `performance{baselineUsd, netPnlUsd, returnPct, source}`. Unavailable is never zero. Never affects `dataStatus`.
 
-`symbols.<SYM>`, in key order: `price`, `source{provider, pair, fetchedAt}`, `structure{sessionHigh, sessionLow, prevDayHigh, prevDayLow, swingHighs[5], swingLows[5], support[3], resistance[3], aboveEma21, aboveEma200}`, `timeframes{1m,3m,5m,15m,1h,4h,1d}`, `strategies{SWING, TREND_4H, TREND_RIDER, SCALP_1H, MICRO_SCALP}`, `bestSignal`, `candidateSetups[]`, `geometryContext`, `decisionTrace`.
+`symbols.<SYM>`, in key order: `price`, `source{provider, pair, fetchedAt}`, `structure{sessionHigh, sessionLow, prevDayHigh, prevDayLow, swingHighs[5], swingLows[5], support[3], resistance[3], aboveEma21, aboveEma200}`, `timeframes{1m,3m,5m,15m,1h,4h,1d}`, `strategies{SWING, TREND_4H, TREND_RIDER, SCALP_1H, MICRO_SCALP}`, `bestSignal`, `candidateSetups[]`, `geometryContext`, `decisionTrace`, then with `include=bias` only: `biasMatrix`, `alignment[]`, `decisionInputs`.
 
 `timeframes.<tf>`: `candles[]` (closed only; 30 for 1m/3m/5m, 24 for 15m/1h, 20 for 4h, 10 for 1d; compute runs on up to 499), `ema21`, `ema200`, `priceVs21Pct`, `priceVs200Pct`, `trend`, `stochRsi{k, d, state, cross, slopeK, slopeD}`, `closedThrough`, `candleCount`.
 
@@ -117,7 +119,9 @@ Top level: `schemaVersion`, `configVersion`, `config`, `generatedAt`, `closedThr
 
 `geometryContext.<tf>` (Phases 7–8; 15m, 1h, 4h by default, `null` when a timeframe lacks enough candles): `atr`, `atrPct`, `structure` (up | down | range), `higherLows`, `lowerHighs`, `horizontalSupportZones[]`, `horizontalResistanceZones[]`, `roomToNextSupport`, `roomToNextResistance`, `extensionRisk`, `ema21Slope`, `stochAccelK`, `confidence`, `diagonalSupport`, `diagonalResistance`, `channel`, `confluenceZones[]`.
 
-`decisionTrace` (Phase 2): `configVersion`, `evaluatedAt`, `strategies[]` (`name`, `ran`, `valid`, `rejectedAt`, `reason` per strategy), `bestSignal`, `bestSignalReason`, `window` (per-timeframe closed-candle window), `candidateSetups[]` (`"1m:long:confirmed"` strings), `geometry[]` (`"1h:up:0.42:0.18:low"` strings).
+`decisionTrace` (Phase 2): `configVersion`, `evaluatedAt`, `strategies[]` (`name`, `ran`, `valid`, `rejectedAt`, `reason` per strategy), `bestSignal`, `bestSignalReason`, `window` (per-timeframe closed-candle window), `candidateSetups[]` (`"1m:long:confirmed"` strings; a failed one adds its `failReason`, `"5m:short:failed:stale"`, Phase 9b), `geometry[]` (`"1h:up:0.42:0.18:low"` strings), `needsVisualConfirmation`, `visualTarget`, `unresolvedGeometry[]` (Phase 9 visual gate; since 9b a near-miss diagonal alone never raises it and `visualTarget` prefers triggering/confirmed), `bias` (Phase 9b, ≤ 120 bytes, `"scalp:L14,S16,N70|swing:L74,S0,N26|tf:1m=S,…,1d=L|ct:2"`).
+
+`biasMatrix.<tf>` (Phase 9b, opt-in): `bias` (long | short | neutral), `strength` 0–100, `basis[]` for 1m…1d. `alignment[]`: per non-failed candidate and valid strategy, `source`, `ref`, `direction`, `executionTf`, `contextTfs`, `withTrend`, `counterTrend`, `htfBias`, `htfBiasStrength`, `nearestHtfZoneDistancePct` (nearest HTF zone ahead: resistance for a long, support for a short), `room` (in that timeframe's ATR), `roomTooSmall`. `decisionInputs.directionalBias{scalp, swing}`: `{long, short, neutral}` summing to 100. Inputs for the GPT's own allocation; the API never emits GO IN / HOLD / DON'T.
 
 ### Coming in Phase 8b (in progress)
 

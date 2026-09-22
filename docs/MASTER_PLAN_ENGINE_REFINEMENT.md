@@ -1,7 +1,7 @@
 # EditTrades Engine Refinement — Phased Master Plan
 
 Last updated: 2026-09-22 (amended: Phase 3 position risk, 3b positions, 4 short mirrors, 8 channel, 9b bias matrix; docs sync after Phase 8, 8b in progress)
-Status: phases 0–8 and 8b done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 9 done locally (schema 1.9.0 / configVersion 2026.09.22-7), not deployed. Phase 10 done locally (replay harness, no payload change; configVersion 2026.09.22-8 for the `replay` config key), not deployed.
+Status: phases 0–8 and 8b done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 9 done locally (schema 1.9.0 / configVersion 2026.09.22-7), not deployed. Phase 10 done locally (replay harness, no payload change; configVersion 2026.09.22-8 for the `replay` config key), not deployed. Phase 9b done locally (schema 1.10.0 / configVersion 2026.09.22-9), not deployed.
 Branch: `upgrade-signal-engine`
 Source inputs: `~/Downloads/EditTrades_Master_Orchestration_Handoff_v1.md` (product/orchestration intent), this repo (current truth).
 Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPECIFICATION.md`, `CLAUDE.md`.
@@ -65,11 +65,11 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 8c | Trade journal, minimal: Blob file, one write op with its own key, account.journal with basic stats | 1 h | low |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium | ✅ done 2026-09-22 → `lib/chartRender.js`, `pureimage` 0.4.20, `assets/fonts/IBMPlexMono-Regular.ttf` + `OFL.txt`, `services/editTradesMcp.js` (`chart` arg, image block), `api/scalp-context.js` (`?chart`, image/png), `services/scalpContext.js` (`chart.onSeries` EMA hook, payload unchanged), `openapi/scalp-context.yaml`, no schema bump, `npm run test:chart` |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium | ✅ done 2026-09-22 → `lib/patternLifecycle.js` (snap, coil, visual gate), `lib/patternDetector.js` (`detectFlagLifecycle`), `lib/geometry.js` (`nearMissDiagonals`), `config/engine.json` (`lifecycle`, configVersion -6 → -7), `services/scalpContext.js`, `openapi/scalp-context.yaml` (CandidateSetup coil fields, LevelSource, DecisionTrace gate), schema 1.8.0 → 1.9.0, `test/fixtures/flagFixtures.js` (`invalidationClose`, `staleBreak`), `npm run test:pattern` / `npm run test:scalp` |
-| 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
+| 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium | ✅ done 2026-09-22 → `lib/biasMatrix.js`, `lib/patternLifecycle.js` (`nearMissGate`, visualTarget preference), `services/scalpContext.js` (`includeBias`, `wantsBias`, `decisionTrace.bias`, failed trace token), `api/scalp-context.js` + `services/editTradesMcp.js` (include `bias` → `includeBias`), `config/engine.json` (`bias`, `lifecycle.nearMissGate`, configVersion -8 → -9), `openapi/scalp-context.yaml` (BiasEntry, Alignment, DecisionInputs, DirectionalTriple), schema 1.9.0 → 1.10.0, `npm run test:bias` |
 | 10 | Replay harness + miss-log fixtures | 1 day | low | ✅ done 2026-09-22 → `scripts/replay.js`, `scripts/replay-metrics.js`, `test/fixtures/misses/` (MISS_001, MISS_002), `test/fixtures/replayHistories.js`, `test/fixtures/geometryFixtures.js` (moved from `test-geometry.js`), `config/engine.json` (`replay.minComputeCandles`, configVersion -7 → -8), no schema bump, `npm run test:replay` |
 | 11 | GPT instruction trim | 1 h | low |
 
-Execution order (updated 2026-09-22): 0–10 and 8b done → 9b (bias matrix) → 11 (GPT trim) → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
+Execution order (updated 2026-09-22): 0–10, 8b and 9b done → 11 (GPT trim) → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
 
 ---
 
@@ -418,6 +418,15 @@ Tests: `test-bias-matrix.js`:
 - `directionalBias` percentages sum to 100 per horizon.
 
 Acceptance: the two-sided scenario the user described is representable in one payload and both tests pass in both directions.
+
+Done 2026-09-22. As built:
+- Shape follows the 9b implementer prompt where it differs from the text above: `decisionInputs = { directionalBias: { scalp, swing } }` (no top-level triple), and alignment carries one `nearestHtfZoneDistancePct` (the zone ahead of the trade: resistance for a long, support for a short) plus `room` in that zone's timeframe ATR, instead of `htfSupportDistancePct | htfResistanceDistancePct`. `roomTooSmall` applies to any alignment entry, not only counter-trend ones.
+- Bias per timeframe: weighted sign vote of trend, EMA21/200 stack, price vs EMA21, EMA slopes (agreeing), higher lows / lower highs, channel edge, Stoch state; under `bias.neutralBelow` reads neutral. 1m/3m/5m/1d have no published geometry, so the bias layer runs the same geometry functions on them internally; `geometryContext` is unchanged. Mirrored markets give mirrored numbers (500 seeded random markets in `test:bias`); rounding ties between long and short go to neutral.
+- Opt-in: `include: bias` makes REST/MCP build with `includeBias: true`; without it `build()` is called exactly as before and the only bias field is `decisionTrace.bias`. `filterPayload(payload, {})` stays the identity.
+- Bytes (replay capture 2026-09-22 22:18, identical data for HEAD and 9b): default 76,528 → 76,792 (+264); compact 30,399 → 30,663; default + bias 79,563; compact + bias 33,434; `include=bias` alone 5,388. Live full + bias 81,897 bytes, at the 80 KB soft guard: use `compact` with `bias`.
+- Gate: `lifecycle.nearMissGate: false`. Replay on `test/fixtures/history/2026-09-22` (1,434 closes): gate rate 0.5377 → 0.0509 (BTC 0.046, SOL 0.027, ETH 0.080). Candidate counts identical. Near-miss codes now appear on 65 closes (0.045), always beside another code.
+- Changed expectations in existing suites: schemaVersion 1.9.0 → 1.10.0 in `test-scalp-context.js`, `test-engine-config.js`, `test-geometry.js`, `test-pattern-detector.js`; `test-scalp-context.js` "condition 2" now asserts a near miss alone does not gate by default and keeps the phase 9 expectation under `nearMissGate: true`.
+- Live sample 2026-09-22: BTC 1m short triggering, `counterTrend: true` against a 72-strength long HTF bias, price inside an HTF support zone (`room: 0`, `roomTooSmall: true`), swing horizon L74/S0/N26.
 
 ---
 

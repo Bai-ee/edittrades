@@ -20,6 +20,7 @@
     "test:geometry": "node test-geometry.js",
     "test:chart": "node test-chart-render.js",
     "test:replay": "node test-replay.js",
+    "test:bias": "node test-bias-matrix.js",
     "replay": "node scripts/replay.js",
     "replay:metrics": "node scripts/replay-metrics.js"
   },

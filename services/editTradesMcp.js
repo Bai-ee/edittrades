@@ -20,7 +20,7 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { buildScalpContext, filterPayload } from './scalpContext.js';
+import { buildScalpContext, filterPayload, wantsBias } from './scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 
 export const MCP_SERVER_NAME = 'edittrades';
@@ -46,7 +46,7 @@ export const TOOL_INPUT_SCHEMA = {
   symbols: z.array(z.string()).optional()
     .describe('Limit the response to these symbols (BTC, SOL, ETH). Unknown values are ignored. Omit for all three.'),
   include: z.array(z.string()).optional()
-    .describe('Limit each symbol to these sections (timeframes, strategies, candidates, geometry, account, trace, config). Unknown values are ignored. Omit for the full payload.'),
+    .describe('Limit each symbol to these sections (timeframes, strategies, candidates, geometry, account, trace, config, bias). bias (biasMatrix, alignment, decisionInputs) is opt-in: only returned when listed. Unknown values are ignored. Omit for the full payload.'),
   compact: z.boolean().optional()
     .describe('When true, omit candle arrays and keep only the computed indicator summaries.'),
   chart: z.string().optional()
@@ -129,9 +129,12 @@ export async function runGetScalpContext(deps = {}) {
     return { isError: true, content: [{ type: 'text', text: `EditTrades chart rejected: ${err.message} requestId=${requestId}` }] };
   }
   let chartSeries;
+  // Bias objects (phase 9b) are opt-in: build() is called exactly as before unless
+  // include lists "bias".
+  const biasOpt = wantsBias((args || {}).include) ? { includeBias: true } : null;
   const buildCall = chartRequest
-    ? () => build({ chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
-    : () => build();
+    ? () => build({ ...biasOpt, chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
+    : () => (biasOpt ? build(biasOpt) : build());
 
   let payload;
   try {
