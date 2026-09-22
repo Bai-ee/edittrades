@@ -1,6 +1,6 @@
 # EditTrades Engine Refinement — Phased Master Plan
 
-Last updated: 2026-09-22
+Last updated: 2026-09-22 (amended: Phase 3 position risk, 3b positions, 4 short mirrors, 8 channel, 9b bias matrix)
 Branch: `upgrade-signal-engine`
 Source inputs: `~/Downloads/EditTrades_Master_Orchestration_Handoff_v1.md` (product/orchestration intent), this repo (current truth).
 Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPECIFICATION.md`, `CLAUDE.md`.
@@ -50,17 +50,19 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 0 | Field inventory + rule-to-owner matrix | 30 min | none | ✅ done 2026-09-22 → `docs/RULE_OWNER_MATRIX.md` |
 | 1 | `config/engine.json` + `configVersion` | 1 h | low |
 | 2 | `decisionTrace` per symbol | 1–2 h | low |
-| 3 | Risk engine: leverage cap from stop distance | 1–2 h | low |
-| 4 | `candidateSetups[]` + 1m/5m flag detector + BTC fixtures | 3–4 h | medium |
+| 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low |
+| 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |
+| 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium |
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none |
 | 5 | Payload controls: tool args `symbols`, `include`; compact mode | 1–2 h | low |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
+| 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
 | 11 | GPT instruction trim | 1 h | low |
 
-Phases 1–4 are the "five things" from review. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
+Phases 1–4 are the "five things" from review, plus 3b (positions) which Miss 002 made mandatory. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
 
 ---
 
@@ -138,9 +140,38 @@ Config (phase 1 file): `liquidationBufferPct`, `maintenanceMarginPct`, `maxWalle
 
 Payload: per valid strategy signal, add `risk: { maxLeverage, suggestedLeverage, lossAtStopUsd, lossAtStopPct }` computed from `account.margin.usd` when available, else null with `reason: "account unavailable"`. Never invent margin.
 
-Tests: new `test-risk-engine.js`. Cases: 3% stop → max leverage well under 100x; 0.5% stop → higher cap; margin unavailable → nulls; requested leverage above cap → capped with reason; wallet-risk cap binds before leverage cap when appropriate.
+Existing-position risk (from playbook Miss 002). Same module, pure functions, no provider dependency:
+- `positionRisk(position, stopPrice, { feeBps, slippageBps })` where `position = { side, entry, notional, collateral, leverage, liquidationPrice }` → `{ stopDistancePct, lossAtStopUsd, lossAtStopPctOfCollateral, distanceToLiquidationPct, stopBeforeLiquidation: bool, executable: "intrabar" }`.
+- `maxStopDistanceForBudget(position, lossBudgetUsd, { feeBps, slippageBps })` → price distance the budget allows.
+- `stopHierarchy(position, structuralInvalidation, lossBudgetUsd, cfg)` → `{ protectiveStop, thesisInvalidation, compatible: bool, reason, recommendedLeverage, recommendedNotional }`. `protectiveStop` is always an executable price before liquidation with fee and slippage allowance. `thesisInvalidation` is the structural level. When structure needs more room than the budget permits, `compatible: false` and the recommendation reduces leverage or size; the thesis level is never tightened to fit.
 
-Acceptance: at 100x request with a 3% stop, payload shows capped leverage and the reason. GPT no longer needs to compute this.
+Payload: when `account.positions[]` exists (Phase 3b), each position carries `risk: stopHierarchy(...)` using the nearest structural level from `structure` (Phase 7 upgrades this to per-timeframe zones). Until 3b lands, functions ship and are tested; nothing is attached.
+
+Config additions: `feeBps`, `slippageBps`, `defaultLossBudgetPctOfCollateral`.
+
+Tests: new `test-risk-engine.js`. Cases: 3% stop → max leverage well under 100x; 0.5% stop → higher cap; margin unavailable → nulls; requested leverage above cap → capped with reason; wallet-risk cap binds before leverage cap when appropriate.
+MISS_002 fixture with the playbook's exact numbers: long entry 86,289.01, 99.77x, notional 931.73, collateral 9.34, liquidation 85,657.61, proposed stop 86,250 → stopDistancePct ≈ 0.045, lossAtStopUsd ≈ 0.42, ≈ 4.5% of collateral, `stopBeforeLiquidation: true`, and with any structural invalidation more than ~0.7% away, `compatible: false` with a recommended leverage. Short mirror of the same fixture.
+
+Acceptance: at 100x request with a 3% stop, payload shows capped leverage and the reason. MISS_002 reproduces from the fixture. GPT no longer needs to compute any of this.
+
+---
+
+## Phase 3b — Read-only `account.positions[]`
+
+Objective: the risk engine works on real positions, not user-typed numbers. Miss 002 came from the GPT reasoning about a position the API never saw.
+
+Source: the perps provider already integrated for reads (`services/jupiterPerps.js` / `services/driftPerps.js` via `services/perpsProvider.js`). Read path only.
+
+Isolation rules, identical to `walletTracker.js`:
+- New `services/positionTracker.js`. Imports the provider's read functions only. Never imports `walletManager.js`, `tradeExecution.js`, `positionManager.js`, or any keypair-capable module. Lazy import inside the function so a failed read cannot load more than needed.
+- Reads by public `TRACKED_WALLET_ADDRESS`. No signing secret read.
+- Timeout and fail-closed like the wallet: `positions.status: available | partial | unavailable | disabled`. Unavailable is never an empty list presented as "no positions". Never affects `dataStatus`.
+
+Payload: `account.positions: { status, fetchedAt, items: [{ market, side, entry, notional, collateral, leverage, liquidationPrice, unrealizedPnlUsd, openedAt }] }`. Schema minor bump.
+
+Tests: new `test-position-tracker.js` (mocked provider): shape, status semantics, timeout → unavailable, no-secrets grep. `test:mcp` must still prove no execution or signing import is reachable from the MCP path. `test:wallet` unchanged.
+
+Acceptance: with one open position on the tracked wallet, payload shows it with `risk` attached (Phase 3). With none, `items: []` and `status: available`. With RPC down, `status: unavailable`, items null.
 
 ---
 
@@ -153,6 +184,7 @@ New module `lib/patternDetector.js`:
 - Detects: impulse (N candles, range > k×ATR) → contraction (range shrinking, closes holding ≥ ema21 with wick tolerance) → local flag high.
 - Output: `{ type: "flag", direction, state: forming|triggering|confirmed|failed, impulseStrength, compressionScore, flagHigh, flagLow, breakoutLevel, invalidation, ema21Hold: "hold"|"wick"|"acceptance_below", confidence }`.
 - Deterministic per request. No cross-request state (stateless serverless). "State" is derived from the last candles each call.
+- Direction-symmetric by construction: one code path parameterised by `direction`, never a long path with a short afterthought. Bear flag = impulse down → contraction holding ≤ ema21 → local flag-low break. `ema21Hold` for shorts reads `hold_below | wick_above | acceptance_above`.
 
 Files:
 - `lib/patternDetector.js` new.
@@ -168,8 +200,9 @@ Tests: new `test-pattern-detector.js` with fixtures:
 - Close and hold below EMA21 → `acceptance_below`, state `failed`.
 - Extended breakout (price > k×ATR above flag high) → `chaseRisk: true`.
 - No impulse → empty array.
+- Every fixture above has a short mirror (price series negated around a pivot, same assertions with direction flipped). A test that exists only for longs is incomplete.
 
-Acceptance: BTC 1m fixture yields a candidate while engine remains NO_TRADE. Fixtures live in `test/fixtures/` and are the seed of the miss log (phase 10).
+Acceptance: BTC 1m fixture yields a candidate while engine remains NO_TRADE. Short mirrors pass with identical structure. Fixtures live in `test/fixtures/` and are the seed of the miss log (phase 10).
 
 ---
 
@@ -240,7 +273,9 @@ Extend `lib/geometry.js`:
 - `fitDiagonal(pivots, side)`: candidate lines through pivot pairs; score by touches within ATR tolerance and fit residual; require `minTouches` (config, default 3). Return `{ detected, slope, touches, currentLevel, currentDistancePct, lastTouchAt, fitError, confidence }` or `detected: false`. Never expose a line with fewer than `minTouches`.
 - `confluenceZones`: overlap of diagonal level, horizontal zone, EMA21/200, session/prev-day levels → `{ low, high, components[], score }`.
 
-Payload: add `diagonalSupport`, `diagonalResistance`, `confluenceZones[]` to `geometryContext`.
+- `channel`: when both a diagonal support and a diagonal resistance are detected with compatible slopes → `{ detected, upper, lower, widthPct, positionPct (0 = at lower, 100 = at upper), slope: rising|falling|flat }`. This is the object that answers "are we at the bottom or top of the channel on this timeframe".
+
+Payload: add `diagonalSupport`, `diagonalResistance`, `channel`, `confluenceZones[]` to `geometryContext`.
 
 Tests: synthetic rising channel → diagonal support with 3+ touches; noisy data → `detected: false`. REGRESSION_002 full: 4h fixture exposes rising support + horizontal demand as one confluence zone with current distance.
 
@@ -259,6 +294,34 @@ Objective: unify phase 4 flags with phase 7–8 geometry into one pattern object
 Tests: state transitions on a scripted candle sequence; visual flag set exactly under the documented conditions.
 
 Acceptance: GPT instruction for the visual gate can be reduced to "if `needsVisualConfirmation`, ask for the named timeframe".
+
+---
+
+## Phase 9b — Direction and multi-timeframe bias matrix
+
+Objective: shorts get the same machinery as longs, and the system can say "short the top of the 1m channel while the 4h support thesis stays long" as one structured statement instead of two contradictory signals.
+
+Engine audit first: `services/strategy.js` already has short paths in every strategy (mirrored `isLong ?` branches throughout, SHORT micro-scalp block). Phase 9b does not change them. It adds a layer above.
+
+New module `lib/biasMatrix.js`:
+- Per timeframe, from existing fields: `bias: long | short | neutral`, `strength 0–100`, `basis[]` (trend, EMA21/200 relationship and slope, higher-lows/lower-highs, channel position, stoch state). Pure function of `timeframes[tf]` + `geometryContext[tf]`.
+- `biasMatrix: { "1m": {...}, "3m": {...}, ..., "1d": {...} }`.
+- `alignment`: for each candidate setup (Phase 4/9) and each valid strategy signal: `{ direction, executionTf, contextTfs, withTrend: bool, counterTrend: bool, htfBias, htfSupportDistancePct | htfResistanceDistancePct, room }`.
+- Counter-trend classification: a short candidate on 1m/3m/5m while 1h/4h bias is long is tagged `counterTrend: true` with the distance to the nearest higher-timeframe support zone. A counter-trend scalp with the HTF zone inside `minRoomAtr` is flagged `roomTooSmall: true`. Symmetric for longs against a bearish HTF.
+- `decisionInputs` per symbol: `{ directionalBias: { long: pct, short: pct, neutral: pct }, byHorizon: { scalp: {...}, swing: {...} } }`. These are named API components the GPT turns into its GO_IN / HOLD_WAIT / DONT_DO_IT allocation. The API does not emit the allocation itself; that stays GPT-owned (Phase 11 confirms it is derived from these fields).
+
+Config: timeframe weights per horizon, `minRoomAtr`, counter-trend strength penalty.
+
+Payload: `biasMatrix`, `alignment[]`, `decisionInputs` per symbol, behind `include: bias`.
+
+Tests: `test-bias-matrix.js`:
+- 4h uptrend + 1m at channel top with lower-high forming → short candidate `counterTrend: true`, `htfSupportDistancePct` populated, long bias on swing horizon unchanged.
+- 4h uptrend + 1m at channel bottom on HTF support → long candidate `withTrend: true`, `room` large.
+- Full mirror: 4h downtrend cases.
+- HTF zone within `minRoomAtr` of a counter-trend entry → `roomTooSmall: true`.
+- `directionalBias` percentages sum to 100 per horizon.
+
+Acceptance: the two-sided scenario the user described is representable in one payload and both tests pass in both directions.
 
 ---
 
@@ -282,7 +345,7 @@ Acceptance: instruction length drops; behavior on the two BTC fixtures unchanged
 
 ## Out of scope, needs separate decision
 
-- Open positions, liquidation prices, PnL, trade history in `account`. Requires perps-provider reads and a trade log. Trading-sensitive modules. Own workstream.
+- Realized PnL, trade history, win rate. Requires a trade log that does not exist. Own workstream. (Open positions and liquidation moved into scope as Phase 3b.)
 - Any write path from GPT or MCP. Miss log is repo fixtures, not an API.
 - Cross-request pattern state store (KV). Revisit only if per-request derivation proves insufficient after phase 9.
 
@@ -313,6 +376,7 @@ Working rules:
 - Payload size and function duration are budgets. Log both. Do not exceed 80 KB default payload or approach the 10 s Vercel limit.
 - No new files under api/. Vercel Hobby is at the 12-function cap.
 - Do not commit, push, deploy, rotate secrets, or enable trading unless the user explicitly asks in that thread.
+- Direction symmetry is a requirement, not a nice-to-have: every detector, geometry feature, risk function, and fixture must handle short and long through one parameterised path, with mirrored tests. A long-only implementation fails the phase.
 - Do not refactor adjacent code. Do not rename existing fields. Do not "clean up" strategy.js beyond the phase.
 
 After the phase:
