@@ -65,7 +65,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
 | 11 | GPT instruction trim | 1 h | low |
 
-Phases 1–4 are the "five things" from review, plus 3b (positions) which Miss 002 made mandatory. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
+Execution order (updated 2026-09-22): 7 done → 8 → 8b → 9 → 9b → 10 → 11 → 3b. Phase 3b is deferred to the end: its first attempt found the provider read path signer-bound and the rewrite is 4–6 h; screenshots of position panels cover the interactive case meanwhile. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
 
 ---
 
