@@ -119,6 +119,13 @@ async function startTestServer(deps) {
   const server = http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
 
+    if (req.method === 'GET') {
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.end(': stateless server, no server-initiated events\n\n');
+      return;
+    }
+
     if (req.method !== 'POST') {
       res.statusCode = 405;
       res.setHeader('Content-Type', 'application/json');
@@ -383,13 +390,31 @@ async function main() {
 
   const mcpReq = (method) => ({ method, url: '/api/mcp', query: { __mcp: '1' }, headers: {}, body: undefined, on() {} });
 
-  for (const method of ['GET', 'DELETE', 'PUT', 'PATCH']) {
+  for (const method of ['PUT', 'PATCH']) {
     await test(`${method} /api/mcp is rejected with 405`, async () => {
       const res = makeMockRes();
       await handleMcpRequest(mcpReq(method), res);
       assertEqual(res.statusCode, 405, `${method} was not rejected`);
     });
   }
+
+  await test('GET /api/mcp answers 200 with an empty, closed event stream', async () => {
+    // ChatGPT's connector client opens this stream after the POST handshake and
+    // raises on a 405, which is what surfaced as aiohttp ClientResponseError.
+    const res = makeMockRes();
+    await handleMcpRequest(mcpReq('GET'), res);
+    assertEqual(res.statusCode, 200, 'GET must not be rejected');
+    assertEqual(res.getHeader('Content-Type'), 'text/event-stream', 'GET must answer as an event stream');
+    assert(res.ended, 'the GET stream must be closed immediately on a stateless server');
+    assert(typeof res.body === 'string' && res.body.startsWith(':'), 'the stream body must be an SSE comment only, never a JSON-RPC message');
+  });
+
+  await test('DELETE /api/mcp answers 204: nothing to tear down', async () => {
+    const res = makeMockRes();
+    await handleMcpRequest(mcpReq('DELETE'), res);
+    assertEqual(res.statusCode, 204, 'DELETE must be a no-op success');
+    assert(res.ended, 'DELETE must end the response');
+  });
 
   await test('OPTIONS /api/mcp preflight succeeds', async () => {
     const res = makeMockRes();
@@ -436,7 +461,8 @@ async function main() {
     // The MCP path must not be answered with the REST handler's 401.
     const res = makeMockRes();
     await scalpContextHandler(mcpReq('GET'), res);
-    assertEqual(res.statusCode, 405, 'the MCP path was answered by the REST handler instead');
+    assertEqual(res.statusCode, 200, 'the MCP path was answered by the REST handler instead');
+    assertEqual(res.getHeader('Content-Type'), 'text/event-stream', 'the MCP GET was not answered by the MCP dispatcher');
   });
 
   // -- 11. the MCP route cannot reach execution ----------------------------
