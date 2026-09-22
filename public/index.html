@@ -139,7 +139,7 @@
       /* Set explicit column widths for proper alignment */
       .table-edittrax thead th:nth-child(1),
       .table-edittrax tbody td:nth-child(1) { 
-        width: 15%; 
+        width: 14%; 
         text-align: center;
       } /* COIN */
       
@@ -152,25 +152,32 @@
       
       .table-edittrax thead th:nth-child(3),
       .table-edittrax tbody td:nth-child(3) { 
-        width: 15%;
+        width: 12%;
         text-align: center;
-      } /* SIGNAL */
+      } /* ENTRY */
       
       .table-edittrax thead th:nth-child(4),
       .table-edittrax tbody td:nth-child(4) { 
-        width: 30%;
+        width: 8%;
+        min-width: 60px;
         text-align: center;
-      } /* STRATEGY */
+      } /* CONF */
       
       .table-edittrax thead th:nth-child(5),
       .table-edittrax tbody td:nth-child(5) { 
+        width: 28%;
+        text-align: center;
+      } /* EDITTRADES */
+      
+      .table-edittrax thead th:nth-child(6),
+      .table-edittrax tbody td:nth-child(6) { 
         width: 30%;
         text-align: center;
       } /* ACTIONS */
       
       /* Ensure flex containers respect column width and are centered */
-      .table-edittrax tbody td:nth-child(4) .flex,
-      .table-edittrax tbody td:nth-child(5) .flex {
+      .table-edittrax tbody td:nth-child(5) .flex,
+      .table-edittrax tbody td:nth-child(6) .flex {
         width: 100%;
         max-width: 100%;
         justify-content: center;
@@ -198,22 +205,28 @@
       /* Adjust remaining column widths to fill space */
       .table-edittrax thead th:nth-child(1),
       .table-edittrax tbody td:nth-child(1) { 
-        width: 18% !important;
+        width: 16% !important;
       }
       
       .table-edittrax thead th:nth-child(2),
       .table-edittrax tbody td:nth-child(2) { 
-        width: 18% !important;
+        width: 12% !important;
       }
       
       .table-edittrax thead th:nth-child(4),
       .table-edittrax tbody td:nth-child(4) { 
-        width: 28% !important;
+        width: 8% !important;
+        min-width: 50px !important;
       }
       
       .table-edittrax thead th:nth-child(5),
       .table-edittrax tbody td:nth-child(5) { 
-        width: 36% !important;
+        width: 30% !important;
+      }
+      
+      .table-edittrax thead th:nth-child(6),
+      .table-edittrax tbody td:nth-child(6) { 
+        width: 34% !important;
       }
     }
     
@@ -313,14 +326,25 @@
       }
       
       /* Mobile: Adjust action buttons for better fit */
-      .table-edittrax tbody td:nth-child(5) .flex {
-        gap: 0.5rem !important;
+      .table-edittrax tbody td:nth-child(6) .flex {
+        gap: 0.4rem !important;
       }
       
-      .table-edittrax tbody td:nth-child(5) button {
+      .table-edittrax tbody td:nth-child(6) button {
         font-size: 0.65rem !important;
-        padding: 0.4rem 0.6rem !important;
+        padding: 0.4rem 0.5rem !important;
         min-width: auto !important;
+      }
+      
+      /* Mobile: Reduce padding on confidence cell and make it compact */
+      .coin-row td.confidence-cell {
+        padding: 0.5rem 0 !important;
+        font-size: 0.85rem !important;
+      }
+      
+      .coin-row td.confidence-cell:before {
+        font-size: 0.65rem !important;
+        margin-bottom: 0.15rem !important;
       }
       
       .table-edittrax thead {
@@ -425,39 +449,44 @@
         font-size: 1rem !important;
       }
       
-      /* Strategy on its own row (now 4th column) */
+      /* Confidence on its own row (now 4th column) */
       .coin-row td:nth-child(4) {
         display: block;
         clear: both;
       }
       
-      /* Action buttons on their own row (now 5th column) */
+      /* Strategy on its own row (now 5th column) */
       .coin-row td:nth-child(5) {
         display: block;
       }
       
+      /* Action buttons on their own row (now 6th column) */
+      .coin-row td:nth-child(6) {
+        display: block;
+      }
+      
       /* Strategy buttons stretch full width */
-      .coin-row td:nth-child(4) .flex {
+      .coin-row td:nth-child(5) .flex {
         width: 100%;
         max-width: 100%;
         display: flex;
-        gap: 0;
+        gap: 0.25rem;
         box-sizing: border-box;
         overflow: hidden;
       }
       
       /* EditTrades button needs more space */
-      .coin-row td:nth-child(4) button {
+      .coin-row td:nth-child(5) button {
         flex: 0 0 auto;
-        min-width: 80px;
+        min-width: 70px;
         max-width: 30%;
         font-size: 0.65rem;
-        padding: 0.35rem 0.5rem;
+        padding: 0.35rem 0.4rem;
         box-sizing: border-box;
       }
       
       /* Indicator buttons share remaining space */
-      .coin-row td:nth-child(4) div[id^="indicator-"] {
+      .coin-row td:nth-child(5) div[id^="indicator-"] {
         flex: 1;
         min-width: 0;
         max-width: 23%;
@@ -467,16 +496,16 @@
       }
       
       /* Action buttons stretch full width */
-      .coin-row td:nth-child(5) .flex {
+      .coin-row td:nth-child(6) .flex {
         display: grid !important;
         grid-template-columns: 1fr 1fr !important;
-        gap: 0.5rem;
+        gap: 0.4rem;
         width: 100%;
         max-width: 100%;
         box-sizing: border-box;
       }
       
-      .coin-row td:nth-child(5) button {
+      .coin-row td:nth-child(6) button {
         width: 100%;
         max-width: 100%;
         justify-content: center;
@@ -716,6 +745,96 @@
       }
     }
     
+    /* Animated background for LONG (green) */
+    .dashboard-card.animated-long::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      animation: rotateGlow 12.8s linear infinite;
+      z-index: 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: conic-gradient(
+        from 0deg at 50% 50%,
+        rgba(16, 185, 129, 0.15) 0deg,
+        rgba(16, 185, 129, 0.25) 45deg,
+        rgba(16, 185, 129, 0.4) 90deg,
+        rgba(16, 185, 129, 0.6) 135deg,
+        rgba(16, 185, 129, 0.7) 180deg,
+        rgba(16, 185, 129, 0.6) 225deg,
+        rgba(16, 185, 129, 0.4) 270deg,
+        rgba(16, 185, 129, 0.25) 315deg,
+        rgba(16, 185, 129, 0.15) 360deg
+      );
+      filter: blur(30px);
+    }
+    
+    /* Animated background for SHORT (red) */
+    .dashboard-card.animated-short::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      animation: rotateGlow 12.8s linear infinite;
+      z-index: 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: conic-gradient(
+        from 0deg at 50% 50%,
+        rgba(239, 68, 68, 0.15) 0deg,
+        rgba(239, 68, 68, 0.25) 45deg,
+        rgba(239, 68, 68, 0.4) 90deg,
+        rgba(239, 68, 68, 0.6) 135deg,
+        rgba(239, 68, 68, 0.7) 180deg,
+        rgba(239, 68, 68, 0.6) 225deg,
+        rgba(239, 68, 68, 0.4) 270deg,
+        rgba(239, 68, 68, 0.25) 315deg,
+        rgba(239, 68, 68, 0.15) 360deg
+      );
+      filter: blur(30px);
+    }
+    
+    /* Animated background for NEUTRAL (orange) */
+    .dashboard-card.animated-neutral::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      animation: rotateGlow 12.8s linear infinite;
+      z-index: 0;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      background: conic-gradient(
+        from 0deg at 50% 50%,
+        rgba(249, 115, 22, 0.15) 0deg,
+        rgba(249, 115, 22, 0.25) 45deg,
+        rgba(249, 115, 22, 0.4) 90deg,
+        rgba(249, 115, 22, 0.6) 135deg,
+        rgba(249, 115, 22, 0.7) 180deg,
+        rgba(249, 115, 22, 0.6) 225deg,
+        rgba(249, 115, 22, 0.4) 270deg,
+        rgba(249, 115, 22, 0.25) 315deg,
+        rgba(249, 115, 22, 0.15) 360deg
+      );
+      filter: blur(30px);
+    }
+    
+    /* Ensure dashboard card content is above animated background */
+    .dashboard-card > * {
+      position: relative;
+      z-index: 1;
+    }
+    
     /* News Marquee Animation */
     @keyframes marquee {
       0% {
@@ -949,6 +1068,7 @@
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black; text-align: center; border: none; border-left: none;">COIN</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">PRICE</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">ENTRY</th>
+                <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">CONF</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">EDITTRADES</th>
                 <th class="px-2" style="padding-top: 0.9rem; padding-bottom: 0.9rem; color: black;">ACTIONS</th>
               </tr>
@@ -1017,7 +1137,7 @@
           <!-- Dashboard Grid -->
           <div class="dashboard-grid" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
             
-            <!-- 1. HTF Trend State -->
+            <!-- 1. HTF Trend Alignment -->
             <div class="dashboard-card tf-card" id="htf-trend-card" style="min-height: 200px;">
               <div style="position: relative; z-index: 1;">
                 <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
@@ -1046,7 +1166,23 @@
               </div>
             </div>
 
-            <!-- 2. Liquidity Map -->
+            <!-- 2. Volatility State -->
+            <div class="dashboard-card tf-card" id="volatility-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Volatility State
+                </div>
+                <div style="text-align: center;">
+                  <div id="atr-value" style="font-size: 3rem; font-weight: bold; margin-bottom: 0.5rem;">-</div>
+                  <div id="atr-state" style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">-</div>
+                  <div id="atr-status" style="font-size: 1rem; color: rgba(255, 255, 255, 0.7); font-family: var(--font-mathias);">
+                    <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Liquidity Map -->
             <div class="dashboard-card tf-card" id="liquidity-card" style="min-height: 200px;">
               <div style="position: relative; z-index: 1;">
                 <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
@@ -1075,7 +1211,7 @@
               </div>
             </div>
 
-            <!-- 3. FVG State -->
+            <!-- 4. Fair Value Gaps -->
             <div class="dashboard-card tf-card" id="fvg-card" style="min-height: 200px;">
               <div style="position: relative; z-index: 1;">
                 <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
@@ -1099,7 +1235,7 @@
               </div>
             </div>
 
-            <!-- 4. Divergence Alerts -->
+            <!-- 5. Divergence Alerts -->
             <div class="dashboard-card tf-card" id="divergence-card" style="min-height: 200px;">
               <div style="position: relative; z-index: 1;">
                 <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
@@ -1123,27 +1259,11 @@
               </div>
             </div>
 
-            <!-- 5. Volatility (ATR State) -->
-            <div class="dashboard-card tf-card" id="volatility-card" style="min-height: 200px;">
-              <div style="position: relative; z-index: 1;">
-                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
-                  Volatility State
-                </div>
-                <div style="text-align: center;">
-                  <div id="atr-value" style="font-size: 3rem; font-weight: bold; margin-bottom: 0.5rem;">-</div>
-                  <div id="atr-state" style="font-size: 1.5rem; font-weight: bold; margin-bottom: 1rem;">-</div>
-                  <div id="atr-status" style="font-size: 1rem; color: rgba(255, 255, 255, 0.7); font-family: var(--font-mathias);">
-                    <span style="color: rgba(255, 255, 255, 0.4);">-</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 6. Volume Profile Bias -->
+            <!-- 6. Volume Profile -->
             <div class="dashboard-card tf-card" id="volume-profile-card" style="min-height: 200px;">
               <div style="position: relative; z-index: 1;">
                 <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
-                  Volume Profile Position
+                  Volume Profile
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 1rem;">
                   <div style="position: relative; height: 120px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 1rem;">
@@ -1161,11 +1281,60 @@
               </div>
             </div>
 
+            <!-- 7. Active Strategy Signals -->
+            <div class="dashboard-card tf-card" id="active-strategies-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Active Strategy Signals
+                </div>
+                <div id="strategy-signals-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                  <!-- Strategy cards will be populated dynamically -->
+                  <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 8. Quick Insights -->
+            <div class="dashboard-card tf-card" id="quick-insights-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  Quick Insights
+                </div>
+                <div id="quick-insights-content">
+                  <div id="key-drivers-section" style="margin-bottom: 1.5rem;">
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem; text-transform: uppercase;">Key Drivers</div>
+                    <div id="key-drivers-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                      <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                    </div>
+                  </div>
+                  <div id="red-flags-section">
+                    <div style="font-size: 0.75rem; color: rgba(255, 255, 255, 0.5); margin-bottom: 0.5rem; text-transform: uppercase;">Red Flags</div>
+                    <div id="red-flags-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                      <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 9. HTF Alignment Status -->
+            <div class="dashboard-card tf-card" id="htf-alignment-status-card" style="min-height: 200px;">
+              <div style="position: relative; z-index: 1;">
+                <div style="font-family: var(--font-mathias); font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 1px;">
+                  HTF Alignment Status
+                </div>
+                <div id="htf-alignment-breakdown" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem;">
+                  <!-- Tiles will be populated dynamically -->
+                  <span style="color: rgba(255, 255, 255, 0.4);">-</span>
+                </div>
+              </div>
+            </div>
+
           </div>
           
           <!-- Trade Readiness Meter -->
           <div id="trade-readiness-section" class="hidden" style="margin-top: 3rem; padding-top: 2rem; border-top: 2px solid rgba(255, 255, 255, 0.1);">
-            <div class="card-edittrax rounded-lg" style="border: 2px solid var(--color-yellow-75); padding: 2rem; background: rgba(0, 0, 0, 0.8);">
+            <div class="card-edittrax rounded-lg dashboard-card" style="border: 2px solid var(--color-yellow-75); padding: 2rem; background: rgba(0, 0, 0, 0.8);">
               <h2 style="font-family: var(--font-mathias); font-size: 1.5rem; color: var(--color-yellow-75); margin-bottom: 2rem; text-align: center; font-weight: bold;">
                 TRADE READINESS METER
               </h2>
@@ -1186,20 +1355,6 @@
                 </div>
               </div>
               
-              <!-- Why This Score Tiles -->
-              <div id="readiness-breakdown" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-                <!-- Tiles will be populated dynamically -->
-              </div>
-              
-              <!-- Active Strategy Signals -->
-              <div id="active-strategies" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-                <div style="font-family: var(--font-mathias); font-size: 1.125rem; color: var(--color-yellow-75); margin-bottom: 1rem; font-weight: bold;">
-                  Active Strategy Signals
-                </div>
-                <div id="strategy-signals-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
-                  <!-- Strategy cards will be populated dynamically -->
-                </div>
-              </div>
               
               <!-- AI Breakdown -->
               <div id="ai-trade-breakdown" style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
@@ -3768,10 +3923,19 @@
       // 6. Volume Profile Bias
       updateVolumeProfileBias(timeframes, currentPrice);
       
-      // 7. Trade Readiness Meter
+      // 7. Active Strategy Signals
+      updateActiveStrategySignals(richSymbol);
+      
+      // 8. Quick Insights
+      updateQuickInsights(richSymbol);
+      
+      // 9. HTF Alignment Status
+      updateHTFAlignmentStatus(richSymbol, timeframes);
+      
+      // 10. Trade Readiness Meter
       updateTradeReadinessMeter(richSymbol, timeframes, currentPrice);
       
-      // 8. AI Trade Breakdown - Analyze all signals from all symbols
+      // 11. AI Trade Breakdown - Analyze all signals from all symbols
       updateAITradeBreakdown(scanResults);
     }
     
@@ -4084,6 +4248,19 @@
       // Show section
       section.classList.remove('hidden');
       
+      // Apply animated background to trade readiness section based on directionBias
+      const readinessCard = section.querySelector('.card-edittrax');
+      if (readinessCard) {
+        readinessCard.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+        if (directionBias === 'long') {
+          readinessCard.classList.add('animated-long');
+        } else if (directionBias === 'short') {
+          readinessCard.classList.add('animated-short');
+        } else {
+          readinessCard.classList.add('animated-neutral');
+        }
+      }
+      
       // Determine label and color based on level
       let label, color, message, modeText;
       
@@ -4127,12 +4304,160 @@
         modeEl.textContent = modeText;
       }
       
-      // Update key drivers and red flags display
-      updateReadinessInsights(keyDrivers, redFlags, quickView);
+      // Note: Active Strategy Signals, Quick Insights, and HTF Alignment Status are now updated separately
+    }
+    
+    // Update Active Strategy Signals
+    function updateActiveStrategySignals(richSymbol) {
+      const strategiesEl = document.getElementById('strategy-signals-list');
+      const card = document.getElementById('active-strategies-card');
+      if (!strategiesEl || !card) return;
       
-      // Update breakdown tiles - show quickView status
-      const breakdownEl = document.getElementById('readiness-breakdown');
-      if (breakdownEl && quickView) {
+      const strategies = richSymbol?.strategies || {};
+      const strategyList = [
+        { key: 'TREND_RIDER', name: 'TREND_RIDER' },
+        { key: 'TREND_4H', name: 'TREND_4H' },
+        { key: 'SWING', name: 'SWING' },
+        { key: 'SCALP_1H', name: 'SCALP_1H' },
+        { key: 'MICRO_SCALP', name: 'MICRO_SCALP' }
+      ];
+      
+      let hasValidStrategy = false;
+      let dominantDirection = null;
+      
+      strategiesEl.innerHTML = strategyList.map(strat => {
+        const s = strategies[strat.key];
+        const isValid = s && s.valid === true;
+        const direction = s?.direction || 'NO_TRADE';
+        const confidence = s?.confidence || 0;
+        
+        if (isValid) {
+          hasValidStrategy = true;
+          if (!dominantDirection) dominantDirection = direction;
+        }
+        
+        const bgColor = isValid 
+          ? (direction === 'LONG' || direction === 'long' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)')
+          : 'rgba(107, 114, 128, 0.1)';
+        const borderColor = isValid 
+          ? (direction === 'LONG' || direction === 'long' ? '#10b981' : '#ef4444')
+          : 'rgba(255, 255, 255, 0.1)';
+        const textColor = isValid 
+          ? (direction === 'LONG' || direction === 'long' ? '#10b981' : '#ef4444')
+          : 'rgba(255, 255, 255, 0.4)';
+        
+        return `
+          <div class="tf-card" style="padding: 1rem; background: ${bgColor}; border-color: ${borderColor};">
+            <div style="position: relative; z-index: 1;">
+              <div style="font-size: 0.875rem; font-weight: bold; color: ${textColor}; margin-bottom: 0.5rem;">${strat.name}</div>
+              <div style="font-size: 1.25rem; font-weight: bold; color: ${textColor}; margin-bottom: 0.25rem;">
+                ${isValid ? direction.toUpperCase() : 'NO_TRADE'}
+              </div>
+              <div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.7);">
+                ${isValid ? `${confidence}% confidence` : 'No setup'}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      
+      // Apply animated background based on dominant strategy direction
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+      if (hasValidStrategy && dominantDirection) {
+        if (dominantDirection === 'LONG' || dominantDirection === 'long') {
+          card.classList.add('animated-long');
+        } else {
+          card.classList.add('animated-short');
+        }
+      } else {
+        card.classList.add('animated-neutral');
+      }
+    }
+    
+    // Update Quick Insights
+    function updateQuickInsights(richSymbol) {
+      const keyDriversEl = document.getElementById('key-drivers-list');
+      const redFlagsEl = document.getElementById('red-flags-list');
+      const card = document.getElementById('quick-insights-card');
+      if (!keyDriversEl || !redFlagsEl || !card) return;
+      
+      // Use tradeReadiness from API if available, otherwise calculate locally
+      let tradeReadiness = richSymbol?.tradeReadiness;
+      
+      if (!tradeReadiness) {
+        // Fallback to local calculation
+        const timeframes = richSymbol?.timeframes || {};
+        const currentPrice = richSymbol?.currentPrice || 0;
+        const scoreData = calculateTradeReadinessScore(richSymbol, timeframes, currentPrice);
+        const { breakdown } = scoreData;
+        
+        tradeReadiness = {
+          keyDrivers: Object.values(breakdown).filter(b => b.score > 0).map(b => b.details).slice(0, 5),
+          redFlags: Object.values(breakdown).filter(b => b.score < 0).map(b => b.details).slice(0, 3),
+          directionBias: richSymbol?.htfBias?.direction || 'neutral'
+        };
+      }
+      
+      const { keyDrivers, redFlags, directionBias } = tradeReadiness;
+      
+      // Update key drivers
+      if (keyDrivers && keyDrivers.length > 0) {
+        keyDriversEl.innerHTML = keyDrivers.slice(0, 5).map(driver => {
+          return `<span style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.875rem; color: #10b981;">✓ ${driver}</span>`;
+        }).join('');
+      } else {
+        keyDriversEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">No key drivers</span>';
+      }
+      
+      // Update red flags
+      if (redFlags && redFlags.length > 0) {
+        redFlagsEl.innerHTML = redFlags.slice(0, 3).map(flag => {
+          return `<span style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.875rem; color: #ef4444;">⚠ ${flag}</span>`;
+        }).join('');
+      } else {
+        redFlagsEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">No red flags</span>';
+      }
+      
+      // Apply animated background based on direction bias
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+      if (directionBias === 'long') {
+        card.classList.add('animated-long');
+      } else if (directionBias === 'short') {
+        card.classList.add('animated-short');
+      } else {
+        card.classList.add('animated-neutral');
+      }
+    }
+    
+    // Update HTF Alignment Status
+    function updateHTFAlignmentStatus(richSymbol, timeframes) {
+      const breakdownEl = document.getElementById('htf-alignment-breakdown');
+      const card = document.getElementById('htf-alignment-status-card');
+      if (!breakdownEl || !card) return;
+      
+      // Use tradeReadiness from API if available, otherwise calculate locally
+      let tradeReadiness = richSymbol?.tradeReadiness;
+      let quickView = null;
+      
+      if (!tradeReadiness || !tradeReadiness.quickView) {
+        // Fallback to local calculation
+        const currentPrice = richSymbol?.currentPrice || 0;
+        const scoreData = calculateTradeReadinessScore(richSymbol, timeframes, currentPrice);
+        const { breakdown } = scoreData;
+        
+        quickView = {
+          htfAligned: breakdown.htfAlignment.score >= 25,
+          liquidityClean: breakdown.structureLiquidity.score >= 15,
+          volatilityTradable: breakdown.volatility.score >= 5,
+          structureClean: breakdown.structureLiquidity.score >= 10,
+          fvgContext: breakdown.fvgContext.score > 0 ? 'supportive' : 'none',
+          divergenceContext: breakdown.divergences.score > 0 ? 'supportive' : breakdown.divergences.score < 0 ? 'warning' : 'none'
+        };
+      } else {
+        quickView = tradeReadiness.quickView;
+      }
+      
+      if (quickView) {
         const tiles = [
           {
             title: 'HTF Alignment',
@@ -4183,100 +4508,24 @@
             </div>
           `;
         }).join('');
-      }
-      
-      // Update active strategy signals
-      const strategiesEl = document.getElementById('strategy-signals-list');
-      const strategies = richSymbol?.strategies || {};
-      
-      if (strategiesEl) {
-        const strategyList = [
-          { key: 'TREND_RIDER', name: 'TREND_RIDER' },
-          { key: 'TREND_4H', name: 'TREND_4H' },
-          { key: 'SWING', name: 'SWING' },
-          { key: 'SCALP_1H', name: 'SCALP_1H' },
-          { key: 'MICRO_SCALP', name: 'MICRO_SCALP' }
-        ];
         
-        strategiesEl.innerHTML = strategyList.map(strat => {
-          const s = strategies[strat.key];
-          const isValid = s && s.valid === true;
-          const direction = s?.direction || 'NO_TRADE';
-          const confidence = s?.confidence || 0;
-          
-          const bgColor = isValid 
-            ? (direction === 'LONG' || direction === 'long' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)')
-            : 'rgba(107, 114, 128, 0.1)';
-          const borderColor = isValid 
-            ? (direction === 'LONG' || direction === 'long' ? '#10b981' : '#ef4444')
-            : 'rgba(255, 255, 255, 0.1)';
-          const textColor = isValid 
-            ? (direction === 'LONG' || direction === 'long' ? '#10b981' : '#ef4444')
-            : 'rgba(255, 255, 255, 0.4)';
-          
-          return `
-            <div class="tf-card" style="padding: 1rem; background: ${bgColor}; border-color: ${borderColor};">
-              <div style="position: relative; z-index: 1;">
-                <div style="font-size: 0.875rem; font-weight: bold; color: ${textColor}; margin-bottom: 0.5rem;">${strat.name}</div>
-                <div style="font-size: 1.25rem; font-weight: bold; color: ${textColor}; margin-bottom: 0.25rem;">
-                  ${isValid ? direction.toUpperCase() : 'NO_TRADE'}
-                </div>
-                <div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.7);">
-                  ${isValid ? `${confidence}% confidence` : 'No setup'}
-                </div>
-              </div>
-            </div>
-          `;
-        }).join('');
-      }
-      
-      // Note: AI Breakdown is now updated in updateHighLevelDashboard() with all scanResults
-    }
-    
-    // Update Readiness Insights (Key Drivers & Red Flags)
-    function updateReadinessInsights(keyDrivers, redFlags, quickView) {
-      // Add a new section for key drivers and red flags if it doesn't exist
-      let insightsSection = document.getElementById('readiness-insights');
-      if (!insightsSection) {
-        const meterSection = document.getElementById('readiness-meter');
-        if (meterSection && meterSection.parentElement) {
-          insightsSection = document.createElement('div');
-          insightsSection.id = 'readiness-insights';
-          insightsSection.style.marginTop = '2rem';
-          insightsSection.style.paddingTop = '2rem';
-          insightsSection.style.borderTop = '1px solid rgba(255, 255, 255, 0.1)';
-          meterSection.parentElement.insertBefore(insightsSection, meterSection.nextSibling);
+        // Apply animated background based on HTF alignment status
+        card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+        if (quickView.htfAligned) {
+          const directionBias = richSymbol?.htfBias?.direction || 'neutral';
+          if (directionBias === 'long') {
+            card.classList.add('animated-long');
+          } else if (directionBias === 'short') {
+            card.classList.add('animated-short');
+          } else {
+            card.classList.add('animated-neutral');
+          }
         } else {
-          return;
+          card.classList.add('animated-neutral');
         }
       }
-      
-      let html = '<div style="font-family: var(--font-mathias); font-size: 1.125rem; color: var(--color-yellow-75); margin-bottom: 1rem; font-weight: bold;">Quick Insights</div>';
-      
-      // Key Drivers
-      if (keyDrivers && keyDrivers.length > 0) {
-        html += '<div style="margin-bottom: 1.5rem;">';
-        html += '<div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 0.5rem; text-transform: uppercase;">Key Drivers</div>';
-        html += '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
-        keyDrivers.slice(0, 5).forEach(driver => {
-          html += `<span style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.875rem; color: #10b981;">✓ ${driver}</span>`;
-        });
-        html += '</div></div>';
-      }
-      
-      // Red Flags
-      if (redFlags && redFlags.length > 0) {
-        html += '<div>';
-        html += '<div style="font-size: 0.875rem; color: rgba(255, 255, 255, 0.6); margin-bottom: 0.5rem; text-transform: uppercase;">Red Flags</div>';
-        html += '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">';
-        redFlags.slice(0, 3).forEach(flag => {
-          html += `<span style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.875rem; color: #ef4444;">⚠ ${flag}</span>`;
-        });
-        html += '</div></div>';
-      }
-      
-      insightsSection.innerHTML = html;
     }
+    
     
     // Collect all valid trade signals from scanResults
     function collectAllTradeSignals(allScanResults) {
@@ -4860,21 +5109,30 @@ Remember: They asked a specific question. Answer it directly with real trader in
       const statusEl = document.getElementById('htf-alignment-status');
       const card = document.getElementById('htf-trend-card');
       
+      // Remove all animated classes first
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+      
       if (allAligned && alignedCount === 3) {
         statusEl.innerHTML = `<span style="color: ${alignedDirection === 'up' ? '#10b981' : '#ef4444'}; text-shadow: 0 0 20px ${alignedDirection === 'up' ? 'rgba(16, 185, 129, 0.8)' : 'rgba(239, 68, 68, 0.8)'};">
           ⚡ ALL ALIGNED - PAY ATTENTION
         </span>`;
-        card.className = `dashboard-card tf-card ${alignedDirection === 'up' ? 'uptrend' : 'downtrend'}`;
+        card.className = `dashboard-card tf-card ${alignedDirection === 'up' ? 'uptrend animated-long' : 'downtrend animated-short'}`;
       } else if (alignedCount >= 2) {
         statusEl.innerHTML = `<span style="color: rgba(255, 255, 255, 0.7);">
           ${alignedCount}/3 Aligned
         </span>`;
-        card.className = `dashboard-card tf-card ${alignedDirection === 'up' ? 'uptrend' : alignedDirection === 'down' ? 'downtrend' : 'flat'}`;
+        if (alignedDirection === 'up') {
+          card.className = 'dashboard-card tf-card uptrend animated-long';
+        } else if (alignedDirection === 'down') {
+          card.className = 'dashboard-card tf-card downtrend animated-short';
+        } else {
+          card.className = 'dashboard-card tf-card flat animated-neutral';
+        }
       } else {
         statusEl.innerHTML = `<span style="color: rgba(255, 255, 255, 0.4);">
           No Clear Alignment
         </span>`;
-        card.className = 'dashboard-card tf-card flat';
+        card.className = 'dashboard-card tf-card flat animated-neutral';
       }
     }
     
@@ -4917,13 +5175,20 @@ Remember: They asked a specific question. Answer it directly with real trader in
       // Determine bias
       const highStrength = equalHighs.reduce((sum, z) => sum + (z.strength || 0), 0);
       const lowStrength = equalLows.reduce((sum, z) => sum + (z.strength || 0), 0);
+      const card = document.getElementById('liquidity-card');
+      
+      // Remove all animated classes first
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
       
       if (highStrength > lowStrength * 1.5) {
         biasEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚠️ More Liquidity Above → Expect Sweep Down</span>';
+        card.classList.add('animated-short');
       } else if (lowStrength > highStrength * 1.5) {
         biasEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">⚠️ More Liquidity Below → Expect Sweep Up</span>';
+        card.classList.add('animated-long');
       } else {
         biasEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.6);">Balanced Liquidity</span>';
+        card.classList.add('animated-neutral');
       }
     }
     
@@ -4959,15 +5224,18 @@ Remember: They asked a specific question. Answer it directly with real trader in
       const priceInBullishFvg = bullishFvgs.some(f => currentPrice > f.low && currentPrice < f.high);
       const priceInBearishFvg = bearishFvgs.some(f => currentPrice > f.low && currentPrice < f.high);
       
+      // Remove all animated classes first
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+      
       if (priceInBullishFvg) {
         priceStatusEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">⚡ Price Inside Bullish FVG → High Probability Move</span>';
-        card.className = 'dashboard-card tf-card uptrend';
+        card.className = 'dashboard-card tf-card uptrend animated-long';
       } else if (priceInBearishFvg) {
         priceStatusEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚡ Price Inside Bearish FVG → High Probability Move</span>';
-        card.className = 'dashboard-card tf-card downtrend';
+        card.className = 'dashboard-card tf-card downtrend animated-short';
       } else {
         priceStatusEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.6);">Price Outside FVGs</span>';
-        card.className = 'dashboard-card tf-card flat';
+        card.className = 'dashboard-card tf-card flat animated-neutral';
       }
     }
     
@@ -5018,18 +5286,21 @@ Remember: They asked a specific question. Answer it directly with real trader in
       const bullishDivs = allDivs.filter(d => d.side === 'bullish');
       const bearishDivs = allDivs.filter(d => d.side === 'bearish');
       
+      // Remove all animated classes first
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+      
       if (bullishDivs.length >= 2) {
         alertEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">⚡ Multiple Bullish Divergences → Reversal Signal</span>';
-        card.className = 'dashboard-card tf-card uptrend';
+        card.className = 'dashboard-card tf-card uptrend animated-long';
       } else if (bearishDivs.length >= 2) {
         alertEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚡ Multiple Bearish Divergences → Reversal Signal</span>';
-        card.className = 'dashboard-card tf-card downtrend';
+        card.className = 'dashboard-card tf-card downtrend animated-short';
       } else if (allDivs.length > 0) {
         alertEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.7);">Divergence Detected</span>';
-        card.className = 'dashboard-card tf-card flat';
+        card.className = 'dashboard-card tf-card flat animated-neutral';
       } else {
         alertEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.4);">No Divergences</span>';
-        card.className = 'dashboard-card tf-card flat';
+        card.className = 'dashboard-card tf-card flat animated-neutral';
       }
     }
     
@@ -5057,27 +5328,30 @@ Remember: They asked a specific question. Answer it directly with real trader in
       atrValueEl.textContent = `${atrPct.toFixed(2)}%`;
       atrStateEl.textContent = state.toUpperCase();
       
+      // Remove all animated classes first
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+      
       // Color code based on state
       if (state === 'extreme') {
         atrValueEl.style.color = '#ef4444';
         atrStateEl.style.color = '#ef4444';
         atrStatusEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);">⚠️ EXTREME → No Trades / Reduce Risk</span>';
-        card.className = 'dashboard-card tf-card downtrend';
+        card.className = 'dashboard-card tf-card downtrend animated-short';
       } else if (state === 'high') {
         atrValueEl.style.color = '#f59e0b';
         atrStateEl.style.color = '#f59e0b';
         atrStatusEl.innerHTML = '<span style="color: #f59e0b;">High Volatility → Caution</span>';
-        card.className = 'dashboard-card tf-card flat';
+        card.className = 'dashboard-card tf-card flat animated-neutral';
       } else if (state === 'normal') {
         atrValueEl.style.color = '#10b981';
         atrStateEl.style.color = '#10b981';
         atrStatusEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);">✓ Normal → Prime Trading Conditions</span>';
-        card.className = 'dashboard-card tf-card uptrend';
+        card.className = 'dashboard-card tf-card uptrend animated-long';
       } else {
         atrValueEl.style.color = '#6b7280';
         atrStateEl.style.color = '#6b7280';
         atrStatusEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.6);">Low Volatility</span>';
-        card.className = 'dashboard-card tf-card flat';
+        card.className = 'dashboard-card tf-card flat animated-neutral';
       }
     }
     
@@ -5120,13 +5394,16 @@ Remember: They asked a specific question. Answer it directly with real trader in
       valLabel.textContent = `VAL: ${val.toLocaleString()}`;
       priceLabel.textContent = currentPrice.toLocaleString();
       
+      // Remove all animated classes first
+      card.classList.remove('animated-long', 'animated-short', 'animated-neutral');
+      
       // Determine bias
       if (currentPrice <= val) {
         biasEl.innerHTML = '<span style="color: #10b981; text-shadow: 0 0 10px rgba(16, 185, 129, 0.5); font-size: 1.75rem;">✓ BELOW VAL → Excellent Long R:R</span>';
-        card.className = 'dashboard-card tf-card uptrend';
+        card.className = 'dashboard-card tf-card uptrend animated-long';
       } else if (currentPrice >= vah) {
         biasEl.innerHTML = '<span style="color: #ef4444; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5); font-size: 1.75rem;">✓ ABOVE VAH → Excellent Short R:R</span>';
-        card.className = 'dashboard-card tf-card downtrend';
+        card.className = 'dashboard-card tf-card downtrend animated-short';
       } else {
         const mid = (vah + val) / 2;
         if (currentPrice < mid) {
@@ -5134,7 +5411,7 @@ Remember: They asked a specific question. Answer it directly with real trader in
         } else {
           biasEl.innerHTML = '<span style="color: rgba(255, 255, 255, 0.7);">In Value Area (Upper Half)</span>';
         }
-        card.className = 'dashboard-card tf-card flat';
+        card.className = 'dashboard-card tf-card flat animated-neutral';
       }
     }
 
@@ -5316,6 +5593,20 @@ Remember: They asked a specific question. Answer it directly with real trader in
       }
       // If no valid signal, show "NO TRADE" in yellow-white
       
+      // Calculate confidence percentage
+      let confidenceDisplay = '-';
+      let confidenceValue = null;
+      if (tradeSignal && tradeSignal.valid && tradeSignal.confidence !== undefined && tradeSignal.confidence !== null) {
+        confidenceValue = typeof tradeSignal.confidence === 'number' ? tradeSignal.confidence : parseFloat(tradeSignal.confidence);
+        if (!isNaN(confidenceValue)) {
+          // Normalize to 0-100 if needed (handle both 0-1 and 0-100 scales)
+          if (confidenceValue <= 1) {
+            confidenceValue = confidenceValue * 100;
+          }
+          confidenceDisplay = `${Math.round(confidenceValue)}%`;
+        }
+      }
+      
       // Determine coin name color based on SELECTED strategy's trade direction (templateSignal, not activeSignal)
       let coinNameColor = 'var(--color-yellow-75)';
       if (templateSignal && templateSignal.valid) {
@@ -5334,6 +5625,9 @@ Remember: They asked a specific question. Answer it directly with real trader in
         <td class="px-2 entry-cell" style="padding-top: 1.65rem; padding-bottom: 1.65rem; text-align: center;" data-label="Entry:">
           <div class="entry-label-mobile" style="font-size: 1.125rem; font-family: var(--font-mathias); font-weight: bold; color: var(--color-yellow-75);">ENTRY</div>
           <div class="entry-value" style="color: var(--color-yellow-75); font-size: 0.9rem; margin-top: 0.25rem; ${!entryHasSignal ? 'opacity: 0.7;' : ''}">${entryPriceDisplay}</div>
+        </td>
+        <td class="px-2 confidence-cell" style="padding-top: 1.65rem; padding-bottom: 1.65rem; text-align: center;" data-label="Conf:">
+          <div style="color: ${confidenceValue !== null ? (confidenceValue >= 70 ? '#10b981' : confidenceValue >= 50 ? '#f59e0b' : '#ef4444') : 'var(--color-yellow-75)'}; font-size: 0.9rem; font-weight: bold; font-family: var(--font-mathias);">${confidenceDisplay}</div>
         </td>
         <td class="px-2" style="padding-top: 1.65rem; padding-bottom: 1.65rem;" data-label="EditTrades:">
           <div class="flex strategy-buttons-container" style="gap: 0;">
@@ -5653,8 +5947,12 @@ Remember: They asked a specific question. Answer it directly with real trader in
           ? '<span style="background-color: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; border-radius: var(--radius-sm); padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #3b82f6; margin-left: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">BREAKOUT ENTRY</span>'
           : '<span style="background-color: rgba(34, 197, 94, 0.2); border: 1px solid #22c55e; border-radius: var(--radius-sm); padding: 0.25rem 0.5rem; font-size: 0.75rem; color: #22c55e; margin-left: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">PULLBACK ENTRY</span>';
         
+        // Determine animated background class for valid trade
+        const tradeBiasClass = direction === 'LONG' ? 'animated-long' : 'animated-short';
+        
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
+          <div class="trade-call-output dashboard-card ${tradeBiasClass}" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor}; position: relative; overflow: hidden;">
+            <div style="position: relative; z-index: 1;">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
               <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: var(--color-yellow-75); margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
@@ -5733,7 +6031,8 @@ Remember: They asked a specific question. Answer it directly with real trader in
             </div>
             
             <!-- Full Width: Confluence Analysis -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="dashboard-card ${tradeBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Why This Trade</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
                 <div style="margin-bottom: 0.5rem; color: rgba(255, 255, 255, 0.85);">Clear explanation of confluence:</div>
@@ -5745,18 +6044,22 @@ Remember: They asked a specific question. Answer it directly with real trader in
                   <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> HTF confirmation: ${tf4h?.indicators?.analysis?.trend || 'N/A'} 4H trend${setupType === 'MICROSCALP' ? ' (disregarded for micro-scalp)' : ''}</div>
                 </div>
               </div>
+              </div>
             </div>
             
             <!-- Full Width: Conditions -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="dashboard-card ${tradeBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Conditions Required</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
                 ${conditionsRequired.map(cond => `<div style="color: rgba(255, 255, 255, 0.7);">${cond}</div>`).join('')}
               </div>
+              </div>
             </div>
             
             <!-- Full Width: Time Horizon -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="dashboard-card ${tradeBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">How Long to Hold This Setup</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
                 ${setupType === 'SWING' ? 'This is a multi-day swing play. Expect movement within 1–5 days. Requires waiting for daily/4H closes to confirm progression.' :
@@ -5764,10 +6067,12 @@ Remember: They asked a specific question. Answer it directly with real trader in
                   setupType === 'MICROSCALP' ? 'Ultra-short 15m–1H scalp. Expect movement within 15 minutes to 2 hours. Watch candle-by-candle.' :
                   'Standard 4H trend play. Expect movement within 4–12 hours. Check every 1H or 4H close.'}
               </div>
+              </div>
             </div>
             
             <!-- Full Width: Monitoring Requirement -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="dashboard-card ${tradeBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">How Close It Must Be Monitored</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
                 ${setupType === 'SWING' ? 'Low-touch swing setup — can be checked every 4–12 hours unless invalidation is close. Set alerts for key levels.' :
@@ -5775,10 +6080,12 @@ Remember: They asked a specific question. Answer it directly with real trader in
                   setupType === 'MICROSCALP' ? 'High-risk scalp — must be watched candle-to-candle on 15m or 5m. Use tight stops and quick exits.' :
                   'Standard monitoring — check every 1–2 hours during active sessions. Adjust if 4H shows weakness.'}
               </div>
+              </div>
             </div>
             
             <!-- Full Width: Chop Guidance -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="dashboard-card ${tradeBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Recommended Action If Price Chops</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">
                 ${setupType === 'SWING' ? 'Cut early if daily stoch flips against trend or if 4H loses key structure. Do not hold through major macro shifts.' :
@@ -5786,10 +6093,12 @@ Remember: They asked a specific question. Answer it directly with real trader in
                   setupType === 'MICROSCALP' ? 'Cut immediately if 15m breaks entry zone or if stoch crosses against you. Do not wait — this is a precision scalp.' :
                   'Exit if 4H closes against trend or if 1H momentum stalls. Cut early if liquidity sweeps both sides.'}
               </div>
+              </div>
             </div>
             
             <!-- Trade Execution Section -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 2px solid ${directionColor};">
+            <div class="dashboard-card ${tradeBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); border-top: 2px solid ${directionColor}; position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 1rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Execute Trade</div>
               
               <!-- Trade Type Selector -->
@@ -5882,6 +6191,7 @@ Remember: They asked a specific question. Answer it directly with real trader in
                 <button id="trackTradeBtn-${symbol}" onclick="trackExecutedTrade('${symbol}')" style="display: none; margin-top: 0.75rem; padding: 0.5rem 1rem; background: linear-gradient(135deg, ${directionColor} 0%, ${direction === 'LONG' ? '#16a34a' : '#dc2626'} 100%); border: none; border-radius: var(--radius-sm); color: white; font-size: 0.75rem; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--font-mathias);">📊 Track Trade</button>
               </div>
             </div>
+            </div>
           </div>
         `;
       } else if (tradeSignal && !tradeSignal.valid) {
@@ -5967,8 +6277,11 @@ Remember: They asked a specific question. Answer it directly with real trader in
           }
         }
         
+        // Determine animated background class for NO TRADE (neutral/orange)
+        const noTradeBiasClass = 'animated-neutral';
+        
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid #9ca3af;">
+          <div class="trade-call-output dashboard-card ${noTradeBiasClass}" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid #9ca3af; position: relative; overflow: hidden;">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
               <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: #6b7280; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
@@ -5991,33 +6304,63 @@ Remember: They asked a specific question. Answer it directly with real trader in
             </div>
             
             <!-- Reason Section -->
-            <div style="margin-bottom: 1.5rem; padding: 1rem; background-color: rgba(255, 255, 255, 0.05); border-radius: var(--radius-md); border-left: 3px solid #6b7280;">
+            <div class="dashboard-card animated-neutral" style="margin-bottom: 1.5rem; padding: 1rem; background-color: rgba(255, 255, 255, 0.05); border-radius: var(--radius-md); border-left: 3px solid #6b7280; position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.5rem; letter-spacing: 0.1em; text-transform: uppercase;">Reason</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.6;">${reason}</div>
+              </div>
             </div>
             
             <!-- Current Market Analysis -->
-            <div style="margin-bottom: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Current Market Analysis</div>
-              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 4H Trend: ${trend4h}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 1H Trend: ${trend1h}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 4H Stoch: ${stoch4h}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 1H Stoch: ${stoch1h}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Pullback: ${pullback4h}</div>
-                  <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Zone: ${distanceFrom21}</div>
+            ${(function() {
+              // Determine bias for market analysis based on trends and stoch
+              let analysisBias = 'neutral';
+              const trend4hLower = trend4h.toLowerCase();
+              const trend1hLower = trend1h.toLowerCase();
+              const stoch4hLower = stoch4h.toLowerCase();
+              const stoch1hLower = stoch1h.toLowerCase();
+              
+              // If trends are aligned and stoch is supportive, it's good
+              if ((trend4hLower === 'uptrend' || trend4hLower === 'downtrend') && 
+                  (trend1hLower === 'uptrend' || trend1hLower === 'downtrend') &&
+                  trend4hLower === trend1hLower) {
+                analysisBias = trend4hLower === 'uptrend' ? 'long' : 'short';
+              } else if (trend4hLower === 'flat' || trend1hLower === 'flat') {
+                analysisBias = 'neutral';
+              }
+              
+              const analysisBiasClass = analysisBias === 'long' ? 'animated-long' : 
+                                        analysisBias === 'short' ? 'animated-short' : 'animated-neutral';
+              
+              return `<div class="dashboard-card ${analysisBiasClass}" style="margin-bottom: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Current Market Analysis</div>
+                <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8;">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.5rem;">
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 4H Trend: ${trend4h}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 1H Trend: ${trend1h}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 4H Stoch: ${stoch4h}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> 1H Stoch: ${stoch1h}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Pullback: ${pullback4h}</div>
+                    <div><span style="color: rgba(255, 255, 255, 0.5);">–</span> Zone: ${distanceFrom21}</div>
+                  </div>
                 </div>
               </div>
-            </div>
+            </div>`;
+            })()}
             
             <!-- Conditions Required -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
-              <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Required Before Entry</div>
-              <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
-                ${conditionsRequired.map(cond => `<div style="color: rgba(255, 255, 255, 0.7);">${cond}</div>`).join('')}
+            ${(function() {
+              // Conditions required are typically neutral (orange) since they're requirements, not met conditions
+              return `<div class="dashboard-card animated-neutral" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
+                <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Required Before Entry</div>
+                <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
+                  ${conditionsRequired.map(cond => `<div style="color: rgba(255, 255, 255, 0.7);">${cond}</div>`).join('')}
+                </div>
               </div>
-            </div>
+            </div>`;
+            })()}
           </div>
         `;
       } else if (data.microScalp && data.microScalp.valid) {
@@ -6036,8 +6379,12 @@ Remember: They asked a specific question. Answer it directly with real trader in
         const invalidation = `$${data.microScalp.invalidation_level.toLocaleString()}`;
         const reason = data.microScalp.reason;
         
+        // Determine animated background class for micro-scalp trade
+        const microScalpBiasClass = direction === 'LONG' ? 'animated-long' : 'animated-short';
+        
         tradeCallHtml = `
-          <div class="trade-call-output" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor};">
+          <div class="trade-call-output dashboard-card ${microScalpBiasClass}" style="margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border-left: 4px solid ${directionColor}; position: relative; overflow: hidden;">
+            <div style="position: relative; z-index: 1;">
             <!-- Header -->
             <div style="margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 1rem;">
               <h2 style="font-size: clamp(1.25rem, 4vw, 1.75rem); font-weight: bold; color: ${directionColor}; margin-bottom: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--font-mathias);">
@@ -6101,15 +6448,18 @@ Remember: They asked a specific question. Answer it directly with real trader in
             </div>
             
             <!-- Full Width: Why This Trade -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="dashboard-card ${microScalpBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Why This Trade</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.7;">
                 ${reason}
               </div>
+              </div>
             </div>
             
             <!-- Full Width: Conditions -->
-            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+            <div class="dashboard-card ${microScalpBiasClass}" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
               <div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Conditions Met</div>
               <div style="color: var(--color-yellow-75); font-size: 0.875rem; line-height: 1.8; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem;">
                 <div style="color: rgba(255, 255, 255, 0.7);">✓ 1H trending (not FLAT)</div>
@@ -6118,6 +6468,8 @@ Remember: They asked a specific question. Answer it directly with real trader in
                 <div style="color: rgba(255, 255, 255, 0.7);">✓ 15m & 5m stoch aligned</div>
                 <div style="color: rgba(255, 255, 255, 0.7);">✓ Tight confluence for quick scalp</div>
               </div>
+              </div>
+            </div>
             </div>
           </div>
         `;
@@ -6130,15 +6482,28 @@ Remember: They asked a specific question. Answer it directly with real trader in
             ${tradeCallHtml}
             
             <!-- AI Reasoning Agent Section - SECOND -->
-            <div id="ai-review-section-${symbol}" style="margin-top: 1.5rem; margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);">
-              <div id="ai-review-content-${symbol}">
-                <!-- Loading state (will be replaced by AI response) -->
-                <div style="display: flex; align-items: center; gap: 0.75rem; padding: 2rem; justify-content: center;">
-                  <img src="/logos/load.gif" alt="Loading" style="width: 140px; height: auto;">
-                  <span style="color: var(--color-yellow-75); font-size: 0.875rem; opacity: 0.7;">Analyzing Call</span>
+            ${(function() {
+              // Determine bias for AI section based on trade signal
+              let aiBias = 'neutral';
+              if (tradeSignal && tradeSignal.valid) {
+                const direction = tradeSignal.direction?.toUpperCase();
+                aiBias = direction === 'LONG' ? 'long' : direction === 'SHORT' ? 'short' : 'neutral';
+              }
+              const aiBiasClass = aiBias === 'long' ? 'animated-long' : 
+                                 aiBias === 'short' ? 'animated-short' : 'animated-neutral';
+              
+              return `<div class="dashboard-card ${aiBiasClass}" id="ai-review-section-${symbol}" style="margin-top: 1.5rem; margin-bottom: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); font-family: var(--font-system); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); position: relative; overflow: hidden;">
+              <div style="position: relative; z-index: 1;">
+                <div id="ai-review-content-${symbol}">
+                  <!-- Loading state (will be replaced by AI response) -->
+                  <div style="display: flex; align-items: center; gap: 0.75rem; padding: 2rem; justify-content: center;">
+                    <img src="/logos/load.gif" alt="Loading" style="width: 140px; height: auto;">
+                    <span style="color: var(--color-yellow-75); font-size: 0.875rem; opacity: 0.7;">Analyzing Call</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </div>`;
+            })()}
             
             <style>
               @keyframes spin {
@@ -6199,7 +6564,18 @@ Remember: They asked a specific question. Answer it directly with real trader in
                   return '';
                 }
                 
-                let html = '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                // Determine bias for chart analysis based on patterns and indicators
+                let chartBias = 'neutral';
+                const patterns = analysis4h?.indicators?.candlestickPatterns;
+                if (patterns && patterns.current) {
+                  chartBias = patterns.bullish ? 'long' : patterns.bearish ? 'short' : 'neutral';
+                }
+                
+                const chartBiasClass = chartBias === 'long' ? 'animated-long' : 
+                                      chartBias === 'short' ? 'animated-short' : 'animated-neutral';
+                
+                let html = '<div class="dashboard-card ' + chartBiasClass + '" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">' +
+                  '<div style="position: relative; z-index: 1;">' +
                   '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Chart Analysis</div>';
                 
                 // 4H Chart Analysis - ALWAYS SHOW ALL FIELDS (even if null/N/A)
@@ -6217,8 +6593,7 @@ Remember: They asked a specific question. Answer it directly with real trader in
                 // Always show a grid with ALL fields, even if data is missing
                 html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; font-size: 0.75rem;">';
                 
-                // 1. Candlestick Pattern - ALWAYS SHOW
-                const patterns = analysis4h?.indicators?.candlestickPatterns;
+                // 1. Candlestick Pattern - ALWAYS SHOW (patterns already declared above)
                 if (patterns && patterns.current) {
                   const patternColor = patterns.bullish ? '#22c55e' : patterns.bearish ? '#ef4444' : '#9ca3af';
                   html += '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.7rem; margin-bottom: 0.25rem;">Pattern</div><div style="color: ' + patternColor + '; font-weight: bold;">' + patterns.current + '</div></div>';
@@ -6316,7 +6691,9 @@ Remember: They asked a specific question. Answer it directly with real trader in
                     '</div>';
                 }
                 
-                html += '</div>';
+                html += '</div>' + // Close grid
+                  '</div>' + // Close z-index wrapper
+                  '</div>'; // Close chart analysis card
                 return html;
               })();
               
@@ -6368,23 +6745,39 @@ Remember: They asked a specific question. Answer it directly with real trader in
                     '</div>';
                 });
                 
-                predictionMarketsHtml = '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                predictionMarketsHtml = '<div class="dashboard-card animated-neutral" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">' +
+                  '<div style="position: relative; z-index: 1;">' +
                   '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Prediction Markets</div>' +
                   '<div style="color: rgba(255, 255, 255, 0.7); font-size: 0.875rem; margin-bottom: 1rem;">' +
                     markets.length + ' active prediction market' + (markets.length !== 1 ? 's' : '') + ' found for ' + symbol.replace('USDT', '') +
                   '</div>' +
                   marketsHtml +
+                  '</div>' +
                   '</div>';
               } else {
                 // Always show Prediction Markets section, even if no data
                 const errorMsg = dflowData?.error ? ' (' + dflowData.error + ')' : '';
-                predictionMarketsHtml = '<div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">' +
+                predictionMarketsHtml = '<div class="dashboard-card animated-neutral" style="margin-top: 1.5rem; padding: 1rem; background-color: rgba(0, 0, 0, 0.4); border-radius: var(--radius-md); position: relative; overflow: hidden;">' +
+                  '<div style="position: relative; z-index: 1;">' +
                   '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">Prediction Markets</div>' +
                   '<div style="color: rgba(255, 255, 255, 0.5); font-size: 0.875rem;">No prediction market data available for ' + symbol.replace('USDT', '') + errorMsg + '</div>' +
+                  '</div>' +
                   '</div>';
               }
               
-              return '<div style="margin-top: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); border: 1px solid rgba(255, 255, 255, 0.1);">' +
+              // Determine bias for market data based on volume quality and flow
+              let marketDataBias = 'neutral';
+              if (volumeQuality === 'HIGH') {
+                marketDataBias = overallFlow === 'BUY' ? 'long' : overallFlow === 'SELL' ? 'short' : 'neutral';
+              } else if (volumeQuality === 'LOW') {
+                marketDataBias = 'neutral'; // Low volume = neutral/orange
+              }
+              
+              const marketDataBiasClass = marketDataBias === 'long' ? 'animated-long' : 
+                                         marketDataBias === 'short' ? 'animated-short' : 'animated-neutral';
+              
+              return '<div class="dashboard-card ' + marketDataBiasClass + '" style="margin-top: 1.5rem; padding: 1.5rem; background-color: rgba(0, 0, 0, 0.6); border-radius: var(--radius-md); border: 1px solid rgba(255, 255, 255, 0.1); position: relative; overflow: hidden;">' +
+                '<div style="position: relative; z-index: 1;">' +
                 '<div style="color: var(--color-yellow-75); font-weight: bold; font-size: 0.75rem; margin-bottom: 1rem; letter-spacing: 0.1em; text-transform: uppercase; font-family: var(--font-mathias);">MARKET DATA</div>' +
                 '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; font-size: 0.875rem; margin-bottom: 1rem;">' +
                   '<div><div style="color: rgba(255, 255, 255, 0.5); font-size: 0.75rem; margin-bottom: 0.25rem;">Spread</div><div style="color: var(--color-yellow-75); font-weight: bold;">' + spread + ' (' + spreadPercent + ')</div></div>' +
@@ -6412,6 +6805,7 @@ Remember: They asked a specific question. Answer it directly with real trader in
                 '</div>' +
                 chartAnalysisHtml +
                 predictionMarketsHtml +
+                '</div>' +
                 '</div>';
             })()}
             
@@ -7798,14 +8192,29 @@ Remember: They asked a specific question. Answer it directly with real trader in
           body: JSON.stringify(requestBody),
         });
         
-        const result = await response.json();
+        // Check content type before parsing JSON
+        const contentType = response.headers.get('content-type');
+        let result;
+        
+        if (contentType && contentType.includes('application/json')) {
+          result = await response.json();
+        } else {
+          // If response is not JSON, read as text and create error object
+          const text = await response.text();
+          console.error('[Frontend] Non-JSON response received:', text);
+          result = {
+            success: false,
+            error: 'Server error',
+            message: text || 'An unexpected error occurred. Please try again.'
+          };
+        }
         
         if (!response.ok) {
           throw new Error(result.error || result.message || 'Trade execution failed');
         }
         
         if (!result.success) {
-          throw new Error(result.error || 'Trade execution failed');
+          throw new Error(result.error || result.message || 'Trade execution failed');
         }
         
         // Success!
