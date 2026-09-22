@@ -449,7 +449,21 @@ Done 2026-09-22. As built:
 
 ---
 
-## Phase 11 — GPT instruction trim
+## Phase 11 — GPT instruction trim + payload headroom
+
+Source text: `docs/GPT_INSTRUCTIONS.md` (baseline saved 2026-09-22, 7,990 UTF-16 units; ChatGPT caps at 8,000).
+
+Deliverables (2026-09-22 spec; supersedes the older paragraph below):
+- A. `docs/GPT_INSTRUCTIONS.md` stays the source of truth: full text in one fenced block, a "payload field → instruction rule" table, and a change log. Add `scripts/check-gpt-instructions.js` printing the fenced block's UTF-16 length and failing above 7,900; npm script `check:gpt`.
+- B. Trim: remove every rule the payload now carries as a number or code (stop-distance math, leverage math, flag-detection heuristics, visual-gate heuristics, coil logic, bias weighing) and replace each with a one-line "read field X" rule. Keep: evidence weighing, uncertainty language, the user's line-by-line output format, TRACK format, NO TRADE line, COMMANDS, "engine output is input", direction symmetry, existing-position hierarchy (until 3b), never-invent rules.
+- C. Teach the new fields: `decisionTrace.bias` string grammar (`scalp:L14,S4,N82|swing:L74,S0,N26|tf:1m=S,…|ct:1`); `failReason` fourth token in failed trace strings; `alignment` / `decisionInputs` / `biasMatrix` exist only with include "bias" (MCP-only), so the Action must not claim them; `needsVisualConfirmation` / `visualTarget`; `type: coil`.
+- D. A "GPT test sheet" section: 10 prompts with the exact expected response shape (data check, signals, flags, forming, track, balance, bias question, why-rejected, coil question, position).
+- E. Payload headroom (small code change, string formats only): shorten `decisionTrace` strings without losing information — geometry strings drop "na" tokens and round to 2 decimals; candidate strings stay `tf:dir:state[:failReason]`; window entries keep `to` and `closedCandles` and may drop `from`. Target ≥ 600 bytes recovered on the live default payload (currently ~79.5 KB of 80). No schema bump for string-format changes; bump `configVersion` only if a config key changes. Update tests that assert string formats.
+- F. Mark this row done with the date, the final instruction length, and bytes recovered.
+
+Do NOT touch engine behavior, MCP tool, REST auth, chart, replay, or geometry/pattern/lifecycle/bias logic.
+
+Original paragraph:
 
 Only after 1–10. Remove from GPT instructions anything the payload now carries: stop-distance math, leverage math, flag detection rules, visual-gate heuristics. Keep: evidence weighing, uncertainty language, output format, no-trade watch format, "engine output is input".
 
