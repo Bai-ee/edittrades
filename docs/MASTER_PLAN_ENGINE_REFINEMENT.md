@@ -242,7 +242,7 @@ Acceptance: hourly MCP run can request `compact` and stay small. Full payload by
 
 ## Phase 7 — Geometry A: pivots, zones, ATR, room
 
-ATR decision (taken in phase 0): import `calculateATR` from `lib/advancedIndicators.js:98` and use it. Do not write a second ATR. `lib/advancedIndicators.js` is the one otherwise-dormant module a phase may import (governing rule 7); importing one named function does not pull the rest of that file onto the scalp path.
+ATR decision (taken in phase 0): import `calculateATR` from `lib/advancedIndicators.js:98` and use it. Do not write a second ATR. Phase 4 shipped a local `wilderAtr` in `lib/patternDetector.js` under the rule-7 reading; Phase 7 replaces it with the shared import and adds a test asserting both agree on the same candles, so exactly one ATR remains. Phase 7 also switches `flag.wickTolerancePct` (percent of price) to an ATR multiple now that ATR per timeframe exists. `lib/advancedIndicators.js` is the one otherwise-dormant module a phase may import (governing rule 7); importing one named function does not pull the rest of that file onto the scalp path.
 
 New module `lib/geometry.js`:
 - `atr(candles, n)` — thin wrapper over `calculateATR`, returning `{ atr, atrPct }`.
