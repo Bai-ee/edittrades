@@ -37,6 +37,24 @@
  *     fill; same reasoning as feeBps.
  *   - defaultLossBudgetPctOfCollateral (5): fallback risk budget, percent of a position's
  *     own collateral, used by stopHierarchy when the caller supplies no lossBudgetUsd.
+ *
+ * `flag` block (phase 4, `lib/patternDetector.js`), one line each:
+ *   - timeframes (1m, 3m, 5m): where the detector runs; the plan's scalp timeframes.
+ *   - atrPeriod (14): Wilder's standard ATR length, the unit for impulse and chase.
+ *   - minImpulseAtr (2.0): an impulse must span at least 2 ATR to be a pole, not noise.
+ *   - maxImpulseCandles (8): the pole is a burst; 8 bars is ~8 min on 1m, ~40 min on 5m.
+ *   - maxContractionRatio (0.5): flag range at most half the pole - a flag, not a range.
+ *   - minCandles (3): fewer than 3 bars is a pause, not a consolidation.
+ *   - maxFlagCandles (12): longer than 12 bars on a scalp timeframe is a new range.
+ *   - wickTolerancePct (0.02): EMA21 band, percent of price; ~a third to half of a BTC
+ *     1m ATR, so a touch counts as a hold but a real poke through counts as a wick.
+ *   - acceptanceCloses (2): two consecutive closes through EMA21 = acceptance, one = wick.
+ *   - confirmCloses (2): a break is confirmed on its second close past the level.
+ *   - maxBreakoutAge (5): a break older than 5 bars is history, not a setup.
+ *   - chaseAtr (1.5): last close more than 1.5 ATR past the breakout = chasing.
+ *   - confidence.impulseFullAtr (4.0): impulse score saturates at 4 ATR.
+ *   - confidence.weights: impulse 0.3, compression 0.25, ema21 0.3, stoch 0.15 (sum 1);
+ *     structure first, Stoch RSI slope as a tiebreaker.
  */
 
 import { readFileSync } from 'node:fs';

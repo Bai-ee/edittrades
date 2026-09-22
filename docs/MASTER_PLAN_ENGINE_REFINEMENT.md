@@ -53,7 +53,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 2 | `decisionTrace` per symbol | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`buildDecisionTrace`, `buildStrategyTrace`, `buildTimeframeWindow`, `classifyRejection`), `openapi/scalp-context.yaml`, `npm run test:scalp` |
 | 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low | ✅ done 2026-09-22 → `lib/riskEngine.js`, `config/engine.json` (`risk`), `services/scalpContext.js` (`attachRisk`), `npm run test:risk` |
 | 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |
-| 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium |
+| 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium | ✅ done 2026-09-22 → `lib/patternDetector.js`, `config/engine.json` (`flag`), `services/scalpContext.js` (`candidateSetups`), `test/fixtures/flagFixtures.js`, `npm run test:pattern` |
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none |
 | 5 | Payload controls: tool args `symbols`, `include`; compact mode | 1–2 h | low |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium |
@@ -192,7 +192,7 @@ Files:
 - `lib/patternDetector.js` new.
 - `services/scalpContext.js`: run on 1m, 3m, 5m per symbol. Attach `candidateSetups: [{ timeframe, ...detector output }]` per symbol. Keep separate from `strategies`. Add to `decisionTrace.candidateSetups`.
 - Config: `flag.minImpulseAtr`, `flag.maxContractionRatio`, `flag.wickTolerancePct`, `flag.minCandles`.
-- Schema → 1.3.0. OpenAPI updated.
+- Schema → 1.3.0. OpenAPI updated. (As built: 1.4.0 → 1.5.0, since phases 2 and 3 each bumped first. `decisionTrace.candidateSetups` carries compact `"timeframe:direction:state"` string references so the ~2KB per-symbol trace budget from phase 2 holds; full candidates live on `symbols.<SYM>.candidateSetups`.)
 
 Do NOT: change `strategies.*`, `bestSignal`, or any guard.
 

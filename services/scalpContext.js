@@ -14,6 +14,7 @@ import { buildStructure } from '../lib/structure.js';
 import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './walletTracker.js';
 import { ENGINE_CONFIG, CONFIG_VERSION } from '../config/engine.js';
 import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
+import { detectCandidateSetups } from '../lib/patternDetector.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -460,9 +461,10 @@ export function buildTimeframeWindow(closedByTf, tfEntries, timeframeList) {
  * @param {string|null} params.bestSignal
  * @param {string} params.evaluatedAt - ISO timestamp
  * @param {Object} params.window - buildTimeframeWindow(...) output
+ * @param {Array<Object>} [params.candidateSetups] - the symbol's candidateSetups (phase 4)
  * @returns {Object}
  */
-export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window }) {
+export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window, candidateSetups = [] }) {
   const bestEntry = bestSignal && rawStrategies ? rawStrategies[bestSignal] : null;
   return {
     configVersion: CONFIG_VERSION,
@@ -471,7 +473,9 @@ export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, win
     bestSignal: bestSignal || null,
     bestSignalReason: bestEntry ? truncateReason(bestEntry.reason) : null,
     window,
-    candidateSetups: [],
+    // Compact "timeframe:direction:state" references only: the full candidates live on
+    // symbols.<SYM>.candidateSetups, and copying them here breaks the ~2KB trace budget.
+    candidateSetups: candidateSetups.map(({ timeframe, direction, state }) => `${timeframe}:${direction}:${state}`),
     geometry: null
   };
 }
@@ -752,6 +756,7 @@ export async function buildScalpContext(options = {}) {
     const closedByTf = {};
     const mtfForStrategy = {};
     const tfProviders = [];
+    const candidateSetups = [];
 
     for (const tf of timeframeList) {
       const fetched = bySymbolTf[symbol][tf];
@@ -809,6 +814,21 @@ export async function buildScalpContext(options = {}) {
         closedThrough: closedThroughOf(closed, tf),
         candleCount: closed.length
       };
+
+      // Flag candidates: a separate channel from strategies, never an input to them.
+      // A detector fault is logged, not warned, so it cannot move dataStatus.
+      if (ENGINE_CONFIG.flag.timeframes.includes(tf)) {
+        try {
+          const setups = detectCandidateSetups({
+            candles: closed,
+            ema21History: indicators.ema && indicators.ema.ema21History,
+            stochRsi: tfEntries[tf].stochRsi
+          });
+          for (const setup of setups) candidateSetups.push({ timeframe: tf, ...setup });
+        } catch (err) {
+          console.warn(`[ScalpContext] ${symbol} ${tf}: pattern detector failed - ${err.message}`);
+        }
+      }
 
       mtfForStrategy[tf] = {
         indicators,
@@ -872,7 +892,8 @@ export async function buildScalpContext(options = {}) {
       rawStrategies,
       bestSignal,
       evaluatedAt: new Date(safeNow).toISOString(),
-      window: buildTimeframeWindow(closedByTf, tfEntries, timeframeList)
+      window: buildTimeframeWindow(closedByTf, tfEntries, timeframeList),
+      candidateSetups
     });
 
     symbolsOut[symbol] = {
@@ -886,6 +907,7 @@ export async function buildScalpContext(options = {}) {
       timeframes: tfEntries,
       strategies,
       bestSignal,
+      candidateSetups,
       decisionTrace
     };
   }
@@ -930,7 +952,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.4.0',
+    schemaVersion: '1.5.0',
     configVersion: CONFIG_VERSION,
     generatedAt: new Date(safeNow).toISOString(),
     closedThrough,

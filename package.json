@@ -15,7 +15,8 @@
     "test:mcp": "node test-edittrades-mcp.js",
     "test:wallet": "node test-wallet-tracker.js",
     "test:config": "node test-engine-config.js",
-    "test:risk": "node test-risk-engine.js"
+    "test:risk": "node test-risk-engine.js",
+    "test:pattern": "node test-pattern-detector.js"
   },
   "keywords": [
     "trading",

@@ -1016,8 +1016,10 @@ async function main() {
       }
       assertEqual(seen.size, STRATEGY_NAMES_LIST.length, `${sym}: every canonical strategy name must appear exactly once`);
 
-      assert(trace.candidateSetups && Array.isArray(trace.candidateSetups) && trace.candidateSetups.length === 0,
-        `${sym}: candidateSetups must be an empty array (reserved for a later phase)`);
+      assert(Array.isArray(trace.candidateSetups), `${sym}: decisionTrace.candidateSetups must be an array`);
+      const expectedRefs = case6Result.symbols[sym].candidateSetups.map(({ timeframe, direction, state }) => `${timeframe}:${direction}:${state}`);
+      assert(deepEqual(trace.candidateSetups, expectedRefs),
+        `${sym}: decisionTrace.candidateSetups must reference the symbol's candidateSetups one-to-one`);
       assertEqual(trace.geometry, null, `${sym}: geometry must be null (reserved for a later phase)`);
     }
   });

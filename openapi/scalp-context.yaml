@@ -264,6 +264,69 @@ components:
         - from
         - to
         - closedCandles
+    CandidateSetup:
+      type: object
+      description: >-
+        Continuation flag found on closed candles for one timeframe (1m, 3m, 5m).
+        Separate from strategies: a candidate can exist while every strategy is
+        NO_TRADE, and it never changes a strategy decision. State is derived from
+        the last candles on every request (no memory between calls).
+      properties:
+        timeframe:
+          type: string
+          enum: ["1m", "3m", "5m"]
+        type:
+          type: string
+          enum: [flag]
+        direction:
+          type: string
+          enum: [long, short]
+        state:
+          type: string
+          enum: [forming, triggering, confirmed, failed]
+        impulseStrength:
+          description: Impulse range in ATR multiples.
+          type: number
+        compressionScore:
+          description: 1 minus flag range over impulse range, 0-1. Higher is tighter.
+          type: number
+        flagHigh:
+          type: number
+        flagLow:
+          type: number
+        breakoutLevel:
+          description: flagHigh for long, flagLow for short.
+          type: number
+        invalidation:
+          description: flagLow for long, flagHigh for short.
+          type: number
+        ema21Hold:
+          description: >-
+            How price treated EMA21 from flag start. Long - hold, wick,
+            acceptance_below. Short - hold_below, wick_above, acceptance_above.
+            Acceptance means the flag failed.
+          type: string
+          enum: [hold, wick, acceptance_below, hold_below, wick_above, acceptance_above]
+        confidence:
+          description: 0-100 score from impulse, compression, EMA21 hold, and Stoch RSI slope.
+          type: integer
+        chaseRisk:
+          description: True when the last close is more than flag.chaseAtr ATRs past the breakout level.
+          type: boolean
+      required:
+        - timeframe
+        - type
+        - direction
+        - state
+        - impulseStrength
+        - compressionScore
+        - flagHigh
+        - flagLow
+        - breakoutLevel
+        - invalidation
+        - ema21Hold
+        - confidence
+        - chaseRisk
     DecisionTrace:
       type: object
       description: >-
@@ -289,10 +352,13 @@ components:
           additionalProperties:
             $ref: "#/components/schemas/TimeframeWindowEntry"
         candidateSetups:
-          description: Reserved for a later phase. Always empty today.
+          description: >-
+            One "timeframe:direction:state" string per entry in the symbol's
+            candidateSetups, same order (e.g. "1m:long:confirmed"). Full candidates
+            live on the symbol.
           type: array
           items:
-            type: object
+            type: string
         geometry:
           description: Reserved for a later phase. Always null today.
           type: [object, "null"]
@@ -331,6 +397,13 @@ components:
             - SCALP_1H
             - MICRO_SCALP
             - null
+        candidateSetups:
+          description: >-
+            Flag candidates on 1m, 3m, 5m, long and short. Independent of
+            strategies and bestSignal. Empty when no flag is present.
+          type: array
+          items:
+            $ref: "#/components/schemas/CandidateSetup"
         decisionTrace:
           $ref: "#/components/schemas/DecisionTrace"
         timeframes:

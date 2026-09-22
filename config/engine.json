@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-2",
+  "configVersion": "2026.09.22-3",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -39,6 +39,30 @@
     "feeBps": 5,
     "slippageBps": 5,
     "defaultLossBudgetPctOfCollateral": 5
+  },
+
+  "flag": {
+    "timeframes": ["1m", "3m", "5m"],
+    "atrPeriod": 14,
+    "minImpulseAtr": 2.0,
+    "maxImpulseCandles": 8,
+    "maxContractionRatio": 0.5,
+    "minCandles": 3,
+    "maxFlagCandles": 12,
+    "wickTolerancePct": 0.02,
+    "acceptanceCloses": 2,
+    "confirmCloses": 2,
+    "maxBreakoutAge": 5,
+    "chaseAtr": 1.5,
+    "confidence": {
+      "impulseFullAtr": 4.0,
+      "weights": {
+        "impulse": 0.3,
+        "compression": 0.25,
+        "ema21": 0.3,
+        "stoch": 0.15
+      }
+    }
   },
 
   "thresholds": {
