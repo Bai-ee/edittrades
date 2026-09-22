@@ -404,6 +404,8 @@ New module `lib/biasMatrix.js`:
 
 Config: timeframe weights per horizon, `minRoomAtr`, counter-trend strength penalty.
 
+Also in 9b (found in GPT testing 2026-09-22): `decisionTrace.candidateSetups` strings for failed candidates carry the reason as a fourth token, e.g. `5m:short:failed:stale`, so "why did it fail" is answerable while `flag.includeFailed` stays false. Test: a failed candidate's trace string ends with its `failReason`.
+
 Payload: `biasMatrix`, `alignment[]`, `decisionInputs` per symbol, behind `include: bias`.
 
 Tests: `test-bias-matrix.js`:
