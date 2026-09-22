@@ -866,6 +866,7 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  * @returns {Promise<Object>} normalized JSON-safe payload
  */
 export async function buildScalpContext(options = {}) {
+  const buildStartMs = Date.now();
   const {
     symbols = SYMBOLS,
     timeframes = TIMEFRAMES,
@@ -935,8 +936,10 @@ export async function buildScalpContext(options = {}) {
 
   const symbolsOut = {};
   const newest1mCloses = [];
+  const symbolDurationsMs = {};
 
   for (const symbol of symbolList) {
+    const symbolStartMs = Date.now();
     const pair = SYMBOL_PAIR_MAP[symbol] || `${symbol}USDT`;
     let symbolHadWarning = false;
 
@@ -1098,6 +1101,8 @@ export async function buildScalpContext(options = {}) {
       candidateSetups: filterFailedCandidateSetups(candidateSetups, includeFailed),
       decisionTrace
     };
+
+    symbolDurationsMs[symbol] = Date.now() - symbolStartMs;
   }
 
   const usableSymbolCount = Object.values(symbolsOut).filter((s) => s.price !== null).length;
@@ -1162,6 +1167,12 @@ export async function buildScalpContext(options = {}) {
   if (payloadBytes > 80 * 1024) {
     console.warn(`[ScalpContext] payload size ${payloadBytes} bytes exceeds the 80KB guard`);
   }
+
+  // Build duration (phase 6): total wall time and per-symbol compute time, logged once
+  // per build so a regression in fetch/compute cost is visible before geometry (phase
+  // 7/8) adds work to this same loop.
+  const totalDurationMs = Date.now() - buildStartMs;
+  console.log(`[ScalpContext] build duration totalMs=${totalDurationMs} perSymbolMs=${JSON.stringify(symbolDurationsMs)}`);
 
   return normalized;
 }

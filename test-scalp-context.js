@@ -1195,6 +1195,66 @@ async function main() {
   });
 
   // -------------------------------------------------------------------------
+  // 8b) compute depth (phase 6)
+  // -------------------------------------------------------------------------
+  console.log('\n8b) compute depth (buildScalpContext, phase 6)');
+
+  await test('compute window is >= 200 closed candles per timeframe, production-sized fixture, through the real build path', async () => {
+    // Mirrors production sizing without hardcoding it: FETCH_LIMIT (services/scalpContext.js)
+    // is passed to fetchCandles as `limit`, so deriving candle counts from that argument -
+    // rather than a fixed number - means this test fails if FETCH_LIMIT is ever lowered
+    // below what yields 200 closed candles.
+    //
+    // Non-3m: production returns ~(limit - 1) closed candles (the newest bar is still
+    // forming). At FETCH_LIMIT=500 that is 499, matching the measured baseline
+    // (docs/RULE_OWNER_MATRIX.md).
+    //
+    // 3m: derived from 1m under Kraken's 720-row cap (services/marketData.js
+    // getCandlesWithProvenance: baseLimit = min(720, (limit + 2) * 3)). At
+    // FETCH_LIMIT=500, baseLimit=720 -> 240 three-minute buckets, one still forming -> 239
+    // closed. This is the documented shallowest window; 239 still clears the 200-candle
+    // floor EMA200 needs.
+    const productionSizedFetch = async (pair, interval, limit) => {
+      const count = interval === '3m'
+        ? Math.max(0, Math.floor(Math.min(720, (limit + 2) * 3) / 3) - 1)
+        : Math.max(0, limit - 1);
+      return {
+        candles: makeCandles(interval, count, { now: NOW, seed: seedFromString(`depth|${pair}|${interval}`), includeForming: false }),
+        provider: interval === '3m' ? 'kraken-derived' : 'kraken',
+        synthetic: false,
+        error: null
+      };
+    };
+
+    const result = await buildScalpContext({
+      symbols: ['DEPTHTEST'],
+      timeframes: timeframesList,
+      now: NOW,
+      fetchCandles: productionSizedFetch
+    });
+
+    const window = result.symbols.DEPTHTEST.decisionTrace.window;
+    for (const tf of timeframesList) {
+      assert(window[tf], `${tf}: missing from decisionTrace.window`);
+      assert(window[tf].closedCandles >= 200,
+        `${tf}: compute window is ${window[tf].closedCandles} closed candles, below the 200-candle floor`);
+    }
+    if (timeframesList.includes('3m')) {
+      assertEqual(window['3m'].closedCandles, 239, 'documented shallowest window: 3m should land at 239 closed candles under FETCH_LIMIT=500');
+    }
+
+    // Depth proven above; published candle counts must stay exactly as before
+    // (30/30/30/24/24/20/10) even against this deeper, production-sized fixture.
+    const tfEntries = result.symbols.DEPTHTEST.timeframes;
+    for (const tf of timeframesList) {
+      const limit = lookup(CANDLE_LIMITS, tf);
+      if (Number.isFinite(limit)) {
+        assertEqual(tfEntries[tf].candles.length, limit, `${tf}: published candle count changed, expected ${limit}`);
+      }
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // 9) risk (phase 3)
   // -------------------------------------------------------------------------
   console.log('\n9) risk (buildScalpContext, phase 3)');
