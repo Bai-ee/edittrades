@@ -11,6 +11,7 @@ import * as marketData from './marketData.js';
 import * as indicatorService from './indicators.js';
 import strategyService from './strategy.js';
 import { buildStructure } from '../lib/structure.js';
+import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './walletTracker.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -298,7 +299,58 @@ function nullStructure() {
 }
 
 /**
+ * Coerce a value to a finite number, or null.
+ *
+ * Nothing is fabricated here: a missing or non-finite engine level becomes null so
+ * a consumer can tell "the engine did not produce this level" from a real price.
+ *
+ * @param {*} value
+ * @returns {number|null}
+ */
+function finiteOrNull(value) {
+  return isFiniteNumber(value) ? value : null;
+}
+
+/**
+ * Normalize an engine entry zone to { min, max }, dropping non-finite bounds.
+ * @param {*} zone
+ * @returns {{min:number|null,max:number|null}}
+ */
+function normalizeEntryZone(zone) {
+  if (!zone || typeof zone !== 'object') return { min: null, max: null };
+  return { min: finiteOrNull(zone.min), max: finiteOrNull(zone.max) };
+}
+
+/**
+ * Normalize engine targets to an array of finite prices, preserving order.
+ * Unavailable targets collapse to [] rather than [null, null].
+ * @param {*} targets
+ * @returns {Array<number>}
+ */
+function normalizeTargets(targets) {
+  if (!Array.isArray(targets)) return [];
+  return targets.filter(isFiniteNumber);
+}
+
+/**
+ * Normalize an engine risk/reward block, dropping non-finite ratios.
+ * @param {*} rr
+ * @returns {{tp1RR:number|null,tp2RR:number|null}}
+ */
+function normalizeRiskReward(rr) {
+  if (!rr || typeof rr !== 'object') return { tp1RR: null, tp2RR: null };
+  return { tp1RR: finiteOrNull(rr.tp1RR), tp2RR: finiteOrNull(rr.tp2RR) };
+}
+
+/**
  * Trim a strategy result down to the essentials so the payload stays small.
+ *
+ * The execution levels the engine already calculated (entry zone, stop, targets,
+ * risk/reward, stop source) are carried through verbatim, because a consumer that
+ * only sees valid/direction/confidence has no way to act on - or disagree with - a
+ * signal. Nothing is invented: a level the engine did not produce stays null (or
+ * [] for targets).
+ *
  * @param {Object} strategies - strategyService.evaluateAllStrategies(...).strategies
  * @returns {Object}
  */
@@ -312,7 +364,14 @@ function trimStrategies(strategies) {
       valid: !!s.valid,
       direction: s.direction || 'NO_TRADE',
       confidence: isFiniteNumber(s.confidence) ? s.confidence : 0,
-      reason: s.reason || null
+      reason: s.reason || null,
+      entryZone: normalizeEntryZone(s.entryZone),
+      stopLoss: finiteOrNull(s.stopLoss),
+      invalidationLevel: finiteOrNull(s.invalidationLevel),
+      targets: normalizeTargets(s.targets),
+      riskReward: normalizeRiskReward(s.riskReward),
+      stopSource: typeof s.stopSource === 'string' ? s.stopSource : null,
+      entryType: typeof s.entryType === 'string' ? s.entryType : null
     };
   }
   return out;
@@ -408,6 +467,7 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  * @param {Array<string>} [options.timeframes=TIMEFRAMES]
  * @param {number} [options.now=Date.now()]
  * @param {(pair:string, interval:string, limit:number)=>Promise<Array>} [options.fetchCandles] - injectable for tests
+ * @param {Function} [options.fetchAccount] - injectable wallet snapshot reader, for tests
  * @returns {Promise<Object>} normalized JSON-safe payload
  */
 export async function buildScalpContext(options = {}) {
@@ -415,7 +475,8 @@ export async function buildScalpContext(options = {}) {
     symbols = SYMBOLS,
     timeframes = TIMEFRAMES,
     now = Date.now(),
-    fetchCandles = defaultStrictFetch
+    fetchCandles = defaultStrictFetch,
+    fetchAccount = getAccountSnapshot
   } = options || {};
 
   const safeNow = isFiniteNumber(now) ? now : Date.now();
@@ -629,12 +690,33 @@ export async function buildScalpContext(options = {}) {
 
   console.log(`[ScalpContext] Done: dataStatus=${dataStatus} warnings=${warnings.length}`);
 
+  // Tracked-wallet equity, priced with the SOL price this build already resolved so no
+  // extra price source is introduced. Read-only: walletTracker holds no signing key.
+  //
+  // A failed wallet read is reported on account.status and is deliberately NOT pushed
+  // into `warnings`, because `warnings` drives `dataStatus` - an RPC hiccup on the wallet
+  // must not mark otherwise-complete market data as 'partial'.
+  let account;
+  try {
+    account = await fetchAccount({
+      prices: {
+        SOL: symbolsOut.SOL ? symbolsOut.SOL.price : null,
+        BTC: symbolsOut.BTC ? symbolsOut.BTC.price : null,
+        ETH: symbolsOut.ETH ? symbolsOut.ETH.price : null
+      },
+      now: safeNow
+    });
+  } catch (err) {
+    account = emptyAccountSnapshot('unavailable', `wallet read threw - ${err.message}`);
+  }
+
   const payload = {
-    schemaVersion: '1.0.0',
+    schemaVersion: '1.1.0',
     generatedAt: new Date(safeNow).toISOString(),
     closedThrough,
     sessionTimezone: 'UTC',
     dataStatus,
+    account,
     symbols: symbolsOut,
     warnings
   };

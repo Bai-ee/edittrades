@@ -6,33 +6,109 @@
  * Supports spot swaps via Jupiter (perpetuals coming later)
  */
 
-import * as tradeExecution from '../services/tradeExecution.js';
-import * as positionManager from '../services/positionManager.js';
+import crypto from 'crypto';
+
+// services/tradeExecution.js and services/positionManager.js are NOT imported at
+// module scope. They pull in the signing wallet and the perps SDKs, and loading
+// that chain on a cold start was crashing this function before any of its own code
+// ran - which is why an unauthenticated POST returned Vercel's plain-text
+// FUNCTION_INVOCATION_FAILED instead of a JSON rejection. They are now loaded
+// lazily, after the fail-closed gate passes, so a rejected request never touches
+// wallet code and always gets JSON back.
+
+/**
+ * Timing-safe comparison of two strings via SHA-256 digests, so both inputs to
+ * timingSafeEqual are always equal-length and no length information leaks.
+ */
+function safeCompare(a, b) {
+  const hashA = crypto.createHash('sha256').update(String(a)).digest();
+  const hashB = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(hashA, hashB);
+}
+
+/**
+ * Fail-closed gate for the trade-execution route.
+ *
+ * Execution is OFF unless TRADE_EXECUTION_ENABLED is explicitly 'true', and even
+ * then every request must present a bearer token matching TRADE_EXECUTION_API_KEY
+ * (a credential separate from SCALP_CONTEXT_API_KEY). Both checks run before the
+ * request body is read or logged, so an unauthenticated caller never reaches the
+ * signing wallet and never has its payload written to the logs.
+ *
+ * @param {import('http').IncomingMessage} req
+ * @returns {{ok:true}|{ok:false,status:number,body:Object}}
+ */
+function checkExecutionGate(req) {
+  if (process.env.TRADE_EXECUTION_ENABLED !== 'true') {
+    return {
+      ok: false,
+      status: 503,
+      body: {
+        success: false,
+        error: 'Trade execution disabled',
+        message: 'Trade execution is disabled on this deployment.',
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+
+  const expectedKey = process.env.TRADE_EXECUTION_API_KEY;
+  const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+  const match = typeof authHeader === 'string' ? authHeader.match(/^Bearer\s+(.+)$/) : null;
+  const providedToken = match ? match[1].trim() : null;
+
+  if (!expectedKey || !providedToken || !safeCompare(providedToken, expectedKey)) {
+    return {
+      ok: false,
+      status: 401,
+      body: {
+        success: false,
+        error: 'Unauthorized',
+        message: 'A valid trade-execution bearer token is required.',
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+
+  return { ok: true };
+}
 
 export default async function handler(req, res) {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  // Handle OPTIONS preflight
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  // Only allow POST
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed. Use POST.' });
-  }
-
   try {
+    // Set CORS headers
+    res.setHeader('Access-Control-Allow-Credentials', true);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    // Handle OPTIONS preflight
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    }
+
+    // Only allow POST
+    if (req.method !== 'POST') {
+      return res.status(405).json({ error: 'Method not allowed. Use POST.' });
+    }
+
+    // Fail-closed gate. Runs before the body is read or logged, and before any
+    // wallet or execution module is loaded.
+    const gate = checkExecutionGate(req);
+    if (!gate.ok) {
+      console.warn(`[ExecuteTrade] rejected status=${gate.status} reason=${gate.body.error}`);
+      return res.status(gate.status).json(gate.body);
+    }
+
+    const [tradeExecution, positionManager] = await Promise.all([
+      import('../services/tradeExecution.js'),
+      import('../services/positionManager.js')
+    ]);
+
     console.log('[ExecuteTrade] ========================================');
     console.log('[ExecuteTrade] === START REQUEST ===');
     console.log('[ExecuteTrade] Method:', req.method);
     console.log('[ExecuteTrade] URL:', req.url);
-    console.log('[ExecuteTrade] Headers:', JSON.stringify(req.headers, null, 2));
     console.log('[ExecuteTrade] Body exists:', !!req.body);
     console.log('[ExecuteTrade] Body type:', typeof req.body);
     console.log('[ExecuteTrade] Body:', JSON.stringify(req.body, null, 2));
@@ -216,41 +292,57 @@ export default async function handler(req, res) {
     return res.status(200).json(response);
 
   } catch (error) {
-    console.error('[ExecuteTrade] === ERROR ===');
-    console.error('[ExecuteTrade] Error:', error.message);
-    console.error('[ExecuteTrade] Stack:', error.stack);
+    // The error handler itself is wrapped, so a failure while building the error
+    // response still returns JSON rather than Vercel's plain-text fallback.
+    try {
+      console.error('[ExecuteTrade] === ERROR ===');
+      console.error('[ExecuteTrade] Error:', error.message);
+      console.error('[ExecuteTrade] Stack:', error.stack);
 
-    // Provide more user-friendly error messages
-    let errorMessage = error.message;
-    let statusCode = 500;
-    
-    // Check for missing environment variables (common in Vercel)
-    if (error.message.includes('SOLANA_PRIVATE_KEY') || error.message.includes('environment variable is not set')) {
-      errorMessage = 'Trading wallet not configured. Please set SOLANA_PRIVATE_KEY in Vercel environment variables.';
-      statusCode = 503; // Service Unavailable
-      console.error('[ExecuteTrade] ❌ MISSING ENV VAR: SOLANA_PRIVATE_KEY not set in Vercel');
-    } else if (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED')) {
-      errorMessage = 'Cannot connect to Jupiter API. Please check your internet connection and try again.';
-    } else if (error.message.includes('Cannot connect to Jupiter API')) {
-      errorMessage = error.message; // Already user-friendly
-    } else if (error.message.includes('Failed to load wallet')) {
-      errorMessage = 'Wallet configuration error. Please check SOLANA_PRIVATE_KEY in Vercel environment variables.';
-      statusCode = 503;
-      console.error('[ExecuteTrade] ❌ WALLET CONFIG ERROR: Check Vercel environment variables');
+      // Provide more user-friendly error messages
+      let errorMessage = error.message || 'An unexpected error occurred';
+      let statusCode = 500;
+
+      // Check for missing environment variables (common in Vercel)
+      if (error.message && (error.message.includes('SOLANA_PRIVATE_KEY') || error.message.includes('environment variable is not set'))) {
+        errorMessage = 'Trading wallet not configured. Please set SOLANA_PRIVATE_KEY in Vercel environment variables.';
+        statusCode = 503; // Service Unavailable
+        console.error('[ExecuteTrade] ❌ MISSING ENV VAR: SOLANA_PRIVATE_KEY not set in Vercel');
+      } else if (error.message && (error.message.includes('ENOTFOUND') || error.message.includes('ECONNREFUSED'))) {
+        errorMessage = 'Cannot connect to Jupiter API. Please check your internet connection and try again.';
+      } else if (error.message && error.message.includes('Cannot connect to Jupiter API')) {
+        errorMessage = error.message; // Already user-friendly
+      } else if (error.message && error.message.includes('Failed to load wallet')) {
+        errorMessage = 'Wallet configuration error. Please check SOLANA_PRIVATE_KEY in Vercel environment variables.';
+        statusCode = 503;
+        console.error('[ExecuteTrade] ❌ WALLET CONFIG ERROR: Check Vercel environment variables');
+      }
+
+      console.error('[ExecuteTrade] User-friendly message:', errorMessage);
+      console.error('[ExecuteTrade] Status code:', statusCode);
+
+      // Ensure we always return JSON, never plain text
+      if (!res.headersSent) {
+        return res.status(statusCode).json({
+          success: false,
+          error: statusCode === 503 ? 'Service configuration error' : 'Internal server error',
+          message: errorMessage,
+          timestamp: new Date().toISOString(),
+          hint: statusCode === 503 ? 'This is likely a missing environment variable in Vercel. Check deployment documentation.' : undefined
+        });
+      }
+    } catch (unexpectedError) {
+      // Last resort: catch any errors in error handling itself
+      console.error('[ExecuteTrade] CRITICAL: Error in error handler:', unexpectedError);
+      if (!res.headersSent) {
+        return res.status(500).json({
+          success: false,
+          error: 'Internal server error',
+          message: 'An unexpected error occurred while processing your request',
+          timestamp: new Date().toISOString()
+        });
+      }
     }
-    
-    console.error('[ExecuteTrade] === ERROR ===');
-    console.error('[ExecuteTrade] Error:', error.message);
-    console.error('[ExecuteTrade] Stack:', error.stack);
-    console.error('[ExecuteTrade] User-friendly message:', errorMessage);
-    console.error('[ExecuteTrade] Status code:', statusCode);
-
-    return res.status(statusCode).json({
-      error: statusCode === 503 ? 'Service configuration error' : 'Internal server error',
-      message: errorMessage,
-      timestamp: new Date().toISOString(),
-      hint: statusCode === 503 ? 'This is likely a missing environment variable in Vercel. Check deployment documentation.' : undefined
-    });
   }
 }
 

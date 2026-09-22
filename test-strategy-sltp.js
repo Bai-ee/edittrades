@@ -14,7 +14,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { calculateSLTP, normalizeMicroScalpResult } from './services/strategy.js';
+import {
+  MAX_SCALP_STOP_DISTANCE_PCT,
+  applyScalpStopPolicy,
+  calculateSLTP,
+  evaluateMicroScalp,
+  evaluateStrategy,
+  normalizeMicroScalpResult,
+  validateScalpStopDistance
+} from './services/strategy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -205,8 +213,12 @@ async function main() {
     };
     const result = calculateSLTP(ENTRY, 'long', structures, 'Scalp', [1, 2], BOUNDS);
     assertEqual(result.stopSource, 'percentage');
-    assertClose(result.stopLoss, 99 * 0.97, 1e-9);
+    // Anchored at the entry mid, not the zone edge, so the stop sits exactly at the
+    // policy distance and stays admissible under validateScalpStopDistance.
+    assertClose(result.stopLoss, ENTRY * (1 - MAX_SCALP_STOP_DISTANCE_PCT / 100), 1e-9);
     assert(result.stopLoss < BOUNDS.min, `expected stopLoss (${result.stopLoss}) < bounds.min (${BOUNDS.min})`);
+    assertEqual(validateScalpStopDistance(ENTRY, result.stopLoss).valid, true,
+      'the percentage fallback must survive the scalp distance gate');
   });
 
   await test('2d. all candidates wrong side -> percentage fallback, correct side of bounds (short mirror)', () => {
@@ -217,8 +229,10 @@ async function main() {
     };
     const result = calculateSLTP(ENTRY, 'short', structures, 'Scalp', [1, 2], BOUNDS);
     assertEqual(result.stopSource, 'percentage');
-    assertClose(result.stopLoss, 101 * 1.03, 1e-9);
+    assertClose(result.stopLoss, ENTRY * (1 + MAX_SCALP_STOP_DISTANCE_PCT / 100), 1e-9);
     assert(result.stopLoss > BOUNDS.max, `expected stopLoss (${result.stopLoss}) > bounds.max (${BOUNDS.max})`);
+    assertEqual(validateScalpStopDistance(ENTRY, result.stopLoss).valid, true,
+      'the percentage fallback must survive the scalp distance gate');
   });
 
   await test('2e. null/NaN/zero/negative swing levels are skipped in favour of the next valid one (long)', () => {
@@ -422,6 +436,218 @@ async function main() {
 
     assert(result.stopLoss > entryZone.max, `validator invariant violated: stopLoss (${result.stopLoss}) <= entryZone.max (${entryZone.max})`);
     assert(result.targets[0] < entryZone.min, `validator invariant violated: tp1 (${result.targets[0]}) >= entryZone.min (${entryZone.min})`);
+  });
+
+  await test('SCALP_1H stop-distance gate accepts stops at or inside the 3% limit', () => {
+    assertEqual(MAX_SCALP_STOP_DISTANCE_PCT, 3, 'test assumes the engine percentage-stop policy is 3%');
+    assertEqual(validateScalpStopDistance(100, 97).valid, true, 'long stop at 3% should pass');
+    assertEqual(validateScalpStopDistance(100, 103).valid, true, 'short stop at 3% should pass');
+    assertEqual(validateScalpStopDistance(100, 97.01).valid, true, 'long stop inside 3% should pass');
+  });
+
+  await test('SCALP_1H stop-distance gate rejects the 6.56% BTC-scale stop and mirrored shorts', () => {
+    const long = validateScalpStopDistance(100, 93.44);
+    const short = validateScalpStopDistance(100, 106.56);
+    assertEqual(long.valid, false, '6.56% long stop should be rejected');
+    assertEqual(short.valid, false, '6.56% short stop should be rejected');
+    assertClose(long.distancePct, 6.56, 1e-9);
+    assertClose(short.distancePct, 6.56, 1e-9);
+  });
+
+  await test('SCALP_1H stop-distance gate rejects invalid numeric inputs', () => {
+    assertEqual(validateScalpStopDistance(0, 97).valid, false, 'zero entry should be rejected');
+    assertEqual(validateScalpStopDistance(100, Number.NaN).valid, false, 'NaN stop should be rejected');
+    assertEqual(validateScalpStopDistance(100, -1).valid, false, 'negative stop should be rejected');
+  });
+
+  // -------------------------------------------------------------------------
+  // 6b) Scalp stop policy through the real call paths
+  //
+  // These drive evaluateStrategy(sym, data, 'Scalp') and evaluateMicroScalp(data),
+  // not applyScalpStopPolicy directly, so removing either production call site
+  // (services/strategy.js SCALP_1H / MICRO_SCALP) makes them fail.
+  // -------------------------------------------------------------------------
+  console.log('\n6b) scalp stop policy through evaluateStrategy + evaluateMicroScalp');
+
+  const PCT = MAX_SCALP_STOP_DISTANCE_PCT / 100;
+  const REJECT_RE = /scalp stop distance .* exceeds 3\.00% maximum/;
+
+  /**
+   * Minimal multiTimeframeData that satisfies the SCALP_1H guardrails in
+   * evaluateStrategy: 1h trending, 1h/15m near the 21 EMA and in the entry zone,
+   * and 15m Stoch RSI aligned. Structures carry the stop candidates; the 1h/15m
+   * swing on the breakout side is left null so the pullback entry zone is used
+   * and the entry geometry stays deterministic.
+   */
+  function scalpMtf({ isLong, s5, s15, s4h }) {
+    const trend = isLong ? 'UPTREND' : 'DOWNTREND';
+    const cond = isLong ? 'BULLISH' : 'BEARISH';
+    const tf = () => ({
+      indicators: {
+        price: { current: 100 },
+        ema: { ema21: 100, ema200: isLong ? 95 : 105 },
+        analysis: { trend, distanceFrom21EMA: 0.2, pullbackState: 'ENTRY_ZONE' },
+        stochRSI: { condition: cond, k: isLong ? 40 : 60, d: isLong ? 35 : 65, history: [] }
+      },
+      structure: { swingHigh: null, swingLow: null },
+      candleCount: 100
+    });
+    const m = { '3d': tf(), '1d': tf(), '4h': tf(), '1h': tf(), '15m': tf(), '5m': tf(), '1m': tf() };
+    const side = (level) => (isLong ? { swingHigh: null, swingLow: level } : { swingHigh: level, swingLow: null });
+    m['4h'].structure = side(s4h);
+    m['15m'].structure = side(s15);
+    m['5m'].structure = side(s5);
+    return m;
+  }
+
+  /** Same idea for evaluateMicroScalp, which reads swings off indicators, not structure. */
+  function microMtf({ isLong, s5, s15, s4h }) {
+    const trend = isLong ? 'UPTREND' : 'DOWNTREND';
+    const stochCond = isLong ? 'OVERSOLD' : 'OVERBOUGHT';
+    const k = isLong ? 20 : 85;
+    const tf = () => ({
+      indicators: {
+        trend,
+        pullback: { state: 'ENTRY_ZONE', distanceFrom21EMA: 0.1 },
+        ema21: 100,
+        currentPrice: 100,
+        stoch: { condition: stochCond, k, d: k },
+        analysis: { trend, distanceFrom21EMA: 0.1, pullbackState: 'ENTRY_ZONE' },
+        ema: { ema21: 100, ema200: isLong ? 95 : 105 },
+        stochRSI: { condition: stochCond, k, d: k },
+        price: { current: 100 }
+      },
+      structure: { swingHigh: null, swingLow: null },
+      candleCount: 100
+    });
+    const m = { '3d': tf(), '1d': tf(), '4h': tf(), '1h': tf(), '15m': tf(), '5m': tf(), '1m': tf() };
+    for (const [tfKey, level] of [['5m', s5], ['15m', s15], ['4h', s4h]]) {
+      m[tfKey].indicators.swingLow = isLong ? level : null;
+      m[tfKey].indicators.swingHigh = isLong ? null : level;
+    }
+    return m;
+  }
+
+  // 5m/15m levels sit inside the entry zone once buffered, so the selector skips
+  // them and only the 4h level is eligible - the shape that produced BTC's 6.5%
+  // "1H scalp" stop. The no-structure variant leaves nothing on the correct side.
+  const SCALP_CASES = {
+    long:  { wide: { s5: 99.95, s15: 99.92, s4h: 94.18 },   tight: { s5: 99.95, s15: 99.92, s4h: 98.196 },  none: { s5: 99.95, s15: 99.92, s4h: 99.90 } },
+    short: { wide: { s5: 99.85, s15: 99.88, s4h: 105.79 },  tight: { s5: 99.85, s15: 99.88, s4h: 101.797 }, none: { s5: 99.85, s15: 99.88, s4h: 99.89 } }
+  };
+  const MICRO_CASES = {
+    long:  { wide: { s5: 99.9, s15: 99.85, s4h: 94.2828 },   tight: { s5: 99.9, s15: 99.85, s4h: 98.2949 },   none: { s5: 99.9, s15: 99.85, s4h: 99.8 } },
+    short: { wide: { s5: 100.1, s15: 100.15, s4h: 105.6829 }, tight: { s5: 100.1, s15: 100.15, s4h: 101.6949 }, none: { s5: 100.1, s15: 100.15, s4h: 100.12 } }
+  };
+
+  for (const dir of ['long', 'short']) {
+    const isLong = dir === 'long';
+
+    // ---- SCALP_1H via evaluateStrategy ------------------------------------
+
+    await test(`SCALP_1H (${dir}): evaluateStrategy rejects a ~6% structural stop`, () => {
+      const { signal } = evaluateStrategy('TESTUSDT', scalpMtf({ isLong, ...SCALP_CASES[dir].wide }), 'Scalp', 'STANDARD');
+      assertEqual(signal.valid, false, 'a 6% scalp stop must not produce a valid signal');
+      assertEqual(signal.direction, 'NO_TRADE');
+      assertEqual(signal.stopLoss, null, 'a rejected setup must not carry a stop');
+      assert(REJECT_RE.test(signal.reason), `expected a stop-distance rejection, got: ${signal.reason}`);
+    });
+
+    await test(`SCALP_1H (${dir}): evaluateStrategy accepts a sub-3% structural stop`, () => {
+      const { signal } = evaluateStrategy('TESTUSDT', scalpMtf({ isLong, ...SCALP_CASES[dir].tight }), 'Scalp', 'STANDARD');
+      assertEqual(signal.valid, true, `a ~2% structural stop must stay tradeable: ${signal.reason}`);
+      assertEqual(signal.direction, dir);
+      const mid = (signal.entryZone.min + signal.entryZone.max) / 2;
+      const distance = validateScalpStopDistance(mid, signal.stopLoss);
+      assertEqual(distance.valid, true, `stop ${signal.stopLoss} is ${distance.distancePct}% from entry`);
+      assert(distance.distancePct > 1.5 && distance.distancePct < 3,
+        `expected a structural stop inside the limit, got ${distance.distancePct}%`);
+      assert(isLong ? signal.stopLoss < signal.entryZone.min : signal.stopLoss > signal.entryZone.max,
+        'stop must sit beyond the entry zone');
+    });
+
+    await test(`SCALP_1H (${dir}): evaluateStrategy accepts the percentage fallback`, () => {
+      const { signal } = evaluateStrategy('TESTUSDT', scalpMtf({ isLong, ...SCALP_CASES[dir].none }), 'Scalp', 'STANDARD');
+      assertEqual(signal.valid, true, `the percentage fallback must stay tradeable: ${signal.reason}`);
+      const mid = (signal.entryZone.min + signal.entryZone.max) / 2;
+      // evaluateStrategy rounds prices on the way out (96.903 -> 96.9), so this
+      // compares within the rounding granularity. The edge-anchored fallback this
+      // replaced would land at 96.612 here - far outside the tolerance.
+      assertClose(signal.stopLoss, isLong ? mid * (1 - PCT) : mid * (1 + PCT), 0.01,
+        'the fallback must be anchored at the entry mid, exactly at the policy distance');
+      const edgeAnchored = isLong ? signal.entryZone.min * (1 - PCT) : signal.entryZone.max * (1 + PCT);
+      assert(Math.abs(signal.stopLoss - edgeAnchored) > 0.1,
+        'the fallback must NOT be anchored at the entry-zone edge (the pre-fix behaviour)');
+      // signal.valid above is the proof the engine accepted its own fallback: the
+      // gate runs on the unrounded stop inside evaluateStrategy. Re-deriving the
+      // distance from the rounded output lands a hair over the limit (96.9 vs
+      // 96.903 -> 3.003%), so this asserts the published stop is within the policy
+      // plus that rounding granularity rather than re-running the gate on it.
+      const publishedDistance = validateScalpStopDistance(mid, signal.stopLoss);
+      assert(publishedDistance.distancePct <= MAX_SCALP_STOP_DISTANCE_PCT + 0.01,
+        `published stop is ${publishedDistance.distancePct}% from entry, beyond the policy`);
+    });
+
+    // ---- MICRO_SCALP via evaluateMicroScalp -------------------------------
+
+    await test(`MICRO_SCALP (${dir}): evaluateMicroScalp rejects a ~6% structural stop`, () => {
+      const result = evaluateMicroScalp(microMtf({ isLong, ...MICRO_CASES[dir].wide }));
+      assertEqual(result.eligible, false, 'a 6% micro-scalp stop must not be eligible');
+      assertEqual(result.signal, null, 'a rejected setup must not carry a signal');
+      assert(REJECT_RE.test(result.reason), `expected a stop-distance rejection, got: ${result.reason}`);
+    });
+
+    await test(`MICRO_SCALP (${dir}): evaluateMicroScalp accepts a sub-3% structural stop`, () => {
+      const result = evaluateMicroScalp(microMtf({ isLong, ...MICRO_CASES[dir].tight }));
+      assertEqual(result.eligible, true, 'a ~2% structural stop must stay eligible');
+      assertEqual(result.signal.valid, true);
+      assertEqual(result.signal.stopSource, '4h');
+      const distance = validateScalpStopDistance(100, result.signal.stopLoss);
+      assert(distance.distancePct > 1.5 && distance.distancePct < 3,
+        `expected a structural stop inside the limit, got ${distance.distancePct}%`);
+    });
+
+    await test(`MICRO_SCALP (${dir}): evaluateMicroScalp accepts the percentage fallback`, () => {
+      const result = evaluateMicroScalp(microMtf({ isLong, ...MICRO_CASES[dir].none }));
+      assertEqual(result.eligible, true, 'the percentage fallback must stay eligible');
+      assertEqual(result.signal.stopSource, 'percentage');
+      // MICRO_SCALP entry is the mean of the 15m and 5m EMA21, both 100 here.
+      assertClose(result.signal.stopLoss, isLong ? 100 * (1 - PCT) : 100 * (1 + PCT), 1e-9);
+    });
+  }
+
+  // ---- policy-level cases that the call paths cannot reach -----------------
+
+  await test('an entry zone wider than the stop policy yields NO_TRADE, not an in-zone stop', () => {
+    // The mid-anchored fallback cannot clear a zone this wide, so the policy must
+    // refuse rather than place a stop inside the zone it is meant to invalidate.
+    const structures = { '5m': { swingLow: 99.95, swingHigh: null }, '15m': { swingLow: 99.92, swingHigh: null }, '4h': { swingLow: 99.9, swingHigh: null } };
+    const result = applyScalpStopPolicy(ENTRY, 'long', structures, [3.0, 4.5], { min: 95, max: 105 });
+    assertEqual(result.ok, false, 'a zone wider than the stop policy must not produce a signal');
+  });
+
+  await test('the fallback distance and the gate limit stay coupled', () => {
+    // calculateSLTP builds the scalp fallback at MAX_SCALP_STOP_DISTANCE_PCT. If the
+    // two ever diverge, the engine starts rejecting its own fallback silently.
+    const structures = { '5m': { swingLow: 99.95, swingHigh: null }, '15m': { swingLow: 99.92, swingHigh: null }, '4h': { swingLow: 99.9, swingHigh: null } };
+    const sltp = calculateSLTP(ENTRY, 'long', structures, 'Scalp', [3.0, 4.5], { min: 99.6, max: 100.2 });
+    assertEqual(sltp.stopSource, 'percentage');
+    const distance = validateScalpStopDistance(ENTRY, sltp.stopLoss);
+    assertClose(distance.distancePct, MAX_SCALP_STOP_DISTANCE_PCT, 1e-9);
+    assertEqual(distance.valid, true, 'the fallback must sit at, not beyond, the gate limit');
+  });
+
+  await test('non-scalp setups keep the original edge-anchored fallback', () => {
+    // Only scalps are distance-gated. Swing/4H/TrendRider must be unaffected by the
+    // scalp fix, so their fallback stays anchored at the entry-zone edge.
+    const bounds = { min: 99, max: 101 };
+    const longStructures = { '4h': { swingLow: 99.7, swingHigh: null }, '1d': { swingLow: 99.8, swingHigh: null } };
+    for (const setupType of ['4h', 'Swing', 'TrendRider']) {
+      const sltp = calculateSLTP(ENTRY, 'long', longStructures, setupType, [1, 2], bounds);
+      assertEqual(sltp.stopSource, 'percentage', `${setupType}: expected the percentage fallback`);
+      assertClose(sltp.stopLoss, bounds.min * (1 - PCT), 1e-9,
+        `${setupType}: fallback must stay anchored at the entry-zone edge`);
+    }
   });
 
   // -------------------------------------------------------------------------

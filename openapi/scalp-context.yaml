@@ -120,6 +120,65 @@ components:
           type: integer
         stochRsi:
           $ref: "#/components/schemas/StochRsi"
+    EntryZone:
+      type: object
+      description: Engine entry zone. A bound the engine did not produce is null; it is never fabricated.
+      properties:
+        min:
+          type: [number, "null"]
+        max:
+          type: [number, "null"]
+    RiskReward:
+      type: object
+      description: Engine reward-to-risk ratios for the returned targets.
+      properties:
+        tp1RR:
+          type: [number, "null"]
+        tp2RR:
+          type: [number, "null"]
+    Strategy:
+      type: object
+      description: >-
+        One evaluated EditTrades strategy. Execution levels are exactly what the
+        strategy engine returned: an unavailable scalar is null and unavailable
+        targets are an empty array, never a placeholder price. When valid is false
+        the levels are cleared, so an invalid strategy carries nothing actionable.
+      properties:
+        valid:
+          type: boolean
+        direction:
+          type: string
+          enum:
+            - long
+            - short
+            - NO_TRADE
+        confidence:
+          description: Ranking score from 0-100. This is a relative signal strength, NOT a probability of the trade winning.
+          type: number
+        reason:
+          type: [string, "null"]
+        entryZone:
+          $ref: "#/components/schemas/EntryZone"
+        stopLoss:
+          type: [number, "null"]
+        invalidationLevel:
+          type: [number, "null"]
+        targets:
+          description: Ordered engine take-profit prices. Empty when the engine produced none.
+          type: array
+          items:
+            type: number
+        riskReward:
+          $ref: "#/components/schemas/RiskReward"
+        stopSource:
+          description: Which timeframe or method the stop was derived from, or null.
+          type: [string, "null"]
+        entryType:
+          type: [string, "null"]
+          enum:
+            - pullback
+            - breakout
+            - null
     Symbol:
       type: object
       description: Market context for a single tracked symbol. Nested objects are intentionally loose here; consult the live response for exact contents.
@@ -132,6 +191,8 @@ components:
           type: object
         strategies:
           type: object
+          additionalProperties:
+            $ref: "#/components/schemas/Strategy"
         bestSignal:
           description: >-
             Name of the strategy carrying the strongest signal for this symbol, or
@@ -169,6 +230,8 @@ components:
             - unavailable
         requestId:
           type: string
+        account:
+          $ref: "#/components/schemas/Account"
         warnings:
           type: array
           items:
@@ -183,8 +246,140 @@ components:
         - closedThrough
         - sessionTimezone
         - dataStatus
+        - account
         - requestId
         - warnings
         - symbols
+    Account:
+      type: object
+      description: >-
+        Dedicated trading wallet, read-only. margin is risk capital AND the P&L meter.
+        holdings are market exposure only and are NOT capital. Never treat a
+        non-'available' status as a zero balance, and never claim a trade was placed -
+        this endpoint cannot move funds.
+      properties:
+        status:
+          type: string
+          description: >-
+            available = read and priced; partial = a tracked asset could not be priced, so
+            holdingsUsd is incomplete (margin is still exact); unavailable = no capital
+            figures at all; disabled = no wallet is tracked.
+          enum:
+            - available
+            - partial
+            - unavailable
+            - disabled
+        reason:
+          type:
+            - string
+            - "null"
+        address:
+          type:
+            - string
+            - "null"
+          description: Masked wallet address, first and last four characters.
+        fetchedAt:
+          type:
+            - string
+            - "null"
+          format: date-time
+        margin:
+          type: object
+          description: >-
+            Stablecoin balances. This is the ONLY risk capital - perps here are
+            stablecoin-collateralized - and the only basis for position sizing.
+          properties:
+            usd:
+              type:
+                - number
+                - "null"
+              description: Total stablecoin value in USD. Size against this figure.
+            byAsset:
+              type: object
+              additionalProperties:
+                type: number
+        holdings:
+          type: array
+          description: >-
+            Priced non-margin positions (SOL, BTC, ETH). Market exposure, NOT capital.
+            Use them to notice existing correlated exposure before recommending another
+            position in the same direction. Never add them to margin.
+          items:
+            type: object
+            properties:
+              asset:
+                type: string
+              mint:
+                type: string
+              amount:
+                type: number
+              usdValue:
+                type: number
+        holdingsUsd:
+          type:
+            - number
+            - "null"
+          description: Total value of priced holdings. Never risk capital.
+        unpriced:
+          type: array
+          description: >-
+            Positions deliberately excluded from every total because they cannot be priced
+            (unrecognized mints, or a tracked asset with no price). Disclosed, never valued.
+          items:
+            type: object
+            properties:
+              asset:
+                type:
+                  - string
+                  - "null"
+              mint:
+                type: string
+              amount:
+                type: number
+              reason:
+                type: string
+        gas:
+          type: object
+          description: Native SOL available to pay transaction fees.
+          properties:
+            sol:
+              type:
+                - number
+                - "null"
+            minSol:
+              type:
+                - number
+                - "null"
+            sufficient:
+              type:
+                - boolean
+                - "null"
+              description: False means the wallet cannot pay fees, whatever its margin.
+        performance:
+          type: object
+          description: >-
+            P&L measured on margin alone, so a move in SOL/BTC/ETH can never appear as a
+            trade result. Null throughout when no baseline is configured.
+          properties:
+            baselineUsd:
+              type:
+                - number
+                - "null"
+              description: Margin value when tracking began.
+            netPnlUsd:
+              type:
+                - number
+                - "null"
+              description: margin.usd minus baselineUsd. Realized P&L since inception.
+            returnPct:
+              type:
+                - number
+                - "null"
+            source:
+              type:
+                - string
+                - "null"
+      required:
+        - status
 security:
   - bearerAuth: []

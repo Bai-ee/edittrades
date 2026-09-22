@@ -930,6 +930,50 @@ async function main() {
     assertEqual(result.symbols.INTEGRITY_C.source.provider, 'kraken', 'a fully live feed must be labelled kraken');
   });
 
+  await test('each trimmed strategy carries the engine execution contract', async () => {
+    const result = await buildScalpContext({
+      symbols: ['INTEGRITY_C'],
+      timeframes: timeframesList,
+      now: NOW,
+      fetchCandles: async (pair, interval, limit) => ({
+        candles: makeCandles(interval, 520, { now: NOW, seed: seedFromString(`${pair}|${interval}`) }),
+        provider: interval === '3m' ? 'kraken-derived' : 'kraken',
+        synthetic: false,
+        error: null
+      })
+    });
+
+    const strategies = result.symbols.INTEGRITY_C.strategies;
+    assert(Object.keys(strategies).length > 0, 'expected at least one evaluated strategy');
+
+    for (const [name, s] of Object.entries(strategies)) {
+      // Pre-existing fields must keep their meaning.
+      assert(typeof s.valid === 'boolean', `${name}: valid must stay a boolean`);
+      assert(typeof s.direction === 'string', `${name}: direction must stay a string`);
+      assert(typeof s.confidence === 'number', `${name}: confidence must stay a number`);
+
+      // Execution contract: present on every strategy, never fabricated.
+      assert(s.entryZone && typeof s.entryZone === 'object', `${name}: entryZone missing`);
+      assert(s.entryZone.min === null || Number.isFinite(s.entryZone.min), `${name}: entryZone.min must be a finite number or null`);
+      assert(s.entryZone.max === null || Number.isFinite(s.entryZone.max), `${name}: entryZone.max must be a finite number or null`);
+      assert(s.stopLoss === null || Number.isFinite(s.stopLoss), `${name}: stopLoss must be a finite number or null`);
+      assert(s.invalidationLevel === null || Number.isFinite(s.invalidationLevel), `${name}: invalidationLevel must be a finite number or null`);
+      assert(Array.isArray(s.targets), `${name}: targets must be an array`);
+      assert(s.targets.every(Number.isFinite), `${name}: targets must contain only finite numbers`);
+      assert(s.riskReward && typeof s.riskReward === 'object', `${name}: riskReward missing`);
+      assert(s.riskReward.tp1RR === null || Number.isFinite(s.riskReward.tp1RR), `${name}: tp1RR must be a finite number or null`);
+      assert(s.riskReward.tp2RR === null || Number.isFinite(s.riskReward.tp2RR), `${name}: tp2RR must be a finite number or null`);
+      assert(s.stopSource === null || typeof s.stopSource === 'string', `${name}: stopSource must be a string or null`);
+
+      // An invalid strategy must not carry levels a caller could act on.
+      if (!s.valid) {
+        assertEqual(s.entryZone.min, null, `${name}: an invalid strategy must not expose an entry zone`);
+        assertEqual(s.stopLoss, null, `${name}: an invalid strategy must not expose a stop`);
+        assertEqual(s.targets.length, 0, `${name}: an invalid strategy must not expose targets`);
+      }
+    }
+  });
+
   // -------------------------------------------------------------------------
   // summary
   // -------------------------------------------------------------------------

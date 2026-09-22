@@ -10,6 +10,7 @@
  */
 
 import { buildScalpContext } from '../services/scalpContext.js';
+import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import crypto from 'crypto';
 
 /**
@@ -24,6 +25,14 @@ function safeCompare(a, b) {
 }
 
 export default async function handler(req, res) {
+  // /api/mcp is routed into this function because the project is at the Vercel
+  // Hobby 12-function ceiling. It is dispatched before any REST logic runs and
+  // shares nothing with it: no auth, status codes, or response shape below this
+  // line is reached or altered on the MCP path.
+  if (isMcpRequest(req)) {
+    return handleMcpRequest(req, res);
+  }
+
   res.setHeader('Cache-Control', 'no-store');
 
   if (req.method === 'OPTIONS') {

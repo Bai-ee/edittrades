@@ -90,6 +90,64 @@ Load my latest market context and compare BTC, SOL, and ETH.
 
 A healthy response calls `getScalpContext`, then states the `generatedAt` and `closedThrough` timestamps, summarizes each symbol's structure/trend and best signal (if any), and flags any `warnings` or `dataStatus: partial`/`unavailable` as reduced-confidence conditions — without claiming any trade was placed.
 
+## 7b. Wallet tracking (schemaVersion 1.1.0)
+
+The payload carries an `account` block for the dedicated trading wallet
+`F48Q...KeCi`. Read-only: `services/walletTracker.js` reads a **public** address over
+Solana JSON-RPC and holds no signing key.
+
+### The one rule that matters
+
+`account.margin.usd` is risk capital **and** the P&L meter. `account.holdings` is not
+capital.
+
+Perps on this stack are stablecoin-collateralized (`services/jupiterPerps.js`), so only
+USDC/USDT can back a position. More importantly, margin moves *only when a trade settles*
+— so "margin before vs margin after" is a clean trade result. Folding SOL/BTC/ETH into
+the total would make every market move look like a trade outcome and destroy the
+win-rate measurement that sizing depends on.
+
+Holdings are reported for one purpose: to notice you are already long SOL spot before
+recommending a third correlated long on top.
+
+### Blocks
+
+| field | meaning |
+|---|---|
+| `margin.usd` | stablecoin total. **Size against this.** |
+| `margin.byAsset` | `{ USDC, USDT }` |
+| `holdings` | priced SOL/BTC/ETH positions. Exposure, not capital. |
+| `holdingsUsd` | their total. Never add to margin. |
+| `unpriced` | positions excluded from every total (memecoins, unknown mints). Disclosed, never valued. |
+| `gas.sufficient` | false = cannot pay fees, whatever the margin says |
+| `performance` | `baselineUsd`, `netPnlUsd`, `returnPct` — margin vs starting value |
+
+Statuses: `available` (read and priced) · `partial` (a tracked asset lacked a price, so
+`holdingsUsd` is incomplete — margin is still exact) · `unavailable` (no figures at all;
+never read as zero) · `disabled` (no wallet tracked).
+
+### Config
+
+```
+vercel env add TRACKED_WALLET_ADDRESS production
+vercel env add ACCOUNT_BASELINE_USD production
+```
+Repeat for `preview`. Both are already in the local git-ignored `.env`.
+
+`ACCOUNT_BASELINE_USD` is the wallet's margin when tracking began (currently `817.14`).
+Change it **only** on a real deposit or withdrawal — otherwise a transfer reads as a
+huge win and rewrites your performance history.
+
+### Notes
+
+- Unrecognized mints do not degrade `status`. A real wallet holds dust; it is disclosed
+  in `unpriced` and excluded by design, which is not a data problem.
+- A wallet read failure does **not** set `dataStatus: partial`. `dataStatus` describes
+  market data only, so an RPC hiccup cannot discredit good candles.
+- Only a masked address is emitted, and the RPC url never enters the payload, since a
+  paid endpoint embeds its API key there.
+- Balances become visible to OpenAI. Fine for a private GPT; reconsider before publishing.
+
 ## 8. Troubleshooting
 
 | Symptom | Cause | Fix |

@@ -947,6 +947,85 @@ function invalidNoTrade(reason) {
 }
 
 /**
+ * Maximum distance a scalp stop may sit from the entry mid, in percent.
+ *
+ * This is one policy number serving two jobs, and they must stay equal:
+ *   - the gate below rejects any scalp stop further than this from entry;
+ *   - calculateSLTP's percentage fallback is placed at exactly this distance,
+ *     so the fallback is always admissible rather than self-rejecting.
+ * Raising one without the other silently disables the percentage fallback for
+ * scalps - which is exactly the bug this constant was introduced to avoid.
+ */
+export const MAX_SCALP_STOP_DISTANCE_PCT = 3.0;
+
+/**
+ * Floating-point slack for the distance comparison.
+ *
+ * The percentage fallback is built as `entry * (1 - 3/100)`, and recovering the
+ * distance from that product lands a few ULPs above 3 (e.g. 3.0000000000000107).
+ * Without this slack the gate would reject the very stop the engine just chose.
+ */
+const SCALP_STOP_DISTANCE_EPSILON = 1e-9;
+
+/**
+ * Check a scalp stop against the maximum distance policy.
+ *
+ * @param {number} entryPrice - Entry price (mid of zone)
+ * @param {number} stopLoss - Candidate stop
+ * @param {number} [maxDistancePct=MAX_SCALP_STOP_DISTANCE_PCT]
+ * @returns {{valid:boolean, distancePct:number|null, maxDistancePct:number}}
+ */
+export function validateScalpStopDistance(entryPrice, stopLoss, maxDistancePct = MAX_SCALP_STOP_DISTANCE_PCT) {
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(stopLoss) || stopLoss <= 0) {
+    return { valid: false, distancePct: null, maxDistancePct };
+  }
+
+  const distancePct = (Math.abs(entryPrice - stopLoss) / entryPrice) * 100;
+  return {
+    valid: Number.isFinite(maxDistancePct) && maxDistancePct > 0
+      && distancePct <= maxDistancePct + SCALP_STOP_DISTANCE_EPSILON,
+    distancePct,
+    maxDistancePct
+  };
+}
+
+/**
+ * Build a scalp stop and enforce the distance policy in one place.
+ *
+ * SCALP_1H and MICRO_SCALP both route through here so the two paths cannot drift
+ * apart: a stop that one rejects is rejected by the other. A structural stop that
+ * sits too far from entry (a distant 4h swing selected because nothing closer was
+ * on the correct side) is refused outright rather than scaled into a 3R target the
+ * same distance away - that is what produced a BTC "1H scalp" with a 6.5% stop and
+ * a target 18% away.
+ *
+ * @param {number} entryPrice - Entry price (mid of zone)
+ * @param {string} direction - 'long' or 'short'
+ * @param {Object} allStructures - Structures by timeframe, as calculateSLTP expects
+ * @param {Array<number>} rrTargets - R:R multiples for TP1/TP2
+ * @param {Object|null} entryBounds - { min, max } of the entry zone
+ * @returns {{ok:true, sltp:Object}|{ok:false, reason:string, distancePct:number|null}}
+ */
+export function applyScalpStopPolicy(entryPrice, direction, allStructures, rrTargets, entryBounds = null) {
+  const sltp = calculateSLTP(entryPrice, direction, allStructures, 'Scalp', rrTargets, entryBounds);
+  const distance = validateScalpStopDistance(entryPrice, sltp.stopLoss);
+
+  if (distance.valid) {
+    return { ok: true, sltp };
+  }
+
+  const distanceLabel = distance.distancePct === null
+    ? 'invalid'
+    : `${distance.distancePct.toFixed(2)}%`;
+
+  return {
+    ok: false,
+    distancePct: distance.distancePct,
+    reason: `Setup rejected: scalp stop distance ${distanceLabel} exceeds ${distance.maxDistancePct.toFixed(2)}% maximum`
+  };
+}
+
+/**
  * Calculate stop loss and take profit levels
  * UPDATED: Now uses setupType-conditional stop loss logic per text file
  * - Swing: Uses HTF (3D/1D) invalidation levels
@@ -1007,10 +1086,31 @@ export function calculateSLTP(entryPrice, direction, allStructures, setupType = 
   }
 
   if (stopLoss === null) {
-    // No structure on the correct side - fall back to a percentage stop anchored
-    // outside the entry zone so the signal still passes validation.
-    const anchor = isLong ? Math.min(entryPrice, lowerLimit) : Math.max(entryPrice, upperLimit);
-    stopLoss = isLong ? anchor * 0.97 : anchor * 1.03;
+    // No structure on the correct side - fall back to a percentage stop.
+    const pct = MAX_SCALP_STOP_DISTANCE_PCT / 100;
+    const edgeAnchor = isLong ? Math.min(entryPrice, lowerLimit) : Math.max(entryPrice, upperLimit);
+    const edgeAnchored = isLong ? edgeAnchor * (1 - pct) : edgeAnchor * (1 + pct);
+
+    if (setupType === 'Scalp') {
+      // Scalps are the only setups gated on stop distance, and the gate measures
+      // from the entry mid. Anchoring at the zone edge puts the stop slightly
+      // FURTHER than the policy distance from the mid, so the gate would reject
+      // the engine's own fallback on every non-zero-width entry zone. Anchor at
+      // the mid instead, which lands exactly at the policy distance.
+      const midAnchored = isLong ? entryPrice * (1 - pct) : entryPrice * (1 + pct);
+
+      // The stop must still clear the entry zone, or a long stop could sit inside
+      // the zone it is meant to invalidate. When the zone is wider than the policy
+      // distance it cannot, so fall back to the edge anchor - which then exceeds
+      // the distance gate and becomes the intended NO_TRADE.
+      const clearsZone = isLong ? midAnchored < lowerLimit : midAnchored > upperLimit;
+      stopLoss = clearsZone ? midAnchored : edgeAnchored;
+    } else {
+      // Swing, 4H and TrendRider are not distance-gated. They keep the original
+      // edge anchoring so their stops and targets are unchanged by the scalp fix.
+      stopLoss = edgeAnchored;
+    }
+
     invalidationLevel = stopLoss;
     stopSource = 'percentage';
   }
@@ -2493,7 +2593,10 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   const sltp = calculateSLTP(entryMid, direction, allStructures, setupType, rrTargets, entryZone);
   
   // Calculate confidence with hierarchical weighting system (pass strategy name and filters)
-  const strategyName = setupType === 'Scalp' ? 'SCALP_1H' : 'TREND_4H';
+  // This block only runs for setupType '4h' or 'auto' (see the canTry4HTrend guard
+  // above), so it is always the 4H trend strategy. SCALP_1H is produced by the
+  // PRIORITY 4 block further down.
+  const strategyName = 'TREND_4H';
   const confidenceResult = calculateConfidenceWithHierarchy(
     analysis, 
     direction, 
@@ -2860,7 +2963,26 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
           };
           
           const rrTargets = [3.0, 4.5]; // Scalp targets (minimum 3R for TP1)
-          const sltp = calculateSLTP(entryMid, direction, allStructures, 'Scalp', rrTargets, entryZone);
+
+          // Shared with MICRO_SCALP: builds the stop and enforces the distance
+          // policy, so a distant structural stop is refused rather than scaled
+          // into an equally distant 3R target.
+          const stopPolicy = applyScalpStopPolicy(entryMid, direction, allStructures, rrTargets, entryZone);
+          if (!stopPolicy.ok) {
+            return normalizeToCanonical({
+              valid: false,
+              direction: 'NO_TRADE',
+              confidence: 0,
+              reason: stopPolicy.reason,
+              entryZone: { min: null, max: null },
+              stopLoss: null,
+              invalidationLevel: null,
+              targets: [],
+              riskReward: { tp1RR: null, tp2RR: null },
+              validationErrors: []
+            }, analysis, mode);
+          }
+          const sltp = stopPolicy.sltp;
           
           // Use hierarchical confidence system for Scalp (pass strategy name and filters)
           const confidenceResult = calculateConfidenceWithHierarchy(
@@ -3312,7 +3434,19 @@ export function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowD
     }
   };
 
-  const microSltp = calculateSLTP(entry, direction, microStructures, 'Scalp', [3.0, 4.0], microEntryZone);
+  // Same stop policy as SCALP_1H: MICRO_SCALP reaches the same 4h structures, so
+  // without this it produces the same far-from-entry stop and 3R target.
+  const microStopPolicy = applyScalpStopPolicy(entry, direction, microStructures, [3.0, 4.0], microEntryZone);
+  if (!microStopPolicy.ok) {
+    result.eligible = false;
+    result.signal = null;
+    // Surface why, so a rejected stop distance is distinguishable from the generic
+    // "MicroScalp conditions not met" that every other guardrail produces.
+    result.reason = microStopPolicy.reason;
+    return result;
+  }
+
+  const microSltp = microStopPolicy.sltp;
   const stopLoss = microSltp.stopLoss;
   const invalidationLevel = microSltp.invalidationLevel;
   const stopSource = microSltp.stopSource;
@@ -4084,10 +4218,14 @@ export function evaluateAllStrategies(symbol, multiTimeframeData, mode = 'STANDA
   if (microScalpResult && microScalpResult.eligible && microScalpResult.signal && microScalpResult.signal.valid) {
     strategies.MICRO_SCALP = normalizeMicroScalpResult(microScalpResult.signal, symbol);
   } else {
-    strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP', 
-      microScalpResult && !microScalpResult.eligible 
-        ? 'MicroScalp conditions not met - requires 1H trend + tight EMA confluence' 
-        : 'No MicroScalp setup available');
+    // A specific reason from evaluateMicroScalp (e.g. a rejected stop distance) wins
+    // over the generic guardrail message, so the two are distinguishable downstream.
+    strategies.MICRO_SCALP = createNoTradeStrategy('MICRO_SCALP',
+      (microScalpResult && microScalpResult.reason)
+        ? microScalpResult.reason
+        : (microScalpResult && !microScalpResult.eligible
+          ? 'MicroScalp conditions not met - requires 1H trend + tight EMA confluence'
+          : 'No MicroScalp setup available'));
   }
   
   // AGGRESSIVE_MODE: Force valid trades when HTF bias + lower TFs align strongly
@@ -4835,5 +4973,4 @@ export default {
   isBreakoutConfirmed,
   checkDflowAlignment
 };
-
 
