@@ -179,6 +179,94 @@ components:
             - pullback
             - breakout
             - null
+    StrategyTraceEntry:
+      type: object
+      description: Why one named strategy did or did not produce a signal, for this build.
+      properties:
+        name:
+          type: string
+          enum:
+            - SWING
+            - TREND_4H
+            - TREND_RIDER
+            - SCALP_1H
+            - MICRO_SCALP
+        ran:
+          description: False only when the strategy engine did not report a result for this name at all.
+          type: boolean
+        valid:
+          type: boolean
+        rejectedAt:
+          description: >-
+            Short, stable classification of the reason text (e.g. "stop-distance",
+            "htf-flat", "risk-reward", "confidence"). Null when valid is true.
+          type: [string, "null"]
+        reason:
+          type: [string, "null"]
+      required:
+        - name
+        - ran
+        - valid
+        - rejectedAt
+        - reason
+    TimeframeWindowEntry:
+      type: object
+      description: The exact closed-candle range compute ran on for one timeframe, this build.
+      properties:
+        from:
+          description: Open time of the oldest closed candle in the compute window.
+          type: [string, "null"]
+          format: date-time
+        to:
+          description: Close time of the newest closed candle. Equal to that timeframe's closedThrough.
+          type: [string, "null"]
+          format: date-time
+        closedCandles:
+          type: integer
+      required:
+        - from
+        - to
+        - closedCandles
+    DecisionTrace:
+      type: object
+      description: >-
+        Machine-readable explanation of this symbol's strategy evaluation, sourced
+        from the same reasons the strategy engine produces internally. Additive:
+        never changes a strategy decision, only explains it.
+      properties:
+        configVersion:
+          type: string
+        evaluatedAt:
+          type: string
+          format: date-time
+        strategies:
+          type: array
+          items:
+            $ref: "#/components/schemas/StrategyTraceEntry"
+        bestSignal:
+          type: [string, "null"]
+        bestSignalReason:
+          type: [string, "null"]
+        window:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/TimeframeWindowEntry"
+        candidateSetups:
+          description: Reserved for a later phase. Always empty today.
+          type: array
+          items: {}
+        geometry:
+          description: Reserved for a later phase. Always null today.
+          type: "null"
+      required:
+        - configVersion
+        - evaluatedAt
+        - strategies
+        - bestSignal
+        - bestSignalReason
+        - window
+        - candidateSetups
+        - geometry
     Symbol:
       type: object
       description: Market context for a single tracked symbol. Nested objects are intentionally loose here; consult the live response for exact contents.
@@ -205,6 +293,8 @@ components:
             - SCALP_1H
             - MICRO_SCALP
             - null
+        decisionTrace:
+          $ref: "#/components/schemas/DecisionTrace"
         timeframes:
           type: object
           additionalProperties:

@@ -34,10 +34,16 @@ import {
   dropUnclosedCandles,
   deriveStochRsi,
   normalizeJson,
-  buildScalpContext
+  buildScalpContext,
+  classifyRejection,
+  buildStrategyTrace,
+  buildTimeframeWindow,
+  buildDecisionTrace
 } from './services/scalpContext.js';
 
 import { findSwings, buildStructure } from './lib/structure.js';
+
+import { evaluateAllStrategies } from './services/strategy.js';
 
 import {
   aggregateToBuckets,
@@ -972,6 +978,138 @@ async function main() {
         assertEqual(s.targets.length, 0, `${name}: an invalid strategy must not expose targets`);
       }
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // 8) decisionTrace
+  // -------------------------------------------------------------------------
+  console.log('\n8) decisionTrace (buildScalpContext)');
+
+  const STRATEGY_NAMES_LIST = ['SWING', 'TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP'];
+
+  await test('decisionTrace is present for every symbol, one entry per strategy name', () => {
+    assert(case6Result, 'case 6 result not available');
+    for (const sym of [HEALTHY_A, HEALTHY_B]) {
+      const trace = case6Result.symbols[sym].decisionTrace;
+      assert(trace && typeof trace === 'object', `${sym}: decisionTrace missing`);
+      assertEqual(trace.configVersion, case6Result.configVersion, `${sym}: decisionTrace.configVersion does not match payload configVersion`);
+      assert(typeof trace.evaluatedAt === 'string' && trace.evaluatedAt.length > 0, `${sym}: decisionTrace.evaluatedAt missing`);
+      assert(Array.isArray(trace.strategies), `${sym}: decisionTrace.strategies is not an array`);
+      assertEqual(trace.strategies.length, STRATEGY_NAMES_LIST.length, `${sym}: expected one trace entry per strategy`);
+
+      const seen = new Set();
+      for (const entry of trace.strategies) {
+        assert(STRATEGY_NAMES_LIST.includes(entry.name), `${sym}: unexpected strategy name "${entry.name}" in trace`);
+        assert(!seen.has(entry.name), `${sym}: strategy "${entry.name}" appears more than once in trace`);
+        seen.add(entry.name);
+        assert(typeof entry.ran === 'boolean', `${sym}: ${entry.name}.ran must be boolean`);
+        assert(typeof entry.valid === 'boolean', `${sym}: ${entry.name}.valid must be boolean`);
+        if (!entry.valid) {
+          assert(typeof entry.reason === 'string' && entry.reason.length > 0, `${sym}: rejected strategy "${entry.name}" must carry a non-empty reason`);
+          assert(typeof entry.rejectedAt === 'string' && entry.rejectedAt.length > 0, `${sym}: rejected strategy "${entry.name}" must carry a rejectedAt code`);
+        } else {
+          assertEqual(entry.rejectedAt, null, `${sym}: a valid strategy must not carry rejectedAt`);
+        }
+      }
+      assertEqual(seen.size, STRATEGY_NAMES_LIST.length, `${sym}: every canonical strategy name must appear exactly once`);
+
+      assert(trace.candidateSetups && Array.isArray(trace.candidateSetups) && trace.candidateSetups.length === 0,
+        `${sym}: candidateSetups must be an empty array (reserved for a later phase)`);
+      assertEqual(trace.geometry, null, `${sym}: geometry must be null (reserved for a later phase)`);
+    }
+  });
+
+  await test('decisionTrace.window covers every requested timeframe, to === that timeframe\'s closedThrough', () => {
+    assert(case6Result, 'case 6 result not available');
+    for (const sym of [HEALTHY_A, HEALTHY_B]) {
+      const symData = case6Result.symbols[sym];
+      const window = symData.decisionTrace.window;
+      assert(window && typeof window === 'object', `${sym}: decisionTrace.window missing`);
+      for (const tf of timeframesList) {
+        const w = window[tf];
+        assert(w, `${sym}: decisionTrace.window missing timeframe "${tf}"`);
+        assertEqual(w.to, symData.timeframes[tf].closedThrough, `${sym}: window[${tf}].to must equal timeframes[${tf}].closedThrough`);
+        assert(Number.isInteger(w.closedCandles) && w.closedCandles >= 0, `${sym}: window[${tf}].closedCandles must be a non-negative integer`);
+        if (w.closedCandles > 0) {
+          assert(typeof w.from === 'string' && w.from.length > 0, `${sym}: window[${tf}].from must be set when candles exist`);
+        }
+      }
+    }
+  });
+
+  await test('decisionTrace stays within the ~2KB per-symbol budget', () => {
+    assert(case6Result, 'case 6 result not available');
+    for (const sym of [HEALTHY_A, HEALTHY_B]) {
+      const bytes = Buffer.byteLength(JSON.stringify(case6Result.symbols[sym].decisionTrace), 'utf8');
+      assert(bytes <= 2048, `${sym}: decisionTrace is ${bytes} bytes, exceeds the 2KB budget`);
+    }
+  });
+
+  await test('classifyRejection maps known reason text to stable codes', () => {
+    assertEqual(classifyRejection('Setup rejected: scalp stop distance 6.18% exceeds 3.00% maximum'), 'stop-distance');
+    assertEqual(classifyRejection('4H trend is FLAT - no trade allowed per STANDARD mode rules (override conditions not met)'), 'htf-flat');
+    assertEqual(classifyRejection('Setup rejected: confidence 42.0% below minimum 55%'), 'confidence');
+    assertEqual(classifyRejection('Strategy evaluation failed: boom'), 'evaluation-error');
+    assertEqual(classifyRejection('something entirely unrecognized'), 'setup-conditions');
+    assertEqual(classifyRejection(null), 'unspecified');
+  });
+
+  // Minimal multiTimeframeData that satisfies the SCALP_1H guardrails in
+  // evaluateStrategy: 1h trending, 1h/15m near the 21 EMA and in the entry zone,
+  // 15m Stoch RSI aligned, and a 4h structural swing far enough away to produce
+  // a stop beyond the 3% cap. Mirrors test-strategy-sltp.js section 6b, which
+  // proves this same shape reproduces BTC's real "6.18% stop" rejection.
+  function wideStopScalpMtf() {
+    const tf = () => ({
+      indicators: {
+        price: { current: 100 },
+        ema: { ema21: 100, ema200: 95 },
+        analysis: { trend: 'UPTREND', distanceFrom21EMA: 0.2, pullbackState: 'ENTRY_ZONE' },
+        stochRSI: { condition: 'BULLISH', k: 40, d: 35, history: [] }
+      },
+      structure: { swingHigh: null, swingLow: null },
+      candleCount: 100
+    });
+    const m = { '3d': tf(), '1d': tf(), '4h': tf(), '1h': tf(), '15m': tf(), '5m': tf(), '1m': tf() };
+    m['4h'].structure = { swingHigh: null, swingLow: 94.18 };
+    m['15m'].structure = { swingHigh: null, swingLow: 99.92 };
+    m['5m'].structure = { swingHigh: null, swingLow: 99.95 };
+    return m;
+  }
+
+  await test('a rejected scalp stop shows rejectedAt: "stop-distance" via the real evaluateAllStrategies call path', () => {
+    const result = evaluateAllStrategies('TESTUSDT', wideStopScalpMtf(), 'STANDARD');
+    assertEqual(result.strategies.SCALP_1H.valid, false, 'test fixture must produce a rejected SCALP_1H setup');
+    assert(/scalp stop distance/i.test(result.strategies.SCALP_1H.reason), `expected a stop-distance rejection reason, got: ${result.strategies.SCALP_1H.reason}`);
+
+    const trace = buildDecisionTrace({
+      rawStrategies: result.strategies,
+      bestSignal: result.bestSignal,
+      evaluatedAt: new Date(NOW).toISOString(),
+      window: {}
+    });
+    const scalpEntry = trace.strategies.find((e) => e.name === 'SCALP_1H');
+    assert(scalpEntry, 'SCALP_1H entry missing from decisionTrace.strategies');
+    assertEqual(scalpEntry.valid, false);
+    assertEqual(scalpEntry.rejectedAt, 'stop-distance', `expected rejectedAt "stop-distance", got: ${JSON.stringify(scalpEntry.rejectedAt)}`);
+    assert(scalpEntry.reason === result.strategies.SCALP_1H.reason, 'decisionTrace reason must match the engine-produced reason verbatim');
+  });
+
+  await test('buildStrategyTrace marks every canonical name ran:false when strategies is null (top-level evaluation failure)', () => {
+    const entries = buildStrategyTrace(null);
+    assertEqual(entries.length, STRATEGY_NAMES_LIST.length);
+    for (const e of entries) {
+      assertEqual(e.ran, false);
+      assertEqual(e.valid, false);
+      assertEqual(e.rejectedAt, 'evaluation-error');
+    }
+  });
+
+  await test('buildTimeframeWindow reports zero candles and null bounds for an empty compute window', () => {
+    const window = buildTimeframeWindow({}, {}, ['1h']);
+    assertEqual(window['1h'].from, null);
+    assertEqual(window['1h'].to, null);
+    assertEqual(window['1h'].closedCandles, 0);
   });
 
   // -------------------------------------------------------------------------

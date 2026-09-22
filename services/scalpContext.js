@@ -343,6 +343,137 @@ function normalizeRiskReward(rr) {
   return { tp1RR: finiteOrNull(rr.tp1RR), tp2RR: finiteOrNull(rr.tp2RR) };
 }
 
+// Canonical strategy names, in the order evaluateAllStrategies always populates them.
+const STRATEGY_NAMES = ['SWING', 'TREND_4H', 'TREND_RIDER', 'SCALP_1H', 'MICRO_SCALP'];
+
+// Ordered classifiers for a strategy's `reason` string into a short rejectedAt code.
+// First match wins. Purely a payload-readability aid: it reads the reason text
+// evaluateAllStrategies already produces, it never changes what that text says.
+const REJECTION_PATTERNS = [
+  [/scalp stop distance/i, 'stop-distance'],
+  [/4H trend is FLAT/i, 'htf-flat'],
+  [/RR\s+[\d.]+R\s*(below|<)\s*minimum/i, 'risk-reward'],
+  [/confidence\s+[\d.]+%\s*below minimum/i, 'confidence'],
+  [/counter-trend|blocked by strong HTF/i, 'counter-trend'],
+  [/too far from EMA21|EMA distance/i, 'ema-distance'],
+  [/failed validation|wrong side/i, 'invalid-signal'],
+  [/strategy evaluation failed|evaluation failed/i, 'evaluation-error'],
+  [/insufficient .*data/i, 'insufficient-data']
+];
+
+/**
+ * Classify a strategy's rejection reason into a short, stable code.
+ * Always reads the full, untruncated reason text, so a long explanation
+ * clipped by truncateReason() below still classifies correctly.
+ * @param {*} reason
+ * @returns {string}
+ */
+export function classifyRejection(reason) {
+  if (typeof reason !== 'string' || reason.length === 0) return 'unspecified';
+  for (const [pattern, code] of REJECTION_PATTERNS) {
+    if (pattern.test(reason)) return code;
+  }
+  return 'setup-conditions';
+}
+
+// Strategy engine reason strings are free-form prose and not bounded in length.
+// decisionTrace trims them so five strategies plus a window block stay inside
+// the ~2KB per-symbol budget; classifyRejection above always sees the original.
+const REASON_MAX_LEN = 140;
+
+/**
+ * Trim a reason string to the decisionTrace budget, or null.
+ * @param {*} reason
+ * @returns {string|null}
+ */
+function truncateReason(reason) {
+  if (typeof reason !== 'string' || reason.length === 0) return null;
+  if (reason.length <= REASON_MAX_LEN) return reason;
+  return `${reason.slice(0, REASON_MAX_LEN - 1).trimEnd()}…`;
+}
+
+/**
+ * Build the per-strategy decision trace entries from evaluateAllStrategies'
+ * untrimmed strategies dict. One entry per canonical strategy name, always,
+ * so a caller never has to guess whether a name is missing on purpose.
+ * @param {Object|null} rawStrategies - result.strategies from evaluateAllStrategies
+ * @returns {Array<{name:string, ran:boolean, valid:boolean, rejectedAt:string|null, reason:string|null}>}
+ */
+export function buildStrategyTrace(rawStrategies) {
+  const out = [];
+  for (const name of STRATEGY_NAMES) {
+    const s = rawStrategies && rawStrategies[name];
+    if (!s || typeof s !== 'object') {
+      out.push({
+        name,
+        ran: false,
+        valid: false,
+        rejectedAt: 'evaluation-error',
+        reason: 'strategy did not report a result'
+      });
+      continue;
+    }
+    const valid = !!s.valid;
+    out.push({
+      name,
+      ran: true,
+      valid,
+      rejectedAt: valid ? null : classifyRejection(s.reason),
+      reason: truncateReason(s.reason)
+    });
+  }
+  return out;
+}
+
+/**
+ * Build the compute-window block: first/last closed-candle time and count,
+ * per requested timeframe. Pins the exact candle range decisions were made
+ * from - `closedThrough` and `candleCount` alone do not pin the window start.
+ * @param {Object} closedByTf - tf -> full closed candle array (pre-trim)
+ * @param {Object} tfEntries - tf -> published timeframe entry (for closedThrough)
+ * @param {Array<string>} timeframeList
+ * @returns {Object}
+ */
+export function buildTimeframeWindow(closedByTf, tfEntries, timeframeList) {
+  const window = {};
+  for (const tf of timeframeList) {
+    const closed = (closedByTf && closedByTf[tf]) || [];
+    const entry = tfEntries && tfEntries[tf];
+    const first = closed.length > 0 ? closed[0] : null;
+    window[tf] = {
+      from: first && isFiniteNumber(first.timestamp) ? new Date(first.timestamp).toISOString() : null,
+      to: (entry && entry.closedThrough) || null,
+      closedCandles: closed.length
+    };
+  }
+  return window;
+}
+
+/**
+ * Build the per-symbol decisionTrace: why each strategy did or didn't fire,
+ * why bestSignal is what it is, and the exact candle window compute ran on.
+ * Additive only - never changes a strategy decision, only explains it.
+ * @param {Object} params
+ * @param {Object|null} params.rawStrategies - result.strategies from evaluateAllStrategies
+ * @param {string|null} params.bestSignal
+ * @param {string} params.evaluatedAt - ISO timestamp
+ * @param {Object} params.window - buildTimeframeWindow(...) output
+ * @returns {Object}
+ */
+export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window }) {
+  const bestEntry = bestSignal && rawStrategies ? rawStrategies[bestSignal] : null;
+  return {
+    configVersion: CONFIG_VERSION,
+    evaluatedAt,
+    strategies: buildStrategyTrace(rawStrategies),
+    bestSignal: bestSignal || null,
+    bestSignalReason: bestEntry ? truncateReason(bestEntry.reason) : null,
+    window,
+    candidateSetups: [],
+    geometry: null
+  };
+}
+
 /**
  * Trim a strategy result down to the essentials so the payload stays small.
  *
@@ -651,16 +782,26 @@ export async function buildScalpContext(options = {}) {
 
     let strategies = {};
     let bestSignal = null;
+    let rawStrategies = null;
     try {
       const result = strategyService.evaluateAllStrategies(pair, mtfForStrategy, 'STANDARD');
-      strategies = trimStrategies(result && result.strategies);
+      rawStrategies = (result && result.strategies) || null;
+      strategies = trimStrategies(rawStrategies);
       bestSignal = (result && result.bestSignal) || null;
     } catch (err) {
       warnings.push(`${symbol}: strategy evaluation failed - ${err.message}`);
       symbolHadWarning = true;
       strategies = {};
       bestSignal = null;
+      rawStrategies = null;
     }
+
+    const decisionTrace = buildDecisionTrace({
+      rawStrategies,
+      bestSignal,
+      evaluatedAt: new Date(safeNow).toISOString(),
+      window: buildTimeframeWindow(closedByTf, tfEntries, timeframeList)
+    });
 
     symbolsOut[symbol] = {
       price,
@@ -672,7 +813,8 @@ export async function buildScalpContext(options = {}) {
       structure,
       timeframes: tfEntries,
       strategies,
-      bestSignal
+      bestSignal,
+      decisionTrace
     };
   }
 
@@ -712,7 +854,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.2.0',
+    schemaVersion: '1.3.0',
     configVersion: CONFIG_VERSION,
     generatedAt: new Date(safeNow).toISOString(),
     closedThrough,
