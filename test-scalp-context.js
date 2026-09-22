@@ -1024,7 +1024,7 @@ async function main() {
       const expectedRefs = case6Result.symbols[sym].candidateSetups.map(({ timeframe, direction, state }) => `${timeframe}:${direction}:${state}`);
       assert(deepEqual(trace.candidateSetups, expectedRefs),
         `${sym}: decisionTrace.candidateSetups must reference the symbol's candidateSetups one-to-one`);
-      assertEqual(trace.geometry, null, `${sym}: geometry must be null (reserved for a later phase)`);
+      assert(Array.isArray(trace.geometry), `${sym}: decisionTrace.geometry must be the compact per-timeframe summary (phase 7)`);
     }
   });
 
@@ -1412,9 +1412,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.6.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.7.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.6.0', 'schemaVersion must be bumped to 1.6.0');
+    assertEqual(case6Result.schemaVersion, '1.7.0', 'schemaVersion must be bumped to 1.7.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');

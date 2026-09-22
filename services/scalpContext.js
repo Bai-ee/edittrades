@@ -15,6 +15,7 @@ import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './wal
 import { ENGINE_CONFIG, CONFIG_VERSION } from '../config/engine.js';
 import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
 import { detectCandidateSetups } from '../lib/patternDetector.js';
+import { buildGeometryContext, geometryTraceSummary } from '../lib/geometry.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -465,9 +466,10 @@ export function buildTimeframeWindow(closedByTf, tfEntries, timeframeList) {
  * @param {string} params.evaluatedAt - ISO timestamp
  * @param {Object} params.window - buildTimeframeWindow(...) output
  * @param {Array<Object>} [params.candidateSetups] - the symbol's candidateSetups (phase 4)
+ * @param {Object|null} [params.geometryContext] - the symbol's geometryContext by timeframe (phase 7)
  * @returns {Object}
  */
-export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window, candidateSetups = [] }) {
+export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, window, candidateSetups = [], geometryContext = null }) {
   const bestEntry = bestSignal && rawStrategies ? rawStrategies[bestSignal] : null;
   return {
     configVersion: CONFIG_VERSION,
@@ -479,7 +481,9 @@ export function buildDecisionTrace({ rawStrategies, bestSignal, evaluatedAt, win
     // Compact "timeframe:direction:state" references only: the full candidates live on
     // symbols.<SYM>.candidateSetups, and copying them here breaks the ~2KB trace budget.
     candidateSetups: candidateSetups.map(({ timeframe, direction, state }) => `${timeframe}:${direction}:${state}`),
-    geometry: null
+    // Same idea for geometry (phase 7): one compact string per timeframe, full objects on
+    // symbols.<SYM>.geometryContext. Null when no geometry was built for the symbol.
+    geometry: geometryContext ? geometryTraceSummary(geometryContext) : null
   };
 }
 
@@ -537,19 +541,10 @@ function trimStrategies(strategies) {
  * @returns {Object} the same strategies object
  */
 export function attachRisk(strategies, account) {
-  const cfg = ENGINE_CONFIG.risk;
-  const walletMarginUsd = account && account.margin && isFiniteNumber(account.margin.usd) && account.margin.usd > 0
-    ? account.margin.usd
-    : null;
-  const collateralUsd = walletMarginUsd !== null ? Math.min(cfg.defaultMarginUsd, walletMarginUsd) : null;
+  const sizing = riskSizing(account);
 
   for (const s of Object.values(strategies || {})) {
     if (!s || !s.valid) continue;
-
-    if (collateralUsd === null) {
-      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, lossAtStopPctOfWallet: null, collateralUsd: null, reason: 'account unavailable' };
-      continue;
-    }
 
     const zoneMin = s.entryZone && isFiniteNumber(s.entryZone.min) ? s.entryZone.min : null;
     const zoneMax = s.entryZone && isFiniteNumber(s.entryZone.max) ? s.entryZone.max : null;
@@ -557,43 +552,101 @@ export function attachRisk(strategies, account) {
       ? (zoneMin + zoneMax) / 2
       : (zoneMin !== null ? zoneMin : zoneMax);
 
-    const stopDistancePct = isFiniteNumber(entryMid) && entryMid > 0 && isFiniteNumber(s.stopLoss)
-      ? (Math.abs(entryMid - s.stopLoss) / entryMid) * 100
-      : null;
-
-    if (stopDistancePct === null || stopDistancePct <= 0) {
-      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, lossAtStopPctOfWallet: null, collateralUsd: null, reason: 'invalid entry/stop levels' };
-      continue;
-    }
-
-    const maxLev = maxLeverageForStop(stopDistancePct, cfg);
-    const plan = positionPlan({
-      marginUsd: collateralUsd,
-      walletMarginUsd,
-      stopDistancePct,
-      leverageRequested: cfg.maxLeverage,
-      maxWalletRiskPct: cfg.maxWalletRiskPct
-    }, cfg);
-
-    // lossAtStopPct (above) is percent of collateralUsd - a small sliced-off stake, not
-    // the wallet. lossAtStopPctOfWallet (phase 5, item H) is the same loss measured
-    // against the whole wallet, since lossAtStopPct alone reads as wallet risk and isn't.
-    const lossAtStopPctOfWallet = isFiniteNumber(plan.lossAtStopUsd) && walletMarginUsd > 0
-      ? round2((plan.lossAtStopUsd / walletMarginUsd) * 100)
-      : null;
-
-    s.risk = {
-      maxLeverage: maxLev,
-      suggestedLeverage: plan.leverage,
-      lossAtStopUsd: plan.lossAtStopUsd,
-      lossAtStopPct: plan.lossAtStopPct,
-      lossAtStopPctOfWallet,
-      collateralUsd: round2(collateralUsd),
-      reason: null
-    };
+    s.risk = riskBlock(entryMid, s.stopLoss, sizing);
   }
 
   return strategies;
+}
+
+/**
+ * Wallet and collateral figures every risk block is sized against (see attachRisk).
+ * @param {Object} account
+ * @returns {{walletMarginUsd:number|null, collateralUsd:number|null}}
+ */
+function riskSizing(account) {
+  const cfg = ENGINE_CONFIG.risk;
+  const walletMarginUsd = account && account.margin && isFiniteNumber(account.margin.usd) && account.margin.usd > 0
+    ? account.margin.usd
+    : null;
+  const collateralUsd = walletMarginUsd !== null ? Math.min(cfg.defaultMarginUsd, walletMarginUsd) : null;
+  return { walletMarginUsd, collateralUsd };
+}
+
+/**
+ * One risk block for an entry and a stop - the shared body of attachRisk (strategies)
+ * and attachCandidateRisk (flag candidates), so both publish the same shape from the
+ * same math.
+ * @param {number|null} entry
+ * @param {number|null} stop
+ * @param {{walletMarginUsd:number|null, collateralUsd:number|null}} sizing - riskSizing(...)
+ * @returns {Object} Risk
+ */
+function riskBlock(entry, stop, { walletMarginUsd, collateralUsd }) {
+  const cfg = ENGINE_CONFIG.risk;
+
+  if (collateralUsd === null) {
+    return { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, lossAtStopPctOfWallet: null, collateralUsd: null, reason: 'account unavailable' };
+  }
+
+  const stopDistancePct = isFiniteNumber(entry) && entry > 0 && isFiniteNumber(stop)
+    ? (Math.abs(entry - stop) / entry) * 100
+    : null;
+
+  if (stopDistancePct === null || stopDistancePct <= 0) {
+    return { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, lossAtStopPctOfWallet: null, collateralUsd: null, reason: 'invalid entry/stop levels' };
+  }
+
+  const maxLev = maxLeverageForStop(stopDistancePct, cfg);
+  const plan = positionPlan({
+    marginUsd: collateralUsd,
+    walletMarginUsd,
+    stopDistancePct,
+    leverageRequested: cfg.maxLeverage,
+    maxWalletRiskPct: cfg.maxWalletRiskPct
+  }, cfg);
+
+  // lossAtStopPct (above) is percent of collateralUsd - a small sliced-off stake, not
+  // the wallet. lossAtStopPctOfWallet (phase 5, item H) is the same loss measured
+  // against the whole wallet, since lossAtStopPct alone reads as wallet risk and isn't.
+  const lossAtStopPctOfWallet = isFiniteNumber(plan.lossAtStopUsd) && walletMarginUsd > 0
+    ? round2((plan.lossAtStopUsd / walletMarginUsd) * 100)
+    : null;
+
+  return {
+    maxLeverage: maxLev,
+    suggestedLeverage: plan.leverage,
+    lossAtStopUsd: plan.lossAtStopUsd,
+    lossAtStopPct: plan.lossAtStopPct,
+    lossAtStopPctOfWallet,
+    collateralUsd: round2(collateralUsd),
+    reason: null
+  };
+}
+
+// Candidate states that carry a risk block (phase 7, item F). `forming` has no break to
+// enter on and `failed` has nothing to enter; neither gets a `risk` key.
+const RISK_CANDIDATE_STATES = ['triggering', 'confirmed'];
+
+/**
+ * Attach a `risk` block to flag candidates that are actionable now: state triggering or
+ * confirmed, and not a chase. Entry = breakoutLevel, stop = invalidation, sized exactly
+ * like a strategy signal (riskBlock). A stop on the wrong side of the entry for the
+ * candidate's direction reads as invalid levels rather than being sized. Mutates the
+ * candidate objects in place; every other candidate is left with no `risk` key.
+ * @param {Array<Object>} setups - a symbol's candidateSetups
+ * @param {Object} account
+ * @returns {Array<Object>} the same array
+ */
+export function attachCandidateRisk(setups, account) {
+  const sizing = riskSizing(account);
+  for (const c of setups || []) {
+    if (!c || !RISK_CANDIDATE_STATES.includes(c.state) || c.chaseRisk !== false) continue;
+    const sign = c.direction === 'short' ? -1 : 1;
+    const stopOnSide = isFiniteNumber(c.breakoutLevel) && isFiniteNumber(c.invalidation)
+      && sign * (c.breakoutLevel - c.invalidation) > 0;
+    c.risk = riskBlock(c.breakoutLevel, stopOnSide ? c.invalidation : null, sizing);
+  }
+  return setups;
 }
 
 /**
@@ -639,14 +692,15 @@ export function filterFailedCandidateSetups(setups, includeFailed) {
   return setups.filter((s) => (s && s.state) !== 'failed');
 }
 
-// Valid `include` tokens for filterPayload (phase 5, item A + G). 'geometry' is
-// accepted but a no-op today - no per-symbol geometry field exists until phase 7/8.
+// Valid `include` tokens for filterPayload (phase 5, item A + G). 'geometry' gates
+// symbols.<SYM>.geometryContext (phase 7).
 export const INCLUDE_TOKENS = ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config'];
 
 const SYMBOL_SECTION_KEYS = {
   timeframes: 'timeframes',
   strategies: 'strategies',
   candidates: 'candidateSetups',
+  geometry: 'geometryContext',
   trace: 'decisionTrace'
 };
 
@@ -690,6 +744,9 @@ function filterSymbol(sym, tokens, compactMode) {
     } else if (key === SYMBOL_SECTION_KEYS.candidates) {
       if (tokens && !tokens.has('candidates')) continue;
       out.candidateSetups = value;
+    } else if (key === SYMBOL_SECTION_KEYS.geometry) {
+      if (tokens && !tokens.has('geometry')) continue;
+      out.geometryContext = value;
     } else if (key === SYMBOL_SECTION_KEYS.trace) {
       if (tokens && !tokens.has('trace')) continue;
       out.decisionTrace = value;
@@ -948,6 +1005,7 @@ export async function buildScalpContext(options = {}) {
     const mtfForStrategy = {};
     const tfProviders = [];
     const candidateSetups = [];
+    const geometryContext = {};
 
     for (const tf of timeframeList) {
       const fetched = bySymbolTf[symbol][tf];
@@ -1021,6 +1079,23 @@ export async function buildScalpContext(options = {}) {
         }
       }
 
+      // Geometry (phase 7): same separate-channel rule as candidates - logged, never
+      // warned, so a geometry fault cannot move dataStatus.
+      if (ENGINE_CONFIG.geometry.timeframes.includes(tf)) {
+        try {
+          geometryContext[tf] = buildGeometryContext({
+            timeframe: tf,
+            candles: closed,
+            ema21History: indicators.ema && indicators.ema.ema21History,
+            ema200History: indicators.ema && indicators.ema.ema200History,
+            stochHistory: indicators.stochRSI && indicators.stochRSI.history
+          });
+        } catch (err) {
+          geometryContext[tf] = null;
+          console.warn(`[ScalpContext] ${symbol} ${tf}: geometry failed - ${err.message}`);
+        }
+      }
+
       mtfForStrategy[tf] = {
         indicators,
         structure: indicatorService.detectSwingPoints(closed, 20),
@@ -1084,7 +1159,8 @@ export async function buildScalpContext(options = {}) {
       bestSignal,
       evaluatedAt: new Date(safeNow).toISOString(),
       window: buildTimeframeWindow(closedByTf, tfEntries, timeframeList),
-      candidateSetups
+      candidateSetups,
+      geometryContext
     });
 
     symbolsOut[symbol] = {
@@ -1099,6 +1175,7 @@ export async function buildScalpContext(options = {}) {
       strategies,
       bestSignal,
       candidateSetups: filterFailedCandidateSetups(candidateSetups, includeFailed),
+      geometryContext,
       decisionTrace
     };
 
@@ -1142,10 +1219,11 @@ export async function buildScalpContext(options = {}) {
 
   for (const symbolEntry of Object.values(symbolsOut)) {
     attachRisk(symbolEntry.strategies, account);
+    attachCandidateRisk(symbolEntry.candidateSetups, account);
   }
 
   const payload = {
-    schemaVersion: '1.6.0',
+    schemaVersion: '1.7.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
@@ -1182,6 +1260,7 @@ export default {
   filterPayload,
   buildConfigSnapshot,
   filterFailedCandidateSetups,
+  attachCandidateRisk,
   SYMBOLS,
   TIMEFRAMES,
   CANDLE_LIMITS

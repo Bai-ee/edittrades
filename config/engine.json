@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-4",
+  "configVersion": "2026.09.22-5",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -50,7 +50,7 @@
     "maxContractionRatio": 0.5,
     "minCandles": 3,
     "maxFlagCandles": 12,
-    "wickTolerancePct": 0.02,
+    "wickToleranceAtr": 0.2,
     "acceptanceCloses": 2,
     "confirmCloses": 2,
     "maxBreakoutAge": 5,
@@ -63,6 +63,21 @@
         "ema21": 0.3,
         "stoch": 0.15
       }
+    }
+  },
+
+  "geometry": {
+    "timeframes": ["5m", "15m", "1h", "4h"],
+    "atrPeriod": 14,
+    "pivotLeft": 3,
+    "pivotRight": 3,
+    "zoneToleranceAtr": 0.5,
+    "minTouches": 2,
+    "maxZonesPerSide": 3,
+    "slopeCandles": 5,
+    "extensionAtr": {
+      "elevated": 1.5,
+      "high": 3.0
     }
   },
 

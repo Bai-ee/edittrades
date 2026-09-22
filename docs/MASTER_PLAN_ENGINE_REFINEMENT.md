@@ -57,7 +57,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium | ✅ done 2026-09-22 → `lib/patternDetector.js`, `config/engine.json` (`flag`), `services/scalpContext.js` (`candidateSetups`), `test/fixtures/flagFixtures.js`, `npm run test:pattern` |
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none | ✅ done 2026-09-22 (item F deferred to Phase 7) | ✅ done 2026-09-22 → `test-scalp-context.js` (compute-window assertion, production-sized fixture), `services/scalpContext.js` (build-duration log), `config/engine.json` (`configVersion` 2026.09.22-3 → -4, correcting Phase 5's unbumped `flag.includeFailed` addition) |
 | 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
-| 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium |
+| 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium | ✅ done 2026-09-22 → `lib/geometry.js`, `lib/patternDetector.js` (`wilderAtr` → shared `calculateATR`, `flag.wickTolerancePct` → `flag.wickToleranceAtr`), `config/engine.json` (`geometry`, configVersion -4 → -5), `services/scalpContext.js` (`geometryContext`, `decisionTrace.geometry`, `attachCandidateRisk` = Phase 6 item F), `openapi/scalp-context.yaml`, schema 1.6.0 → 1.7.0, `npm run test:geometry` |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
@@ -282,6 +282,13 @@ Config: pivot left/right, ATR period, zone tolerance in ATR multiples, min touch
 Tests: `test-geometry.js` synthetic candles with known pivots and zones. REGRESSION_002 partial: 4h fixture shows horizontal demand zone with ≥ 2 touches. Rising-EMA fixture → positive `ema21Slope`; flat fixture → ~0. Stoch reset-then-reaccelerate fixture → positive `stochAccelK`. ATR matches `calculateATR` on the same candles exactly (one ATR, no drift).
 
 Acceptance: zones match hand-marked fixture within tolerance. Compute time per symbol logged.
+
+Done 2026-09-22. As built:
+- One ATR: `lib/geometry.js atr` and the flag detector both call `calculateATR`; `wilderAtr` is deleted. Before deletion the two agreed at every index of every phase 4 fixture (842 points) within 0.005 - `calculateATR` rounds to 2 decimals, so that half-step is the only difference. The old Wilder code survives only as a test oracle in `test-geometry.js`.
+- `flag.wickToleranceAtr` = 0.2 ATR of the prior candle. A percent-of-price band and an ATR band coincide at only one volatility: the phase 4 flag fixtures read identically for 0.1-0.6, the `test:scalp` synthetic symbols (price 100, ATR ~0.5% of price) for 0.1-0.25; 0.2 sits in both. One numeric drift: `acceptanceBelow` impulseStrength 10.16 → 10.15 (ATR rounding), state and labels unchanged.
+- Payload: `symbols.<SYM>.geometryContext[tf]` (behind `include: geometry`), `decisionTrace.geometry` = one `"tf:structure:roomUp:roomDown:extension"` string per timeframe (≤ ~110 bytes per symbol measured). `side` on a zone is which pivots formed it (support/resistance/both); its position relative to price is the list it is in.
+- Budget (G): all seven timeframes measured 84,975 bytes full against the 80 KB guard, so `geometry.timeframes` defaults to 5m/15m/1h/4h - 76,203 bytes full, 30,004 compact, build 458 ms locally (live data, 2026-09-22). 1m/3m are covered by the flag detector, 1d by `structure`.
+- Phase 6 item F landed here: `attachCandidateRisk` shares `riskBlock` with `attachRisk`, so a triggering/confirmed non-chase candidate carries the strategy Risk shape (entry = breakoutLevel, stop = invalidation).
 
 ---
 

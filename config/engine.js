@@ -49,8 +49,11 @@
  *   - maxContractionRatio (0.5): flag range at most half the pole - a flag, not a range.
  *   - minCandles (3): fewer than 3 bars is a pause, not a consolidation.
  *   - maxFlagCandles (12): longer than 12 bars on a scalp timeframe is a new range.
- *   - wickTolerancePct (0.02): EMA21 band, percent of price; ~a third to half of a BTC
- *     1m ATR, so a touch counts as a hold but a real poke through counts as a wick.
+ *   - wickToleranceAtr (0.2, phase 7; was wickTolerancePct 0.02): EMA21 band in ATRs of
+ *     the prior candle - a touch counts as a hold, a real poke through counts as a wick.
+ *     A percent-of-price band and an ATR band only coincide at one volatility, so the
+ *     value was chosen on the fixtures: the phase 4 flag fixtures read identically for
+ *     0.1-0.6 and the test:scalp synthetic symbols for 0.1-0.25; 0.2 sits inside both.
  *   - acceptanceCloses (2): two consecutive closes through EMA21 = acceptance, one = wick.
  *   - confirmCloses (2): a break is confirmed on its second close past the level.
  *   - maxBreakoutAge (5): a break older than 5 bars is history, not a setup.
@@ -58,6 +61,24 @@
  *   - confidence.impulseFullAtr (4.0): impulse score saturates at 4 ATR.
  *   - confidence.weights: impulse 0.3, compression 0.25, ema21 0.3, stoch 0.15 (sum 1);
  *     structure first, Stoch RSI slope as a tiebreaker.
+ *
+ * `geometry` block (phase 7, `lib/geometry.js`), one line each:
+ *   - timeframes (5m, 15m, 1h, 4h): where geometryContext is built and published. All
+ *     seven measured 85 KB full payload against the 80 KB budget (2026-09-22); these four
+ *     bring it back under. 1m/3m are covered by the flag detector, 1d by `structure`.
+ *   - atrPeriod (14): Wilder's standard length; same unit as the flag detector's ATR.
+ *   - pivotLeft / pivotRight (3 / 3): same fractal width as lib/structure.js findSwings,
+ *     so per-timeframe pivots and the symbol-level 1h swings agree on what a swing is.
+ *   - zoneToleranceAtr (0.5): pivots within half an ATR of each other are one zone -
+ *     tight enough that a zone is a level, loose enough to absorb wick noise.
+ *   - minTouches (2): one touch is a swing, two make a zone; nothing is published
+ *     without that evidence.
+ *   - maxZonesPerSide (3): nearest three support and three resistance zones, the same
+ *     cap the symbol-level support/resistance lists use; keeps the payload bounded.
+ *   - slopeCandles (5): EMA slope is measured over the last five closes - recent enough
+ *     for a scalp read, long enough that one candle does not flip the sign.
+ *   - extensionAtr.elevated / .high (1.5 / 3.0): price 1.5 ATR from EMA21 is stretched
+ *     (1.5 matches flag.chaseAtr), 3 ATR is a chase.
  */
 
 import { readFileSync } from 'node:fs';

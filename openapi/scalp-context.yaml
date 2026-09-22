@@ -351,6 +351,13 @@ components:
         chaseRisk:
           description: True when the last close is more than flag.chaseAtr ATRs past the breakout level.
           type: boolean
+        risk:
+          description: >-
+            Present only when state is triggering or confirmed and chaseRisk is false.
+            Entry = breakoutLevel, stop = invalidation, sized exactly like a strategy
+            signal. When margin is unavailable every numeric field is null and reason
+            names why. Absent on forming and failed candidates.
+          $ref: "#/components/schemas/Risk"
       required:
         - timeframe
         - type
@@ -398,8 +405,14 @@ components:
           items:
             type: string
         geometry:
-          description: Reserved for a later phase. Always null today.
-          type: [object, "null"]
+          description: >-
+            One "timeframe:structure:roomUpPct:roomDownPct:extension" string per
+            timeframe in the symbol's geometryContext (e.g. "1h:up:0.42:0.18:low"; "na"
+            where a value is missing). Full geometry lives on the symbol. Null when no
+            geometry was built.
+          type: [array, "null"]
+          items:
+            type: string
       required:
         - configVersion
         - evaluatedAt
@@ -442,12 +455,144 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CandidateSetup"
+        geometryContext:
+          description: >-
+            Per-timeframe geometry (pivots, horizontal zones, ATR, room, extension, EMA
+            slopes), keyed by timeframe. Built for config geometry.timeframes (5m, 15m,
+            1h, 4h by default). A timeframe whose geometry could not be built is null.
+            Droppable via the include parameter (token "geometry").
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/GeometryContext"
         decisionTrace:
           $ref: "#/components/schemas/DecisionTrace"
         timeframes:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/Timeframe"
+    GeometryZone:
+      type: object
+      description: >-
+        Horizontal zone clustered from swing pivots within config
+        geometry.zoneToleranceAtr ATRs of each other, with at least
+        geometry.minTouches touches.
+      properties:
+        low:
+          type: number
+        high:
+          type: number
+        touches:
+          description: Number of swing pivots in the zone.
+          type: integer
+        lastTouchAt:
+          description: Close time of the newest pivot in the zone.
+          type: [string, "null"]
+          format: date-time
+        side:
+          description: >-
+            Which pivots formed the zone - support (swing lows), resistance (swing
+            highs), or both (a flipped level). Its position relative to price is the
+            list it appears in.
+          type: string
+          enum: [support, resistance, both]
+      required:
+        - low
+        - high
+        - touches
+        - lastTouchAt
+        - side
+    PivotRun:
+      type: object
+      description: Consecutive run at the tail of the swing pivots.
+      properties:
+        active:
+          type: boolean
+        count:
+          type: integer
+      required:
+        - active
+        - count
+    GeometryContext:
+      type: [object, "null"]
+      description: >-
+        Geometry for one timeframe on closed candles (phase 7). Separate from
+        strategies; never changes a strategy decision. Null when the timeframe has
+        too few closed candles for ATR.
+      properties:
+        timeframe:
+          type: string
+        atr:
+          description: ATR (config geometry.atrPeriod), price units.
+          type: number
+        atrPct:
+          description: ATR as a percent of the last close.
+          type: [number, "null"]
+        structure:
+          description: up = higher high and higher low; down = lower high and lower low; range otherwise; null with too few pivots.
+          type: [string, "null"]
+          enum: [up, down, range, null]
+        higherLows:
+          $ref: "#/components/schemas/PivotRun"
+        lowerHighs:
+          $ref: "#/components/schemas/PivotRun"
+        horizontalSupportZones:
+          description: Zones below price, nearest first, at most config geometry.maxZonesPerSide.
+          type: array
+          items:
+            $ref: "#/components/schemas/GeometryZone"
+        horizontalResistanceZones:
+          description: Zones above price, nearest first, at most config geometry.maxZonesPerSide.
+          type: array
+          items:
+            $ref: "#/components/schemas/GeometryZone"
+        roomToNextSupport:
+          description: Percent from price down to the nearest support zone's top; 0 inside it; null when none.
+          type: [number, "null"]
+        roomToNextResistance:
+          description: Percent from price up to the nearest resistance zone's bottom; 0 inside it; null when none.
+          type: [number, "null"]
+        extensionRisk:
+          description: How far price is from EMA21, in ATRs. Null when EMA21 or ATR is unavailable.
+          type: [object, "null"]
+          properties:
+            atrFromEma21:
+              description: Signed; positive above EMA21, negative below.
+              type: number
+            level:
+              description: By magnitude against config geometry.extensionAtr (elevated, high).
+              type: string
+              enum: [low, elevated, high]
+          required:
+            - atrFromEma21
+            - level
+        ema21Slope:
+          description: EMA21 change over config geometry.slopeCandles closes, percent per candle.
+          type: [number, "null"]
+        ema200Slope:
+          description: EMA200 change over config geometry.slopeCandles closes, percent per candle.
+          type: [number, "null"]
+        stochAccelK:
+          description: Change in Stoch RSI %K slope between the last two closes. Positive = turning up or rising faster.
+          type: [number, "null"]
+        confidence:
+          description: Evidence completeness 0-100 in steps of 20 (ATR, pivot structure, support zone, resistance zone, EMA slopes). Not a trade score.
+          type: integer
+      required:
+        - timeframe
+        - atr
+        - atrPct
+        - structure
+        - higherLows
+        - lowerHighs
+        - horizontalSupportZones
+        - horizontalResistanceZones
+        - roomToNextSupport
+        - roomToNextResistance
+        - extensionRisk
+        - ema21Slope
+        - ema200Slope
+        - stochAccelK
+        - confidence
     ConfigSnapshot:
       type: object
       description: >-

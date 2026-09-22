@@ -16,7 +16,8 @@
     "test:wallet": "node test-wallet-tracker.js",
     "test:config": "node test-engine-config.js",
     "test:risk": "node test-risk-engine.js",
-    "test:pattern": "node test-pattern-detector.js"
+    "test:pattern": "node test-pattern-detector.js",
+    "test:geometry": "node test-geometry.js"
   },
   "keywords": [
     "trading",

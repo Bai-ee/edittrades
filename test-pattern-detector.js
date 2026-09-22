@@ -156,7 +156,7 @@ async function run() {
 
   await test('config: every flag threshold lives in config/engine.json under "flag"', () => {
     const f = ENGINE_CONFIG.flag;
-    for (const key of ['minImpulseAtr', 'maxContractionRatio', 'wickTolerancePct', 'minCandles',
+    for (const key of ['minImpulseAtr', 'maxContractionRatio', 'wickToleranceAtr', 'minCandles',
       'atrPeriod', 'maxImpulseCandles', 'maxFlagCandles', 'acceptanceCloses', 'confirmCloses',
       'maxBreakoutAge', 'chaseAtr']) {
       assert(typeof f[key] === 'number' && Number.isFinite(f[key]), `flag.${key} missing or not a number`);
@@ -263,7 +263,7 @@ async function run() {
     await test(`REGRESSION_001 (${label}): 1m candidate survives while SCALP_1H stays NO_TRADE`, async () => {
       const payload = await buildWith1m(candles);
       const btc = payload.symbols.BTC;
-      assertEqual(payload.schemaVersion, '1.6.0', 'schemaVersion');
+      assertEqual(payload.schemaVersion, '1.7.0', 'schemaVersion');
       assert(Array.isArray(btc.candidateSetups), 'candidateSetups must be an array');
       const hit = btc.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === direction);
       assert(hit, `expected a 1m ${direction} candidate, got ${JSON.stringify(btc.candidateSetups)}`);
