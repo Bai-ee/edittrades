@@ -60,7 +60,7 @@
       "dest": "/api/scalp-context.js"
     },
     {
-      "src": "/api/mcp",
+      "src": "/api/mcp/?",
       "dest": "/api/scalp-context.js?__mcp=1"
     },
     {
