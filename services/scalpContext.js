@@ -268,6 +268,22 @@ function formatCandleOut(candle) {
 }
 
 /**
+ * The last `n` values of an indicator history that is tail-aligned to the closed
+ * candles, i.e. the values for the published candle window. Missing leading values
+ * (history shorter than the window) are null.
+ * @param {Array<number>} history
+ * @param {number} n
+ * @returns {Array<number|null>}
+ */
+function windowSeries(history, n) {
+  const h = Array.isArray(history) ? history : [];
+  return Array.from({ length: n }, (_, j) => {
+    const v = h[h.length - n + j];
+    return isFiniteNumber(v) ? v : null;
+  });
+}
+
+/**
  * @returns {Object} a fully-null timeframe entry (used when data is unusable)
  */
 function nullTimeframeEntry() {
@@ -920,6 +936,8 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  * @param {number} [options.now=Date.now()]
  * @param {(pair:string, interval:string, limit:number)=>Promise<Array>} [options.fetchCandles] - injectable for tests
  * @param {Function} [options.fetchAccount] - injectable wallet snapshot reader, for tests
+ * @param {{symbol:string, timeframe:string, onSeries:Function}|null} [options.chart] - phase 8b:
+ *   receives `{ ema21, ema200 }` aligned to that timeframe's published candles. Payload unchanged.
  * @returns {Promise<Object>} normalized JSON-safe payload
  */
 export async function buildScalpContext(options = {}) {
@@ -930,7 +948,8 @@ export async function buildScalpContext(options = {}) {
     now = Date.now(),
     fetchCandles = defaultStrictFetch,
     fetchAccount = getAccountSnapshot,
-    includeFailed = ENGINE_CONFIG.flag.includeFailed
+    includeFailed = ENGINE_CONFIG.flag.includeFailed,
+    chart = null
   } = options || {};
 
   const safeNow = isFiniteNumber(now) ? now : Date.now();
@@ -1063,6 +1082,16 @@ export async function buildScalpContext(options = {}) {
         closedThrough: closedThroughOf(closed, tf),
         candleCount: closed.length
       };
+
+      // Confirmation chart (phase 8b): opt-in only. Hands the renderer the EMA series for
+      // the published window; the payload is not touched, so a build without `chart` is
+      // byte-identical.
+      if (chart && chart.symbol === symbol && chart.timeframe === tf && typeof chart.onSeries === 'function') {
+        chart.onSeries({
+          ema21: windowSeries(indicators.ema && indicators.ema.ema21History, trimmed.length),
+          ema200: windowSeries(indicators.ema && indicators.ema.ema200History, trimmed.length)
+        });
+      }
 
       // Flag candidates: a separate channel from strategies, never an input to them.
       // A detector fault is logged, not warned, so it cannot move dataStatus.

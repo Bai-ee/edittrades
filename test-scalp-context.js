@@ -59,6 +59,8 @@ import {
   KRAKEN_NATIVE_INTERVALS
 } from './services/marketData.js';
 
+import { handleScalpContext } from './api/scalp-context.js';
+
 // ---------------------------------------------------------------------------
 // Tiny test runner
 // ---------------------------------------------------------------------------
@@ -1539,6 +1541,100 @@ async function main() {
       assertEqual(compacted.candleCount, original.candleCount, `${tf}: compact must not touch candleCount`);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // REST confirmation chart (phase 8b): ?chart=SYM:TF returns image/png after auth
+  // -------------------------------------------------------------------------
+  console.log('\nREST chart');
+
+  {
+    const TEST_KEY = 'test-scalp-context-key';
+    const savedKey = process.env.SCALP_CONTEXT_API_KEY;
+    process.env.SCALP_CONTEXT_API_KEY = TEST_KEY;
+    const candles = Array.from({ length: 30 }, (_, i) => ({
+      t: new Date(Date.UTC(2026, 8, 22, 2, 52 + i)).toISOString(), o: 100 + (i % 3), h: 103, l: 99, c: 101 + (i % 2), v: 1
+    }));
+    const restPayload = {
+      schemaVersion: '1.8.0',
+      closedThrough: '2026-09-22T03:21:00.000Z',
+      dataStatus: 'complete',
+      symbols: { BTC: { price: 101, timeframes: { '1m': { candles, ema21: 101, ema200: 100, closedThrough: '2026-09-22T03:21:00.000Z' } }, geometryContext: {}, candidateSetups: [] } },
+      warnings: []
+    };
+    const buildCalls = [];
+    const build = async (...args) => {
+      buildCalls.push(args);
+      if (args[0] && args[0].chart) args[0].chart.onSeries({ ema21: Array(30).fill(101), ema200: Array(30).fill(100) });
+      return JSON.parse(JSON.stringify(restPayload));
+    };
+    const mockRes = () => ({
+      statusCode: 200,
+      headers: {},
+      body: undefined,
+      setHeader(k, v) { this.headers[k.toLowerCase()] = v; return this; },
+      status(code) { this.statusCode = code; return this; },
+      json(b) { this.headers['content-type'] = this.headers['content-type'] || 'application/json'; this.body = b; return this; },
+      send(b) { this.body = b; return this; },
+      end(b) { if (b !== undefined) this.body = b; return this; }
+    });
+    const call = async (query, auth = `Bearer ${TEST_KEY}`) => {
+      const res = mockRes();
+      const headers = auth ? { authorization: auth } : {};
+      await handleScalpContext({ method: 'GET', url: '/api/scalp-context', query, headers, on() {} }, res, { build });
+      return res;
+    };
+
+    try {
+      await test('REST ?chart=BTC:1m with auth returns 200 image/png', async () => {
+        buildCalls.length = 0;
+        const res = await call({ chart: 'BTC:1m' });
+        assertEqual(res.statusCode, 200, 'status');
+        assertEqual(res.headers['content-type'], 'image/png', 'content type');
+        assert(Buffer.isBuffer(res.body), 'body must be the PNG buffer');
+        assertEqual(res.body.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'PNG magic bytes');
+        assertEqual(`${buildCalls[0][0].chart.symbol}:${buildCalls[0][0].chart.timeframe}`, 'BTC:1m', 'build asked for the named chart');
+      });
+
+      await test('REST ?chart without auth is 401, and nothing is built', async () => {
+        buildCalls.length = 0;
+        const res = await call({ chart: 'BTC:1m' }, null);
+        assertEqual(res.statusCode, 401, 'status');
+        assertEqual(buildCalls.length, 0, 'no build before auth');
+        const wrong = await call({ chart: 'BTC:1m' }, 'Bearer wrong-key');
+        assertEqual(wrong.statusCode, 401, 'wrong key status');
+      });
+
+      for (const [label, chart] of [
+        ['two charts', 'BTC:1m,SOL:5m'],
+        ['repeated param', ['BTC:1m', 'SOL:5m']],
+        ['unknown symbol', 'XRP:1m'],
+        ['unknown timeframe', 'BTC:2h'],
+        ['malformed', 'BTC']
+      ]) {
+        await test(`REST ?chart bad value is 400 JSON: ${label}`, async () => {
+          buildCalls.length = 0;
+          const res = await call({ chart });
+          assertEqual(res.statusCode, 400, 'status');
+          assert(res.body && typeof res.body.error === 'string' && res.body.error.length > 0, 'JSON error body');
+          assertEqual(buildCalls.length, 0, 'a bad chart must not trigger a build');
+        });
+      }
+
+      await test('REST without chart is the normal JSON response, build() called with no arguments', async () => {
+        buildCalls.length = 0;
+        const res = await call({});
+        assertEqual(res.statusCode, 200, 'status');
+        assertEqual(buildCalls[0].length, 0, 'build() must be called exactly as before phase 8b');
+        assert(res.body && res.body.symbols && res.body.symbols.BTC, 'JSON payload');
+        const { requestId, ...rest } = res.body;
+        assert(typeof requestId === 'string', 'requestId');
+        assertEqual(JSON.stringify(rest), JSON.stringify(restPayload), 'body identical to the unfiltered build');
+      });
+    } finally {
+      if (savedKey === undefined) delete process.env.SCALP_CONTEXT_API_KEY;
+      else process.env.SCALP_CONTEXT_API_KEY = savedKey;
+    }
+  }
 
   // -------------------------------------------------------------------------
   // summary

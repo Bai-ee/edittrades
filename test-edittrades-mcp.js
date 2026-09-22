@@ -615,6 +615,104 @@ async function main() {
   await closeControlsClient();
   await controls.close();
 
+  // -- 13. confirmation chart (phase 8b) ------------------------------------
+
+  console.log('\nconfirmation chart');
+
+  // makeContext plus a BTC 1m window for the chart to draw. Records every build call's
+  // arguments so the no-chart path can be shown to call build() exactly as before.
+  const buildCalls = [];
+  function chartContext() {
+    const ctx = makeContext();
+    ctx.symbols.BTC.timeframes['1m'] = {
+      ema21: 85400,
+      ema200: 85300,
+      closedThrough: '2026-09-22T03:21:00.000Z',
+      candles: Array.from({ length: 30 }, (_, i) => ({
+        t: new Date(Date.UTC(2026, 8, 22, 2, 52 + i)).toISOString(),
+        o: 85400 + (i % 3) * 5, h: 85420 + (i % 3) * 5, l: 85390, c: 85405 + (i % 4) * 4, v: 1
+      }))
+    };
+    ctx.symbols.BTC.candidateSetups = [{ timeframe: '1m', type: 'flag', direction: 'long', state: 'forming', flagHigh: 85425, flagLow: 85392, breakoutLevel: 85425, invalidation: 85392 }];
+    return ctx;
+  }
+  const chartBuild = async (...callArgs) => {
+    buildCalls.push(callArgs);
+    const opts = callArgs[0];
+    if (opts && opts.chart) opts.chart.onSeries({ ema21: Array(30).fill(85400), ema200: Array(30).fill(85300) });
+    return chartContext();
+  };
+  const charts = await startTestServer({ build: chartBuild });
+  const { client: chartClient, close: closeChartClient } = await connectClient(charts.url);
+  const imageBlocks = (res) => (res.content || []).filter((c) => c.type === 'image');
+
+  await test('the tool advertises chart as an optional string and stays single and read-only', async () => {
+    const { tools } = await chartClient.listTools();
+    assertEqual(tools.length, 1, 'expected exactly one tool');
+    const props = tools[0].inputSchema.properties;
+    assert(props.chart && props.chart.type === 'string', 'chart must be advertised as a string');
+    assertEqual(((tools[0].inputSchema.required) || []).length, 0, 'chart must be optional');
+    assertEqual(tools[0].annotations.readOnlyHint, true, 'read-only annotation lost');
+    assertEqual(tools[0].annotations.destructiveHint, false, 'destructive hint changed');
+  });
+
+  await test('no chart argument: no image block, build() called with no arguments, result unchanged', async () => {
+    buildCalls.length = 0;
+    const res = await chartClient.callTool({ name: TOOL_NAME, arguments: {} });
+    assert(!res.isError, 'a bare call must not error');
+    assertEqual(imageBlocks(res).length, 0, 'no image without chart');
+    assertEqual(res.content.length, 1, 'exactly the one summary text block');
+    assertEqual(buildCalls.length, 1, 'one build');
+    assertEqual(buildCalls[0].length, 0, 'build() must be called with no arguments, as before phase 8b');
+    // Byte-identical to the pre-8b handler: same summary text, same structured payload.
+    const direct = await runGetScalpContext({ build: async () => chartContext(), requestId: res.structuredContent.requestId });
+    assertEqual(JSON.stringify(res.content), JSON.stringify(direct.content), 'content differs from a chartless run');
+    assertEqual(JSON.stringify(res.structuredContent), JSON.stringify(direct.structuredContent), 'structuredContent differs from a chartless run');
+    assert(!res.content[0].text.includes('chart='), 'summary must not mention a chart');
+  });
+
+  await test('chart "BTC:1m": exactly one PNG image block for that symbol/timeframe', async () => {
+    buildCalls.length = 0;
+    const res = await chartClient.callTool({ name: TOOL_NAME, arguments: { chart: 'BTC:1m' } });
+    assert(!res.isError, `chart call errored: ${JSON.stringify(res.content)}`);
+    const images = imageBlocks(res);
+    assertEqual(images.length, 1, 'exactly one image block');
+    assertEqual(images[0].mimeType, 'image/png', 'mime type');
+    assertEqual(Buffer.from(images[0].data, 'base64').subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'PNG magic bytes');
+    assertEqual(res.content[0].type, 'text', 'summary text first');
+    assert(res.content[0].text.endsWith('chart=BTC:1m'), 'summary names the chart');
+    assert(res.structuredContent && res.structuredContent.symbols.BTC, 'structuredContent still carried');
+    const opts = buildCalls[0][0];
+    assertEqual(`${opts.chart.symbol}:${opts.chart.timeframe}`, 'BTC:1m', 'build asked for the named chart only');
+  });
+
+  for (const [label, chart] of [
+    ['two charts in one string', 'BTC:1m,SOL:5m'],
+    ['two chart args', ['BTC:1m', 'SOL:5m']],
+    ['unknown symbol', 'XRP:1m'],
+    ['unknown timeframe', 'BTC:2h'],
+    ['malformed value', 'BTC']
+  ]) {
+    await test(`chart rejected with isError: ${label}`, async () => {
+      buildCalls.length = 0;
+      const res = await chartClient.callTool({ name: TOOL_NAME, arguments: { chart } });
+      assertEqual(res.isError, true, 'expected isError');
+      assertEqual(imageBlocks(res).length, 0, 'no image on a rejected chart');
+      assert(res.content[0].type === 'text' && res.content[0].text.length > 0, 'error must carry text');
+      assertEqual(buildCalls.length, 0, 'a rejected chart must not trigger a build');
+    });
+  }
+
+  await test('chart for a timeframe the build has no candles for is an error, not a blank image', async () => {
+    const res = await chartClient.callTool({ name: TOOL_NAME, arguments: { chart: 'SOL:4h' } });
+    assertEqual(res.isError, true, 'expected isError');
+    assertEqual(imageBlocks(res).length, 0, 'no image');
+    assert(res.content[0].text.includes('No closed candles'), 'error names the missing data');
+  });
+
+  await closeChartClient();
+  await charts.close();
+
   // ---------------------------------------------------------------------
 
   console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -1,6 +1,7 @@
 # EditTrades Engine Refinement — Phased Master Plan
 
-Last updated: 2026-09-22 (amended: Phase 3 position risk, 3b positions, 4 short mirrors, 8 channel, 9b bias matrix)
+Last updated: 2026-09-22 (amended: Phase 3 position risk, 3b positions, 4 short mirrors, 8 channel, 9b bias matrix; docs sync after Phase 8, 8b in progress)
+Status: phases 0–8 done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 8b in progress.
 Branch: `upgrade-signal-engine`
 Source inputs: `~/Downloads/EditTrades_Master_Orchestration_Handoff_v1.md` (product/orchestration intent), this repo (current truth).
 Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPECIFICATION.md`, `CLAUDE.md`.
@@ -19,12 +20,14 @@ Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPEC
 4. Four suites must pass after every phase: `test:sltp`, `test:scalp`, `test:mcp`, `test:wallet`. Add a suite per new module.
 5. Payload schema bumps are minor and additive: 1.1.0 → 1.2.0 → 1.3.0. Keep `openapi/scalp-context.yaml` in step.
 6. Vercel Hobby: 12 functions, 10 s per invocation. No new `api/` files. Compute budgets matter.
-9. When any phase edits `services/strategy.js`, emit a stable `rejectionCode` from the engine and demote the regex classifier in `services/scalpContext.js` to a fallback. Until then, classifier patterns must be tested through the real `evaluateAllStrategies` path.
 7. Do not revive dead modules. `lib/signalEngine.js`, `services/strategy-refactored.js`, `lib/chartAnalysis.js`, `lib/advancedChartAnalysis.js` and `lib/levels.js` are unreachable from `buildScalpContext()`. No phase imports them without an explicit decision recorded here. `lib/advancedIndicators.js` is the one exception: phase 7 imports `calculateATR` from it.
 8. Direction symmetry is a requirement, not a nice-to-have. Every detector, geometry feature, risk function, and fixture handles short and long through one parameterised path, with mirrored tests. A long-only implementation fails the phase.
-9. Execution order is not phase number order: 0 → 1 → 2 → 3 → 4 → 6 → 5 → 7 → 8 → 9 → 10 → 11. Phase 6 is a cheap precondition for the geometry phases; phase 5 sits directly before phase 7 so payload controls land right before the payload grows.
+9. Execution order is not phase number order. Done: 0 → 1 → 2 → 3 → 4 → 6 → 5 → 7 → 8. Remaining: 8b → 9 → 9b → 10 → 11 → 8c → 3b (see the note under the phase map). Phase 6 was a cheap precondition for the geometry phases; phase 5 sat directly before phase 7 so payload controls landed right before the payload grew.
+10. When any phase edits `services/strategy.js`, emit a stable `rejectionCode` from the engine and demote the regex classifier in `services/scalpContext.js` to a fallback. Until then, classifier patterns must be tested through the real `evaluateAllStrategies` path.
 
-## Current architecture (what exists)
+## Current architecture (baseline at Phase 0, schema 1.1.0)
+
+This section records the starting point the plan was written against. For the current payload see `docs/EDITTRADES_MCP_CONNECTOR.md` (schema 1.8.0) and `openapi/scalp-context.yaml`.
 
 | Layer | Where | Notes |
 | --- | --- | --- |
@@ -60,7 +63,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium | ✅ done 2026-09-22 → `lib/geometry.js`, `lib/patternDetector.js` (`wilderAtr` → shared `calculateATR`, `flag.wickTolerancePct` → `flag.wickToleranceAtr`), `config/engine.json` (`geometry`, configVersion -4 → -5), `services/scalpContext.js` (`geometryContext`, `decisionTrace.geometry`, `attachCandidateRisk` = Phase 6 item F), `openapi/scalp-context.yaml`, schema 1.6.0 → 1.7.0, `npm run test:geometry` |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high | ✅ done 2026-09-22 → `lib/geometry.js` (`fitDiagonal`, `channel`, `confluenceZones`, `buildGeometryB`), `config/engine.json` (geometry B keys, `geometry.timeframes` drops 5m, configVersion -5 → -6), `services/scalpContext.js` (B fields on `geometryContext`), `openapi/scalp-context.yaml` (Diagonal, Channel, ConfluenceZone), schema 1.7.0 → 1.8.0, `test/fixtures/geometryPhase7Snapshot.json`, `npm run test:geometry` |
 | 8c | Trade journal, minimal: Blob file, one write op with its own key, account.journal with basic stats | 1 h | low |
-| 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium |
+| 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium | ✅ done 2026-09-22 → `lib/chartRender.js`, `pureimage` 0.4.20, `assets/fonts/IBMPlexMono-Regular.ttf` + `OFL.txt`, `services/editTradesMcp.js` (`chart` arg, image block), `api/scalp-context.js` (`?chart`, image/png), `services/scalpContext.js` (`chart.onSeries` EMA hook, payload unchanged), `openapi/scalp-context.yaml`, no schema bump, `npm run test:chart` |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
@@ -359,6 +362,8 @@ Renderer decision (2026-09-22): pure-JS only, no native binaries (Vercel Hobby, 
 Tests: `test-chart-render.js` — renders a fixture without throwing, PNG magic bytes, size under budget, overlays present at expected pixel rows for a synthetic series. `test:mcp` — tool still single and read-only; `chart` absent → no image block; two charts requested → error; image block only for the named symbol/timeframe.
 
 Acceptance: hourly MCP run with no `chart` arg is byte-identical to before. With `chart: "BTC:1m"` the response carries exactly one image that shows the lines the payload describes.
+
+`chart` — done 2026-09-22. Measured on a live build: BTC:1m 25.9 KB, render 45 ms cold / 24 ms warm; BTC:4h 25.4 KB, 36 ms cold / 27 ms warm (budgets 150 KB, 1.5 s). `vercel build` confirms the font and `pureimage/dist/index.cjs` (self-contained, Node builtins only) ship in the `scalp-context` function bundle, and a render from inside the bundle succeeds. Zones are coloured by role relative to price (the payload list they sit in). Sample: `test/fixtures/chart-sample-btc-4h.png`. Rejections (two charts, unknown symbol/timeframe, malformed) happen before the build: MCP `isError`, REST 400; no candles for the timeframe: MCP `isError`, REST 503.
 
 ---
 

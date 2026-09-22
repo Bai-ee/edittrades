@@ -45,13 +45,33 @@ paths:
           description: When "1" or "true", omit candle arrays and keep only the computed indicator summaries.
           schema:
             type: boolean
+        - name: chart
+          in: query
+          required: false
+          description: >-
+            One confirmation chart as SYMBOL:TIMEFRAME, e.g. "BTC:1m". When set, the
+            response is a single PNG image (image/png) instead of JSON. One chart per
+            request; more than one, or an unknown symbol or timeframe, is a 400.
+          schema:
+            type: string
+            pattern: "^(BTC|SOL|ETH):(1m|3m|5m|15m|1h|4h|1d)$"
       responses:
         "200":
-          description: Latest scalp context for tracked symbols.
+          description: Latest scalp context for tracked symbols, or the requested chart when chart is set.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScalpContext"
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid chart parameter.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           description: Missing or invalid bearer token.
           content:

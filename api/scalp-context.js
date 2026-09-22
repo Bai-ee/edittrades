@@ -6,11 +6,13 @@
  * services/scalpContext.js. Requires a bearer token matching
  * SCALP_CONTEXT_API_KEY. Responds 503 when upstream market data is
  * unavailable, and never echoes secrets, stack traces, or trade-execution
- * details.
+ * details. `?chart=SYMBOL:TIMEFRAME` (phase 8b) returns one image/png instead of
+ * JSON; it is read after auth.
  */
 
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
+import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import crypto from 'crypto';
 
 /**
@@ -49,7 +51,21 @@ function safeCompare(a, b) {
   return crypto.timingSafeEqual(hashA, hashB);
 }
 
-export default async function handler(req, res) {
+/**
+ * Vercel entry point. The body lives in handleScalpContext so the test suite can
+ * inject the context builder; production always uses buildScalpContext.
+ */
+export default function handler(req, res) {
+  return handleScalpContext(req, res);
+}
+
+/**
+ * @param {Object} req
+ * @param {Object} res
+ * @param {Object} [deps]
+ * @param {Function} [deps.build=buildScalpContext] - injectable, for tests
+ */
+export async function handleScalpContext(req, res, { build = buildScalpContext } = {}) {
   // /api/mcp is routed into this function because the project is at the Vercel
   // Hobby 12-function ceiling. It is dispatched before any REST logic runs and
   // shares nothing with it: no auth, status codes, or response shape below this
@@ -101,7 +117,20 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const payload = await buildScalpContext();
+    // Confirmation chart (phase 8b): parsed after auth, before the build. Absent -> the
+    // JSON response below is unchanged.
+    let chartRequest = null;
+    try {
+      chartRequest = parseChartArg(req.query && req.query.chart);
+    } catch (err) {
+      if (!(err instanceof ChartRequestError)) throw err;
+      console.log(`[ScalpContext] requestId=${requestId} status=400 durationMs=${Date.now() - startedAt} chart=${err.code}`);
+      return res.status(400).json({ error: err.message, requestId });
+    }
+    let chartSeries;
+    const payload = chartRequest
+      ? await build({ chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
+      : await build();
 
     // Query-param filtering (phase 5): parsed after auth, auth code above is untouched.
     // No params -> filterPayload is a no-op and the response is today's full payload.
@@ -123,6 +152,20 @@ export default async function handler(req, res) {
         requestId,
         warnings: filtered?.warnings
       });
+    }
+
+    if (chartRequest) {
+      let chart;
+      try {
+        chart = await renderContextChart(payload, chartRequest, chartSeries);
+      } catch (err) {
+        if (!(err instanceof ChartRequestError)) throw err;
+        console.log(`[ScalpContext] requestId=${requestId} status=503 durationMs=${Date.now() - startedAt} chart=${err.code}`);
+        return res.status(503).json({ error: err.message, requestId });
+      }
+      console.log(`[ScalpContext] requestId=${requestId} status=200 durationMs=${Date.now() - startedAt} chart=${chartRequest.symbol}:${chartRequest.timeframe} chartBytes=${chart.bytes} chartMs=${chart.durationMs}`);
+      res.setHeader('Content-Type', 'image/png');
+      return res.status(200).send(chart.png);
     }
 
     console.log(`[ScalpContext] requestId=${requestId} status=200 durationMs=${Date.now() - startedAt} symbols=${symbolsCount} warnings=${warningsCount}`);

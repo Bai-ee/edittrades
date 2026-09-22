@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { buildScalpContext, filterPayload } from './scalpContext.js';
+import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 
 export const MCP_SERVER_NAME = 'edittrades';
 export const MCP_SERVER_VERSION = '1.0.0';
@@ -47,7 +48,9 @@ export const TOOL_INPUT_SCHEMA = {
   include: z.array(z.string()).optional()
     .describe('Limit each symbol to these sections (timeframes, strategies, candidates, geometry, account, trace, config). Unknown values are ignored. Omit for the full payload.'),
   compact: z.boolean().optional()
-    .describe('When true, omit candle arrays and keep only the computed indicator summaries.')
+    .describe('When true, omit candle arrays and keep only the computed indicator summaries.'),
+  chart: z.string().optional()
+    .describe('One confirmation chart as SYMBOL:TIMEFRAME, e.g. "BTC:1m". Adds one PNG image beside the context. One chart per call; omit for no image.')
 };
 
 /**
@@ -102,8 +105,9 @@ export function summarizeContext(payload, requestId) {
  * @param {Function} [deps.build] - injectable buildScalpContext, for tests
  * @param {string} [deps.requestId]
  * @param {number} [deps.timeoutMs]
- * @param {Object} [deps.args] - validated tool arguments ({ symbols?, include?, compact? }),
- *   applied via filterPayload after the build. {} (the default) is a no-op.
+ * @param {Object} [deps.args] - validated tool arguments ({ symbols?, include?, compact?, chart? }),
+ *   applied via filterPayload after the build. {} (the default) is a no-op. `chart`
+ *   (phase 8b) adds one image block; without it the result is unchanged.
  * @returns {Promise<Object>} an MCP CallToolResult
  */
 export async function runGetScalpContext(deps = {}) {
@@ -114,9 +118,24 @@ export async function runGetScalpContext(deps = {}) {
     args = {}
   } = deps || {};
 
+  // Confirmation chart (phase 8b): validated before the build so a bad request costs
+  // nothing. Absent -> build() is called exactly as before and no image is added.
+  let chartRequest = null;
+  try {
+    chartRequest = parseChartArg((args || {}).chart);
+  } catch (err) {
+    if (!(err instanceof ChartRequestError)) throw err;
+    console.error(`[EditTradesMcp] requestId=${requestId} tool=${TOOL_NAME} status=error reason=chart_${err.code}`);
+    return { isError: true, content: [{ type: 'text', text: `EditTrades chart rejected: ${err.message} requestId=${requestId}` }] };
+  }
+  let chartSeries;
+  const buildCall = chartRequest
+    ? () => build({ chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
+    : () => build();
+
   let payload;
   try {
-    payload = await withTimeout(Promise.resolve(build()), timeoutMs);
+    payload = await withTimeout(Promise.resolve(buildCall()), timeoutMs);
   } catch (err) {
     // Sanitized: the caller gets a stable reason, never a stack trace or an
     // upstream message that might carry a URL, header, or credential.
@@ -154,6 +173,28 @@ export async function runGetScalpContext(deps = {}) {
         type: 'text',
         text: `EditTrades context unavailable: dataStatus=unavailable, warnings=${warningCount}. Do not trade on this run. requestId=${requestId}`
       }]
+    };
+  }
+
+  if (chartRequest) {
+    // Rendered from the unfiltered build, so symbols/include/compact cannot strip the
+    // candles or geometry the chart draws.
+    let chart;
+    try {
+      chart = await renderContextChart(payload, chartRequest, chartSeries);
+    } catch (err) {
+      const reason = err instanceof ChartRequestError ? err.message : 'the chart could not be rendered.';
+      console.error(`[EditTradesMcp] requestId=${requestId} tool=${TOOL_NAME} status=error reason=chart_${err instanceof ChartRequestError ? err.code : 'render_failed'}`);
+      return { isError: true, content: [{ type: 'text', text: `EditTrades chart unavailable: ${reason} requestId=${requestId}` }] };
+    }
+    const chartName = `${chartRequest.symbol}:${chartRequest.timeframe}`;
+    console.log(`[EditTradesMcp] requestId=${requestId} tool=${TOOL_NAME} status=ok dataStatus=${filtered.dataStatus} warnings=${warningCount} chart=${chartName} chartBytes=${chart.bytes} chartMs=${chart.durationMs}`);
+    return {
+      content: [
+        { type: 'text', text: `${summarizeContext(filtered, requestId)} chart=${chartName}` },
+        { type: 'image', data: chart.png.toString('base64'), mimeType: 'image/png' }
+      ],
+      structuredContent: { ...filtered, requestId }
     };
   }
 
