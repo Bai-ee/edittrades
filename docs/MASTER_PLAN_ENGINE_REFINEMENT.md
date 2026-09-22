@@ -20,7 +20,8 @@ Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPEC
 5. Payload schema bumps are minor and additive: 1.1.0 → 1.2.0 → 1.3.0. Keep `openapi/scalp-context.yaml` in step.
 6. Vercel Hobby: 12 functions, 10 s per invocation. No new `api/` files. Compute budgets matter.
 7. Do not revive dead modules. `lib/signalEngine.js`, `services/strategy-refactored.js`, `lib/chartAnalysis.js`, `lib/advancedChartAnalysis.js` and `lib/levels.js` are unreachable from `buildScalpContext()`. No phase imports them without an explicit decision recorded here. `lib/advancedIndicators.js` is the one exception: phase 7 imports `calculateATR` from it.
-8. Execution order is not phase number order: 0 → 1 → 2 → 3 → 4 → 6 → 5 → 7 → 8 → 9 → 10 → 11. Phase 6 is a cheap precondition for the geometry phases; phase 5 sits directly before phase 7 so payload controls land right before the payload grows.
+8. Direction symmetry is a requirement, not a nice-to-have. Every detector, geometry feature, risk function, and fixture handles short and long through one parameterised path, with mirrored tests. A long-only implementation fails the phase.
+9. Execution order is not phase number order: 0 → 1 → 2 → 3 → 4 → 6 → 5 → 7 → 8 → 9 → 10 → 11. Phase 6 is a cheap precondition for the geometry phases; phase 5 sits directly before phase 7 so payload controls land right before the payload grows.
 
 ## Current architecture (what exists)
 
@@ -48,7 +49,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | Phase | Deliverable | Size | Risk | Status |
 | --- | --- | --- | --- | --- |
 | 0 | Field inventory + rule-to-owner matrix | 30 min | none | ✅ done 2026-09-22 → `docs/RULE_OWNER_MATRIX.md` |
-| 1 | `config/engine.json` + `configVersion` | 1 h | low |
+| 1 | `config/engine.json` + `configVersion` | 1 h | low | ✅ done 2026-09-22 → `config/engine.json`, `config/engine.js`, `npm run test:config` |
 | 2 | `decisionTrace` per symbol | 1–2 h | low |
 | 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low |
 | 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |

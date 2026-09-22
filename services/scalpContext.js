@@ -12,6 +12,7 @@ import * as indicatorService from './indicators.js';
 import strategyService from './strategy.js';
 import { buildStructure } from '../lib/structure.js';
 import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './walletTracker.js';
+import { CONFIG_VERSION } from '../config/engine.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -711,7 +712,8 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.1.0',
+    schemaVersion: '1.2.0',
+    configVersion: CONFIG_VERSION,
     generatedAt: new Date(safeNow).toISOString(),
     closedThrough,
     sessionTimezone: 'UTC',

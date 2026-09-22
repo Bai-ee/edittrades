@@ -13,7 +13,8 @@
     "postinstall": "patch-package",
     "vercel-build": "npm install --legacy-peer-deps && npm run postinstall",
     "test:mcp": "node test-edittrades-mcp.js",
-    "test:wallet": "node test-wallet-tracker.js"
+    "test:wallet": "node test-wallet-tracker.js",
+    "test:config": "node test-engine-config.js"
   },
   "keywords": [
     "trading",

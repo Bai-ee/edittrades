@@ -6,6 +6,7 @@
  */
 
 import * as indicators from './indicators.js';
+import { ENGINE_CONFIG, rrForSetupType, rrForStrategy } from '../config/engine.js';
 
 /**
  * Normalize trend value to consistent lowercase format
@@ -238,30 +239,7 @@ function normalizeToCanonical(rawSignal, multiTimeframeData, mode = 'STANDARD') 
  * STANDARD: Conservative, high-probability setups
  * AGGRESSIVE: Looser requirements for more trade opportunities (smaller position sizes)
  */
-const THRESHOLDS = {
-  STANDARD: {
-    emaPullbackMax: 1.0,        // % from EMA21 for entry
-    emaPullbackMax1H: 1.5,      // % from 1H EMA21 for 1H scalps
-    microScalpEmaBand: 0.25,    // ±0.25% for micro-scalps
-    allowFlat4HForScalp: false, // 4H must be trending for scalps
-    allowFlat1HForScalp: false, // 1H must be trending for scalps
-    allowFlat4HForSwing: false, // 4H must be trending for swings
-    minHtfBiasConfidence: 60,   // Minimum HTF bias confidence
-    maxSwingEmaDist1D: 3.0,     // Max % from 1D EMA21 for swing
-    min15mStochAlign: true      // Require 15m stoch strict alignment
-  },
-  AGGRESSIVE: {
-    emaPullbackMax: 1.75,       // Looser pullback zone
-    emaPullbackMax1H: 2.5,      // Much looser 1H pullback
-    microScalpEmaBand: 0.75,    // ±0.75% band for micro-scalps
-    allowFlat4HForScalp: true,  // Allow 4H FLAT for scalps
-    allowFlat1HForScalp: true,  // Allow 1H FLAT for scalps
-    allowFlat4HForSwing: true,  // Allow 4H FLAT for swings (if 1D strong)
-    minHtfBiasConfidence: 40,   // Accept weaker bias
-    maxSwingEmaDist1D: 5.0,     // Wider swing entry zone
-    min15mStochAlign: false     // Allow looser stoch alignment
-  }
-};
+const THRESHOLDS = ENGINE_CONFIG.thresholds;
 
 /**
  * Compute Higher Timeframe Bias from 4H + 1H
@@ -777,7 +755,7 @@ function analyzeStochState(stochRSI) {
  * @returns {Object} Entry zone with min and max
  */
 function calculateEntryZone(ema21, direction) {
-  const buffer = 0.004; // 0.4% buffer as per PRD (±0.3-0.5%)
+  const buffer = ENGINE_CONFIG.entryZones.emaBuffer; // 0.4% buffer as per PRD (±0.3-0.5%)
   
   if (direction === 'long') {
     // For longs: slight undercut allowed
@@ -802,7 +780,7 @@ function calculateEntryZone(ema21, direction) {
  * @param {number} buffer - Buffer percentage (default 0.0003 = 0.03% ahead of price)
  * @returns {Object} { min, max } entry zone
  */
-function calculateAggressiveEntryZone(currentPrice, direction, buffer = 0.0003) {
+function calculateAggressiveEntryZone(currentPrice, direction, buffer = ENGINE_CONFIG.entryZones.aggressiveBuffer) {
   if (!currentPrice || isNaN(currentPrice)) return null;
   
   // For AGGRESSIVE mode: Entry is always at or slightly ahead of current price
@@ -830,7 +808,7 @@ function calculateAggressiveEntryZone(currentPrice, direction, buffer = 0.0003) 
  * @param {number} buffer - Buffer percentage (default 0.0002 = 0.02% for closer entries)
  * @returns {Object} { min, max } entry zone
  */
-function calculateBreakoutEntryZone(swingLevel, direction, currentPrice = null, buffer = 0.0002) {
+function calculateBreakoutEntryZone(swingLevel, direction, currentPrice = null, buffer = ENGINE_CONFIG.entryZones.breakoutBuffer) {
   if (!swingLevel || isNaN(swingLevel)) return null;
   
   // Entry zone: swingHigh + 0.02% for longs / swingLow - 0.02% for shorts (much closer to price)
@@ -959,7 +937,7 @@ function invalidNoTrade(reason) {
  * Raising one without the other silently disables the percentage fallback for
  * scalps - which is exactly the bug this constant was introduced to avoid.
  */
-export const MAX_SCALP_STOP_DISTANCE_PCT = 3.0;
+export const MAX_SCALP_STOP_DISTANCE_PCT = ENGINE_CONFIG.scalp.maxStopDistancePct;
 
 /**
  * Floating-point slack for the distance comparison.
@@ -1051,8 +1029,8 @@ export function applyScalpStopPolicy(entryPrice, direction, allStructures, rrTar
  *                                    validated against these bounds instead of the mid.
  * @returns {Object} SL and TP levels
  */
-export function calculateSLTP(entryPrice, direction, allStructures, setupType = '4h', rrTargets = [1.0, 2.0], entryBounds = null) {
-  const buffer = 0.003; // 0.3% buffer
+export function calculateSLTP(entryPrice, direction, allStructures, setupType = '4h', rrTargets = ENGINE_CONFIG.riskReward.default, entryBounds = null) {
+  const buffer = ENGINE_CONFIG.stops.structureBuffer; // 0.3% buffer
   const isLong = direction === 'long';
 
   // Structure candidates in priority order, widest fallback last
@@ -2278,9 +2256,9 @@ function evaluateSwingSetup(multiTimeframeData, currentPrice, mode = 'STANDARD',
       parseFloat(tp3.toFixed(2))
     ],
     risk_reward: {
-      tp1RR: 3.0,
-      tp2RR: 4.0,
-      tp3RR: 5.0
+      tp1RR: rrForSetupType('Swing')[0],
+      tp2RR: rrForSetupType('Swing')[1],
+      tp3RR: rrForSetupType('Swing')[2]
     },
     risk_amount: parseFloat(R.toFixed(2)),
     invalidation: {
@@ -2550,9 +2528,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
   };
   
   // Determine R:R targets based on setup type (enforce minimum 3R for TP1)
-  const rrTargets = setupType === 'Swing' ? [3.0, 4.0, 5.0] : 
-                    setupType === 'Scalp' ? [3.0, 4.5] : 
-                    [3.0, 4.0]; // TREND_4H: minimum 3R for TP1
+  const rrTargets = rrForSetupType(setupType); // Swing 3R/4R/5R, Scalp 3R/4.5R, TREND_4H 3R/4R
   
   // Calculate entry zone - AGGRESSIVE mode ALWAYS uses aggressive entries
   let entryZone, entryType = 'pullback';
@@ -2965,7 +2941,7 @@ export function evaluateStrategy(symbol, multiTimeframeData, setupType = '4h', m
             '5m': tf5m?.structure || { swingHigh: null, swingLow: null }
           };
           
-          const rrTargets = [3.0, 4.5]; // Scalp targets (minimum 3R for TP1)
+          const rrTargets = rrForStrategy('SCALP_1H'); // Scalp targets (minimum 3R for TP1)
 
           // Shared with MICRO_SCALP: builds the stop and enforces the distance
           // policy, so a distant structural stop is refused rather than scaled
@@ -3421,8 +3397,9 @@ export function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowD
   // 2.3 MICRO-SCALP SL/TP LOGIC
   // Entry = average of 15m & 5m EMA21, zone = ±0.5% around it.
   const entry = (ema21_15m + ema21_5m) / 2;
-  const entryMin = entry * 0.995;
-  const entryMax = entry * 1.005;
+  const microBand = ENGINE_CONFIG.entryZones.microScalpBand; // ±0.5%
+  const entryMin = entry * (1 - microBand);
+  const entryMax = entry * (1 + microBand);
   const microEntryZone = { min: entryMin, max: entryMax };
 
   // Stops go through the shared side-aware selector (5m -> 15m -> 4h -> percentage)
@@ -3440,7 +3417,7 @@ export function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowD
 
   // Same stop policy as SCALP_1H: MICRO_SCALP reaches the same 4h structures, so
   // without this it produces the same far-from-entry stop and 3R target.
-  const microStopPolicy = applyScalpStopPolicy(entry, direction, microStructures, [3.0, 4.0], microEntryZone);
+  const microStopPolicy = applyScalpStopPolicy(entry, direction, microStructures, rrForStrategy('MICRO_SCALP'), microEntryZone);
   if (!microStopPolicy.ok) {
     result.eligible = false;
     result.signal = null;
@@ -3562,8 +3539,8 @@ export function evaluateMicroScalp(multiTimeframeData, marketData = null, dflowD
       tp2: parseFloat(tp2.toFixed(2))
     },
     riskReward: {
-      tp1RR: 3.0,
-      tp2RR: 4.0
+      tp1RR: rrForStrategy('MICRO_SCALP')[0],
+      tp2RR: rrForStrategy('MICRO_SCALP')[1]
     },
     invalidation_level: parseFloat(invalidationLevel.toFixed(2)),
     invalidation_description: direction === 'long' ? 
@@ -3833,7 +3810,7 @@ export function evaluateTrendRider(multiTimeframeData, currentPrice, mode = 'STA
     '5m': swing5m
   };
 
-  const rrTargets = [3.0, 4.5]; // Trend riding (minimum 3R for TP1)
+  const rrTargets = rrForStrategy('TREND_RIDER'); // Trend riding (minimum 3R for TP1)
 
   const sltp = calculateSLTP(
     entryMid,

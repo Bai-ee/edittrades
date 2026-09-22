@@ -1,0 +1,57 @@
+{
+  "configVersion": "2026.09.22-1",
+
+  "scalp": {
+    "maxStopDistancePct": 3.0
+  },
+
+  "stops": {
+    "structureBuffer": 0.003
+  },
+
+  "entryZones": {
+    "emaBuffer": 0.004,
+    "aggressiveBuffer": 0.0003,
+    "breakoutBuffer": 0.0002,
+    "microScalpBand": 0.005
+  },
+
+  "riskReward": {
+    "default": [1.0, 2.0],
+    "bySetupType": {
+      "Swing": [3.0, 4.0, 5.0],
+      "Scalp": [3.0, 4.5],
+      "default": [3.0, 4.0]
+    },
+    "byStrategy": {
+      "SCALP_1H": [3.0, 4.5],
+      "TREND_RIDER": [3.0, 4.5],
+      "MICRO_SCALP": [3.0, 4.0]
+    }
+  },
+
+  "thresholds": {
+    "STANDARD": {
+      "emaPullbackMax": 1.0,
+      "emaPullbackMax1H": 1.5,
+      "microScalpEmaBand": 0.25,
+      "allowFlat4HForScalp": false,
+      "allowFlat1HForScalp": false,
+      "allowFlat4HForSwing": false,
+      "minHtfBiasConfidence": 60,
+      "maxSwingEmaDist1D": 3.0,
+      "min15mStochAlign": true
+    },
+    "AGGRESSIVE": {
+      "emaPullbackMax": 1.75,
+      "emaPullbackMax1H": 2.5,
+      "microScalpEmaBand": 0.75,
+      "allowFlat4HForScalp": true,
+      "allowFlat1HForScalp": true,
+      "allowFlat4HForSwing": true,
+      "minHtfBiasConfidence": 40,
+      "maxSwingEmaDist1D": 5.0,
+      "min15mStochAlign": false
+    }
+  }
+}
