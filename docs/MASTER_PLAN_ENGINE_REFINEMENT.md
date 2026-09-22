@@ -59,13 +59,14 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium | ✅ done 2026-09-22 → `lib/geometry.js`, `lib/patternDetector.js` (`wilderAtr` → shared `calculateATR`, `flag.wickTolerancePct` → `flag.wickToleranceAtr`), `config/engine.json` (`geometry`, configVersion -4 → -5), `services/scalpContext.js` (`geometryContext`, `decisionTrace.geometry`, `attachCandidateRisk` = Phase 6 item F), `openapi/scalp-context.yaml`, schema 1.6.0 → 1.7.0, `npm run test:geometry` |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high |
+| 8c | Trade journal: user-asserted trades logged via a separate write op, served back as account.journal with performance stats | 3 h | low |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium |
 | 10 | Replay harness + miss-log fixtures | 1 day | low |
 | 11 | GPT instruction trim | 1 h | low |
 
-Execution order (updated 2026-09-22): 7 done → 8 → 8b → 9 → 9b → 10 → 11 → 3b. Phase 3b is deferred to the end: its first attempt found the provider read path signer-bound and the rewrite is 4–6 h; screenshots of position panels cover the interactive case meanwhile. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
+Execution order (updated 2026-09-22): 7 done → 8 → 8c (journal) → 8b (chart) → 9 → 9b → 10 → 11 → 3b. Phase 3b is deferred to the end: its first attempt found the provider read path signer-bound and the rewrite is 4–6 h; screenshots of position panels cover the interactive case meanwhile. 9b is what makes shorts and counter-trend scalps first-class. 6 then 5 are the prerequisites for geometry, in that order (see governing rule 8). 7–10 are the geometry engine. 11 is last on purpose: instructions shrink only after code carries the rules.
 
 ---
 
@@ -314,6 +315,29 @@ Acceptance: fixture passes. Precision over recall: false lines are worse than mi
 
 ---
 
+## Phase 8c — Trade journal (minimal, no on-chain matching)
+
+Objective: the system remembers the trades the user says they took, computes performance from them, and serves both back as context. No positions read (3b stays deferred), no execution, no automatic confirmation beyond a margin-delta flag.
+
+Decision recorded 2026-09-22: this is the one write path allowed. It stores user-asserted records only. MCP stays read-only; only the Custom GPT Action gets the write operation. Its key is separate from the read key and from any trading key.
+
+Deliverables:
+- Storage: Vercel KV (free tier). Key `journal:<walletAddressMasked>`; value = array of trade records. `lib/journalStore.js` wraps get/put with a 5 s timeout; on KV unavailable the payload carries `journal.status: unavailable`, never an empty list.
+- Record: `{ id, symbol (BTC|SOL|ETH), side, entry, notionalUsd, collateralUsd, leverage, stop, tp1, tp2, openedAt, source: screenshot|typed, status: open|closed, exit, closedAt, pnlUsd, rMultiple, note, confirmed: unconfirmed|margin-delta }`. Numbers validated (finite, > 0 where applicable); side ∈ long|short; symbol ∈ tracked set. Anything else → 400 with field name.
+- Write op: `POST /api/trade-log` routed into the existing function (`vercel.json` → `api/scalp-context.js?__journal=1`, same Hobby-cap pattern as MCP). Bearer `JOURNAL_API_KEY`, timing-safe compare, 401 on miss. Body `{ action: "open" | "close", trade: {...} }` or `{ action: "close", id, exit, closedAt? }`. Close computes `pnlUsd = (exit − entry) × notional/entry × (side sign)` minus fees at `config.risk.feeBps`, and `rMultiple = pnlUsd / (|entry − stop| × notional/entry)`. Returns the stored record. Max 200 records kept; oldest closed pruned.
+- Read: `account.journal = { status, open: [...], recentClosed: [last 20], performance: { trades, wins, losses, winRate, lossRate, realizedPnlUsd, avgR, currentStreak } }` in `buildScalpContext`, included by default, droppable via include "account". Stats count closed trades only; alerts never count. Never affects `dataStatus`.
+- Margin-delta confirmation: on each build, for each trade closed within the last 24 h, if |Δ account.margin.usd since openedAt| is within 25 % of |pnlUsd| the record gets `confirmed: margin-delta`; otherwise stays `unconfirmed`. Needs the wallet tracker's reading only. Flag, never a blocker.
+- Risk hook: `attachRisk` reads `performance.currentStreak`; at ≤ −3 it halves `suggestedLeverage` and sets `risk.reason: "losing streak"`. Config `risk.streakHalveAt` (default −3).
+- OpenAPI: `logTrade` operation with its own `journalAuth` security scheme; Journal, TradeRecord, Performance schemas; ChatGPT-safe constructs only.
+- Config: `journal { maxRecords: 200, recentClosed: 20, confirmWindowHours: 24, confirmTolerancePct: 25 }`. Bump configVersion. Schema minor bump.
+- GPT instructions (user side, after deploy): "in a trade" or a pasted position screenshot → extract fields, echo them, log only on the user's explicit "confirm"; "closed at X" → close op; `balance` shows performance from `account.journal`.
+
+Do NOT: touch MCP registration, strategy, guards, geometry, pattern, wallet tracking; import anything from the execution or signing layers; read `SOLANA_PRIVATE_KEY`.
+
+Tests: new `test-journal.js` (`test:journal`), mocked KV: open/close round trip, validation rejects bad fields with names, PnL and R math long and short, pruning at maxRecords, performance stats on a fixture (wins/losses/streak/avgR), margin-delta confirmation in and out of tolerance, KV timeout → status unavailable. `test:scalp`: journal present, never affects dataStatus, streak halves suggestedLeverage. `test:mcp`: tool list unchanged, no write reachable via MCP, no execution imports. REST: 401 without the journal key; the read key must NOT authorize the write op, and the journal key must NOT authorize the read op.
+
+Acceptance: log a trade, close it, and the next `signals` shows performance from it and treats the open one as an existing position.
+
 ## Phase 8b — Confirmation chart (on demand, never bulk)
 
 Objective: when the data says a flag may be forming, the GPT or the scheduled run can pull ONE image of THAT symbol and timeframe to confirm. The image is a confirmation layer, not a data source. Detection stays in Phase 4/9 from candles.
@@ -397,7 +421,7 @@ Acceptance: instruction length drops; behavior on the two BTC fixtures unchanged
 ## Out of scope, needs separate decision
 
 - Realized PnL, trade history, win rate. Requires a trade log that does not exist. Own workstream. (Open positions and liquidation moved into scope as Phase 3b.)
-- Any write path from GPT or MCP. Miss log is repo fixtures, not an API.
+- Any write path from MCP. The single GPT-facing write op is the trade journal (Phase 8c) with its own key; the miss log stays repo fixtures.
 - Cross-request pattern state store (KV). Revisit only if per-request derivation proves insufficient after phase 9.
 
 ---
