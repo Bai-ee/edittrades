@@ -9,9 +9,34 @@
  * details.
  */
 
-import { buildScalpContext } from '../services/scalpContext.js';
+import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import crypto from 'crypto';
+
+/**
+ * Parse a comma-separated (or repeated) query param into a trimmed string array, or
+ * undefined when absent - filterPayload treats undefined as "no filter", same as MCP's
+ * omitted-argument default.
+ * @param {*} value - req.query[name]
+ * @returns {Array<string>|undefined}
+ */
+function parseListParam(value) {
+  const raw = Array.isArray(value) ? value.join(',') : value;
+  if (typeof raw !== 'string' || raw.length === 0) return undefined;
+  const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return list.length > 0 ? list : undefined;
+}
+
+/**
+ * Parse a boolean-ish query param ("1" or "true"), or undefined when absent.
+ * @param {*} value - req.query[name]
+ * @returns {boolean|undefined}
+ */
+function parseCompactParam(value) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === undefined) return undefined;
+  return raw === '1' || raw === 'true';
+}
 
 /**
  * Timing-safe comparison of two strings via SHA-256 digests, so both
@@ -77,23 +102,32 @@ export default async function handler(req, res) {
     }
 
     const payload = await buildScalpContext();
-    const warningsCount = Array.isArray(payload?.warnings) ? payload.warnings.length : 0;
-    const symbolsCount = Array.isArray(payload?.symbols)
-      ? payload.symbols.length
-      : (payload?.symbols ? 1 : 0);
 
-    if (payload?.dataStatus === 'unavailable') {
+    // Query-param filtering (phase 5): parsed after auth, auth code above is untouched.
+    // No params -> filterPayload is a no-op and the response is today's full payload.
+    const filtered = filterPayload(payload, {
+      symbols: parseListParam(req.query && req.query.symbols),
+      include: parseListParam(req.query && req.query.include),
+      compact: parseCompactParam(req.query && req.query.compact)
+    });
+
+    const warningsCount = Array.isArray(filtered?.warnings) ? filtered.warnings.length : 0;
+    const symbolsCount = Array.isArray(filtered?.symbols)
+      ? filtered.symbols.length
+      : (filtered?.symbols ? 1 : 0);
+
+    if (filtered?.dataStatus === 'unavailable') {
       console.log(`[ScalpContext] requestId=${requestId} status=503 durationMs=${Date.now() - startedAt} symbols=${symbolsCount} warnings=${warningsCount}`);
       return res.status(503).json({
         error: 'Market data unavailable',
         requestId,
-        warnings: payload?.warnings
+        warnings: filtered?.warnings
       });
     }
 
     console.log(`[ScalpContext] requestId=${requestId} status=200 durationMs=${Date.now() - startedAt} symbols=${symbolsCount} warnings=${warningsCount}`);
     return res.status(200).json({
-      ...payload,
+      ...filtered,
       requestId
     });
   } catch (error) {

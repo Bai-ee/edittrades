@@ -263,7 +263,7 @@ async function run() {
     await test(`REGRESSION_001 (${label}): 1m candidate survives while SCALP_1H stays NO_TRADE`, async () => {
       const payload = await buildWith1m(candles);
       const btc = payload.symbols.BTC;
-      assertEqual(payload.schemaVersion, '1.5.0', 'schemaVersion');
+      assertEqual(payload.schemaVersion, '1.6.0', 'schemaVersion');
       assert(Array.isArray(btc.candidateSetups), 'candidateSetups must be an array');
       const hit = btc.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === direction);
       assert(hit, `expected a 1m ${direction} candidate, got ${JSON.stringify(btc.candidateSetups)}`);

@@ -56,7 +56,7 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 3b | Read-only `account.positions[]` from perps provider | 2–3 h | medium |
 | 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium | ✅ done 2026-09-22 → `lib/patternDetector.js`, `config/engine.json` (`flag`), `services/scalpContext.js` (`candidateSetups`), `test/fixtures/flagFixtures.js`, `npm run test:pattern` |
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none |
-| 5 | Payload controls: tool args `symbols`, `include`; compact mode | 1–2 h | low |
+| 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium |

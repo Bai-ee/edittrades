@@ -42,6 +42,7 @@
   },
 
   "flag": {
+    "includeFailed": false,
     "timeframes": ["1m", "3m", "5m"],
     "atrPeriod": 14,
     "minImpulseAtr": 2.0,

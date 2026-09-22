@@ -83,7 +83,13 @@ function makeContext(overrides = {}) {
         price: 85426.5,
         source: { provider: 'kraken', pair: 'BTCUSDT', fetchedAt: '2026-09-22T03:22:03.391Z' },
         structure: { support: [84000], resistance: [86000] },
-        timeframes: { '1h': { trend: 'UPTREND', closedThrough: '2026-09-22T03:00:00.000Z' } },
+        timeframes: {
+          '1h': {
+            trend: 'UPTREND',
+            closedThrough: '2026-09-22T03:00:00.000Z',
+            candles: [{ t: '2026-09-22T02:00:00.000Z', o: 85000, h: 85500, l: 84900, c: 85400, v: 12.5 }]
+          }
+        },
         strategies: {
           SCALP_1H: {
             valid: true,
@@ -537,6 +543,77 @@ async function main() {
     assert(typeof text === 'string' && text.includes('requestId=rid'), 'summary broke on a sparse payload');
     assert(text.includes('symbols=none'), 'summary mishandled a missing symbols map');
   });
+
+  // -- 12. payload controls (phase 5): symbols / include / compact ---------
+
+  console.log('\npayload controls');
+
+  const controls = await startTestServer({ build: async () => makeContext() });
+  const { client: controlsClient, close: closeControlsClient } = await connectClient(controls.url);
+
+  await test('the tool advertises symbols, include and compact as optional arguments', async () => {
+    const { tools } = await controlsClient.listTools();
+    const [tool] = tools;
+    assertEqual(tools.length, 1, 'expected exactly one tool');
+    const props = tool.inputSchema && tool.inputSchema.properties;
+    assert(props && props.symbols && props.include && props.compact, 'tool input schema is missing symbols/include/compact');
+    const required = (tool.inputSchema && tool.inputSchema.required) || [];
+    assertEqual(required.length, 0, `expected symbols/include/compact to all be optional, got required=${JSON.stringify(required)}`);
+    assertEqual(tool.annotations.readOnlyHint, true, 'gaining arguments must not lose the read-only annotation');
+  });
+
+  await test('{} (no arguments) returns a payload identical to an unfiltered build', async () => {
+    const bare = await controlsClient.callTool({ name: TOOL_NAME, arguments: {} });
+    assert(!bare.isError, 'a bare call must not error');
+    const unfiltered = makeContext();
+    assertEqual(
+      JSON.stringify(bare.structuredContent.symbols),
+      JSON.stringify(unfiltered.symbols),
+      'symbols must be identical to an unfiltered build with the same injected context'
+    );
+    assertEqual(JSON.stringify(bare.structuredContent.warnings), JSON.stringify(unfiltered.warnings), 'warnings must be unaffected by an empty args object');
+  });
+
+  await test('symbols: ["BTC"] returns only BTC', async () => {
+    const res = await controlsClient.callTool({ name: TOOL_NAME, arguments: { symbols: ['BTC'] } });
+    assert(!res.isError, 'a symbols-filtered call must not error');
+    assertEqual(Object.keys(res.structuredContent.symbols).join(','), 'BTC', 'expected only BTC in the response');
+  });
+
+  await test('an unknown symbol is ignored, not an error, and named in a warning', async () => {
+    const res = await controlsClient.callTool({ name: TOOL_NAME, arguments: { symbols: ['XRP'] } });
+    assert(!res.isError, 'an unknown symbol must not error the call');
+    assertEqual(Object.keys(res.structuredContent.symbols).sort().join(','), 'BTC,ETH,SOL', 'an all-unknown symbols filter must fall back to the full set, not collapse to nothing');
+    assert(res.structuredContent.warnings.some((w) => w.includes('XRP')), 'expected a warning naming the ignored symbol');
+  });
+
+  await test('include: ["strategies"] drops timeframes but keeps strategies and core fields', async () => {
+    const res = await controlsClient.callTool({ name: TOOL_NAME, arguments: { include: ['strategies'] } });
+    assert(!res.isError, 'an include-filtered call must not error');
+    const btc = res.structuredContent.symbols.BTC;
+    assert(!('timeframes' in btc), 'timeframes must be dropped when include excludes it');
+    assert(btc.strategies && btc.strategies.SCALP_1H, 'strategies must survive include=["strategies"]');
+    assert('price' in btc && 'source' in btc && 'bestSignal' in btc, 'core identity fields are not gated by include');
+  });
+
+  await test('an unknown include value is ignored, not an error, and named in a warning', async () => {
+    const res = await controlsClient.callTool({ name: TOOL_NAME, arguments: { include: ['bogus'] } });
+    assert(!res.isError, 'an unknown include value must not error the call');
+    assert('timeframes' in res.structuredContent.symbols.BTC, 'an all-unknown include filter must fall back to the full payload');
+    assert(res.structuredContent.warnings.some((w) => w.includes('bogus')), 'expected a warning naming the ignored include value');
+  });
+
+  await test('compact: true drops candles only, indicators survive', async () => {
+    const res = await controlsClient.callTool({ name: TOOL_NAME, arguments: { compact: true } });
+    assert(!res.isError, 'a compact call must not error');
+    const tf = res.structuredContent.symbols.BTC.timeframes['1h'];
+    assertEqual(tf.candles.length, 0, 'compact must drop the candles array');
+    assertEqual(tf.trend, 'UPTREND', 'compact must not touch a non-candle indicator field');
+    assertEqual(tf.closedThrough, '2026-09-22T03:00:00.000Z', 'compact must not touch closedThrough');
+  });
+
+  await closeControlsClient();
+  await controls.close();
 
   // ---------------------------------------------------------------------
 

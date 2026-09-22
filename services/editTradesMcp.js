@@ -17,9 +17,10 @@
  * suite greps these sources for secret-bearing identifiers.)
  */
 
+import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { buildScalpContext } from './scalpContext.js';
+import { buildScalpContext, filterPayload } from './scalpContext.js';
 
 export const MCP_SERVER_NAME = 'edittrades';
 export const MCP_SERVER_VERSION = '1.0.0';
@@ -33,6 +34,21 @@ export const TOOL_DESCRIPTION =
   'including raw multi-timeframe indicators, structure, data quality, tracked-wallet ' +
   'account equity, and the EditTrades recommendation engine. Read-only. It does not ' +
   'place or modify trades.';
+
+/**
+ * Tool input, all optional. `{}` (or omitting arguments entirely) returns today's full
+ * payload unchanged - see filterPayload in services/scalpContext.js. Deliberately plain
+ * string arrays rather than z.enum: an unknown symbol or include value must be ignored
+ * with a warning, never rejected at the schema-validation layer before the handler runs.
+ */
+export const TOOL_INPUT_SCHEMA = {
+  symbols: z.array(z.string()).optional()
+    .describe('Limit the response to these symbols (BTC, SOL, ETH). Unknown values are ignored. Omit for all three.'),
+  include: z.array(z.string()).optional()
+    .describe('Limit each symbol to these sections (timeframes, strategies, candidates, geometry, account, trace, config). Unknown values are ignored. Omit for the full payload.'),
+  compact: z.boolean().optional()
+    .describe('When true, omit candle arrays and keep only the computed indicator summaries.')
+};
 
 /**
  * Reject after `ms`, so a hung upstream surfaces as a tool error instead of a
@@ -86,13 +102,16 @@ export function summarizeContext(payload, requestId) {
  * @param {Function} [deps.build] - injectable buildScalpContext, for tests
  * @param {string} [deps.requestId]
  * @param {number} [deps.timeoutMs]
+ * @param {Object} [deps.args] - validated tool arguments ({ symbols?, include?, compact? }),
+ *   applied via filterPayload after the build. {} (the default) is a no-op.
  * @returns {Promise<Object>} an MCP CallToolResult
  */
 export async function runGetScalpContext(deps = {}) {
   const {
     build = buildScalpContext,
     requestId = 'unknown',
-    timeoutMs = BUILD_TIMEOUT_MS
+    timeoutMs = BUILD_TIMEOUT_MS,
+    args = {}
   } = deps || {};
 
   let payload;
@@ -122,9 +141,12 @@ export async function runGetScalpContext(deps = {}) {
     };
   }
 
-  const warningCount = Array.isArray(payload.warnings) ? payload.warnings.length : 0;
+  // Filtering (phase 5) happens after the build, never inside it: {} is a no-op, so
+  // dataStatus/warnings below always reflect the same build a bare call would see.
+  const filtered = filterPayload(payload, args || {});
+  const warningCount = Array.isArray(filtered.warnings) ? filtered.warnings.length : 0;
 
-  if (payload.dataStatus === 'unavailable') {
+  if (filtered.dataStatus === 'unavailable') {
     console.error(`[EditTradesMcp] requestId=${requestId} tool=${TOOL_NAME} status=error reason=data_unavailable dataStatus=unavailable warnings=${warningCount}`);
     return {
       isError: true,
@@ -135,11 +157,11 @@ export async function runGetScalpContext(deps = {}) {
     };
   }
 
-  console.log(`[EditTradesMcp] requestId=${requestId} tool=${TOOL_NAME} status=ok dataStatus=${payload.dataStatus} warnings=${warningCount}`);
+  console.log(`[EditTradesMcp] requestId=${requestId} tool=${TOOL_NAME} status=ok dataStatus=${filtered.dataStatus} warnings=${warningCount}`);
 
   return {
-    content: [{ type: 'text', text: summarizeContext(payload, requestId) }],
-    structuredContent: { ...payload, requestId }
+    content: [{ type: 'text', text: summarizeContext(filtered, requestId) }],
+    structuredContent: { ...filtered, requestId }
   };
 }
 
@@ -163,6 +185,7 @@ export function createEditTradesMcpServer(deps = {}) {
     {
       title: 'Get EditTrades scalp context',
       description: TOOL_DESCRIPTION,
+      inputSchema: TOOL_INPUT_SCHEMA,
       annotations: {
         title: 'Get EditTrades scalp context',
         readOnlyHint: true,
@@ -173,7 +196,7 @@ export function createEditTradesMcpServer(deps = {}) {
         openWorldHint: true
       }
     },
-    async () => runGetScalpContext(deps)
+    async (args) => runGetScalpContext({ ...deps, args })
   );
 
   return server;
@@ -200,5 +223,6 @@ export default {
   MCP_SERVER_NAME,
   MCP_SERVER_VERSION,
   TOOL_NAME,
-  TOOL_DESCRIPTION
+  TOOL_DESCRIPTION,
+  TOOL_INPUT_SCHEMA
 };

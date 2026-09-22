@@ -10,7 +10,41 @@ paths:
   /api/scalp-context:
     get:
       operationId: getScalpContext
-      description: Load the latest closed-candle BTC, SOL and ETH market context before answering questions about current setups.
+      description: >-
+        Load the latest closed-candle BTC, SOL and ETH market context before answering
+        questions about current setups. All query parameters are optional; omitting
+        every one of them returns today's full payload unchanged.
+      parameters:
+        - name: symbols
+          in: query
+          required: false
+          description: Comma-separated symbols to return. Unknown values are ignored (noted in warnings). Omit for all three.
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [BTC, SOL, ETH]
+          style: form
+          explode: false
+        - name: include
+          in: query
+          required: false
+          description: >-
+            Comma-separated sections to keep, per symbol plus account/config. Unknown
+            values are ignored (noted in warnings). Omit for the full payload.
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [timeframes, strategies, candidates, geometry, account, trace, config]
+          style: form
+          explode: false
+        - name: compact
+          in: query
+          required: false
+          description: When "1" or "true", omit candle arrays and keep only the computed indicator summaries.
+          schema:
+            type: boolean
       responses:
         "200":
           description: Latest scalp context for tracked symbols.
@@ -201,6 +235,9 @@ components:
         lossAtStopPct:
           description: lossAtStopUsd as a percent of collateralUsd.
           type: [number, "null"]
+        lossAtStopPctOfWallet:
+          description: lossAtStopUsd as a percent of account.margin.usd (the whole wallet), not just collateralUsd.
+          type: [number, "null"]
         collateralUsd:
           description: >-
             min(config risk.defaultMarginUsd, account.margin.usd) - what this position was
@@ -214,6 +251,7 @@ components:
         - suggestedLeverage
         - lossAtStopUsd
         - lossAtStopPct
+        - lossAtStopPctOfWallet
         - collateralUsd
         - reason
     StrategyTraceEntry:
@@ -410,6 +448,55 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/Timeframe"
+    ConfigSnapshot:
+      type: object
+      description: >-
+        Tunable engine constants (config/engine.json), so a caller can interpret risk/
+        reward figures without a second request. Included by default; droppable via
+        the include query param / MCP tool arg.
+      properties:
+        scalp:
+          type: object
+          properties:
+            maxStopDistancePct:
+              type: number
+        riskReward:
+          type: object
+          properties:
+            bySetupType:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: number
+            byStrategy:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: number
+        risk:
+          type: object
+          properties:
+            maxLeverage:
+              type: number
+            maxWalletRiskPct:
+              type: number
+            defaultMarginUsd:
+              type: number
+            liquidationBufferPct:
+              type: number
+            maintenanceMarginPct:
+              type: number
+            feeBps:
+              type: number
+            slippageBps:
+              type: number
+        flag:
+          type: object
+          properties:
+            includeFailed:
+              type: boolean
     ScalpContext:
       type: object
       properties:
@@ -418,6 +505,8 @@ components:
         configVersion:
           type: string
           description: Version of config/engine.json the engine constants came from.
+        config:
+          $ref: "#/components/schemas/ConfigSnapshot"
         generatedAt:
           type: string
           format: date-time

@@ -361,7 +361,10 @@ const REJECTION_PATTERNS = [
   [/no signal returned/i, 'insufficient-data'],
   [/failed validation|wrong side/i, 'invalid-signal'],
   [/strategy evaluation failed|evaluation failed/i, 'evaluation-error'],
-  [/insufficient .*data/i, 'insufficient-data']
+  [/insufficient .*data/i, 'insufficient-data'],
+  // evaluateAllStrategies' final fallback when nothing else fired (services/strategy.js).
+  // Ordered last among the specific patterns, still before the generic catch-all below.
+  [/No clean SWING \/ 4H Trend/i, 'no-setup']
 ];
 
 /**
@@ -544,7 +547,7 @@ export function attachRisk(strategies, account) {
     if (!s || !s.valid) continue;
 
     if (collateralUsd === null) {
-      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, collateralUsd: null, reason: 'account unavailable' };
+      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, lossAtStopPctOfWallet: null, collateralUsd: null, reason: 'account unavailable' };
       continue;
     }
 
@@ -559,7 +562,7 @@ export function attachRisk(strategies, account) {
       : null;
 
     if (stopDistancePct === null || stopDistancePct <= 0) {
-      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, collateralUsd: null, reason: 'invalid entry/stop levels' };
+      s.risk = { maxLeverage: null, suggestedLeverage: null, lossAtStopUsd: null, lossAtStopPct: null, lossAtStopPctOfWallet: null, collateralUsd: null, reason: 'invalid entry/stop levels' };
       continue;
     }
 
@@ -572,17 +575,201 @@ export function attachRisk(strategies, account) {
       maxWalletRiskPct: cfg.maxWalletRiskPct
     }, cfg);
 
+    // lossAtStopPct (above) is percent of collateralUsd - a small sliced-off stake, not
+    // the wallet. lossAtStopPctOfWallet (phase 5, item H) is the same loss measured
+    // against the whole wallet, since lossAtStopPct alone reads as wallet risk and isn't.
+    const lossAtStopPctOfWallet = isFiniteNumber(plan.lossAtStopUsd) && walletMarginUsd > 0
+      ? round2((plan.lossAtStopUsd / walletMarginUsd) * 100)
+      : null;
+
     s.risk = {
       maxLeverage: maxLev,
       suggestedLeverage: plan.leverage,
       lossAtStopUsd: plan.lossAtStopUsd,
       lossAtStopPct: plan.lossAtStopPct,
+      lossAtStopPctOfWallet,
       collateralUsd: round2(collateralUsd),
       reason: null
     };
   }
 
   return strategies;
+}
+
+/**
+ * Build the top-level `config` snapshot (phase 5, item G): the tunable constants a
+ * caller needs to interpret risk/reward figures without a second request. Values
+ * only, straight from ENGINE_CONFIG - nothing here is computed or duplicates logic
+ * that lives elsewhere.
+ * @param {boolean} [includeFailed=ENGINE_CONFIG.flag.includeFailed]
+ * @returns {Object}
+ */
+export function buildConfigSnapshot(includeFailed = ENGINE_CONFIG.flag.includeFailed) {
+  return {
+    scalp: { maxStopDistancePct: ENGINE_CONFIG.scalp.maxStopDistancePct },
+    riskReward: {
+      bySetupType: ENGINE_CONFIG.riskReward.bySetupType,
+      byStrategy: ENGINE_CONFIG.riskReward.byStrategy
+    },
+    risk: {
+      maxLeverage: ENGINE_CONFIG.risk.maxLeverage,
+      maxWalletRiskPct: ENGINE_CONFIG.risk.maxWalletRiskPct,
+      defaultMarginUsd: ENGINE_CONFIG.risk.defaultMarginUsd,
+      liquidationBufferPct: ENGINE_CONFIG.risk.liquidationBufferPct,
+      maintenanceMarginPct: ENGINE_CONFIG.risk.maintenanceMarginPct,
+      feeBps: ENGINE_CONFIG.risk.feeBps,
+      slippageBps: ENGINE_CONFIG.risk.slippageBps
+    },
+    flag: { includeFailed }
+  };
+}
+
+/**
+ * Drop `state: failed` entries from a symbol's published candidateSetups[] (phase 5,
+ * item J). decisionTrace.candidateSetups is built from the unfiltered array before
+ * this runs, so a failed attempt is still visible there as a compact reference string
+ * even when includeFailed is false - only the full candidate geometry is omitted here.
+ * @param {Array<Object>} setups
+ * @param {boolean} includeFailed
+ * @returns {Array<Object>}
+ */
+export function filterFailedCandidateSetups(setups, includeFailed) {
+  if (!Array.isArray(setups)) return [];
+  if (includeFailed) return setups;
+  return setups.filter((s) => (s && s.state) !== 'failed');
+}
+
+// Valid `include` tokens for filterPayload (phase 5, item A + G). 'geometry' is
+// accepted but a no-op today - no per-symbol geometry field exists until phase 7/8.
+export const INCLUDE_TOKENS = ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config'];
+
+const SYMBOL_SECTION_KEYS = {
+  timeframes: 'timeframes',
+  strategies: 'strategies',
+  candidates: 'candidateSetups',
+  trace: 'decisionTrace'
+};
+
+const TOP_LEVEL_SECTION_KEYS = { account: 'account', config: 'config' };
+
+/**
+ * Drop the `candles` array from every timeframe entry, leaving the already-computed
+ * last-value indicators (ema21, ema200, stochRsi, trend, ...) untouched. Never
+ * mutates its input.
+ * @param {Object} timeframesObj
+ * @returns {Object}
+ */
+function compactTimeframes(timeframesObj) {
+  if (!timeframesObj || typeof timeframesObj !== 'object') return timeframesObj;
+  const out = {};
+  for (const [tf, entry] of Object.entries(timeframesObj)) {
+    out[tf] = entry && typeof entry === 'object' ? { ...entry, candles: [] } : entry;
+  }
+  return out;
+}
+
+/**
+ * Narrow one symbol's payload to the requested per-symbol sections, in the field's
+ * original key order. `price`, `source`, `structure`, and `bestSignal` are core
+ * identity fields, not gated by `include`, and always survive.
+ * @param {Object} sym
+ * @param {Set<string>|null} tokens - null means "no narrowing, keep every section"
+ * @param {boolean} compactMode
+ * @returns {Object}
+ */
+function filterSymbol(sym, tokens, compactMode) {
+  if (!sym || typeof sym !== 'object') return sym;
+  const out = {};
+  for (const [key, value] of Object.entries(sym)) {
+    if (key === SYMBOL_SECTION_KEYS.timeframes) {
+      if (tokens && !tokens.has('timeframes')) continue;
+      out.timeframes = compactMode ? compactTimeframes(value) : value;
+    } else if (key === SYMBOL_SECTION_KEYS.strategies) {
+      if (tokens && !tokens.has('strategies')) continue;
+      out.strategies = value;
+    } else if (key === SYMBOL_SECTION_KEYS.candidates) {
+      if (tokens && !tokens.has('candidates')) continue;
+      out.candidateSetups = value;
+    } else if (key === SYMBOL_SECTION_KEYS.trace) {
+      if (tokens && !tokens.has('trace')) continue;
+      out.decisionTrace = value;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Narrow a built scalp-context payload to the requested symbols/sections, and/or drop
+ * candle arrays. Pure: never mutates `payload` or anything inside it. `{}` (or any
+ * combination of empty/absent options) returns a payload deep-equal to the input, in
+ * the same key order, so an unfiltered MCP call or REST request is unaffected.
+ *
+ * Unknown symbols or include values are never an error - they are dropped and one
+ * warning line per kind is appended (to a new warnings array; the input's is untouched).
+ * If every requested symbol (or every requested include token) is unknown, that filter
+ * is treated as absent rather than collapsing the response to nothing.
+ *
+ * @param {Object} payload - buildScalpContext() output
+ * @param {Object} [opts]
+ * @param {Array<string>} [opts.symbols]
+ * @param {Array<string>} [opts.include]
+ * @param {boolean} [opts.compact]
+ * @returns {Object}
+ */
+export function filterPayload(payload, opts = {}) {
+  if (!payload || typeof payload !== 'object') return payload;
+  const { symbols, include, compact } = opts || {};
+
+  const warnings = Array.isArray(payload.warnings) ? [...payload.warnings] : [];
+
+  const allSymbolKeys = payload.symbols && typeof payload.symbols === 'object' ? Object.keys(payload.symbols) : [];
+  let selectedSymbolKeys = allSymbolKeys;
+  if (Array.isArray(symbols) && symbols.length > 0) {
+    const requested = symbols.filter((s) => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim().toUpperCase());
+    const known = [...new Set(requested.filter((s) => allSymbolKeys.includes(s)))];
+    const unknown = [...new Set(requested.filter((s) => !allSymbolKeys.includes(s)))];
+    if (unknown.length > 0) {
+      warnings.push(`payload controls: ignored unknown symbols ${unknown.join(',')}`);
+    }
+    if (known.length > 0) {
+      selectedSymbolKeys = allSymbolKeys.filter((k) => known.includes(k));
+    }
+  }
+
+  let selectedTokens = null; // null = no narrowing, every section stays
+  if (Array.isArray(include) && include.length > 0) {
+    const requested = include.filter((s) => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim().toLowerCase());
+    const known = [...new Set(requested.filter((s) => INCLUDE_TOKENS.includes(s)))];
+    const unknown = [...new Set(requested.filter((s) => !INCLUDE_TOKENS.includes(s)))];
+    if (unknown.length > 0) {
+      warnings.push(`payload controls: ignored unknown include values ${unknown.join(',')}`);
+    }
+    if (known.length > 0) {
+      selectedTokens = new Set(known);
+    }
+  }
+
+  const compactMode = compact === true;
+
+  const symbolsOut = {};
+  for (const key of selectedSymbolKeys) {
+    symbolsOut[key] = filterSymbol(payload.symbols[key], selectedTokens, compactMode);
+  }
+
+  const wantAccount = !selectedTokens || selectedTokens.has(TOP_LEVEL_SECTION_KEYS.account);
+  const wantConfig = !selectedTokens || selectedTokens.has(TOP_LEVEL_SECTION_KEYS.config);
+
+  const out = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (key === 'symbols') out.symbols = symbolsOut;
+    else if (key === 'warnings') out.warnings = warnings;
+    else if (key === 'account') { if (wantAccount) out.account = value; }
+    else if (key === 'config') { if (wantConfig) out.config = value; }
+    else out[key] = value;
+  }
+  return out;
 }
 
 /**
@@ -684,7 +871,8 @@ export async function buildScalpContext(options = {}) {
     timeframes = TIMEFRAMES,
     now = Date.now(),
     fetchCandles = defaultStrictFetch,
-    fetchAccount = getAccountSnapshot
+    fetchAccount = getAccountSnapshot,
+    includeFailed = ENGINE_CONFIG.flag.includeFailed
   } = options || {};
 
   const safeNow = isFiniteNumber(now) ? now : Date.now();
@@ -907,7 +1095,7 @@ export async function buildScalpContext(options = {}) {
       timeframes: tfEntries,
       strategies,
       bestSignal,
-      candidateSetups,
+      candidateSetups: filterFailedCandidateSetups(candidateSetups, includeFailed),
       decisionTrace
     };
   }
@@ -952,8 +1140,9 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.5.0',
+    schemaVersion: '1.6.0',
     configVersion: CONFIG_VERSION,
+    config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
     closedThrough,
     sessionTimezone: 'UTC',
@@ -963,11 +1152,25 @@ export async function buildScalpContext(options = {}) {
     warnings
   };
 
-  return normalizeJson(payload);
+  const normalized = normalizeJson(payload);
+
+  // Payload size guard (phase 5, item D): logged on every build so growth is visible
+  // before geometry (phase 7/8) adds bulk. 80 KB is a soft warning, not a rejection -
+  // filterPayload's compact/include options are how a caller brings it back down.
+  const payloadBytes = Buffer.byteLength(JSON.stringify(normalized), 'utf8');
+  console.log(`[ScalpContext] payload bytes=${payloadBytes}`);
+  if (payloadBytes > 80 * 1024) {
+    console.warn(`[ScalpContext] payload size ${payloadBytes} bytes exceeds the 80KB guard`);
+  }
+
+  return normalized;
 }
 
 export default {
   buildScalpContext,
+  filterPayload,
+  buildConfigSnapshot,
+  filterFailedCandidateSetups,
   SYMBOLS,
   TIMEFRAMES,
   CANDLE_LIMITS

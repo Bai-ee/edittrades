@@ -39,7 +39,11 @@ import {
   buildStrategyTrace,
   buildTimeframeWindow,
   buildDecisionTrace,
-  attachRisk
+  attachRisk,
+  filterPayload,
+  buildConfigSnapshot,
+  filterFailedCandidateSetups,
+  INCLUDE_TOKENS
 } from './services/scalpContext.js';
 
 import { findSwings, buildStructure } from './lib/structure.js';
@@ -1076,6 +1080,42 @@ async function main() {
     assertEqual(classifyRejection('Strategy evaluation failed: TypeError: boom'), 'evaluation-error');
   });
 
+  await test('classifyRejection maps the "No clean SWING / 4H Trend" final fallback to no-setup (phase 5, item I)', () => {
+    const fallback = 'No clean SWING / 4H Trend / 1H Scalp / Micro-Scalp setup. 4H: UPTREND, 1H: UPTREND. HTF bias: long (60% confidence)';
+    assertEqual(classifyRejection(fallback), 'no-setup');
+  });
+
+  await test('SCALP_1H hits the "No clean SWING / 4H Trend" fallback and classifies as no-setup via the real evaluateAllStrategies call path', () => {
+    // 4H trending (so the earlier "4H trend is FLAT" gate never fires) but 1H flat: Scalp's
+    // PRIORITY 4 block (evaluateStrategy, setupType='Scalp') requires a non-flat 1H trend, so
+    // its inner logic is skipped entirely and nothing else in that call applies - it falls
+    // through to evaluateStrategy's PRIORITY 5 fallback, which normalizeToCanonical maps to
+    // SCALP_1H.reason verbatim.
+    const tf = (trend) => ({
+      indicators: {
+        price: { current: 100 },
+        ema: { ema21: 100, ema200: 95 },
+        analysis: { trend, distanceFrom21EMA: 5, pullbackState: 'OVEREXTENDED' },
+        stochRSI: { condition: 'NEUTRAL', k: 50, d: 50, history: [] }
+      },
+      structure: { swingHigh: null, swingLow: null },
+      candleCount: 100
+    });
+    const mtf = {
+      '3d': tf('UPTREND'), '1d': tf('UPTREND'), '4h': tf('UPTREND'),
+      '1h': tf('FLAT'), '15m': tf('FLAT'), '5m': tf('FLAT'), '1m': tf('FLAT')
+    };
+
+    const result = evaluateAllStrategies('NOSETUPUSDT', mtf, 'STANDARD');
+    assertEqual(result.strategies.SCALP_1H.valid, false, 'test fixture must produce a rejected SCALP_1H setup');
+    assert(/No clean SWING \/ 4H Trend/i.test(result.strategies.SCALP_1H.reason), `expected the "No clean SWING..." fallback reason, got: ${result.strategies.SCALP_1H.reason}`);
+    assertEqual(classifyRejection(result.strategies.SCALP_1H.reason), 'no-setup');
+
+    const trace = buildStrategyTrace(result.strategies);
+    const scalpEntry = trace.find((e) => e.name === 'SCALP_1H');
+    assertEqual(scalpEntry.rejectedAt, 'no-setup', `expected rejectedAt "no-setup", got: ${JSON.stringify(scalpEntry.rejectedAt)}`);
+  });
+
   // Minimal multiTimeframeData that satisfies the SCALP_1H guardrails in
   // evaluateStrategy: 1h trending, 1h/15m near the 21 EMA and in the entry zone,
   // 15m Stoch RSI aligned, and a 4h structural swing far enough away to produce
@@ -1230,6 +1270,18 @@ async function main() {
     }
   });
 
+  await test('risk.lossAtStopPctOfWallet is measured against the whole wallet, not collateralUsd (phase 5, item H)', () => {
+    const s = riskAvailableResult.symbols[RISK_FIXTURE_SYMBOL].strategies;
+    const walletMarginUsd = 1000; // fakeAccountWithMargin(1000)
+    for (const [name, entry] of Object.entries(s)) {
+      if (!entry.valid) continue;
+      assert(Number.isFinite(entry.risk.lossAtStopPctOfWallet), `${name}: risk.lossAtStopPctOfWallet must be finite when margin is available`);
+      const expected = Math.round(((entry.risk.lossAtStopUsd / walletMarginUsd) * 100) * 100) / 100;
+      assertEqual(entry.risk.lossAtStopPctOfWallet, expected, `${name}: lossAtStopPctOfWallet must be lossAtStopUsd / whole wallet margin, not collateralUsd`);
+      assert(entry.risk.lossAtStopPctOfWallet < entry.risk.lossAtStopPct, `${name}: measured against the $1000 wallet, the wallet-relative figure must be smaller than the collateral-relative one`);
+    }
+  });
+
   await test('account unavailable: every valid strategy carries risk:null-shaped with a reason, invalid strategies still get none', async () => {
     const result = await buildScalpContext({
       symbols: [RISK_FIXTURE_SYMBOL],
@@ -1250,6 +1302,7 @@ async function main() {
       assertEqual(entry.risk.suggestedLeverage, null, `${name}: suggestedLeverage must be null without margin`);
       assertEqual(entry.risk.lossAtStopUsd, null, `${name}: lossAtStopUsd must be null without margin`);
       assertEqual(entry.risk.lossAtStopPct, null, `${name}: lossAtStopPct must be null without margin`);
+      assertEqual(entry.risk.lossAtStopPctOfWallet, null, `${name}: lossAtStopPctOfWallet must be null without margin`);
       assertEqual(entry.risk.collateralUsd, null, `${name}: collateralUsd must be null without margin`);
       assertEqual(entry.risk.reason, 'account unavailable', `${name}: expected the account-unavailable reason`);
     }
@@ -1292,6 +1345,139 @@ async function main() {
     attachRisk(strategies, { status: 'available', margin: { usd: 5000 } });
     const wrongBasisCap = Math.floor(((ENGINE_CONFIG.risk.maxWalletRiskPct / 100) * ENGINE_CONFIG.risk.defaultMarginUsd) / (0.1 / 100 * ENGINE_CONFIG.risk.defaultMarginUsd));
     assert(strategies.TIGHT.risk.suggestedLeverage > wrongBasisCap, `expected the wallet-total basis to allow more leverage than the collateral-only basis (${wrongBasisCap}), got ${strategies.TIGHT.risk.suggestedLeverage}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // 10) payload controls (filterPayload, buildConfigSnapshot, phase 5)
+  // -------------------------------------------------------------------------
+  console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
+
+  await test('buildScalpContext (case 6) carries schemaVersion 1.6.0 and a config snapshot', () => {
+    assert(case6Result, 'case 6 result not available');
+    assertEqual(case6Result.schemaVersion, '1.6.0', 'schemaVersion must be bumped to 1.6.0');
+    assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
+    assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
+    assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
+    assertEqual(case6Result.config.flag.includeFailed, ENGINE_CONFIG.flag.includeFailed, 'config.flag.includeFailed must mirror ENGINE_CONFIG by default');
+  });
+
+  await test('buildConfigSnapshot stays within the 600 byte budget (item G)', () => {
+    const bytes = Buffer.byteLength(JSON.stringify(buildConfigSnapshot()), 'utf8');
+    assert(bytes <= 600, `config snapshot is ${bytes} bytes, exceeds the 600 byte budget`);
+  });
+
+  await test('buildConfigSnapshot(includeFailed) reflects the value passed in, not just the static config', () => {
+    assertEqual(buildConfigSnapshot(true).flag.includeFailed, true);
+    assertEqual(buildConfigSnapshot(false).flag.includeFailed, false);
+  });
+
+  await test('INCLUDE_TOKENS is the closed set of valid include values', () => {
+    for (const token of ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config']) {
+      assert(INCLUDE_TOKENS.includes(token), `INCLUDE_TOKENS is missing "${token}"`);
+    }
+  });
+
+  await test('filterFailedCandidateSetups drops state:failed by default, keeps everything with includeFailed:true', () => {
+    const setups = [{ state: 'failed', timeframe: '1m' }, { state: 'confirmed', timeframe: '1m' }, { state: 'forming', timeframe: '5m' }];
+    const filtered = filterFailedCandidateSetups(setups, false);
+    assertEqual(filtered.length, 2, 'includeFailed:false must drop only the failed entry');
+    assert(filtered.every((s) => s.state !== 'failed'), 'a failed entry survived includeFailed:false');
+
+    const unfiltered = filterFailedCandidateSetups(setups, true);
+    assertEqual(unfiltered.length, 3, 'includeFailed:true must keep every entry, including failed');
+    assert(unfiltered === setups || deepEqual(unfiltered, setups), 'includeFailed:true must not drop or reorder anything');
+  });
+
+  await test('filterFailedCandidateSetups never mutates its input', () => {
+    const setups = [{ state: 'failed' }, { state: 'confirmed' }];
+    const before = JSON.stringify(setups);
+    filterFailedCandidateSetups(setups, false);
+    assertEqual(JSON.stringify(setups), before, 'the input array/objects must be untouched');
+  });
+
+  await test('filterPayload({}) is deep-equal to an unfiltered build, key order and all', () => {
+    assert(case6Result, 'case 6 result not available');
+    const before = JSON.stringify(case6Result);
+    const filtered = filterPayload(case6Result, {});
+    assertEqual(JSON.stringify(filtered), before, 'filterPayload({}) must be byte-identical to the unfiltered payload');
+    assertEqual(JSON.stringify(case6Result), before, 'filterPayload must not mutate its input');
+  });
+
+  await test('filterPayload(payload, undefined opts) is also a no-op', () => {
+    assert(case6Result, 'case 6 result not available');
+    const before = JSON.stringify(case6Result);
+    const filtered = filterPayload(case6Result);
+    assertEqual(JSON.stringify(filtered), before, 'omitting opts entirely must behave like {}');
+  });
+
+  await test('filterPayload never mutates the input payload (symbols/include/compact all set)', () => {
+    assert(case6Result, 'case 6 result not available');
+    const before = JSON.stringify(case6Result);
+    filterPayload(case6Result, { symbols: [HEALTHY_A, 'BOGUS'], include: ['timeframes', 'bogus'], compact: true });
+    assertEqual(JSON.stringify(case6Result), before, 'a fully-loaded filter call must not mutate the input');
+  });
+
+  await test('filterPayload symbols: narrows to the requested symbol only', () => {
+    assert(case6Result, 'case 6 result not available');
+    const filtered = filterPayload(case6Result, { symbols: [HEALTHY_A] });
+    assertEqual(Object.keys(filtered.symbols).join(','), HEALTHY_A, 'expected only the requested symbol');
+  });
+
+  await test('filterPayload symbols: lowercase input still matches (case-insensitive)', () => {
+    assert(case6Result, 'case 6 result not available');
+    const filtered = filterPayload(case6Result, { symbols: [HEALTHY_A.toLowerCase()] });
+    assertEqual(Object.keys(filtered.symbols).join(','), HEALTHY_A, 'a lowercase symbol must still match');
+  });
+
+  await test('filterPayload symbols: an unknown symbol is ignored, warned about, never an error', () => {
+    assert(case6Result, 'case 6 result not available');
+    const filtered = filterPayload(case6Result, { symbols: ['NOPE'] });
+    assertEqual(Object.keys(filtered.symbols).sort().join(','), [HEALTHY_A, HEALTHY_B].sort().join(','), 'an all-unknown symbols filter must fall back to the full set');
+    assert(filtered.warnings.some((w) => w.includes('NOPE')), 'expected a warning naming the ignored symbol');
+    assertEqual(filtered.warnings.length, case6Result.warnings.length + 1, 'exactly one warning line must be added for the ignored symbol');
+  });
+
+  await test('filterPayload include: narrows per-symbol sections, core fields survive, top level untouched by default', () => {
+    assert(case6Result, 'case 6 result not available');
+    const filtered = filterPayload(case6Result, { include: ['strategies'] });
+    const sym = filtered.symbols[HEALTHY_A];
+    assert(!('timeframes' in sym), 'timeframes must be dropped');
+    assert(!('candidateSetups' in sym), 'candidateSetups must be dropped');
+    assert(!('decisionTrace' in sym), 'decisionTrace must be dropped');
+    assert('strategies' in sym, 'strategies must survive');
+    assert('price' in sym && 'source' in sym && 'structure' in sym && 'bestSignal' in sym, 'core identity fields must survive regardless of include');
+  });
+
+  await test('filterPayload include: "account" and "config" gate the top-level blocks', () => {
+    assert(case6Result, 'case 6 result not available');
+    const filtered = filterPayload(case6Result, { include: ['strategies'] });
+    assert(!('account' in filtered), 'account must be dropped when include narrows to sections that exclude it');
+    assert(!('config' in filtered), 'config must be dropped when include narrows to sections that exclude it');
+
+    const withAccount = filterPayload(case6Result, { include: ['strategies', 'account', 'config'] });
+    assert('account' in withAccount, 'account must survive when explicitly included');
+    assert('config' in withAccount, 'config must survive when explicitly included');
+  });
+
+  await test('filterPayload include: an unknown value is ignored, warned about, and the payload stays full', () => {
+    assert(case6Result, 'case 6 result not available');
+    const filtered = filterPayload(case6Result, { include: ['bogus'] });
+    assert('timeframes' in filtered.symbols[HEALTHY_A], 'an all-unknown include filter must fall back to the full payload');
+    assert(filtered.warnings.some((w) => w.includes('bogus')), 'expected a warning naming the ignored include value');
+  });
+
+  await test('filterPayload compact: drops candles only, every other timeframe field survives', () => {
+    assert(case6Result, 'case 6 result not available');
+    const filtered = filterPayload(case6Result, { compact: true });
+    for (const tf of timeframesList) {
+      const original = case6Result.symbols[HEALTHY_A].timeframes[tf];
+      const compacted = filtered.symbols[HEALTHY_A].timeframes[tf];
+      assertEqual(compacted.candles.length, 0, `${tf}: compact must drop candles`);
+      assertEqual(compacted.ema21, original.ema21, `${tf}: compact must not touch ema21`);
+      assertEqual(compacted.trend, original.trend, `${tf}: compact must not touch trend`);
+      assertEqual(compacted.stochRsi.k, original.stochRsi.k, `${tf}: compact must not touch stochRsi`);
+      assertEqual(compacted.candleCount, original.candleCount, `${tf}: compact must not touch candleCount`);
+    }
   });
 
   // -------------------------------------------------------------------------

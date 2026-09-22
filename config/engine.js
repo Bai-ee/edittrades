@@ -39,6 +39,9 @@
  *     own collateral, used by stopHierarchy when the caller supplies no lossBudgetUsd.
  *
  * `flag` block (phase 4, `lib/patternDetector.js`), one line each:
+ *   - includeFailed (false, phase 5): whether `candidateSetups[]` publishes `state:
+ *     failed` entries. `decisionTrace.candidateSetups` always keeps them regardless -
+ *     see `filterFailedCandidateSetups` in services/scalpContext.js.
  *   - timeframes (1m, 3m, 5m): where the detector runs; the plan's scalp timeframes.
  *   - atrPeriod (14): Wilder's standard ATR length, the unit for impulse and chase.
  *   - minImpulseAtr (2.0): an impulse must span at least 2 ATR to be a pole, not noise.
