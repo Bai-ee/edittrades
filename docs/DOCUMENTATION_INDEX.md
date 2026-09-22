@@ -9,6 +9,7 @@
 ## Quick Navigation
 
 ### 🔌 ChatGPT / MCP Connector
+- **[MASTER_PLAN_ENGINE_REFINEMENT.md](./MASTER_PLAN_ENGINE_REFINEMENT.md)** - Phased plan: config, decisionTrace, risk engine, flag detector, geometry engine; master prompt for the orchestrating agent
 - **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** - Read-only MCP tool, REST Action parity, payload schema 1.1.0, scalp stop-distance guard, prod verification
 
 ### 🏗️ Architecture & Pipeline
