@@ -56,20 +56,20 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 1 | `config/engine.json` + `configVersion` | 1 h | low | ✅ done 2026-09-22 → `config/engine.json`, `config/engine.js`, `npm run test:config` |
 | 2 | `decisionTrace` per symbol | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`buildDecisionTrace`, `buildStrategyTrace`, `buildTimeframeWindow`, `classifyRejection`), `openapi/scalp-context.yaml`, `npm run test:scalp` |
 | 3 | Risk engine: leverage cap from stop distance, position risk, stop hierarchy, Miss 002 fixture | 2–3 h | low | ✅ done 2026-09-22 → `lib/riskEngine.js`, `config/engine.json` (`risk`), `services/scalpContext.js` (`attachRisk`), `npm run test:risk` |
-| 3b | Read-only `account.positions[]` via throwaway-wallet SDK reads (existing provider path is signer-bound; see section) | 4–6 h | medium |
+| 3b | Read-only `account.positions[]` via throwaway-wallet SDK reads (existing provider path is signer-bound; see section) | 4–6 h | medium | ⏸ deferred 2026-09-22 (later enhancement; see section) |
 | 4 | `candidateSetups[]` + 1m/5m flag detector, long AND short, mirrored fixtures | 3–4 h | medium | ✅ done 2026-09-22 → `lib/patternDetector.js`, `config/engine.json` (`flag`), `services/scalpContext.js` (`candidateSetups`), `test/fixtures/flagFixtures.js`, `npm run test:pattern` |
 | 6 | Assert compute depth (already fetching 500; test + duration log) | 15 min | none | ✅ done 2026-09-22 (item F deferred to Phase 7) | ✅ done 2026-09-22 → `test-scalp-context.js` (compute-window assertion, production-sized fixture), `services/scalpContext.js` (build-duration log), `config/engine.json` (`configVersion` 2026.09.22-3 → -4, correcting Phase 5's unbumped `flag.includeFailed` addition) |
 | 5 | Payload controls + payload hygiene: tool args `symbols`, `include`, `compact`; config snapshot; `lossAtStopPctOfWallet`; no-setup classifier; `flag.includeFailed` | 1–2 h | low | ✅ done 2026-09-22 → `services/scalpContext.js` (`filterPayload`, `buildConfigSnapshot`, `filterFailedCandidateSetups`), `services/editTradesMcp.js` (`TOOL_INPUT_SCHEMA`), `api/scalp-context.js` (query parse), `config/engine.json` (`flag.includeFailed`), `openapi/scalp-context.yaml`, schema 1.5.0 → 1.6.0, `npm run test:scalp` / `npm run test:mcp` |
 | 7 | Geometry A: pivots, horizontal zones, ATR, room-to-level | 1 day | medium | ✅ done 2026-09-22 → `lib/geometry.js`, `lib/patternDetector.js` (`wilderAtr` → shared `calculateATR`, `flag.wickTolerancePct` → `flag.wickToleranceAtr`), `config/engine.json` (`geometry`, configVersion -4 → -5), `services/scalpContext.js` (`geometryContext`, `decisionTrace.geometry`, `attachCandidateRisk` = Phase 6 item F), `openapi/scalp-context.yaml`, schema 1.6.0 → 1.7.0, `npm run test:geometry` |
 | 8 | Geometry B: diagonal lines, confluence scoring | 1–2 days | high | ✅ done 2026-09-22 → `lib/geometry.js` (`fitDiagonal`, `channel`, `confluenceZones`, `buildGeometryB`), `config/engine.json` (geometry B keys, `geometry.timeframes` drops 5m, configVersion -5 → -6), `services/scalpContext.js` (B fields on `geometryContext`), `openapi/scalp-context.yaml` (Diagonal, Channel, ConfluenceZone), schema 1.7.0 → 1.8.0, `test/fixtures/geometryPhase7Snapshot.json`, `npm run test:geometry` |
-| 8c | Trade journal, minimal: Blob file, one write op with its own key, account.journal with basic stats | 1 h | low |
+| 8c | Trade journal, minimal: Blob file, one write op with its own key, account.journal with basic stats | 1 h | low | ⏸ deferred 2026-09-22 (later enhancement; see section) |
 | 8b | Confirmation chart: one server-rendered PNG, on demand only | 1 day | medium | ✅ done 2026-09-22 → `lib/chartRender.js`, `pureimage` 0.4.20, `assets/fonts/IBMPlexMono-Regular.ttf` + `OFL.txt`, `services/editTradesMcp.js` (`chart` arg, image block), `api/scalp-context.js` (`?chart`, image/png), `services/scalpContext.js` (`chart.onSeries` EMA hook, payload unchanged), `openapi/scalp-context.yaml`, no schema bump, `npm run test:chart` |
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium | ✅ done 2026-09-22 → `lib/patternLifecycle.js` (snap, coil, visual gate), `lib/patternDetector.js` (`detectFlagLifecycle`), `lib/geometry.js` (`nearMissDiagonals`), `config/engine.json` (`lifecycle`, configVersion -6 → -7), `services/scalpContext.js`, `openapi/scalp-context.yaml` (CandidateSetup coil fields, LevelSource, DecisionTrace gate), schema 1.8.0 → 1.9.0, `test/fixtures/flagFixtures.js` (`invalidationClose`, `staleBreak`), `npm run test:pattern` / `npm run test:scalp` |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium | ✅ done 2026-09-22 → `lib/biasMatrix.js`, `lib/patternLifecycle.js` (`nearMissGate`, visualTarget preference), `services/scalpContext.js` (`includeBias`, `wantsBias`, `decisionTrace.bias`, failed trace token), `api/scalp-context.js` + `services/editTradesMcp.js` (include `bias` → `includeBias`), `config/engine.json` (`bias`, `lifecycle.nearMissGate`, configVersion -8 → -9), `openapi/scalp-context.yaml` (BiasEntry, Alignment, DecisionInputs, DirectionalTriple), schema 1.9.0 → 1.10.0, `npm run test:bias` |
 | 10 | Replay harness + miss-log fixtures | 1 day | low | ✅ done 2026-09-22 → `scripts/replay.js`, `scripts/replay-metrics.js`, `test/fixtures/misses/` (MISS_001, MISS_002), `test/fixtures/replayHistories.js`, `test/fixtures/geometryFixtures.js` (moved from `test-geometry.js`), `config/engine.json` (`replay.minComputeCandles`, configVersion -7 → -8), no schema bump, `npm run test:replay` |
 | 11 | GPT instruction trim + payload headroom | 1 h | low | ✅ done 2026-09-22 → `docs/GPT_INSTRUCTIONS.md` (source of truth, field table, GPT test sheet, change log; 7990 → 7836 UTF-16 units), `scripts/check-gpt-instructions.js`, `npm run check:gpt`, `lib/geometry.js` (`geometryTraceSummary`: 2-decimal rounding, dropped `na` tokens), `services/scalpContext.js` (`buildTimeframeWindow` drops `from`), `openapi/scalp-context.yaml`, no schema bump, 729 bytes recovered on the default 3-symbol payload (target ≥ 600), `npm run test:geometry` / `npm run test:scalp` |
 
-Execution order (updated 2026-09-22): 0–10, 8b, 9b and 11 done → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
+Execution order (updated 2026-09-22): 0–11, 8b and 9b done. 8c (journal) and 3b (positions) are deferred as later enhancements by the user's decision; no phase is active. Next step is deploying Phase 11.
 
 ---
 
@@ -164,6 +164,8 @@ Acceptance: at 100x request with a 3% stop, payload shows capped leverage and th
 ---
 
 ## Phase 3b — Read-only `account.positions[]`
+
+> **Deferred 2026-09-22 (later enhancement).** User is not tracking wallet positions for now. Finding to carry forward: the tracked wallet trades Jupiter perps, which this section skips, so the Drift/Mango design below would return nothing useful. When revived, build Jupiter first: derive the Position PDAs (seeds `position`, owner, pool, custody, collateralCustody, side; long SOL/ETH/BTC with same-asset collateral, short with USDC and USDT) and fetch all nine in one `getMultipleAccountsInfo` call, decoding with `services/jup-perps-wrapper.cjs`. Copy the derivation; never import `services/jupiterPerps.js` (it imports `walletManager.js`).
 
 Objective: the risk engine works on real positions, not user-typed numbers. Miss 002 came from the GPT reasoning about a position the API never saw.
 
@@ -327,6 +329,8 @@ Done 2026-09-22. As built:
 ---
 
 ## Phase 8c — Trade journal (minimal, four items)
+
+> **Deferred 2026-09-22 (later enhancement).** Parked because it adds the first write path, a Blob store and an Action schema re-paste to a working GPT. If revived: keep the default payload to open trades + performance (closed list only under include "journal"; ~1.2 KB headroom fits about 4–5 closed records), and settle how the GPT sends a separate journal key (one API key per Action).
 
 Objective: the user takes a position, it is written to a ledger, the GPT reads it back. Nothing confirms it, nothing reasons about it.
 
