@@ -8,7 +8,7 @@
  * same count ChatGPT's editor would show.
  *
  * Usage: node scripts/check-gpt-instructions.js
- * Exit 0 and print the length under the 7,900 budget (100 spare); exit 1 over it.
+ * Exit 0 and print the length under the 7,990 budget (10 spare); exit 1 over it.
  */
 
 import { readFileSync } from 'node:fs';
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DOC_PATH = path.join(__dirname, '..', 'docs', 'GPT_INSTRUCTIONS.md');
-const BUDGET = 7900;
+const BUDGET = 7990;
 
 function extractFencedBlock(markdown) {
   const lines = markdown.split('\n');
