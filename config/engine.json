@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.23-1",
+  "configVersion": "2026.09.23-4",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -155,7 +155,30 @@
     "topDownWeights": { "1w": 4, "1d": 3, "4h": 2, "1h": 1 },
     "above200Weights": { "1m": 0.1, "3m": 0.2, "5m": 0.3, "15m": 0.5, "1h": 1, "4h": 2, "1d": 3 },
     "weeklyMinWeeksForEma21": 21,
-    "weeklySlopeLookbackWeeks": 3
+    "weeklySlopeLookbackWeeks": 3,
+    "policyVersion": "flag-21-decision-v1",
+    "flagTimeframes": ["1m", "3m", "5m", "15m", "1h", "4h"],
+    "maPullDistancePct": 0.75,
+    "channelEdgePct": 20,
+    "divergenceLookbackPivots": 5,
+    "divergenceMaxAgeCandles": 80,
+    "decisionWeights": {
+      "readiness": 35,
+      "pattern": 20,
+      "topDown": 15,
+      "maContext": 10,
+      "channel": 10,
+      "divergence": 10
+    }
+  },
+
+  "freshness": {
+    "graceMs": 5000
+  },
+
+  "flagPlan": {
+    "minNetRR": 3.0,
+    "entryToleranceAtr": 0.1
   },
 
   "thresholds": {

@@ -20,7 +20,7 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { buildScalpContext, filterPayload, wantsBias } from './scalpContext.js';
+import { buildScalpContext, filterPayload, wantsBias, wantsModel } from './scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 
 export const MCP_SERVER_NAME = 'edittrades';
@@ -129,12 +129,16 @@ export async function runGetScalpContext(deps = {}) {
     return { isError: true, content: [{ type: 'text', text: `EditTrades chart rejected: ${err.message} requestId=${requestId}` }] };
   }
   let chartSeries;
-  // Bias objects (phase 9b) are opt-in: build() is called exactly as before unless
-  // include lists "bias".
-  const biasOpt = wantsBias((args || {}).include) ? { includeBias: true } : null;
+  // Bias/model objects are opt-in: build() is called exactly as before unless include
+  // lists them.
+  const buildOpts = {
+    ...(wantsBias((args || {}).include) ? { includeBias: true } : {}),
+    ...(wantsModel((args || {}).include) ? { includeModel: true } : {})
+  };
+  const optBuild = Object.keys(buildOpts).length > 0 ? buildOpts : null;
   const buildCall = chartRequest
-    ? () => build({ ...biasOpt, chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
-    : () => (biasOpt ? build(biasOpt) : build());
+    ? () => build({ ...buildOpts, chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
+    : () => (optBuild ? build(optBuild) : build());
 
   let payload;
   try {

@@ -162,6 +162,7 @@ export function buildAt(symbol, historyByTf, cutMs, timeframes = TIMEFRAMES, onS
     timeframes,
     now: cutMs,
     includeFailed: true, // failed candidates carry failReason, which the metrics read
+    slimFailed: false, // metrics track failed candidates by durationCandles (startedAt)
     fetchCandles: makeReplayFetch(historyByTf, cutMs, onServe),
     fetchAccount: async () => REPLAY_ACCOUNT
   }));
@@ -218,7 +219,11 @@ export function toReplayLine(payload, symbol, cutMs) {
     geometry: t.geometry,
     confluence: Object.entries(s.geometryContext || {}).flatMap(([tf, g]) => ((g && g.confluenceZones) || [])
       .map((z) => `${tf}:${z.components.join('+')}:${z.distancePct}`)),
-    gate: { needsVisualConfirmation: t.needsVisualConfirmation, codes: t.unresolvedGeometry }
+    gate: { needsVisualConfirmation: t.needsVisualConfirmation, codes: t.unresolvedGeometry },
+    // Signal-reliability minimum plan, work package 3: the exact selected flag trade
+    // plan at this close, verbatim (or null) - scripts/replay-outcomes.js walks it
+    // forward exactly as published, never a re-derived candidate.
+    flagTradePlan: s.flagTradePlan || null
   };
 }
 

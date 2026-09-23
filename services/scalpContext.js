@@ -18,6 +18,9 @@ import { DIRECTIONS, detectFlagLifecycle, measuredMoveFor } from '../lib/pattern
 import { buildGeometryContext, buildGeometryB, geometryTraceSummary, nearMissDiagonals, swingPivots } from '../lib/geometry.js';
 import { geometryTimeframeFor, snapCandidateLevels, resolveCoils, buildVisualGate, identifyCandidate } from '../lib/patternLifecycle.js';
 import { attachQualification } from '../lib/candidateQualifier.js';
+import { buildFlagTradePlan } from '../lib/flagTradePlan.js';
+import { buildModelEvidence } from '../lib/modelEvidence.js';
+import { buildFlagRecommendation, compactRecommendation } from '../lib/flagRecommendation.js';
 import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
 import { buildWeeklyLean, buildTopDown, buildAboveBelow200 } from '../lib/topDown.js';
 
@@ -31,12 +34,14 @@ export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 // (F1 items 1-5) legitimately surface more candidates, each carrying F1's own new
 // identity/geometry/qualification fields (items 6-8), and the two together pushed the
 // live default payload past 79 KB. 20 candles is still 20 minutes of 1m history.
+// 15m/1h 24 -> 20 in the review fix pass (2026-09-23, config 2026.09.23-4) for the same
+// 79,000-byte default cap (the engine still computes on the full closed window).
 export const CANDLE_LIMITS = {
   '1m': 20,
   '3m': 20,
   '5m': 20,
-  '15m': 24,
-  '1h': 24,
+  '15m': 20,
+  '1h': 20,
   '4h': 20,
   '1d': 10
 };
@@ -758,6 +763,27 @@ export function filterFailedCandidateSetups(setups, includeFailed, opts = {}) {
  * @param {Array<Object>} setups
  * @returns {Array<Object>} new array; input is never mutated
  */
+// Review fix 6b: a failed candidate is history, not a setup - the default payload keeps
+// only what identifies it and why it failed. decisionTrace tokens are built from the
+// full objects before this runs, so they are unchanged.
+const FAILED_CANDIDATE_KEYS = ['timeframe', 'type', 'direction', 'state', 'failReason', 'failedAt', 'candidateId', 'breakoutLevel', 'invalidation', 'confidence', 'qual'];
+
+/**
+ * Slim `state: 'failed'` candidates to FAILED_CANDIDATE_KEYS; every other state passes
+ * through unchanged. Pure: returns new objects, never mutates.
+ * @param {Array<Object>} setups
+ * @returns {Array<Object>}
+ */
+export function slimFailedCandidates(setups) {
+  if (!Array.isArray(setups)) return setups;
+  return setups.map((c) => {
+    if (!c || c.state !== 'failed') return c;
+    const out = {};
+    for (const key of FAILED_CANDIDATE_KEYS) if (key in c) out[key] = c[key];
+    return out;
+  });
+}
+
 export function stripPoleHeight(setups) {
   if (!Array.isArray(setups)) return setups;
   return setups.map(({ poleHeight, ...rest }) => rest);
@@ -765,7 +791,7 @@ export function stripPoleHeight(setups) {
 
 // Valid `include` tokens for filterPayload (phase 5, item A + G). 'geometry' gates
 // symbols.<SYM>.geometryContext (phase 7).
-export const INCLUDE_TOKENS = ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config', 'bias'];
+export const INCLUDE_TOKENS = ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config', 'bias', 'model'];
 
 /** Phase 9b: symbol keys carried only when the build ran with includeBias. */
 const BIAS_SECTION_KEYS = ['biasMatrix', 'alignment', 'decisionInputs', 'topDown'];
@@ -781,12 +807,17 @@ export function wantsBias(include) {
   return Array.isArray(include) && include.some((s) => typeof s === 'string' && s.trim().toLowerCase() === 'bias');
 }
 
+export function wantsModel(include) {
+  return Array.isArray(include) && include.some((s) => typeof s === 'string' && s.trim().toLowerCase() === 'model');
+}
+
 const SYMBOL_SECTION_KEYS = {
   timeframes: 'timeframes',
   strategies: 'strategies',
   candidates: 'candidateSetups',
   geometry: 'geometryContext',
-  trace: 'decisionTrace'
+  trace: 'decisionTrace',
+  model: 'model'
 };
 
 const TOP_LEVEL_SECTION_KEYS = { account: 'account', config: 'config' };
@@ -835,6 +866,9 @@ function filterSymbol(sym, tokens, compactMode) {
     } else if (key === SYMBOL_SECTION_KEYS.trace) {
       if (tokens && !tokens.has('trace')) continue;
       out.decisionTrace = value;
+    } else if (key === SYMBOL_SECTION_KEYS.model) {
+      if (tokens && !tokens.has('model')) continue;
+      out.model = value;
     } else if (BIAS_SECTION_KEYS.includes(key)) {
       if (tokens && !tokens.has('bias')) continue;
       out[key] = value;
@@ -1010,6 +1044,12 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  * @param {Function} [options.fetchAccount] - injectable wallet snapshot reader, for tests
  * @param {boolean} [options.includeBias=false] - phase 9b: attach biasMatrix, alignment and
  *   decisionInputs per symbol. decisionTrace.bias is always present.
+ * @param {boolean} [options.includeModel=false] - publish bulky model evidence (and the
+ *   full recommendation record as model.recommendation). The compact flagRecommendation
+ *   is always present.
+ * @param {boolean} [options.slimFailed=true] - slim failed candidates to their identity
+ *   and failReason (review fix 6b). Only the replay harness passes false, because its
+ *   metrics track a failed candidate by its full lifecycle fields.
  * @param {{symbol:string, timeframe:string, onSeries:Function}|null} [options.chart] - phase 8b:
  *   receives `{ ema21, ema200 }` aligned to that timeframe's published candles. Payload unchanged.
  * @returns {Promise<Object>} normalized JSON-safe payload
@@ -1024,6 +1064,8 @@ export async function buildScalpContext(options = {}) {
     fetchAccount = getAccountSnapshot,
     includeFailed = ENGINE_CONFIG.flag.includeFailed,
     includeBias = false,
+    includeModel = false,
+    slimFailed = true,
     chart = null
   } = options || {};
 
@@ -1099,6 +1141,7 @@ export async function buildScalpContext(options = {}) {
     const mtfForStrategy = {};
     const tfProviders = [];
     let candidateSetups = [];
+    let modelCandidateSetups = [];
     const geometryContext = {};
     // Per candidate timeframe { price, atr } (phase 9): snap tolerance and the coil
     // gate measure in the candidate timeframe's ATR. Internal, never published.
@@ -1197,7 +1240,7 @@ export async function buildScalpContext(options = {}) {
 
       // Flag candidates: a separate channel from strategies, never an input to them.
       // A detector fault is logged, not warned, so it cannot move dataStatus.
-      if (ENGINE_CONFIG.flag.timeframes.includes(tf)) {
+      if (ENGINE_CONFIG.model.flagTimeframes.includes(tf)) {
         try {
           const flagInput = {
             candles: closed,
@@ -1210,11 +1253,13 @@ export async function buildScalpContext(options = {}) {
             // F1 item 6: stable identity, derived from this request's own candle window
             // (candidateId, firstDetectedAt, impulseStart, impulseEnd, failedAt); drops
             // the raw candle-count offsets detectFlagLifecycle carried them in as.
-            candidateSetups.push(identifyCandidate({ timeframe: tf, ...found.candidate, ema200Side }, {
+            const identified = identifyCandidate({ timeframe: tf, ...found.candidate, ema200Side }, {
               symbol,
               closedThroughIso: tfEntries[tf].closedThrough,
               intervalMs: INTERVAL_MS[tf]
-            }));
+            });
+            modelCandidateSetups.push(identified);
+            if (ENGINE_CONFIG.flag.timeframes.includes(tf)) candidateSetups.push(identified);
             marketByTf[tf] = { price: lastClose, atr: found.atr };
           }
         } catch (err) {
@@ -1336,6 +1381,17 @@ export async function buildScalpContext(options = {}) {
       });
       candidateSetups = [...new Set(snapped.map((c) => c.timeframe))]
         .flatMap((tf) => resolveCoils(snapped.filter((c) => c.timeframe === tf)));
+      modelCandidateSetups = modelCandidateSetups.map((c) => {
+        const s = snapCandidateLevels(
+          c,
+          geometryContext[geometryTimeframeFor(c.timeframe)] || null,
+          marketByTf[c.timeframe] ? marketByTf[c.timeframe].atr : null
+        );
+        if (s.type !== 'flag' || !isFiniteNumber(s.poleHeight)) return s;
+        const sign = s.direction === 'short' ? -1 : 1;
+        const { measuredTarget, measuredRR } = measuredMoveFor({ breakoutLevel: s.breakoutLevel, invalidation: s.invalidation, poleHeight: s.poleHeight, sign });
+        return { ...s, measuredTarget, measuredRR };
+      });
       visualGate = buildVisualGate({ symbol, candidates: candidateSetups, geometryByTf: geometryContext, nearMissByTf, marketByTf });
     } catch (err) {
       console.warn(`[ScalpContext] ${symbol}: pattern lifecycle failed - ${err.message}`);
@@ -1362,6 +1418,7 @@ export async function buildScalpContext(options = {}) {
     // here for the bias read only. Same separate-channel rule: a fault is logged, the
     // trace string is null and the opt-in objects are omitted.
     let bias = null;
+    let topDownModel = null;
     try {
       const biasGeometry = {};
       for (const tf of timeframeList) {
@@ -1394,6 +1451,7 @@ export async function buildScalpContext(options = {}) {
         const ab = buildAboveBelow200(ema200SideByTf);
         above200 = ab.above200;
         topDown = { sentiment: td.sentiment, aligned: td.aligned, score: td.score, leans, weekly, above200 };
+        topDownModel = topDown;
       } catch (err) {
         console.warn(`[ScalpContext] ${symbol}: top-down sentiment failed - ${err.message}`);
       }
@@ -1428,6 +1486,74 @@ export async function buildScalpContext(options = {}) {
       console.warn(`[ScalpContext] ${symbol}: candidate qualification failed - ${err.message}`);
     }
 
+    // Flag trade plan (signal-reliability minimum plan, work package 2): the one
+    // engine-owned trade call built from the symbol's confirmed directional flag
+    // candidates, if any. Same separate-channel rule as qualification/risk above - a
+    // fault is logged, never warned, and never touches strategies/bestSignal.
+    let flagTradePlan = null;
+    try {
+      flagTradePlan = buildFlagTradePlan({
+        candidateSetups,
+        geometryContext,
+        tfEntries,
+        marketByTf,
+        candlesByTf: closedByTf,
+        intervalMsByTf: INTERVAL_MS,
+        geometryTimeframes: ENGINE_CONFIG.geometry.timeframes,
+        now: safeNow,
+        symbol,
+        configVersion: CONFIG_VERSION
+      });
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: flag trade plan failed - ${err.message}`);
+    }
+
+    let modelEvidence = null;
+    let recommendationFull = null;
+    // Review fix 5: a symbol with no price is unavailable, never "partial"; and the
+    // null-plan branch checks the flag timeframes' own freshness before calling WATCH.
+    const recommendationDataStatus = price === null ? 'unavailable' : (symbolHadWarning ? 'partial' : 'complete');
+    const flagFreshness = ENGINE_CONFIG.flag.timeframes.map((tf) => ({
+      tf,
+      closedThroughIso: tfEntries[tf] ? tfEntries[tf].closedThrough : null,
+      intervalMs: INTERVAL_MS[tf],
+      graceMs: ENGINE_CONFIG.freshness.graceMs
+    }));
+    const recommendationAsOf = (tfEntries['1m'] && tfEntries['1m'].closedThrough) || new Date(safeNow).toISOString();
+    try {
+      modelEvidence = buildModelEvidence({
+        tfEntries,
+        seriesByTf,
+        closedByTf,
+        candidateSetups: modelCandidateSetups,
+        flagTradePlan,
+        geometryContext,
+        topDown: topDownModel,
+        price,
+        now: safeNow
+      });
+      recommendationFull = buildFlagRecommendation({
+        symbol,
+        asOf: recommendationAsOf,
+        dataStatus: recommendationDataStatus,
+        flagTradePlan,
+        evidence: modelEvidence,
+        topDown: topDownModel,
+        flagFreshness,
+        now: safeNow
+      });
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: flag recommendation failed - ${err.message}`);
+      recommendationFull = buildFlagRecommendation({
+        symbol,
+        asOf: recommendationAsOf,
+        dataStatus: 'unavailable',
+        flagTradePlan: null,
+        evidence: null,
+        topDown: null
+      });
+    }
+
     const decisionTrace = buildDecisionTrace({
       rawStrategies,
       bestSignal,
@@ -1455,10 +1581,15 @@ export async function buildScalpContext(options = {}) {
       timeframes: tfEntries,
       strategies,
       bestSignal,
-      candidateSetups: stripPoleHeight(filterFailedCandidateSetups(candidateSetups, includeFailed, { closedThroughByTf })),
+      candidateSetups: (slimFailed ? slimFailedCandidates : (x) => x)(stripPoleHeight(filterFailedCandidateSetups(candidateSetups, includeFailed, { closedThroughByTf }))),
       geometryContext,
-      decisionTrace
+      decisionTrace,
+      flagTradePlan,
+      // Review fix 6a: codes + one-line text by default; the full record (refs,
+      // factorStates, per-reason text) only under model.recommendation.
+      flagRecommendation: compactRecommendation(recommendationFull)
     };
+    if (includeModel && modelEvidence) symbolsOut[symbol].model = { ...modelEvidence, recommendation: recommendationFull };
     if (includeBias && bias) {
       symbolsOut[symbol].biasMatrix = bias.matrix;
       symbolsOut[symbol].alignment = bias.alignment;
@@ -1510,7 +1641,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.12.0',
+    schemaVersion: '1.15.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
@@ -1548,7 +1679,10 @@ export default {
   buildConfigSnapshot,
   filterFailedCandidateSetups,
   stripPoleHeight,
+  slimFailedCandidates,
   attachCandidateRisk,
+  wantsBias,
+  wantsModel,
   SYMBOLS,
   TIMEFRAMES,
   CANDLE_LIMITS

@@ -10,7 +10,7 @@
  * JSON; it is read after auth.
  */
 
-import { buildScalpContext, filterPayload, wantsBias } from '../services/scalpContext.js';
+import { buildScalpContext, filterPayload, wantsBias, wantsModel } from '../services/scalpContext.js';
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import crypto from 'crypto';
@@ -128,17 +128,22 @@ export async function handleScalpContext(req, res, { build = buildScalpContext }
       return res.status(400).json({ error: err.message, requestId });
     }
     let chartSeries;
-    // Bias objects (phase 9b) are opt-in: build() is unchanged unless include lists "bias".
-    const biasOpt = wantsBias(parseListParam(req.query && req.query.include)) ? { includeBias: true } : null;
+    // Bias/model objects are opt-in: build() is unchanged unless include asks for them.
+    const include = parseListParam(req.query && req.query.include);
+    const buildOpts = {
+      ...(wantsBias(include) ? { includeBias: true } : {}),
+      ...(wantsModel(include) ? { includeModel: true } : {})
+    };
+    const optBuild = Object.keys(buildOpts).length > 0 ? buildOpts : null;
     const payload = chartRequest
-      ? await build({ ...biasOpt, chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
-      : await (biasOpt ? build(biasOpt) : build());
+      ? await build({ ...buildOpts, chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
+      : await (optBuild ? build(optBuild) : build());
 
     // Query-param filtering (phase 5): parsed after auth, auth code above is untouched.
     // No params -> filterPayload is a no-op and the response is today's full payload.
     const filtered = filterPayload(payload, {
       symbols: parseListParam(req.query && req.query.symbols),
-      include: parseListParam(req.query && req.query.include),
+      include,
       compact: parseCompactParam(req.query && req.query.compact)
     });
 

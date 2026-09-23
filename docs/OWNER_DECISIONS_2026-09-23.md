@@ -1,0 +1,16 @@
+# Owner decisions needed — 2026-09-23
+
+Answer each with a letter (or a number where asked). Every item is currently an implementation choice labeled provisional; nothing below is treated as your rule until you answer. Source plan: `docs/MASTER_PLAN_NEXT_STEPS.md` Phase 1.
+
+| # | Question | Options | Current default | Why it matters |
+| --- | --- | --- | --- | --- |
+| 1 | **3R: gross or net of fees?** Live BTC 3m flag today: stop 0.065% away, gross R:R 3.16, net R:R 0.023 with `feeBps 5 + slippageBps 5` per leg. Every 1m/3m flag reads BAD under net. | (a) 3R is gross price R; net R published as information. (b) Net, but set `feeBps`/`slippageBps` to actual Jupiter perps fees you pay (state them). (c) Keep net at 5+5 and accept scalp flags rarely qualify. | (c) | Decides whether the system ever says GOOD on a 1m/3m flag. |
+| 2 | **When is a flag plan `ready`?** | (a) Breakout close, then a retest that holds (1 close on the hold side) — now implemented. (b) Same, but 2 holding closes. (c) Breakout close alone is enough (previous behavior). | (a) | Defines GO IN. |
+| 3 | **GOOD/WATCH quality thresholds** (score bands from top-down, EMA map, channel, divergence). | (a) Accept the implementer's bands for now, revisit after the paper ledger. (b) You set numbers. | (a) | Labeled provisional until answered. |
+| 4 | **`room:blocked` scope** on flag candidates. Fires on almost every flag today because some 15m/1h zone sits between breakout and a 3× measured target. | (a) Only the candidate's own geometry timeframe. (b) Only zones within 1R of the breakout. (c) Any geometry timeframe (current). | (a) | Controls how often a confirmed flag is `wait` instead of `actionable`. |
+| 5 | **Mark price source** (Jupiter fills/stops on the Pyth oracle; every Pyth price endpoint now needs a key). | (a) Add `PYTH_API_KEY` in Vercel (you set it; Pyth billing page). (b) Jupiter keyless swap price (`lite-api.jup.ag`), close but not the oracle. (c) Drop; Kraken only. | **Answered 2026-09-23: (a).** Key in local `.env`, verified against Hermes; added to Vercel production env 2026-09-23 (encrypted, by owner authorization). | Stops/liquidation are hit on mark, not Kraken close. |
+| 6 | **Strategy authority in the GPT.** Instructions now call `flagRecommendation` "the call" and `strategies.*` legacy, before any replay pass (master-plan rule 10 said not yet). | (a) Confirm: 21/200 recommendation is the call, legacy shown as labeled evidence. (b) Revert to legacy-first until the ledger shows the 21/200 layer behaves. | (a) pending your word | Reviewer flagged it; your plan text and the instructions disagree. |
+| 7 | **Timeframe pairing** for direction vs entry (M0 open input). | State pairs, e.g. 4H direction → 5m/15m entry; 1D → 1H. | none | Feeds the EMA map weighting and the fixture set. |
+| 8 | **Annotated chart screenshots** (6–10, wins and losses, entry/stop/TP marked and why). | Provide when convenient. | none | Owner-labeled fixtures are the acceptance gate for "faithful to my eye". |
+
+Not asked (decided by you earlier, unchanged): read-only MCP, 3% scalp stop cap, EMA200 never filters, alignment never vetoes, MAs never targets, shorts first-class.

@@ -173,8 +173,23 @@
  *     "not filled". outcomes.maxHoldCandles (2880, ~2 days): a filled trade that touches
  *     neither stop nor TP1 by then reads "open" and is excluded from win/loss.
  *
- * `model` block (trading-model quick pass Q3, `lib/topDown.js` only; never read on the
- * request path outside the bias block):
+ * `freshness` block (signal-reliability minimum plan work package 1, `lib/freshness.js`):
+ *   - graceMs (5000): fixed provider grace period added on top of one full interval
+ *     before a timeframe's `closedThrough` reads stale. Covers ordinary fetch/build
+ *     lag, not a second candle's worth of staleness.
+ *
+ * `flagPlan` block (signal-reliability minimum plan work package 2, `lib/flagTradePlan.js`):
+ *   - minNetRR (3.0): the flag trade plan's own net-of-fees R:R floor to TP1, required
+ *     for `ready`/`conditional` (mirrors `riskReward.bySetupType.Scalp[0]`, kept as its
+ *     own constant since the flag plan computes net R:R independently, after fees/
+ *     slippage, not the legacy strategies' gross figure).
+ *   - entryToleranceAtr (0.1): after a closed candle has closed through the entry level,
+ *     the latest closed candle's low (high for a short) must reach within this many ATR
+ *     of it and close on the hold side for `ready` (else `conditional`). Tight on
+ *     purpose - the plan is a specific retest level, not a zone. `minNetRR` here is the
+ *     only R:R floor; lib/flagRecommendation.js reads it too (no `model.minNetRR`).
+ *
+ * `model` block (trading-model quick pass Q3 + 21/200 decision clarity):
  *   - topDownWeights (1w 4, 1d 3, 4h 2, 1h 1): weighted vote over the four leans that
  *     decides `topDown.sentiment`; higher timeframes dominate (M-6b).
  *   - above200Weights (1m .1 … 1d 3): per-timeframe weight for `above200.weighted`,
@@ -183,6 +198,10 @@
  *     reads neutral with a reason instead of computing an EMA21 on thin data.
  *   - weeklySlopeLookbackWeeks (3): the weekly EMA21 slope compares the current value to
  *     this many weeks back.
+ *   - policyVersion / flagTimeframes / maPullDistancePct / channelEdgePct /
+ *     divergenceLookbackPivots / divergenceMaxAgeCandles / decisionWeights: decision
+ *     record knobs for `lib/modelEvidence.js` and `lib/flagRecommendation.js`; they
+ *     change explanation quality, never legacy strategy validity.
  */
 
 import { readFileSync } from 'node:fs';

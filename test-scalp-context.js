@@ -43,8 +43,10 @@ import {
   filterPayload,
   buildConfigSnapshot,
   filterFailedCandidateSetups,
+  slimFailedCandidates,
   INCLUDE_TOKENS
 } from './services/scalpContext.js';
+import { loadHistoryDir, makeReplayFetch } from './scripts/replay.js';
 
 import { findSwings, buildStructure } from './lib/structure.js';
 
@@ -608,6 +610,14 @@ async function main() {
       assert(tfData, `healthy symbol missing timeframe data for "${tf}"`);
       assert(Array.isArray(tfData.candles) && tfData.candles.length > 0, `healthy symbol has no candles for "${tf}"`);
     }
+  });
+
+  await test('review fix 5: a symbol with price null gets flagRecommendation DATA_UNAVAILABLE, never WATCH', () => {
+    const dead = case4Result && case4Result.symbols[DEAD_SYMBOL];
+    assert(dead, 'dead symbol present');
+    assertEqual(dead.price, null, 'dead symbol price');
+    assertEqual(dead.flagRecommendation.class, 'DATA_UNAVAILABLE', 'class');
+    assertEqual(dead.flagRecommendation.primaryReason.code, 'market_data_unavailable', 'primary code');
   });
 
   // -------------------------------------------------------------------------
@@ -1432,9 +1442,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.11.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.15.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.12.0', 'schemaVersion must be bumped to 1.11.0');
+    assertEqual(case6Result.schemaVersion, '1.15.0', 'schemaVersion must be bumped to 1.15.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1452,7 +1462,7 @@ async function main() {
   });
 
   await test('INCLUDE_TOKENS is the closed set of valid include values', () => {
-    for (const token of ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config']) {
+    for (const token of ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config', 'bias', 'model']) {
       assert(INCLUDE_TOKENS.includes(token), `INCLUDE_TOKENS is missing "${token}"`);
     }
   });
@@ -1718,6 +1728,8 @@ async function main() {
       assert(case6Result, 'case 6 result not available');
       for (const [sym, symData] of Object.entries(case6Result.symbols)) {
         for (const k of BIAS_KEYS) assert(!(k in symData), `${sym}: ${k} must be opt-in`);
+        assert(!('model' in symData), `${sym}: model evidence must be opt-in`);
+        assert(symData.flagRecommendation && typeof symData.flagRecommendation.class === 'string', `${sym}: compact flagRecommendation is always present`);
         const b = symData.decisionTrace.bias;
         assertEqual(typeof b, 'string', `${sym}: decisionTrace.bias`);
         // 120 bytes was the ceiling pre-Q3 (test-bias-matrix.js); the td:/a200: suffix
@@ -1769,6 +1781,85 @@ async function main() {
       assertEqual(JSON.stringify(filterPayload(biasResult, {})), JSON.stringify(biasResult), '{} identity');
       assert(INCLUDE_TOKENS.includes('bias'), 'bias is a known include token');
       assert(!filterPayload(biasResult, { include: ['bias'] }).warnings.some((w) => w.includes('bias')), 'no unknown-token warning');
+    });
+
+    await test('includeModel adds model evidence; removing it leaves the default payload byte-identical', async () => {
+      const modelResult = await buildScalpContext({
+        symbols: [HEALTHY_A, HEALTHY_B],
+        timeframes: timeframesList,
+        now: NOW,
+        fetchCandles: makeFetchCandles({ deadMatch: null, badMatch: null }),
+        includeModel: true
+      });
+      for (const sym of [HEALTHY_A, HEALTHY_B]) {
+        assert(modelResult.symbols[sym].model, `${sym}: model evidence exists`);
+        assert(modelResult.symbols[sym].model.ma && modelResult.symbols[sym].model.channels && modelResult.symbols[sym].model.divergence, `${sym}: model evidence factors`);
+        assert(modelResult.symbols[sym].flagRecommendation, `${sym}: compact recommendation still present`);
+      }
+      const stripped = JSON.parse(JSON.stringify(modelResult));
+      for (const sym of Object.keys(stripped.symbols)) delete stripped.symbols[sym].model;
+      assertEqual(JSON.stringify(stripped), JSON.stringify(case6Result), 'rest of payload unchanged by includeModel');
+      const only = filterPayload(modelResult, { include: ['model'] });
+      assert('model' in only.symbols[HEALTHY_A], 'include=model keeps model');
+      assert(!('timeframes' in only.symbols[HEALTHY_A]), 'include=model drops non-core sections');
+      assert(INCLUDE_TOKENS.includes('model'), 'model is a known include token');
+    });
+
+    await test('review fix 6a: default flagRecommendation is codes + one-line text; the full record is model.recommendation only', async () => {
+      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'asOf', 'primaryReason', 'readiness', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
+      for (const [sym, symData] of Object.entries(case6Result.symbols)) {
+        const r = symData.flagRecommendation;
+        assertEqual(JSON.stringify(Object.keys(r)), JSON.stringify(COMPACT_KEYS), `${sym}: compact keys`);
+        assertEqual(JSON.stringify(Object.keys(r.primaryReason)), JSON.stringify(['code', 'text']), `${sym}: primaryReason`);
+        for (const k of ['supports', 'opposes', 'unknowns']) assert(r[k].every((c) => typeof c === 'string'), `${sym}: ${k} are codes`);
+        for (const c of r.changeConditions) assertEqual(JSON.stringify(Object.keys(c)), JSON.stringify(['code', 'text']), `${sym}: changeCondition shape`);
+        assert(!JSON.stringify(r).includes('"refs"') && !('factorStates' in r), `${sym}: no refs/factorStates by default`);
+      }
+      const modelResult = await buildScalpContext({
+        symbols: [HEALTHY_A],
+        timeframes: timeframesList,
+        now: NOW,
+        fetchCandles: makeFetchCandles({ deadMatch: null, badMatch: null }),
+        includeModel: true
+      });
+      const full = modelResult.symbols[HEALTHY_A].model.recommendation;
+      assert(full && Array.isArray(full.factorStates), 'model.recommendation carries factorStates');
+      assertEqual(full.class, modelResult.symbols[HEALTHY_A].flagRecommendation.class, 'same class in both forms');
+      assertEqual(JSON.stringify(full.supports.map((x) => x.code)), JSON.stringify(modelResult.symbols[HEALTHY_A].flagRecommendation.supports), 'same support codes');
+    });
+
+    await test('review fix 6b: failed candidates publish only identity + failReason fields; other states untouched', () => {
+      const failed = { timeframe: '1m', type: 'flag', direction: 'short', state: 'failed', failReason: 'stale', failedAt: 'x', candidateId: 'id', breakoutLevel: 1, invalidation: 2, confidence: 50, qual: { quality: 'low' }, flagHigh: 3, flagLow: 0, measuredTarget: 0.5, levelSource: {}, durationCandles: 4, firstDetectedAt: 'y' };
+      const live = { ...failed, state: 'forming', failReason: undefined };
+      const [f, l] = slimFailedCandidates([failed, live]);
+      assertEqual(JSON.stringify(Object.keys(f)), JSON.stringify(['timeframe', 'type', 'direction', 'state', 'failReason', 'failedAt', 'candidateId', 'breakoutLevel', 'invalidation', 'confidence', 'qual']), 'failed keys');
+      assert(l === live, 'non-failed candidate passes through by reference');
+      assertEqual(failed.flagHigh, 3, 'input not mutated');
+    });
+
+    await test('review fix 6d: payload byte caps on the saved 2026-09-23 live fixture (default <= 79,000 B, compact <= 45,000 B)', async () => {
+      const dir = 'test/fixtures/history/2026-09-23';
+      const history = loadHistoryDir(dir, ['BTC', 'SOL', 'ETH']);
+      const cutMs = Math.min(...['BTC', 'SOL', 'ETH'].map((sym) => {
+        const c = history[sym]['1m'];
+        return c[c.length - 1].timestamp + 60000;
+      }));
+      const fetches = Object.fromEntries(['BTC', 'SOL', 'ETH'].map((sym) => [sym, makeReplayFetch(history[sym], cutMs)]));
+      const fetchCandles = (pair, interval, limit) => fetches[String(pair).replace('USDT', '')](pair, interval, limit);
+      const saved = console.log;
+      console.log = () => {};
+      let built;
+      try {
+        built = await buildScalpContext({ now: cutMs, fetchCandles, fetchAccount: async () => ({ status: 'disabled', margin: { usd: null, byAsset: {} } }) });
+      } finally {
+        console.log = saved;
+      }
+      const def = Buffer.byteLength(JSON.stringify(filterPayload(built, {})), 'utf8');
+      const compact = Buffer.byteLength(JSON.stringify(filterPayload(built, { compact: true })), 'utf8');
+      console.log(`      fixture payload: default ${def} B, compact ${compact} B`);
+      assertEqual(Object.keys(built.symbols).length, 3, 'three symbols built');
+      assert(def <= 79000, `default payload ${def} B exceeds 79,000`);
+      assert(compact <= 45000, `compact payload ${compact} B exceeds 45,000`);
     });
 
     await test('failed candidate trace string carries failReason as a fourth token; live ones keep three', () => {
@@ -1939,10 +2030,16 @@ async function main() {
         assertEqual(JSON.stringify(rest), JSON.stringify(restPayload), 'body identical to the unfiltered build');
       });
 
-      await test('REST ?include=bias builds with includeBias; any other include keeps build() argument-free (phase 9b)', async () => {
+      await test('REST ?include=bias/model builds with opt-in flags; any other include keeps build() argument-free', async () => {
         buildCalls.length = 0;
         await call({ include: 'strategies,bias' });
         assert(deepEqual(buildCalls[0][0], { includeBias: true }), `build args ${JSON.stringify(buildCalls[0])}`);
+        buildCalls.length = 0;
+        await call({ include: 'strategies,model' });
+        assert(deepEqual(buildCalls[0][0], { includeModel: true }), `model build args ${JSON.stringify(buildCalls[0])}`);
+        buildCalls.length = 0;
+        await call({ include: 'bias,model' });
+        assert(deepEqual(buildCalls[0][0], { includeBias: true, includeModel: true }), `combined build args ${JSON.stringify(buildCalls[0])}`);
         buildCalls.length = 0;
         await call({ include: 'strategies' });
         assertEqual(buildCalls[0].length, 0, 'no bias requested → build()');

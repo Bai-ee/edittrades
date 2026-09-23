@@ -387,7 +387,7 @@ async function run() {
   await test('OpenAPI: BiasEntry, Alignment, DecisionInputs, decisionTrace.bias, include token bias; ChatGPT-safe constructs only', () => {
     const yaml = readFileSync(new URL('./openapi/scalp-context.yaml', import.meta.url), 'utf8');
     for (const name of ['BiasEntry', 'Alignment', 'DecisionInputs', 'DirectionalTriple']) assert(new RegExp(`\\n {4}${name}:\\n {6}type: object`).test(yaml), name);
-    assert(/enum: \[timeframes, strategies, candidates, geometry, account, trace, config, bias\]/.test(yaml), 'include enum');
+    assert(/enum: \[timeframes, strategies, candidates, geometry, account, trace, config, bias, model\]/.test(yaml), 'include enum');
     assert(/\n {8}bias:\n {10}description:/.test(yaml), 'decisionTrace.bias');
     assert(!/\b(oneOf|anyOf|allOf|not):/.test(yaml), 'no composition keywords');
   });

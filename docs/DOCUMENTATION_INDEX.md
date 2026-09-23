@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-09-23
 **Branch:** `upgrade-signal-engine`
-**Current product:** EditTrades scalp context — closed-candle BTC/SOL/ETH context and strategy engine, served to ChatGPT via REST Action (`GET /api/scalp-context`) and MCP (`POST /api/mcp`). Payload schema 1.8.0, `configVersion` 2026.09.22-6, live on Vercel.
+**Current product:** EditTrades scalp context — closed-candle BTC/SOL/ETH context, legacy strategy engine, and 21/200 flag recommendation, served to ChatGPT via REST Action (`GET /api/scalp-context`) and MCP (`POST /api/mcp`). Payload schema 1.8.0 live on Vercel; schema 1.14.0 local on this branch.
 
 Docs are in two tiers. **Current** docs are maintained with the code. **Legacy** docs describe the Nov–Dec 2025 system (dashboard, `/api/analyze*`, scanner, AI agent, Jupiter swaps/perps) and carry a banner saying so. That code still exists, but those docs were not re-audited for the September 2026 engine work. When a legacy doc and a current doc disagree, the current doc and the code win.
 
@@ -14,6 +14,8 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 - **[../CLAUDE.md](../CLAUDE.md)** (local only, untracked) — project guide, hard rules, tests, deploy.
 - **[MASTER_PLAN_ENGINE_REFINEMENT.md](./MASTER_PLAN_ENGINE_REFINEMENT.md)** — phased engine plan with status. Phases 0–8, 8b, 9, 9b, 10, 11 done; then 8c, 3b.
 - **[MASTER_PLAN_TRADING_MODEL.md](./MASTER_PLAN_TRADING_MODEL.md)** — the owner's trading model (M-1..M-9) and the phased plan to build it (`FLAG_21`). **[PLAN_TRADING_MODEL_QUICK_PASS.md](./PLAN_TRADING_MODEL_QUICK_PASS.md)** — the Q1-Q5 quick pass (done 2026-09-23, schema 1.11.0) that pre-built parts of M1/M2/M2b/M4/M10.
+- **[TRADING_MODEL_DECISION_CONTRACT.md](./TRADING_MODEL_DECISION_CONTRACT.md)** — draft owner-review contract for M-1..M-9, provenance, hard-veto behavior, and implementation choices in schema 1.14.0.
+- **[FLAG_RECOMMENDATION_REVIEW_SHEET.md](./FLAG_RECOMMENDATION_REVIEW_SHEET.md)** — representative GOOD/WATCH/BAD/DATA_UNAVAILABLE outputs, fixture coverage, manual GPT update checklist, and unresolved interpretations.
 - **[PLAN_FLAG_DETECTION_COVERAGE.md](./PLAN_FLAG_DETECTION_COVERAGE.md)** — F1, flag detection coverage (done 2026-09-23, schema 1.12.0): proto/expired states, EMA21 reclaim, failed/expired TTL visibility, stable candidate identity, cheap geometry fields, `qual` trade qualification. Fixes `test/fixtures/misses/MISS_003.json`.
 
 ### API and connector
@@ -38,6 +40,10 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Flag detector (`candidateSetups`) | `lib/patternDetector.js` |
 | Flag lifecycle (geometry snap, coils, visual gate, stable identity F1) | `lib/patternLifecycle.js` |
 | Trade qualification (`qual`, F1) | `lib/candidateQualifier.js` |
+| Data-freshness gate (signal-reliability minimum plan) | `lib/freshness.js` |
+| Flag trade plan (`flagTradePlan`, signal-reliability minimum plan) | `lib/flagTradePlan.js` |
+| 21/200 model evidence (`include=model`) | `lib/modelEvidence.js` |
+| 21/200 recommendation (`flagRecommendation`) | `lib/flagRecommendation.js` |
 | Geometry (zones, ATR, diagonals, channel, confluence) | `lib/geometry.js` |
 | Structure | `lib/structure.js`, `lib/candleFeatures.js` |
 | Indicators | `services/indicators.js` |
@@ -50,13 +56,14 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Replay harness + metrics (Phase 10, dev only) | `scripts/replay.js`, `scripts/replay-metrics.js` |
 | Replay outcome scoring (trading-model quick pass Q4, dev only) | `scripts/replay-outcomes.js` |
 | GPT instruction length gate (Phase 11, dev only) | `scripts/check-gpt-instructions.js` |
+| Forward-paper ledger (signal-reliability minimum plan, dev only, local file) | `scripts/paper-ledger.js` |
 | Miss log (schema + one JSON per miss) | `test/fixtures/misses/README.md` |
 
 Unreachable from `buildScalpContext()` and not to be revived without a recorded decision: `lib/signalEngine.js`, `services/strategy-refactored.js`, `lib/chartAnalysis.js`, `lib/advancedChartAnalysis.js`, `lib/levels.js`.
 
 ### Tests
 
-`test:sltp` (50), `test:scalp` (108), `test:mcp` (52), `test:wallet` (28) are the deploy gate. `test:config` (14), `test:risk` (24), `test:pattern` (32), `test:geometry` (36), `test:chart` (18), `test:replay` (31), `test:bias` (15), `test:topdown` (15) cover the engine modules; `npm run check:gpt` (Phase 11) gates the GPT instruction length separately. Counts as of 2026-09-23 (F1, flag detection coverage).
+`test:sltp` (50), `test:scalp` (113), `test:mcp` (52), `test:wallet` (28) are the deploy gate. `test:config` (14), `test:risk` (24), `test:pattern` (32), `test:geometry` (36), `test:chart` (18), `test:replay` (36), `test:bias` (15), `test:topdown` (15), `test:freshness` (10), `test:flagplan` (40), `test:flagrec` (17), `test:ledger` (12), `test:evidence` (8, `test-model-evidence.js`: Stoch offset, divergence selection/staleness, channel breakoutRisk) cover the engine modules; `npm run check:gpt` gates the GPT instruction length separately. Counts as of 2026-09-23 (review fix pass).
 
 ---
 

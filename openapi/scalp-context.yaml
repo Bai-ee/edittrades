@@ -32,14 +32,14 @@ paths:
           description: >-
             Comma-separated sections to keep, per symbol plus account/config. Unknown
             values are ignored (noted in warnings). Omit for the full payload. "bias"
-            (biasMatrix, alignment, decisionInputs; schema 1.10.0) is opt-in: those
-            objects are only returned when bias is listed, e.g. include=bias or
-            include=strategies,trace,bias. Pair with compact=1 to stay small.
+            and "model" are opt-in: those bulky objects are only returned when listed,
+            e.g. include=bias or include=strategies,trace,model. Pair with compact=1 to
+            stay small.
           schema:
             type: array
             items:
               type: string
-              enum: [timeframes, strategies, candidates, geometry, account, trace, config, bias]
+              enum: [timeframes, strategies, candidates, geometry, account, trace, config, bias, model]
           style: form
           explode: false
         - name: compact
@@ -332,7 +332,10 @@ components:
         breakout levels. Separate from strategies: a candidate can exist while every
         strategy is NO_TRADE, and it never changes a strategy decision. State and every
         count are derived from the last candles on every request (no memory between
-        calls). Flag-only fields are absent on a coil.
+        calls). Flag-only fields are absent on a coil. Schema 1.15.0: a failed candidate
+        publishes only timeframe, type, direction, state, failReason, failedAt,
+        candidateId, breakoutLevel, invalidation, confidence and qual (every other field,
+        including levelSource and durationCandles, is absent on it).
       properties:
         timeframe:
           type: string
@@ -509,8 +512,6 @@ components:
         - type
         - direction
         - state
-        - levelSource
-        - durationCandles
         - confidence
     LevelSource:
       type: object
@@ -570,6 +571,264 @@ components:
         - quality
         - decision
         - reasons
+    FlagTradePlan:
+      type: [object, "null"]
+      description: >-
+        Schema 1.13.0 (signal-reliability minimum plan). The single engine-owned trade
+        call for this symbol, built from its confirmed directional flag candidates
+        (candidateSetups[] with type=flag, state=confirmed) only - never from a coil,
+        never from proto/forming/triggering/failed/expired. A flag candidate is an
+        observation; this plan is the one trade call: exact entry condition, final
+        entry/stop/TP1(/TP2), net R:R after config.risk fees/slippage, and an explicit
+        ready/conditional/rejected status with a stable reasonCode. Null when the
+        symbol has no confirmed directional flag candidate this build. Independent of
+        strategies/bestSignal and of the 4h bias lean - a flat or counter-trend 4h does
+        not change this plan's status (see docs/GPT_INSTRUCTIONS.md).
+      properties:
+        candidateId:
+          description: The selected candidateSetups[] entry this plan was built from.
+          type: [string, "null"]
+        planId:
+          description: >-
+            candidateId + this build's closedThrough + configVersion, pipe-delimited.
+            Changes whenever any of the three change, so a plan can never be mixed with
+            a different candidate or an older/newer snapshot.
+          type: [string, "null"]
+        timeframe:
+          type: string
+          enum: ["1m", "3m", "5m"]
+        direction:
+          type: string
+          enum: [long, short]
+        status:
+          description: >-
+            ready (schema 1.15.0) - an earlier closed candle closed through the breakout
+            level, then the latest closed candle's low (high for a short) reached the
+            level within flagPlan.entryToleranceAtr ATR and closed on the hold side.
+            conditional - levels and R:R are valid but that sequence has not been
+            observed yet (reasonCode awaiting_breakout: no close through the level yet;
+            awaiting_retest: closed through, no retest-hold close yet);
+            re-evaluated fresh on every request, never a stale hold. rejected - see
+            reasonCode.
+          type: string
+          enum: [ready, conditional, rejected]
+        reasonCode:
+          description: >-
+            Null only when status=ready. awaiting_retest/awaiting_breakout
+            (conditional; awaiting_retest replaced awaiting_retest_hold in 1.15.0); invalid_levels, chase, room_at_entry, stop_distance_exceeds_cap,
+            net_rr_below_3, stale_data, missing_data (rejected).
+          type: [string, "null"]
+          enum:
+            - awaiting_retest
+            - awaiting_breakout
+            - invalid_levels
+            - chase
+            - room_at_entry
+            - stop_distance_exceeds_cap
+            - net_rr_below_3
+            - stale_data
+            - missing_data
+            - null
+        entryType:
+          description: Null unless status is ready/conditional.
+          type: [string, "null"]
+          enum: [retest, null]
+        entryCondition:
+          description: >-
+            Exact, literal closed-candle breakout-then-retest-hold condition (entry
+            rounded to 2 decimals); quote verbatim, never paraphrase or recompute.
+          type: [string, "null"]
+        entry:
+          description: The candidate's breakoutLevel, read as a retest trigger - never the live market price.
+          type: [number, "null"]
+        stop:
+          description: The candidate's invalidation, unmoved. Never tightened to pass the R:R or stop-distance check.
+          type: [number, "null"]
+        tp1:
+          description: measuredTarget, capped to the nearest horizontal zone edge ahead of entry if one exists short of it.
+          type: [number, "null"]
+        tp2:
+          description: measuredTarget, published only when tp1 was capped and measuredTarget still lies beyond it.
+          type: [number, "null"]
+        netRR:
+          description: Reward:risk to tp1 net of config.risk.feeBps/slippageBps round-trip cost. Required >= flagPlan.minNetRR (3.0) for ready/conditional.
+          type: [number, "null"]
+        stopDistancePct:
+          description: abs(entry - stop) / entry * 100. Required <= config.scalp.maxStopDistancePct for ready/conditional.
+          type: [number, "null"]
+      required:
+        - candidateId
+        - planId
+        - timeframe
+        - direction
+        - status
+        - reasonCode
+        - entryType
+        - entryCondition
+        - entry
+        - stop
+        - tp1
+        - tp2
+        - netRR
+        - stopDistancePct
+    RecommendationReason:
+      type: object
+      properties:
+        code:
+          type: string
+        text:
+          type: string
+        refs:
+          type: array
+          items:
+            type: object
+      required: [code, text, refs]
+    ReasonText:
+      type: object
+      properties:
+        code:
+          type: string
+        text:
+          type: string
+      required: [code, text]
+    FlagRecommendation:
+      type: object
+      description: >-
+        Schema 1.15.0 (compact). The engine-owned 21/200 flag recommendation for this
+        symbol: GOOD, WATCH, BAD, or DATA_UNAVAILABLE. It consumes flagTradePlan plus
+        model evidence; it never recalculates entry/stop/target/R:R and never promotes
+        legacy bestSignal as the 21/200 recommendation. supports/opposes/unknowns are
+        reason codes only (a stale or missing flag timeframe reads e.g. "stale_data:1m");
+        the full record with per-reason text, refs and factorStates is
+        model.recommendation (include=model).
+      properties:
+        class:
+          type: string
+          enum: [GOOD, WATCH, BAD, DATA_UNAVAILABLE]
+        setupId:
+          type: [string, "null"]
+        candidateId:
+          type: [string, "null"]
+        asOf:
+          type: string
+          format: date-time
+        primaryReason:
+          $ref: "#/components/schemas/ReasonText"
+        supports:
+          type: array
+          items:
+            type: string
+        opposes:
+          type: array
+          items:
+            type: string
+        unknowns:
+          type: array
+          items:
+            type: string
+        changeConditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReasonText"
+        qualityBand:
+          type: [string, "null"]
+          enum: [high, medium, low, null]
+        readiness:
+          type: string
+        policyVersion:
+          type: string
+        trace:
+          type: object
+      required:
+        - class
+        - setupId
+        - candidateId
+        - asOf
+        - primaryReason
+        - supports
+        - opposes
+        - unknowns
+        - changeConditions
+        - qualityBand
+        - readiness
+        - policyVersion
+        - trace
+    FlagRecommendationFull:
+      type: object
+      description: >-
+        Schema 1.15.0, include=model only (model.recommendation). The same record as
+        flagRecommendation with full reasons: every supports/opposes/unknowns/
+        changeConditions entry is {code, text, refs}, plus factorStates.
+      properties:
+        class:
+          type: string
+          enum: [GOOD, WATCH, BAD, DATA_UNAVAILABLE]
+        setupId:
+          type: [string, "null"]
+        candidateId:
+          type: [string, "null"]
+        asOf:
+          type: string
+          format: date-time
+        primaryReason:
+          $ref: "#/components/schemas/RecommendationReason"
+        supports:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecommendationReason"
+        opposes:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecommendationReason"
+        unknowns:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecommendationReason"
+        changeConditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecommendationReason"
+        factorStates:
+          type: array
+          items:
+            type: object
+        qualityBand:
+          type: [string, "null"]
+          enum: [high, medium, low, null]
+        readiness:
+          type: string
+        policyVersion:
+          type: string
+        trace:
+          type: object
+    ModelEvidence:
+      type: object
+      description: >-
+        Opt-in (include=model, schema 1.15.0). Bulky closed-candle evidence behind
+        flagRecommendation: per-timeframe EMA21/EMA200 map and pull read, higher-
+        timeframe flags, channel/level context, and Stoch RSI divergence. The compact
+        flagRecommendation is returned even when this object is omitted.
+      properties:
+        selectedPlanId:
+          type: [string, "null"]
+        selectedCandidateId:
+          type: [string, "null"]
+        flags:
+          type: array
+          items:
+            type: object
+        ma:
+          type: object
+        channels:
+          type: object
+        divergence:
+          description: >-
+            Per-timeframe Stoch RSI divergence (most recent pivot pair; Stoch history
+            aligned to the candle series' end) and confluence counts. A stale divergence
+            (strength 0) is reported but not counted in confluence.
+          type: object
+        recommendation:
+          $ref: "#/components/schemas/FlagRecommendationFull"
     DecisionTrace:
       type: object
       description: >-
@@ -715,6 +974,12 @@ components:
             $ref: "#/components/schemas/GeometryContext"
         decisionTrace:
           $ref: "#/components/schemas/DecisionTrace"
+        flagTradePlan:
+          $ref: "#/components/schemas/FlagTradePlan"
+        flagRecommendation:
+          $ref: "#/components/schemas/FlagRecommendation"
+        model:
+          $ref: "#/components/schemas/ModelEvidence"
         timeframes:
           type: object
           additionalProperties:

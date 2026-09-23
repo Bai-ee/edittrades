@@ -18,3 +18,6 @@ CLAUDE.md
 
 # replay captures (large, regenerate with npm run replay -- --capture)
 test/fixtures/history/
+
+# local forward-paper ledger (append-only call records + derived outcomes; never committed)
+paper-ledger/

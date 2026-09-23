@@ -21,10 +21,17 @@
     "test:chart": "node test-chart-render.js",
     "test:replay": "node test-replay.js",
     "test:bias": "node test-bias-matrix.js",
+    "test:freshness": "node test-freshness.js",
+    "test:flagplan": "node test-flag-trade-plan.js",
+    "test:flagrec": "node test-flag-recommendation.js",
+    "test:ledger": "node test-paper-ledger.js",
     "test:topdown": "node test-top-down.js",
+    "test:evidence": "node test-model-evidence.js",
     "replay": "node scripts/replay.js",
     "replay:metrics": "node scripts/replay-metrics.js",
     "replay:outcomes": "node scripts/replay-outcomes.js",
+    "ledger:record": "node scripts/paper-ledger.js record",
+    "ledger:score": "node scripts/paper-ledger.js score",
     "check:gpt": "node scripts/check-gpt-instructions.js"
   },
   "keywords": [

@@ -625,9 +625,9 @@ async function run() {
     });
   }
 
-  await test('payload: schema 1.11.0; geometryContext per configured timeframe with geometry B; trace summary ≤ 300 bytes', async () => {
+  await test('payload: schema 1.15.0; geometryContext per configured timeframe with geometry B; trace summary ≤ 300 bytes', async () => {
     const payload = await build(regression001());
-    assertEqual(payload.schemaVersion, '1.12.0', 'schemaVersion');
+    assertEqual(payload.schemaVersion, '1.15.0', 'schemaVersion');
     const btc = payload.symbols.BTC;
     assertEqual(JSON.stringify(Object.keys(btc.geometryContext)), JSON.stringify(ENGINE_CONFIG.geometry.timeframes), 'geometry timeframes');
     const withB = [...GEOMETRY_KEYS, ...GEOMETRY_B_KEYS].sort();
