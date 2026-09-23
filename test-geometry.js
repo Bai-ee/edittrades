@@ -418,7 +418,12 @@ async function run() {
     }
     const bytes = Buffer.byteLength(JSON.stringify(geometryTraceSummary(worst)), 'utf8');
     assert(bytes <= 300, `worst-case trace summary ${bytes} bytes`);
-    assertEqual(JSON.stringify(geometryTraceSummary({ '1h': null })), JSON.stringify(['1h:na:na:na:na']), 'missing geometry');
+    assertEqual(JSON.stringify(geometryTraceSummary({ '1h': null })), JSON.stringify(['1h:na']), 'missing geometry collapses to one token (phase 11)');
+  });
+
+  await test('geometryTraceSummary (phase 11): rounds room values to 2 decimals, empty position for a missing individual field', () => {
+    const g = { structure: 'up', roomToNextResistance: 0.4231, roomToNextSupport: null, extensionRisk: { level: 'low' } };
+    assertEqual(geometryTraceSummary({ '1h': g })[0], '1h:up:0.42::low', 'roundN(0.4231,2)=0.42; null roomToNextSupport is an empty position');
   });
 
   // --- Geometry B (phase 8) --------------------------------------------------

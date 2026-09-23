@@ -1,7 +1,7 @@
 # EditTrades Engine Refinement — Phased Master Plan
 
 Last updated: 2026-09-22 (amended: Phase 3 position risk, 3b positions, 4 short mirrors, 8 channel, 9b bias matrix; docs sync after Phase 8, 8b in progress)
-Status: phases 0–8 and 8b done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 9 done locally (schema 1.9.0 / configVersion 2026.09.22-7), not deployed. Phase 10 done locally (replay harness, no payload change; configVersion 2026.09.22-8 for the `replay` config key), not deployed. Phase 9b done locally (schema 1.10.0 / configVersion 2026.09.22-9), not deployed.
+Status: phases 0–8 and 8b done, schema 1.8.0 / configVersion 2026.09.22-6 live in production. Phase 9 done locally (schema 1.9.0 / configVersion 2026.09.22-7), not deployed. Phase 10 done locally (replay harness, no payload change; configVersion 2026.09.22-8 for the `replay` config key), not deployed. Phase 9b done locally (schema 1.10.0 / configVersion 2026.09.22-9), not deployed. Phase 11 done locally (GPT instruction trim + payload headroom, no schema/config bump), not deployed.
 Branch: `upgrade-signal-engine`
 Source inputs: `~/Downloads/EditTrades_Master_Orchestration_Handoff_v1.md` (product/orchestration intent), this repo (current truth).
 Companion docs: `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/SIGNAL_GENERATION_SPECIFICATION.md`, `CLAUDE.md`.
@@ -67,9 +67,9 @@ Genuinely missing: ATR, EMA slopes, higher-low/lower-high flags, room to next le
 | 9 | Pattern lifecycle + `needsVisualConfirmation` | 1 day | medium | ✅ done 2026-09-22 → `lib/patternLifecycle.js` (snap, coil, visual gate), `lib/patternDetector.js` (`detectFlagLifecycle`), `lib/geometry.js` (`nearMissDiagonals`), `config/engine.json` (`lifecycle`, configVersion -6 → -7), `services/scalpContext.js`, `openapi/scalp-context.yaml` (CandidateSetup coil fields, LevelSource, DecisionTrace gate), schema 1.8.0 → 1.9.0, `test/fixtures/flagFixtures.js` (`invalidationClose`, `staleBreak`), `npm run test:pattern` / `npm run test:scalp` |
 | 9b | Direction and multi-timeframe bias matrix; counter-trend classification | 1 day | medium | ✅ done 2026-09-22 → `lib/biasMatrix.js`, `lib/patternLifecycle.js` (`nearMissGate`, visualTarget preference), `services/scalpContext.js` (`includeBias`, `wantsBias`, `decisionTrace.bias`, failed trace token), `api/scalp-context.js` + `services/editTradesMcp.js` (include `bias` → `includeBias`), `config/engine.json` (`bias`, `lifecycle.nearMissGate`, configVersion -8 → -9), `openapi/scalp-context.yaml` (BiasEntry, Alignment, DecisionInputs, DirectionalTriple), schema 1.9.0 → 1.10.0, `npm run test:bias` |
 | 10 | Replay harness + miss-log fixtures | 1 day | low | ✅ done 2026-09-22 → `scripts/replay.js`, `scripts/replay-metrics.js`, `test/fixtures/misses/` (MISS_001, MISS_002), `test/fixtures/replayHistories.js`, `test/fixtures/geometryFixtures.js` (moved from `test-geometry.js`), `config/engine.json` (`replay.minComputeCandles`, configVersion -7 → -8), no schema bump, `npm run test:replay` |
-| 11 | GPT instruction trim | 1 h | low |
+| 11 | GPT instruction trim + payload headroom | 1 h | low | ✅ done 2026-09-22 → `docs/GPT_INSTRUCTIONS.md` (source of truth, field table, GPT test sheet, change log; 7990 → 7836 UTF-16 units), `scripts/check-gpt-instructions.js`, `npm run check:gpt`, `lib/geometry.js` (`geometryTraceSummary`: 2-decimal rounding, dropped `na` tokens), `services/scalpContext.js` (`buildTimeframeWindow` drops `from`), `openapi/scalp-context.yaml`, no schema bump, 729 bytes recovered on the default 3-symbol payload (target ≥ 600), `npm run test:geometry` / `npm run test:scalp` |
 
-Execution order (updated 2026-09-22): 0–10, 8b and 9b done → 11 (GPT trim) → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
+Execution order (updated 2026-09-22): 0–10, 8b, 9b and 11 done → 8c (journal) → 3b (positions). Wallet-side work is last by the user's decision.
 
 ---
 

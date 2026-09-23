@@ -451,9 +451,10 @@ export function buildStrategyTrace(rawStrategies) {
 }
 
 /**
- * Build the compute-window block: first/last closed-candle time and count,
- * per requested timeframe. Pins the exact candle range decisions were made
- * from - `closedThrough` and `candleCount` alone do not pin the window start.
+ * Build the compute-window block: last closed-candle time and count, per requested
+ * timeframe. Phase 11 dropped `from` (the oldest candle's open time) to recover payload
+ * bytes: `to` + `closedCandles` already pin the window precisely enough for the GPT to
+ * reason about recency, and the window start was never read by any instruction rule.
  * @param {Object} closedByTf - tf -> full closed candle array (pre-trim)
  * @param {Object} tfEntries - tf -> published timeframe entry (for closedThrough)
  * @param {Array<string>} timeframeList
@@ -464,9 +465,7 @@ export function buildTimeframeWindow(closedByTf, tfEntries, timeframeList) {
   for (const tf of timeframeList) {
     const closed = (closedByTf && closedByTf[tf]) || [];
     const entry = tfEntries && tfEntries[tf];
-    const first = closed.length > 0 ? closed[0] : null;
     window[tf] = {
-      from: first && isFiniteNumber(first.timestamp) ? new Date(first.timestamp).toISOString() : null,
       to: (entry && entry.closedThrough) || null,
       closedCandles: closed.length
     };

@@ -1043,9 +1043,7 @@ async function main() {
         assert(w, `${sym}: decisionTrace.window missing timeframe "${tf}"`);
         assertEqual(w.to, symData.timeframes[tf].closedThrough, `${sym}: window[${tf}].to must equal timeframes[${tf}].closedThrough`);
         assert(Number.isInteger(w.closedCandles) && w.closedCandles >= 0, `${sym}: window[${tf}].closedCandles must be a non-negative integer`);
-        if (w.closedCandles > 0) {
-          assert(typeof w.from === 'string' && w.from.length > 0, `${sym}: window[${tf}].from must be set when candles exist`);
-        }
+        assert(!('from' in w), `${sym}: window[${tf}] must not carry "from" (phase 11 dropped it for payload headroom)`);
       }
     }
   });
@@ -1191,11 +1189,11 @@ async function main() {
     }
   });
 
-  await test('buildTimeframeWindow reports zero candles and null bounds for an empty compute window', () => {
+  await test('buildTimeframeWindow reports zero candles and a null bound for an empty compute window', () => {
     const window = buildTimeframeWindow({}, {}, ['1h']);
-    assertEqual(window['1h'].from, null);
     assertEqual(window['1h'].to, null);
     assertEqual(window['1h'].closedCandles, 0);
+    assert(!('from' in window['1h']), 'window entry must not carry "from" (phase 11)');
   });
 
   // -------------------------------------------------------------------------

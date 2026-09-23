@@ -1,111 +1,83 @@
 # Documentation Index
 
-**Last Updated:** 2025-01-XX  
-**Status:** Production Ready  
-**Milestone Tag:** `v1.0-data-parity`
+**Last updated:** 2026-09-22
+**Branch:** `upgrade-signal-engine`
+**Current product:** EditTrades scalp context — closed-candle BTC/SOL/ETH context and strategy engine, served to ChatGPT via REST Action (`GET /api/scalp-context`) and MCP (`POST /api/mcp`). Payload schema 1.8.0, `configVersion` 2026.09.22-6, live on Vercel.
+
+Docs are in two tiers. **Current** docs are maintained with the code. **Legacy** docs describe the Nov–Dec 2025 system (dashboard, `/api/analyze*`, scanner, AI agent, Jupiter swaps/perps) and carry a banner saying so. That code still exists, but those docs were not re-audited for the September 2026 engine work. When a legacy doc and a current doc disagree, the current doc and the code win.
 
 ---
 
-## Quick Navigation
+## Current
 
-### 🔌 ChatGPT / MCP Connector
-- **[MASTER_PLAN_ENGINE_REFINEMENT.md](./MASTER_PLAN_ENGINE_REFINEMENT.md)** - Phased plan: config, decisionTrace, risk engine, flag detector, geometry engine; master prompt for the orchestrating agent
-- **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** - Read-only MCP tool, REST Action parity, payload schema 1.1.0, scalp stop-distance guard, prod verification
+### Start here
+- **[../CLAUDE.md](../CLAUDE.md)** (local only, untracked) — project guide, hard rules, tests, deploy.
+- **[MASTER_PLAN_ENGINE_REFINEMENT.md](./MASTER_PLAN_ENGINE_REFINEMENT.md)** — phased engine plan with status. Phases 0–8, 8b, 9, 9b, 10, 11 done; then 8c, 3b.
 
-### 🏗️ Architecture & Pipeline
-- **[DATA_PIPELINE_ARCHITECTURE.md](./DATA_PIPELINE_ARCHITECTURE.md)** - Complete data flow from ingestion to export
-- **[SYSTEM_WORKFLOW.md](./SYSTEM_WORKFLOW.md)** - End-to-end system workflow
-- **[SYSTEM_CONTEXT.md](./SYSTEM_CONTEXT.md)** - Complete system context for AI/strategy updates
+### API and connector
+- **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** — MCP tool and REST parity, payload controls, payload schema 1.8.0 map, scalp stop guard, security boundary, env, prod verification, test suites.
+- **[../openapi/scalp-context.yaml](../openapi/scalp-context.yaml)** — field-level schema for the REST Action (source of truth for payload fields).
+- **[../CHATGPT_ACTION_SETUP.md](../CHATGPT_ACTION_SETUP.md)** — Custom GPT Action setup, query parameters, wallet `account` block.
+- **[GPT_INSTRUCTIONS.md](./GPT_INSTRUCTIONS.md)** — Custom GPT Instructions-box source of truth (Phase 11): fenced instruction text, payload field → instruction rule table, GPT test sheet, change log. `npm run check:gpt` gates its length.
 
-### 🔧 Development Guides
-- **[MODULE_DEVELOPMENT_GUIDE.md](./MODULE_DEVELOPMENT_GUIDE.md)** - How to add new analysis modules
-- **[STRATEGY_INTEGRATION_GUIDE.md](./STRATEGY_INTEGRATION_GUIDE.md)** - How strategies use data, adding new strategies
-- **[ADDING_STRATEGIES.md](./ADDING_STRATEGIES.md)** - Strategy addition process
-- **[ADDING_INDICATORS.md](./ADDING_INDICATORS.md)** - Indicator addition process
+### Engine
+- **[SIGNAL_GENERATION_SPECIFICATION.md](./SIGNAL_GENERATION_SPECIFICATION.md)** — strategy engine (`services/strategy.js`): priority, stops, R:R, scalp stop policy. Stops/targets updated 2026-09-22; gatekeeper and confidence sections from Dec 2025.
+- **[RULE_OWNER_MATRIX.md](./RULE_OWNER_MATRIX.md)** — Phase 0 rule-to-owner matrix and baseline measurements, with a status note.
+- **[../config/engine.json](../config/engine.json)** — tunable constants; bump `configVersion` on any change (`npm run test:config`).
 
-### 🐛 Troubleshooting
-- **[TROUBLESHOOTING_GUIDE.md](./TROUBLESHOOTING_GUIDE.md)** - Common issues, solutions, diagnostic commands
-- **[STRATEGY_MODES.md](./STRATEGY_MODES.md)** - STANDARD vs AGGRESSIVE mode differences
+### Code map (scalp-context path)
 
-### 📊 Data Reference
-- **[COMPLETE_DATA_REFERENCE.md](./COMPLETE_DATA_REFERENCE.md)** - Complete data structure, usage patterns, guarantees
-- **[STRATEGY_IMPLEMENTATION_GUIDE.md](./STRATEGY_IMPLEMENTATION_GUIDE.md)** - Strategy implementation details
-- **[SIGNAL_GENERATION_SPECIFICATION.md](./SIGNAL_GENERATION_SPECIFICATION.md)** - Complete technical specification of signal generation logic
+| Concern | File |
+| --- | --- |
+| Payload builder, `filterPayload` | `services/scalpContext.js` |
+| Strategies, scalp stop policy | `services/strategy.js` |
+| Config | `config/engine.json`, `config/engine.js` |
+| Risk (leverage, loss at stop) | `lib/riskEngine.js` |
+| Flag detector (`candidateSetups`) | `lib/patternDetector.js` |
+| Geometry (zones, ATR, diagonals, channel, confluence) | `lib/geometry.js` |
+| Structure | `lib/structure.js`, `lib/candleFeatures.js` |
+| Indicators | `services/indicators.js` |
+| Wallet (read-only) | `services/walletTracker.js` |
+| MCP | `services/editTradesMcp.js`, `lib/mcpHttp.js` |
+| HTTP entry | `api/scalp-context.js` (REST, MCP via `__mcp=1`) |
+| Chart render (Phase 8b, in progress) | `lib/chartRender.js` |
+| Bias matrix, alignment, decision inputs (Phase 9b) | `lib/biasMatrix.js` |
+| Replay harness + metrics (Phase 10, dev only) | `scripts/replay.js`, `scripts/replay-metrics.js` |
+| GPT instruction length gate (Phase 11, dev only) | `scripts/check-gpt-instructions.js` |
+| Miss log (schema + one JSON per miss) | `test/fixtures/misses/README.md` |
 
-### 🤖 AI System
-- **[AI_SYSTEM_DOCUMENTATION.md](./AI_SYSTEM_DOCUMENTATION.md)** - AI analysis components and integration
+Unreachable from `buildScalpContext()` and not to be revived without a recorded decision: `lib/signalEngine.js`, `services/strategy-refactored.js`, `lib/chartAnalysis.js`, `lib/advancedChartAnalysis.js`, `lib/levels.js`.
 
-### 📈 Chart Analysis
-- **[CHART_ANALYSIS_GUIDE.md](./CHART_ANALYSIS_GUIDE.md)** - Chart analysis features
-- **[CHART_ANALYSIS_DATA_POINTS.md](./CHART_ANALYSIS_DATA_POINTS.md)** - Chart data points reference
+### Tests
 
----
-
-## Documentation by Use Case
-
-### I want to...
-
-**Add a new analysis module:**
-1. Read [MODULE_DEVELOPMENT_GUIDE.md](./MODULE_DEVELOPMENT_GUIDE.md)
-2. Follow the step-by-step template
-3. Ensure structured fallbacks (never null)
-4. Test with low candle counts
-
-**Add a new strategy:**
-1. Read [STRATEGY_INTEGRATION_GUIDE.md](./STRATEGY_INTEGRATION_GUIDE.md)
-2. Review [COMPLETE_DATA_REFERENCE.md](./COMPLETE_DATA_REFERENCE.md) for available data
-3. Use advanced modules in strategy logic
-4. Follow confidence calculation patterns
-
-**Troubleshoot data issues:**
-1. Read [TROUBLESHOOTING_GUIDE.md](./TROUBLESHOOTING_GUIDE.md)
-2. Run diagnostic commands
-3. Check three-layer fallback system
-4. Verify validation layer
-
-**Understand data flow:**
-1. Read [DATA_PIPELINE_ARCHITECTURE.md](./DATA_PIPELINE_ARCHITECTURE.md)
-2. Review [SYSTEM_WORKFLOW.md](./SYSTEM_WORKFLOW.md)
-3. Check [COMPLETE_DATA_REFERENCE.md](./COMPLETE_DATA_REFERENCE.md)
-
-**Route new data sources:**
-1. Read [DATA_PIPELINE_ARCHITECTURE.md](./DATA_PIPELINE_ARCHITECTURE.md) - "Adding New Modules"
-2. Follow integration steps
-3. Add to validation layer
-4. Update export functions
+`test:sltp` (50), `test:scalp` (101), `test:mcp` (52), `test:wallet` (28) are the deploy gate. `test:config` (14), `test:risk` (24), `test:pattern` (23), `test:geometry` (36), `test:chart` (18), `test:replay` (20), `test:bias` (14) cover the engine modules; `npm run check:gpt` (Phase 11) gates the GPT instruction length separately. Counts as of 2026-09-22 (Phase 11).
 
 ---
 
-## Key Concepts
+## Legacy (Nov–Dec 2025, not re-audited)
 
-### Three-Layer Fallback System
+Each file below starts with a "Legacy" banner. Use for background on the dashboard and older endpoints only.
 
-1. **Calculation Layer:** Module functions return structured objects/arrays
-2. **Validation Layer:** `validateTimeframeAnalysis()` ensures all modules exist
-3. **Export Layer:** Frontend functions apply final fallbacks
+**Architecture and data (dashboard / `/api/analyze*` path):** [SYSTEM_CONTEXT.md](./SYSTEM_CONTEXT.md), [SYSTEM_WORKFLOW.md](./SYSTEM_WORKFLOW.md), [DATA_PIPELINE_ARCHITECTURE.md](./DATA_PIPELINE_ARCHITECTURE.md), [COMPLETE_DATA_REFERENCE.md](./COMPLETE_DATA_REFERENCE.md), [MARKETDATA_MODULE.md](./MARKETDATA_MODULE.md), [technical-data-requirements.md](./technical-data-requirements.md), [INTEGRATION_CONFIRMATION.md](./INTEGRATION_CONFIRMATION.md), [THIRD_PARTY_DOCUMENTATION_PACKAGE.md](./THIRD_PARTY_DOCUMENTATION_PACKAGE.md), [prd.txt](./prd.txt)
 
-### Data Guarantees
+**Strategy and indicator guides:** [STRATEGY_IMPLEMENTATION_GUIDE.md](./STRATEGY_IMPLEMENTATION_GUIDE.md), [STRATEGY_INTEGRATION_GUIDE.md](./STRATEGY_INTEGRATION_GUIDE.md), [STRATEGY_MODES.md](./STRATEGY_MODES.md), [STRATEGY_SYSTEM_AUDIT.md](./STRATEGY_SYSTEM_AUDIT.md), [ADDING_STRATEGIES.md](./ADDING_STRATEGIES.md), [ADDING_INDICATORS.md](./ADDING_INDICATORS.md), [INDICATOR_ARCHITECTURE.md](./INDICATOR_ARCHITECTURE.md), [INDICATOR_REFERENCE.md](./INDICATOR_REFERENCE.md), [INDICATOR_DOCUMENTATION_INDEX.md](./INDICATOR_DOCUMENTATION_INDEX.md), [INDICATOR_INTEGRATION_CHECKLIST.md](./INDICATOR_INTEGRATION_CHECKLIST.md), [MODULE_DEVELOPMENT_GUIDE.md](./MODULE_DEVELOPMENT_GUIDE.md), [DEVELOPMENT_PROCEDURE.md](./DEVELOPMENT_PROCEDURE.md), [BACKTEST_GUIDE.md](./BACKTEST_GUIDE.md), [templates/](./templates/)
 
-- All modules guaranteed to exist (never null)
-- Arrays always arrays (never null, empty if no data)
-- Objects always objects (never null, default structure if no data)
-- Volatility state always classified (never null)
+**Chart analysis (dashboard):** [CHART_ANALYSIS_GUIDE.md](./CHART_ANALYSIS_GUIDE.md), [CHART_ANALYSIS_DATA_POINTS.md](./CHART_ANALYSIS_DATA_POINTS.md), [FRONTEND_CHART_ANALYSIS_SUMMARY.md](./FRONTEND_CHART_ANALYSIS_SUMMARY.md)
 
-### Strategy Integration
+**AI agent:** [AI_SYSTEM_DOCUMENTATION.md](./AI_SYSTEM_DOCUMENTATION.md)
 
-- All strategies have access to complete advanced module data
-- Data guaranteed to exist (no null checks needed)
-- Use patterns from [STRATEGY_INTEGRATION_GUIDE.md](./STRATEGY_INTEGRATION_GUIDE.md)
-- Follow confidence calculation hierarchy
+**Trading execution, Jupiter, perps (execution is off by default; never reachable from MCP):** [JUPITER_TRADING_INTEGRATION.md](./JUPITER_TRADING_INTEGRATION.md), [JUPITER_SWAP_FIXES.md](./JUPITER_SWAP_FIXES.md), [SWAP_TECHNICAL_FLOW.md](./SWAP_TECHNICAL_FLOW.md), [SWAP_TROUBLESHOOTING.md](./SWAP_TROUBLESHOOTING.md), [JUPITER_PERPETUALS_INTEGRATION.md](./JUPITER_PERPETUALS_INTEGRATION.md), [JUPITER_PERPETUALS_RESEARCH.md](./JUPITER_PERPETUALS_RESEARCH.md), [JUPITER_PERPS_INTEGRATION_STATUS.md](./JUPITER_PERPS_INTEGRATION_STATUS.md), [JUPITER_PERPS_WORKAROUND.md](./JUPITER_PERPS_WORKAROUND.md), [PERPS_IMPLEMENTATION_STATUS.md](./PERPS_IMPLEMENTATION_STATUS.md), [PERPS_IMPLEMENTATION_SUCCESS.md](./PERPS_IMPLEMENTATION_SUCCESS.md), [PERPS_TRADING_STATUS.md](./PERPS_TRADING_STATUS.md), [PERPS_TRANSACTION_BUILDING_RESEARCH.md](./PERPS_TRANSACTION_BUILDING_RESEARCH.md), [PERPS_ALTERNATIVES_RESEARCH.md](./PERPS_ALTERNATIVES_RESEARCH.md), [PERPS_PDA_RESOLUTION.md](./PERPS_PDA_RESOLUTION.md), [POSITION_REQUEST_PDA_ISSUE.md](./POSITION_REQUEST_PDA_ISSUE.md), [POSITION_REQUEST_PDA_RESOLVED.md](./POSITION_REQUEST_PDA_RESOLVED.md), [POSITION_REQUEST_FINAL_APPROACH.md](./POSITION_REQUEST_FINAL_APPROACH.md), [PROVIDER_INTEGRATION.md](./PROVIDER_INTEGRATION.md), [SIGNER_ADAPTER_FIX.md](./SIGNER_ADAPTER_FIX.md), [CUSTODY_LIMIT_HANDLING.md](./CUSTODY_LIMIT_HANDLING.md), [CUSTODY_LIMIT_RESOURCES.md](./CUSTODY_LIMIT_RESOURCES.md), [MARKET_CAPACITY_ANALYSIS.md](./MARKET_CAPACITY_ANALYSIS.md), [USDT_COLLATERAL_SUCCESS.md](./USDT_COLLATERAL_SUCCESS.md), [FUNDING_WALLET_USDC.md](./FUNDING_WALLET_USDC.md), [SOLANA_WALLET_SETUP.md](./SOLANA_WALLET_SETUP.md), [VERCEL_TRADING_ENV_SETUP.md](./VERCEL_TRADING_ENV_SETUP.md), [PRODUCTION_TRADE_EXECUTION_FIX.md](./PRODUCTION_TRADE_EXECUTION_FIX.md), [RPC_OPTIMIZATION.md](./RPC_OPTIMIZATION.md)
+
+**Troubleshooting:** [TROUBLESHOOTING_GUIDE.md](./TROUBLESHOOTING_GUIDE.md)
+
+**Old indexes:** [README.md](./README.md) (docs index, Dec 2025), [archive/](./archive/) (superseded strategy notes)
+
+**Repo root, Nov–Dec 2025 work notes and guides:** `README.md` (project README; top section current, rest legacy), `CHANGELOG.md` (2026 entry current), and the remaining root `*.md` files (`AI_*`, `API_QUICK_REFERENCE`, `COMPACT_SCHEMA`, `DEPLOYMENT*`, `QUICKSTART`, `START_HERE`, `VERCEL_*`, fix and summary notes). They record one-off changes from that period.
+
+**Scratch files with no content value:** `docs/3asdfasdf.txt`, `docs/asdfasdfasdfasdfasdfasdf.txt`, `docs/mbkjUntitled 3.txt` — candidates for deletion.
 
 ---
 
-## Milestone Reference
+## Keeping this current
 
-**Tag:** `v1.0-data-parity`
-
-**Achievement:** Complete TradingView-level data parity
-
-**Status:** Production ready - all modules present, structured fallbacks, no null values
-
-**Use as fallback:** `git checkout v1.0-data-parity`
+After each engine phase: update the phase map in the master plan, the schema map and test table in `EDITTRADES_MCP_CONNECTOR.md`, `openapi/scalp-context.yaml`, and this index if a doc or module is added.

@@ -309,12 +309,11 @@ components:
         - reason
     TimeframeWindowEntry:
       type: object
-      description: The exact closed-candle range compute ran on for one timeframe, this build.
+      description: >-
+        The exact closed-candle range compute ran on for one timeframe, this build.
+        Schema 1.10.0 (Phase 11) dropped `from` (the oldest candle's open time) for
+        payload headroom; `to` + `closedCandles` still pin the window precisely.
       properties:
-        from:
-          description: Open time of the oldest closed candle in the compute window.
-          type: [string, "null"]
-          format: date-time
         to:
           description: Close time of the newest closed candle. Equal to that timeframe's closedThrough.
           type: [string, "null"]
@@ -322,7 +321,6 @@ components:
         closedCandles:
           type: integer
       required:
-        - from
         - to
         - closedCandles
     CandidateSetup:
@@ -487,9 +485,11 @@ components:
         geometry:
           description: >-
             One "timeframe:structure:roomUpPct:roomDownPct:extension" string per
-            timeframe in the symbol's geometryContext (e.g. "1h:up:0.42:0.18:low"; "na"
-            where a value is missing). Full geometry lives on the symbol. Null when no
-            geometry was built.
+            timeframe in the symbol's geometryContext (e.g. "1h:up:0.42:0.18:low"; room
+            values round to 2 decimals here, schema 1.10.0). A missing individual field
+            is an empty position ("1h:up::0.18:"); a timeframe with no geometry at all
+            collapses to one token, "1h:na", instead of four (schema 1.10.0, Phase 11).
+            Full geometry lives on the symbol.
           type: [array, "null"]
           items:
             type: string

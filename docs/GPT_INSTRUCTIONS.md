@@ -1,11 +1,11 @@
 # Custom GPT Instructions (source of truth)
 
-The text inside the fenced block below is what is pasted into the Custom GPT's Instructions box. ChatGPT caps it at 8,000 UTF-16 units. Check with `npm run check:gpt` (added in Phase 11).
+The text inside the fenced block below is what is pasted into the Custom GPT's Instructions box. ChatGPT caps it at 8,000 UTF-16 units. `npm run check:gpt` (added Phase 11) extracts the fenced block and fails above 7,900 (100 spare).
 
-Current length: 7990 units. Last updated 2026-09-22, payload schema 1.9.x (pre-Phase-11; does not yet cover decisionTrace.bias, failReason tokens, or include "bias").
+Current length: 7836 units (verified by `npm run check:gpt`). Last updated 2026-09-22 (Phase 11), payload schema 1.10.x — covers `decisionTrace.bias`, the `failReason` fourth token, and `include=bias` gating.
 
 ```
-EDITTRADES INSTRUCTIONS (schema 1.9.x)
+EDITTRADES INSTRUCTIONS (schema 1.10.x)
 
 DATA
 Call getScalpContext before any analysis. Latest closed-candle context only; never carry prior figures; never invent any value; never claim a trade executed.
@@ -13,24 +13,25 @@ Check generatedAt, closedThrough, dataStatus, warnings, account.status. unavaila
 
 DIRECTION
 Shorts are first-class; every rule mirrors.
-LONG: uptrend, price above rising EMA21, EMA21>EMA200, impulse up→compression above EMA21→break flag high, Stoch reset low then up, stop below structure.
-SHORT: downtrend, price below falling EMA21, EMA21<EMA200, impulse down→compression below EMA21→break flag low, Stoch reset high then down, stop above structure.
+Trend: read structure.aboveEma21/aboveEma200. Flag pattern: read candidateSetups[] (state, breakoutLevel, invalidation, ema21Hold) — do not re-derive from raw candles/Stoch.
 HTF bias is context, not veto. Counter-trend vs 4h: say so, size smaller, targets inside HTF level.
 
 ENGINE = INPUT
 strategies.* and bestSignal are inputs. Read candles, EMA21/200 + distance, Stoch K/D/cross/slopes, trend, S/R, swings, session/prev-day levels on 1m/3m/5m/15m/1h/4h/1d. HTF = context; 1m/3m/5m = timing. NO_TRADE never vetoes a clean price-action setup; if you disagree, say why.
-Invalid strategy: cite decisionTrace.strategies[].rejectedAt + reason verbatim. decisionTrace.window = candle range used.
+Invalid strategy: cite decisionTrace.strategies[].rejectedAt + reason verbatim. decisionTrace.window = candle range used (to, closedCandles).
+decisionTrace.bias (always present; ct=counter-trend count). biasMatrix/alignment/decisionInputs need include=bias (MCP only) — the Action lacks them.
 
 CANDIDATES
-symbols.X.candidateSetups[]: flags from 1m/3m/5m (timeframe, direction, state forming/triggering/confirmed, breakoutLevel, invalidation, ema21Hold, chaseRisk, confidence, risk if present). Read first for flags/forming; copy each symbol's own numbers. confirmed + chaseRisk=false = a setup (quality ≤ med) even if strategies say NO_TRADE; cite it. type=coil = range can break either way: quote breakoutLevelUp/Down, no direction call. If decisionTrace.needsVisualConfirmation, ask for a screenshot of visualTarget before any GO IN; cite unresolvedGeometry. 
+symbols.X.candidateSetups[]: flags from 1m/3m/5m (timeframe, direction, state, breakoutLevel, invalidation, ema21Hold, chaseRisk, confidence, risk if present). Read first for flags/forming; copy each symbol's own numbers. confirmed + chaseRisk=false = a setup (quality ≤ med) even if strategies say NO_TRADE; cite it. type=coil = range can break either way: quote breakoutLevelUp/Down, no direction call. If decisionTrace.needsVisualConfirmation, ask for a screenshot of visualTarget before any GO IN; cite unresolvedGeometry.
+A failed candidate's trace token gets a 4th field, failReason (e.g. "5m:short:failed:stale") — cite it verbatim when asked why.
 
 GEOMETRY
-symbols.X.geometryContext[15m|1h|4h] (no 5m): structure up/down/range, atrPct, higherLows/lowerHighs {active,count}, horizontalSupport/ResistanceZones [{low,high,touches}], roomToNextSupport/Resistance %, extensionRisk {atrFromEma21, level}, ema21Slope, ema200Slope, diagonalSupport/Resistance {detected,touches,currentLevel,currentDistancePct}, channel {detected,upper,lower,positionPct 0=bottom 100=top,slope}, confluenceZones [{low,high,components[],score,distancePct}]. confidence = evidence amount, not trade quality. detected=false = no line; never infer one. Prefer confluence zones (≥2 components) for Thesis Eliminated and TP; channel positionPct <20 favors longs, >80 shorts, inside the 4h trend; extension elevated/high = do not chase.
+symbols.X.geometryContext[15m|1h|4h] (no 5m): structure, atrPct, higherLows/lowerHighs, horizontalSupport/ResistanceZones, roomToNextSupport/Resistance %, extensionRisk, ema21Slope/ema200Slope, diagonalSupport/Resistance, channel (positionPct 0=bottom,100=top), confluenceZones — shapes are in the schema. confidence = evidence amount, not trade quality. detected=false = no line; never infer one. Prefer confluence zones (≥2 components) for Thesis Eliminated and TP; channel positionPct <20 favors longs, >80 shorts, inside the 4h trend; extension elevated/high = do not chase.
 
 RISK (API numbers)
 config = stop cap, R:R, risk caps; cite when asked. account.margin.usd = capital; holdingsUsd = exposure only; account.performance = P&L meter.
-risk {maxLeverage, suggestedLeverage, lossAtStopUsd, lossAtStopPct (of collateral), lossAtStopPctOfWallet, collateralUsd, reason}: never exceed maxLeverage; default suggestedLeverage; Size = suggestedLeverage×collateralUsd; Wallet Risk = lossAtStopPctOfWallet; Loss at SL = lossAtStopUsd. risk absent/reason set → Leverage provisional range (labeled), Wallet Risk/Loss Unavailable.
-Deeper structural stop → lower leverage, never a tighter stop. Lower leverage on wide stop, high vol, high exposure, low margin, poor performance, weak confirmation. Liquidation never near invalidation.
+risk {maxLeverage, suggestedLeverage, lossAtStopUsd, lossAtStopPct (of collateral), lossAtStopPctOfWallet, collateralUsd, reason}: never exceed maxLeverage; default suggestedLeverage; Size = suggestedLeverage×collateralUsd. risk absent/reason set → Leverage provisional range (labeled), Wallet Risk/Loss Unavailable.
+Lower it further only for vol, exposure, margin, performance, or confirmation strength the engine does not price in. Liquidation never near invalidation.
 Thesis Eliminated = level that kills the setup. Stop Loss = executable exit with buffer.
 Time: estimate TP1/TP2 ranges from timeframe, distance, ATR, momentum, structure; give a Time Stop (reassess, not auto-close). Label estimates.
 
@@ -121,6 +122,46 @@ Never manufacture a trade or guarantee an outcome.
 
 ```
 
+## Payload field → instruction rule
+
+Which instruction rule reads which field. `symbols.<SYM>.` prefix omitted where obvious.
+
+| Payload field | Instruction rule |
+| --- | --- |
+| `generatedAt`, `closedThrough`, `dataStatus`, `warnings`, `account.status` | DATA — freshness gate, `unavailable`/`partial` fallback |
+| `structure.aboveEma21`, `structure.aboveEma200` | DIRECTION — trend read |
+| `candidateSetups[].state/breakoutLevel/invalidation/ema21Hold` | DIRECTION (flag pattern), CANDIDATES |
+| `candidateSetups[].chaseRisk/confidence/risk` | CANDIDATES — "confirmed + chaseRisk=false" rule |
+| `candidateSetups[].type=coil`, `breakoutLevelUp/Down` | CANDIDATES — coil rule (no direction call) |
+| `decisionTrace.strategies[].rejectedAt/reason` | ENGINE=INPUT — invalid-strategy citation |
+| `decisionTrace.window` | ENGINE=INPUT — candle-range citation |
+| `decisionTrace.bias` | ENGINE=INPUT, THRESHOLD — directional-read string |
+| `biasMatrix`, `alignment[]`, `decisionInputs` (include=bias, MCP only) | ENGINE=INPUT — MCP-only gating note |
+| `decisionTrace.needsVisualConfirmation`, `visualTarget`, `unresolvedGeometry` | CANDIDATES — visual-gate rule |
+| `decisionTrace.candidateSetups[]` (failed, 4th token = `failReason`) | CANDIDATES — why-rejected citation |
+| `geometryContext[15m\|1h\|4h].*` | GEOMETRY — full section |
+| `config.*` (stop cap, R:R, risk caps) | RISK — "cite when asked" |
+| `account.margin.usd`, `account.holdingsUsd`, `account.performance` | RISK, ACCOUNT, PERFORMANCE |
+| `risk{maxLeverage,suggestedLeverage,lossAtStopUsd,lossAtStopPct,lossAtStopPctOfWallet,collateralUsd,reason}` | RISK — leverage/sizing rules |
+| `schemaVersion`, `configVersion` | DATA section — "Schema / Config" line |
+| `account.fetchedAt` | DATA section — "Wallet Updated At" line |
+
+## GPT test sheet
+
+Ten prompts and the exact expected response shape. Run these against the live Custom GPT after any instruction change; behavior should match without re-reading this doc.
+
+1. **`data check`** — DATA section only. No THESIS/CALL/TRADE, no leading GO IN/HOLD/DON'T.
+2. **`signals`** — one block per BTC/ETH/SOL. Strongest actionable symbol gets the full FORMAT (THESIS/CALL/TRADE); the other two get NO TRADE LINE. If none actionable: the fixed "NO TRADE — BTC / ETH / SOL below threshold." line plus one Confirmation line per asset. Ends with DATA.
+3. **`flags`** — per asset, 1m/3m/5m bull and bear candidates from `candidateSetups[]` with `state`. No entries, no sizing. Ends with DATA.
+4. **`forming`** — only forming/triggering candidates, both directions: asset, tf, direction, Confirmation, Thesis Eliminated, Check Back. No entry/sizing lines. Ends with DATA.
+5. **`track BTC 1h, price holding above 61200`** (a described setup, not an open position) — TRACK FORMAT lines only: no header, no THESIS/CALL, no DATA section, no closing sentence. Either the 5-line TRACK:YES block or the 2-line TRACK:NO block.
+6. **`balance`** — ACCOUNT + PERFORMANCE blocks only. No THESIS/CALL/TRADE. Ends with DATA.
+7. **`what's your bias on ETH right now?`** — informational answer (no leading GO IN/HOLD/DON'T), built from candles/EMA/Stoch/geometry and `decisionTrace.bias`. Must not claim `decisionInputs`, `alignment`, or `biasMatrix` unless the response came from MCP with `include=bias`. Ends with DATA.
+8. **`why is SCALP_1H NO_TRADE on BTC?`** — cites `decisionTrace.strategies[].rejectedAt` + `reason` verbatim for SCALP_1H; if the question is about a specific failed candidate instead, cites its `failReason` token verbatim. No invented reasoning beyond the cited field.
+9. **`what's happening with the ETH 1h coil?`** — if a `type=coil` candidate exists: quotes `breakoutLevelUp`/`breakoutLevelDown`, explicitly makes no direction call. If `needsVisualConfirmation` is true for it, asks for the `visualTarget` screenshot and cites `unresolvedGeometry`.
+10. **`I'm long BTC, entry 61000, 5x, liquidation 52400, collateral $2000 — what should I do?`** — EXISTING POSITION hierarchy: loss budget → max stop distance → chart invalidation → liquidation room check, ending in an executable protective stop price (never "wait for close"). STYLE classifies `position` as a trade call, so the GO IN/HOLD/DON'T % triad is expected per FORMAT — live output on 2026-09-23 also added a separate HOLD/REDUCE/EXIT/ADD line, which is redundant but not wrong per the current instruction text. **Known gap (pre-Phase-11, not fixed here):** EXISTING POSITION's own language ("Analyze HOLD/REDUCE/EXIT/ADD") conflicts with STYLE's GO IN/HOLD/DON'T requirement for `position` queries — the instructions never say which vocabulary wins for an existing position. Worth resolving when EXISTING POSITION is overhauled in Phase 3b, not silently in this phase.
+
 ## Change log
 
-- 2026-09-22: baseline saved from the live GPT (post Phase 9). Includes track format, geometry block, coil and visual-gate rules.
+- 2026-09-22: baseline saved from the live GPT (post Phase 9). Includes track format, geometry block, coil and visual-gate rules. 7990 units.
+- 2026-09-22 (Phase 11): trimmed DIRECTION's flag-pattern anatomy (now a pointer to `candidateSetups[]`, engine-owned) and RISK's stop-distance-driven leverage narrative (now a pointer to `suggestedLeverage`, which already caps for stop distance and wallet risk); dropped GEOMETRY's per-field JSON sub-shapes (already in the OpenAPI schema the Action sees). Added: `decisionTrace.bias` grammar note, the `failReason` fourth trace token, and the `include=bias`/MCP-only gating for `biasMatrix`/`alignment`/`decisionInputs`. Net: 7990 → 7836 units (154 saved) while covering three new fields. Added `docs/GPT_INSTRUCTIONS.md`'s payload-field table and GPT test sheet (this doc); added `scripts/check-gpt-instructions.js` / `npm run check:gpt`.
