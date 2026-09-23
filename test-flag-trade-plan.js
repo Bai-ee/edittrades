@@ -132,7 +132,7 @@ async function run() {
   console.log('\nlib/flagTradePlan.js\n');
   console.log('1) hand-built single-candidate cases\n');
 
-  await test('ready (long): breakout close, then a retest-hold close; valid levels, net RR>=3, stop<=3%', () => {
+  await test('ready (long): breakout close, then a retest-hold close; valid levels, gross RR>=3, stop<=3%', () => {
     const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate(), price: 1003, candles: levelCandles('long', 'retest') }));
     assert(plan, 'expected a plan');
     assertEqual(plan.status, 'ready', 'status');
@@ -142,6 +142,7 @@ async function run() {
     assertEqual(plan.stop, 990, 'stop');
     assertEqual(plan.tp1, 1040, 'tp1');
     assertEqual(plan.tp2, null, 'tp2 (no cap, TP1 already the full measured move)');
+    assertEqual(plan.grossRR, 4, 'grossRR = |tp1 - entry| / |entry - stop|');
     assertClose(plan.netRR, 3.1667, 0.001, 'netRR');
     assertEqual(plan.entryCondition, "a closed candle closes above 1000, then a later closed candle's low reaches within 0.1 ATR of 1000 and closes at or above it", 'entryCondition');
     assert(plan.candidateId && plan.planId && plan.planId.includes(plan.candidateId), 'planId embeds candidateId');
@@ -153,6 +154,7 @@ async function run() {
     assertEqual(plan.entry, 1000, 'entry');
     assertEqual(plan.stop, 1010, 'stop');
     assertEqual(plan.tp1, 960, 'tp1');
+    assertEqual(plan.grossRR, 4, 'grossRR');
     assertClose(plan.netRR, 3.1667, 0.001, 'netRR');
     assertEqual(plan.entryCondition, "a closed candle closes below 1000, then a later closed candle's high reaches within 0.1 ATR of 1000 and closes at or below it", 'entryCondition');
   });
@@ -282,13 +284,14 @@ async function run() {
   });
 
   await test('nearest-level cap: a zone between entry and measured target caps TP1, TP2 keeps the rest (long)', () => {
-    // Tighter stop (2) than the baseline fixture so net R:R still clears 3 after the cap.
+    // Tighter stop (2) than the baseline fixture so R:R still clears 3 after the cap.
     const candidate = longCandidate({ invalidation: 998 });
     const geometryContext = { '15m': { horizontalResistanceZones: [{ low: 1020, high: 1025 }], horizontalSupportZones: [] } };
     const plan = buildFlagTradePlan(baseParams({ candidate, geometryContext, candles: levelCandles(candidate.direction, 'retest') }));
     assertEqual(plan.status, 'ready', 'status (still passes after the cap)');
     assertEqual(plan.tp1, 1020, 'tp1 capped to the zone\'s near edge');
     assertEqual(plan.tp2, 1040, 'tp2 keeps the measured target, since it is still beyond the capped TP1');
+    assertEqual(plan.grossRR, 10, 'grossRR uses the capped TP1, not the raw measured target');
     assertClose(plan.netRR, 4.5, 0.001, 'netRR uses the capped TP1, not the raw measured target');
   });
 
@@ -299,6 +302,7 @@ async function run() {
     assertEqual(plan.status, 'ready', 'status');
     assertEqual(plan.tp1, 980, 'tp1 capped to the zone\'s near edge (short: upper edge)');
     assertEqual(plan.tp2, 960, 'tp2 keeps the measured target');
+    assertEqual(plan.grossRR, 10, 'grossRR uses the capped TP1 (short)');
   });
 
   await test('a zone entirely beyond the measured target never caps or blocks anything', () => {
@@ -309,17 +313,32 @@ async function run() {
     assertEqual(plan.tp2, null, 'tp2');
   });
 
-  await test('rejected/net_rr_below_3: gross R:R of exactly 3 does not survive fees (boundary)', () => {
-    // entry 1000, stop 990 (risk 10), target 1030 (reward 30, gross RR 3.0 exactly).
-    const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1030 }) }));
-    assertEqual(plan.status, 'rejected', 'status');
-    assertEqual(plan.reasonCode, 'net_rr_below_3', 'reasonCode');
-    assert(plan.netRR < ENGINE_CONFIG.flagPlan.minNetRR, `netRR ${plan.netRR} should be below the floor`);
+  await test('owner decision 1a: gross R:R of exactly 3 passes even though net R:R after fees is below 3 (long + short mirror)', () => {
+    // entry 1000, stop 990/1010 (risk 10), target 1030/970 (reward 30, gross RR 3.0 exactly).
+    for (const cand of [longCandidate({ measuredTarget: 1030 }), shortCandidate({ measuredTarget: 970 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
+      assertEqual(plan.status, 'ready', `${cand.direction}: status (gross floor met)`);
+      assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
+      assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR`);
+      assert(plan.netRR < ENGINE_CONFIG.flagPlan.minRR, `${cand.direction}: netRR ${plan.netRR} is below the floor but never rejects`);
+    }
   });
 
-  await test('never moves the stop to manufacture 3R: a rejected net-RR plan still publishes the real stop', () => {
-    const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1030 }) }));
-    assertEqual(plan.stop, 990, 'stop is the candidate\'s own invalidation, unmoved');
+  await test('rejected/rr_below_min: gross R:R 2.9 is below the floor (long + short mirror)', () => {
+    for (const cand of [longCandidate({ measuredTarget: 1029 }), shortCandidate({ measuredTarget: 971 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand }));
+      assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
+      assertEqual(plan.reasonCode, 'rr_below_min', `${cand.direction}: reasonCode`);
+      assertEqual(plan.grossRR, 2.9, `${cand.direction}: grossRR published on the rejection`);
+      assert(typeof plan.netRR === 'number', `${cand.direction}: netRR still published as information`);
+    }
+  });
+
+  await test('never moves the stop to manufacture 3R: a rejected R:R plan still publishes the real stop (long + short mirror)', () => {
+    const long = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1029 }) }));
+    assertEqual(long.stop, 990, 'stop is the candidate\'s own invalidation, unmoved');
+    const short = buildFlagTradePlan(baseParams({ candidate: shortCandidate({ measuredTarget: 971 }) }));
+    assertEqual(short.stop, 1010, 'short stop is the candidate\'s own invalidation, unmoved');
   });
 
   await test('rejected/stop_distance_exceeds_cap: a 5% stop exceeds the 3% scalp cap (long)', () => {

@@ -1442,9 +1442,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.16.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.17.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.16.0', 'schemaVersion must be bumped to 1.16.0');
+    assertEqual(case6Result.schemaVersion, '1.17.0', 'schemaVersion must be bumped to 1.17.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');

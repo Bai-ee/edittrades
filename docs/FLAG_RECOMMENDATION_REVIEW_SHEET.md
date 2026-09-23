@@ -1,7 +1,7 @@
 # Flag Recommendation Review Sheet
 
 Created: 2026-09-23  
-Scope: schema 1.14.0 local implementation. These examples are deterministic fixtures for communication fidelity. They are not profitability evidence.
+Scope: schema 1.14.0 local implementation; R:R samples updated for schema 1.17.0 (owner-approved 2026-09-23: 3R is gross price R, net R is information). These examples are deterministic fixtures for communication fidelity. They are not profitability evidence.
 
 ## Representative Outputs
 
@@ -13,11 +13,12 @@ Setup: ready long flag plan BTC:1m:long:2026-09-23T11:50:00.000Z
 Entry: 1000
 Stop: 990
 TP1: 1040
+Gross R:R: 4
 Net R:R: 3.2
 
 Supports
 - ready_flag_plan: The engine-owned long flag plan is ready at 1000.
-- net_rr_ok: Net R:R to TP1 is 3.2, meeting the 3R floor.
+- rr_ok: Gross R:R to TP1 is 4, meeting the 3R floor.
 - top_down_context: Top-down sentiment is bull with 4/4 aligned.
 - ema21_flag_context: 1m price is above EMA21.
 - divergence_agrees: Bullish Stoch RSI divergence confirms momentum.
@@ -29,7 +30,7 @@ Unknown
 - Weekly EMA200 is unavailable because there is insufficient weekly history.
 
 What Changes The Call
-- Price invalidates the plan at 990, TP1 becomes blocked below 3R, or required data goes stale.
+- Price invalidates the plan at 990, TP1 becomes blocked below 3R gross, or required data goes stale.
 ```
 
 ### WATCH
@@ -39,7 +40,7 @@ BTC — 21/200 FLAG — WATCH
 Setup: valid long flag plan, not ready
 
 Supports
-- valid_conditional_plan: The engine has a valid conditional long flag plan with TP1 1040 and net R:R 3.2.
+- valid_conditional_plan: The engine has a valid conditional long flag plan with TP1 1040, gross R:R 4 and net R:R 3.2.
 
 Against
 - trade_readiness: status is conditional (awaiting_retest).
@@ -61,14 +62,13 @@ Supports
 - None sufficient for a trade call.
 
 Against
-- net_rr_below_3: The engine rejected the flag plan.
-- net_rr: Net R:R is 2.7, below the 3R floor.
+- rr_below_min: The engine rejected the flag plan: gross R:R to TP1 is 2.9, below the 3R floor.
 
 Unknown
 - No missing-data issue; this is a hard risk/reward block.
 
 What Changes The Call
-- A fresh flag plan must pass levels, stop distance, and net R:R checks.
+- A fresh flag plan must pass levels, stop distance, and gross R:R checks.
 ```
 
 ### DATA_UNAVAILABLE
@@ -94,7 +94,7 @@ What Changes The Call
 
 | Case | Expected Class | Key Reason Checked |
 | --- | --- | --- |
-| Aligned bull flag | GOOD | ready plan, net R >= 3, top-down support |
+| Aligned bull flag | GOOD | ready plan, gross R >= 3, top-down support |
 | Mirrored aligned bear flag | GOOD | same class, bearish divergence support |
 | Mixed top-down context | GOOD with lower quality | alignment is context, not veto |
 | Long below EMA200 | GOOD when other factors support | EMA200 side context only |
@@ -121,7 +121,7 @@ The deployed Custom GPT materials were not accessible from this local task, so d
 4. In a fresh chat, test fixed payloads for:
    - GOOD ready plan
    - WATCH conditional/no-plan
-   - BAD `net_rr_below_3`
+   - BAD `rr_below_min`
    - DATA_UNAVAILABLE `stale_data`
 5. Verify the GPT:
    - uses `flagRecommendation.class` for the 21/200 call;

@@ -616,7 +616,8 @@ components:
           description: >-
             Null only when status=ready. awaiting_retest/awaiting_breakout
             (conditional; awaiting_retest replaced awaiting_retest_hold in 1.15.0); invalid_levels, chase, room_at_entry, stop_distance_exceeds_cap,
-            net_rr_below_3, stale_data, missing_data (rejected).
+            rr_below_min (grossRR below flagPlan.minRR; replaced net_rr_below_3 in 1.17.0),
+            stale_data, missing_data (rejected).
           type: [string, "null"]
           enum:
             - awaiting_retest
@@ -625,7 +626,7 @@ components:
             - chase
             - room_at_entry
             - stop_distance_exceeds_cap
-            - net_rr_below_3
+            - rr_below_min
             - stale_data
             - missing_data
             - null
@@ -650,8 +651,17 @@ components:
         tp2:
           description: measuredTarget, published only when tp1 was capped and measuredTarget still lies beyond it.
           type: [number, "null"]
+        grossRR:
+          description: >-
+            Schema 1.17.0. Gross price reward:risk to tp1, abs(tp1 - entry) / abs(entry - stop),
+            3 decimals. The plan gate - required >= flagPlan.minRR (3.0) for
+            ready/conditional, else rejected rr_below_min.
+          type: [number, "null"]
         netRR:
-          description: Reward:risk to tp1 net of config.risk.feeBps/slippageBps round-trip cost. Required >= flagPlan.minNetRR (3.0) for ready/conditional.
+          description: >-
+            Reward:risk to tp1 net of config.risk.feeBps/slippageBps round-trip cost.
+            Information only since 1.17.0 - never rejects a plan; below flagPlan.minRR
+            the recommendation adds a non-blocking net_rr_low oppose (fees eat the edge).
           type: [number, "null"]
         stopDistancePct:
           description: abs(entry - stop) / entry * 100. Required <= config.scalp.maxStopDistancePct for ready/conditional.
@@ -669,6 +679,7 @@ components:
         - stop
         - tp1
         - tp2
+        - grossRR
         - netRR
         - stopDistancePct
     RecommendationReason:
@@ -700,7 +711,10 @@ components:
         legacy bestSignal as the 21/200 recommendation. supports/opposes/unknowns are
         reason codes only (a stale or missing flag timeframe reads e.g. "stale_data:1m");
         the full record with per-reason text, refs and factorStates is
-        model.recommendation (include=model).
+        model.recommendation (include=model). Schema 1.17.0: BAD on rr_below_min
+        (gross R:R); a ready/conditional plan carries supports rr_ok (grossRR meets
+        flagPlan.minRR) and, when netRR is below it, the non-blocking opposes
+        net_rr_low (fees eat the edge) - net R:R never makes a plan BAD.
       properties:
         class:
           type: string

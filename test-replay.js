@@ -568,15 +568,15 @@ async function run() {
 
   await test('extractFlagPlanSignals: walks ready selected plans only, re-arms on a level change, counts rejections separately', () => {
     const lines = [
-      { closedThrough: '2026-09-22T00:00:00.000Z', flagTradePlan: { candidateId: 'A', timeframe: '1m', direction: 'long', status: 'rejected', reasonCode: 'net_rr_below_3', entry: null, stop: null, tp1: null } },
-      { closedThrough: '2026-09-22T00:01:00.000Z', flagTradePlan: { candidateId: 'A', timeframe: '1m', direction: 'long', status: 'rejected', reasonCode: 'net_rr_below_3', entry: null, stop: null, tp1: null } }, // same rejection, not double-counted
+      { closedThrough: '2026-09-22T00:00:00.000Z', flagTradePlan: { candidateId: 'A', timeframe: '1m', direction: 'long', status: 'rejected', reasonCode: 'rr_below_min', entry: null, stop: null, tp1: null } },
+      { closedThrough: '2026-09-22T00:01:00.000Z', flagTradePlan: { candidateId: 'A', timeframe: '1m', direction: 'long', status: 'rejected', reasonCode: 'rr_below_min', entry: null, stop: null, tp1: null } }, // same rejection, not double-counted
       { closedThrough: '2026-09-22T00:02:00.000Z', flagTradePlan: { candidateId: 'B', timeframe: '1m', direction: 'long', status: 'conditional', reasonCode: 'awaiting_retest', entry: 110, stop: 100, tp1: 130 } },
       { closedThrough: '2026-09-22T00:03:00.000Z', flagTradePlan: { candidateId: 'B', timeframe: '1m', direction: 'long', status: 'ready', reasonCode: null, entry: 110, stop: 100, tp1: 130 } }, // same levels, still one signal
       { closedThrough: '2026-09-22T00:04:00.000Z', flagTradePlan: null }
     ];
     const { signals, rejections } = extractFlagPlanSignals(lines);
     assertEqual(rejections.length, 1, 'the repeated identical rejection is not double-counted');
-    assertEqual(rejections[0].reasonCode, 'net_rr_below_3', 'rejection reason');
+    assertEqual(rejections[0].reasonCode, 'rr_below_min', 'rejection reason');
     assertEqual(signals.length, 1, 'conditional is not walked; the ready snapshot becomes the one scored signal');
     assertEqual(signals[0].entryMin, 110, 'entry = plan.entry');
     assertEqual(signals[0].target, 130, 'target = plan.tp1');

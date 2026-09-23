@@ -557,7 +557,7 @@ async function run() {
     await test(`REGRESSION_001 (${label}): 1m candidate survives while SCALP_1H stays NO_TRADE`, async () => {
       const payload = await buildWith1m(candles);
       const btc = payload.symbols.BTC;
-      assertEqual(payload.schemaVersion, '1.16.0', 'schemaVersion');
+      assertEqual(payload.schemaVersion, '1.17.0', 'schemaVersion');
       assert(Array.isArray(btc.candidateSetups), 'candidateSetups must be an array');
       const hit = btc.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === direction);
       assert(hit, `expected a 1m ${direction} candidate, got ${JSON.stringify(btc.candidateSetups)}`);
@@ -655,7 +655,7 @@ async function run() {
       const conflicting = { timeframe: '3m', type: 'flag', direction: opposite, state: 'forming' };
       const stochRsiByTf = { '1m': { state: dir === 'long' ? 'OVERBOUGHT' : 'OVERSOLD', cross: dir === 'long' ? 'BEARISH_CROSS' : 'BULLISH_CROSS' } };
       const geometryContext = {
-        '1h': {
+        '15m': {
           horizontalResistanceZones: dir === 'long' ? [{ low: 115, high: 120 }] : [],
           horizontalSupportZones: dir === 'short' ? [{ low: 75, high: 80 }] : []
         }
@@ -663,7 +663,7 @@ async function run() {
       const q = buildQualification(cand, [cand, conflicting], { geometryContext, stochRsiByTf, fourHourBias: opposite });
       assert(q.reasons.includes(`conflict:3m-${opposite}`), `${dir}: conflict code, got ${JSON.stringify(q.reasons)}`);
       assert(q.reasons.includes(dir === 'long' ? 'stoch:ob-cross' : 'stoch:os-cross'), `${dir}: stoch code`);
-      assert(q.reasons.includes('room:blocked-1h'), `${dir}: room:blocked code`);
+      assert(q.reasons.includes('room:blocked-15m'), `${dir}: room:blocked code on the 1m candidate's mapped 15m`);
       assert(q.reasons.includes('ema200:counter'), `${dir}: ema200:counter code`);
       assert(q.reasons.includes('ct:4h'), `${dir}: ct:4h code`);
       assertEqual(q.decision, 'wait', `${dir}: a blocking room:blocked keeps confirmed at wait, not actionable`);
@@ -695,6 +695,28 @@ async function run() {
     assert(setups[0].qual && setups[0].qual.quality === 'low', 'attachQualification bands low confidence to low');
     assert(setups[1].qual && setups[1].qual.quality === 'med', 'attachQualification bands mid confidence to med');
     assertEqual(setups[0].direction, 'long', 'attachQualification never changes the candidate itself');
+  });
+
+  await test('owner decision 4a: room:blocked reads only the candidate\'s mapped geometry timeframe (long + short mirror)', () => {
+    const long = { timeframe: '3m', type: 'flag', direction: 'long', state: 'confirmed', confidence: 80, chaseRisk: false, measuredRR: 5, breakoutLevel: 110, measuredTarget: 130 };
+    const short = { ...long, direction: 'short', breakoutLevel: 90, measuredTarget: 70 };
+    for (const [dir, cand] of [['long', long], ['short', short]]) {
+      const zone = dir === 'long' ? { low: 115, high: 120 } : { low: 75, high: 80 };
+      const at = (tf) => ({ [tf]: { horizontalResistanceZones: dir === 'long' ? [zone] : [], horizontalSupportZones: dir === 'short' ? [zone] : [] } });
+
+      const own = buildQualification(cand, [cand], { geometryContext: at('15m') });
+      assertEqual(JSON.stringify(own.reasons), JSON.stringify(['room:blocked-15m']), `${dir}: a zone on the mapped 15m blocks`);
+      assertEqual(own.decision, 'wait', `${dir}: mapped-tf block keeps confirmed at wait`);
+
+      for (const farther of ['1h', '4h']) {
+        const far = buildQualification(cand, [cand], { geometryContext: at(farther) });
+        assert(!far.reasons.some((r) => r.startsWith('room:blocked')), `${dir}: a zone only on ${farther} must not block, got ${JSON.stringify(far.reasons)}`);
+        assertEqual(far.decision, 'actionable', `${dir}: ${farther}-only zone leaves the confirmed flag actionable`);
+      }
+
+      const both = buildQualification(cand, [cand], { geometryContext: { ...at('15m'), ...at('1h'), ...at('4h') } });
+      assertEqual(JSON.stringify(both.reasons), JSON.stringify(['room:blocked-15m']), `${dir}: one code, own tf only, even with farther zones present`);
+    }
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

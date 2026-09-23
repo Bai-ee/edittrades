@@ -97,6 +97,17 @@ Plan: `docs/PLAN_PYTH_MARK_PRICE.md`. Schema 1.15.0 → 1.16.0, configVersion 20
 - **GPT instructions:** one RISK rule: stops, Thesis Eliminated and liquidation are hit on mark; check against `mark.price`, flag |driftBps| > 10.
 - **Tests:** new `npm run test:mark` (12). `test:scalp` 113 → 117 (mark on every symbol, filterPayload default/compact, fetch failure leaves `dataStatus`, byte cap with ok marks: fixture default 77,063 B ≤ 79,000).
 
+## 2026-09-23 — Owner decisions 1 and 4: gross 3R gate, own-timeframe room check (branch `upgrade-signal-engine`)
+
+Source: `docs/OWNER_DECISIONS_2026-09-23.md` items 1a and 4a. Schema 1.16.0 → 1.17.0, configVersion 2026.09.23-5 → -6. Additive except the named renames; `strategies`, `bestSignal`, MCP registration and wallet unchanged.
+
+- **3R is gross price R:** `flagTradePlan.grossRR` = `|tp1 − entry| / |entry − stop|` (3 decimals), published beside `netRR` (computed as before). The plan gate is `grossRR < flagPlan.minRR` → rejected `rr_below_min` (replaces `net_rr_below_3`). `netRR` is information only and never rejects.
+- **Config:** `flagPlan.minNetRR` renamed `flagPlan.minRR` (3.0).
+- **Recommendation:** BAD on `rr_below_min` (primary text cites `grossRR` and the floor). Ready/conditional plans get support `rr_ok` (gross) and, when `netRR < minRR`, a non-blocking oppose `net_rr_low` ("fees eat the edge"). `net_rr_ok` / `net_rr_unknown_or_low` / `net_rr` removed; net R:R never makes a plan BAD.
+- **Room check:** `lib/candidateQualifier.js` `roomBlockedReasons` reads only the candidate's mapped geometry timeframe (`geometryTimeframeFor`, 1m/3m/5m → 15m); a zone only on 1h/4h no longer emits `room:blocked-<tf>`. `flagTradePlan`'s TP1 cap (all geometry timeframes) is unchanged.
+- **Docs:** `openapi/scalp-context.yaml`, `docs/TRADING_MODEL_DECISION_CONTRACT.md` M-5b/M-9, `docs/FLAG_RECOMMENDATION_REVIEW_SHEET.md` samples, `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/GPT_INSTRUCTIONS.md` field map (outside the instruction block; `check:gpt` unchanged at 7976).
+- **Tests:** `test:flagplan` 42 → 43 (gross exactly 3 passes with net < 3; gross 2.9 rejects `rr_below_min`; mirrored), `test:flagrec` 17 → 18 (`net_rr_low` never BAD, ready + conditional, mirrored), `test:pattern` 32 → 33 (own-tf room check, mirrored); `test:replay` fixtures renamed; schema asserts in scalp/pattern/geometry/config bumped.
+
 ## 2025-11-27
 
 ### 📊 Professional Trading Indicators - VWAP, ATR, Bollinger, MA Stack

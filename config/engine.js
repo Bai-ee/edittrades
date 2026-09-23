@@ -179,15 +179,17 @@
  *     lag, not a second candle's worth of staleness.
  *
  * `flagPlan` block (signal-reliability minimum plan work package 2, `lib/flagTradePlan.js`):
- *   - minNetRR (3.0): the flag trade plan's own net-of-fees R:R floor to TP1, required
- *     for `ready`/`conditional` (mirrors `riskReward.bySetupType.Scalp[0]`, kept as its
- *     own constant since the flag plan computes net R:R independently, after fees/
- *     slippage, not the legacy strategies' gross figure).
+ *   - minRR (3.0, config 2026.09.23-6, renamed from minNetRR): the flag trade plan's
+ *     GROSS price R:R floor to TP1 (|tp1 - entry| / |entry - stop|), required for
+ *     `ready`/`conditional`; below it the plan is rejected `rr_below_min`. Owner
+ *     decision 2026-09-23 item 1a: 3R is gross price R. `netRR` (after `risk.feeBps`/
+ *     `slippageBps` round trip) is published as information only and never rejects;
+ *     lib/flagRecommendation.js adds a non-blocking `net_rr_low` oppose below minRR.
  *   - entryToleranceAtr (0.1): after a closed candle has closed through the entry level,
  *     the latest closed candle's low (high for a short) must reach within this many ATR
  *     of it and close on the hold side for `ready` (else `conditional`). Tight on
- *     purpose - the plan is a specific retest level, not a zone. `minNetRR` here is the
- *     only R:R floor; lib/flagRecommendation.js reads it too (no `model.minNetRR`).
+ *     purpose - the plan is a specific retest level, not a zone. `minRR` here is the
+ *     only R:R floor; lib/flagRecommendation.js reads it too (no `model.minRR`).
  *
  * `mark.pyth` block (P1 Pyth mark, `lib/pythMark.js`, config 2026.09.23-5):
  *   - feedIds (BTC/ETH/SOL): Hermes price feed ids for Crypto.<SYM>/USD, resolved once

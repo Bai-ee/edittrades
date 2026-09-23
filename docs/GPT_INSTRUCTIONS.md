@@ -5,7 +5,7 @@ The text inside the fenced block below is what is pasted into the Custom GPT's I
 Current length: 7976 units (verified by `npm run check:gpt`). Last updated 2026-09-23 (P1 Pyth mark, schema 1.16.0: one RISK rule for `mark`); before that 2026-09-23 (21/200 decision clarity), payload schema 1.14.x — adds `flagRecommendation` (GOOD/WATCH/BAD/DATA_UNAVAILABLE, supports/opposes/unknowns/changeConditions) beside engine-owned `flagTradePlan`.
 
 ```
-EDITTRADES INSTRUCTIONS (schema 1.16.x)
+EDITTRADES INSTRUCTIONS (schema 1.17.x)
 
 DATA
 Call getScalpContext before any analysis. Latest closed-candle context only (may trail 1 candle); never carry prior figures, invent values, or claim a trade executed.
@@ -139,7 +139,7 @@ Which instruction rule reads which field. `symbols.<SYM>.` prefix omitted where 
 | `candidateSetups[].state/breakoutLevel/invalidation/ema21Hold` | DIRECTION (flag pattern), CANDIDATES |
 | `candidateSetups[].chaseRisk/confidence/risk` | CANDIDATES — "Confirmed alone isn't a trade" rule |
 | `candidateSetups[].type=coil`, `breakoutLevelUp/Down` | CANDIDATES — coil rule (no direction call) |
-| `flagTradePlan.{candidateId,planId,status,reasonCode,entryType,entryCondition,entry,stop,tp1,tp2,netRR,stopDistancePct}` (schema 1.13.0, signal-reliability minimum plan) | CANDIDATES — "flagTradePlan=trade authority" rule; COMMANDS `trades` |
+| `flagTradePlan.{candidateId,planId,status,reasonCode,entryType,entryCondition,entry,stop,tp1,tp2,grossRR,netRR,stopDistancePct}` (schema 1.13.0, signal-reliability minimum plan; `grossRR` 1.17.0 is the 3R gate, `netRR` information - `flagRecommendation` opposes `net_rr_low` when fees eat it) | CANDIDATES — "flagTradePlan=trade authority" rule; COMMANDS `trades` |
 | `flagRecommendation.{class,primaryReason,supports,opposes,unknowns,changeConditions,qualityBand,readiness,trace}` (schema 1.14.0, decision clarity) | ENGINE=INPUT and CANDIDATES — authoritative 21/200 recommendation and explanation |
 | `decisionTrace.strategies[].rejectedAt/reason` | ENGINE=INPUT — invalid-strategy citation |
 | `decisionTrace.window` | ENGINE=INPUT — candle-range citation |
