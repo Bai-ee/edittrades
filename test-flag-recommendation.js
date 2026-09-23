@@ -267,7 +267,8 @@ async function run() {
     assertEqual(r.class, 'DATA_UNAVAILABLE', 'class');
     assert(hasCode(r.unknowns, 'stale_data:1m'), `unknowns name 1m: ${JSON.stringify(r.unknowns.map((u) => u.code))}`);
     assert(!r.unknowns.some((u) => /3m|5m/.test(u.code)), 'fresh timeframes are not named');
-    assertEqual(compactRecommendation(r).unknowns.join(','), 'stale_data:1m', 'compact form carries the code');
+    // Phase 2: undirected context follows; the stale timeframe stays first.
+    assertEqual(compactRecommendation(r).unknowns[0], 'stale_data:1m', 'compact form carries the code first');
   });
 
   await test('review fix 5: no plan + missing 3m closedThrough -> DATA_UNAVAILABLE naming 3m', () => {

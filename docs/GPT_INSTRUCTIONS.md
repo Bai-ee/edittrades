@@ -5,7 +5,7 @@ The text inside the fenced block below is what is pasted into the Custom GPT's I
 Current length: 7976 units (verified by `npm run check:gpt`). Last updated 2026-09-23 (P1 Pyth mark, schema 1.16.0: one RISK rule for `mark`); before that 2026-09-23 (21/200 decision clarity), payload schema 1.14.x — adds `flagRecommendation` (GOOD/WATCH/BAD/DATA_UNAVAILABLE, supports/opposes/unknowns/changeConditions) beside engine-owned `flagTradePlan`.
 
 ```
-EDITTRADES INSTRUCTIONS (schema 1.17.x)
+EDITTRADES INSTRUCTIONS (schema 1.18.x)
 
 DATA
 Call getScalpContext before any analysis. Latest closed-candle context only (may trail 1 candle); never carry prior figures, invent values, or claim a trade executed.

@@ -1564,7 +1564,11 @@ export async function buildScalpContext(options = {}) {
         evidence: modelEvidence,
         topDown: topDownModel,
         flagFreshness,
-        now: safeNow
+        now: safeNow,
+        // Phase 2: default 1m/3m/5m candidates (with qual) and geometry, read-only, so
+        // every record names its candidate, first level ahead and change condition.
+        candidates: candidateSetups,
+        geometryContext
       });
     } catch (err) {
       console.warn(`[ScalpContext] ${symbol}: flag recommendation failed - ${err.message}`);
@@ -1669,7 +1673,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.17.0',
+    schemaVersion: '1.18.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

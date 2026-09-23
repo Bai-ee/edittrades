@@ -24,6 +24,7 @@
     "test:freshness": "node test-freshness.js",
     "test:flagplan": "node test-flag-trade-plan.js",
     "test:flagrec": "node test-flag-recommendation.js",
+    "test:flagrec:fixtures": "node test-flag-recommendation-fixtures.js",
     "test:ledger": "node test-paper-ledger.js",
     "test:topdown": "node test-top-down.js",
     "test:evidence": "node test-model-evidence.js",

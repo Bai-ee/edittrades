@@ -17,14 +17,14 @@ Goal: the system faithfully communicates the owner's 21/200 flag strategy from t
 | Docs alignment (playbook v2, TRADING_MODEL.md) | plan only | docs/PLAN_STRATEGY_DOCS_ALIGNMENT.md |
 | Sonnet implementer | weekly limit until 2026-09-25 12:00 CT | use Opus for code, Haiku for mechanical doc sync |
 
-## Phase 0 — Land the two packages safely (this thread, now)
+## Phase 0 — Land the two packages safely — DONE 2026-09-23 (a556e2c on prod, schema 1.17.0)
 
 1. Review-agent findings on packages 1+2 (hard rules, preflight items, determinism, mirror tests). Fix blockers only.
 2. Payload back under 79,000 B default: shorten `flagRecommendation` (drop `refs[]` from default, keep under `include=model`; codes + one-line text only), keep `candidateSetups` intact. Add a byte-cap test on a saved fixture so this cannot regress silently.
 3. Commit packages 1+2 + F1 follow-ups in one commit, push, owner deploys, verify prod (schema 1.14.0), owner pastes GPT instructions, fresh-chat `signals` / `trades` / `flags` / `why`.
 Gate: 16 suites green, check:gpt ≤ 7,990, prod verified, no hard-rule drift.
 
-## Phase 1 — Owner decision sheet (one sitting, yes/no answers)
+## Phase 1 — Owner decision sheet — DONE 2026-09-23 except chart screenshots (docs/OWNER_DECISIONS_2026-09-23.md)
 
 Answers unblock Phases 2–4. Collected in `docs/OWNER_DECISIONS_2026-09-23.md` (to write in Phase 0 step 3 handoff).
 
@@ -35,7 +35,7 @@ Answers unblock Phases 2–4. Collected in `docs/OWNER_DECISIONS_2026-09-23.md` 
 5. **Mark price source**: Pyth API key (new secret) / Jupiter keyless swap price / drop.
 6. **Timeframe pairing** for direction vs entry; 6–10 annotated chart screenshots for the fixture set (M0 input, still open).
 
-## Phase 2 — Recommendation completeness (Opus implementer, one pass)
+## Phase 2 — Recommendation completeness — DONE 2026-09-23 (schema 1.18.0; context codes on every record, best candidate + concrete change condition on WATCH, remedy on BAD, 16 pinned fixtures)
 
 Owner goal is "supports / opposes / unknown / what changes it". Today WATCH `no_plan` carries none of it in the default payload.
 

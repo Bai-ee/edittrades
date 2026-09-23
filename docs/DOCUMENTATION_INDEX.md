@@ -45,6 +45,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Flag trade plan (`flagTradePlan`, signal-reliability minimum plan) | `lib/flagTradePlan.js` |
 | 21/200 model evidence (`include=model`) | `lib/modelEvidence.js` |
 | 21/200 recommendation (`flagRecommendation`) | `lib/flagRecommendation.js` |
+| Recommendation acceptance fixtures (Phase 2, `test:flagrec:fixtures`) | `test-flag-recommendation-fixtures.js` |
 | Geometry (zones, ATR, diagonals, channel, confluence) | `lib/geometry.js` |
 | Structure | `lib/structure.js`, `lib/candleFeatures.js` |
 | Indicators | `services/indicators.js` |

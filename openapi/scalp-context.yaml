@@ -715,6 +715,20 @@ components:
         (gross R:R); a ready/conditional plan carries supports rr_ok (grossRR meets
         flagPlan.minRR) and, when netRR is below it, the non-blocking opposes
         net_rr_low (fees eat the edge) - net R:R never makes a plan BAD.
+        Schema 1.18.0 (recommendation completeness): every record except
+        market_data_unavailable also cites context codes, placed as support/oppose
+        for the plan's or named candidate's direction, or as unknown with no
+        direction - td:<sentiment>:<n>/4, a200:<above>/<of>, ema200:<tf>:<side>,
+        ema200:1w:missing, 4h:with | ct:4h | 4h:flat, level:<geomTf>:<price> (first
+        level beyond the breakout on the candidate's own geometry timeframe; oppose
+        when before the measured target) or level:none, tp1_capped:<price>,
+        chan:<geomTf>:<edge>:<risk>, candidate qual codes conflict:/stoch:/rr:,
+        divergence_agrees | divergence_conflicts | divergence_absent |
+        divergence_undirected, data_fresh | data_partial. None of these ever changes
+        the class. On BAD the disqualifying reason is opposes[0]. changeConditions
+        text is concrete - the candidate's close/retest trigger, the rejection's
+        remedy (chase retest level, 3R gross, room, stop cap), or "a 1m/3m/5m flag
+        must form (none detected)".
       properties:
         class:
           type: string
@@ -723,6 +737,29 @@ components:
           type: [string, "null"]
         candidateId:
           type: [string, "null"]
+        candidate:
+          type: [object, "null"]
+          description: >-
+            Schema 1.18.0. The nearest not-yet-confirmed 1m/3m/5m flag named on a
+            no-plan WATCH (triggering > forming > proto, then highest confidence, then
+            smallest timeframe); null when a plan exists, no flag is detected, or the flag
+            timeframes are stale. changeConditions[0].text gives its exact trigger.
+          properties:
+            candidateId:
+              type: [string, "null"]
+            timeframe:
+              type: string
+            direction:
+              type: string
+              enum: [long, short]
+            state:
+              type: string
+            breakout:
+              type: [number, "null"]
+            invalidation:
+              type: [number, "null"]
+            measuredRR:
+              type: [number, "null"]
         asOf:
           type: string
           format: date-time
@@ -757,6 +794,7 @@ components:
         - class
         - setupId
         - candidateId
+        - candidate
         - asOf
         - primaryReason
         - supports
@@ -781,6 +819,29 @@ components:
           type: [string, "null"]
         candidateId:
           type: [string, "null"]
+        candidate:
+          type: [object, "null"]
+          description: >-
+            Schema 1.18.0. The nearest not-yet-confirmed 1m/3m/5m flag named on a
+            no-plan WATCH (triggering > forming > proto, then highest confidence, then
+            smallest timeframe); null when a plan exists, no flag is detected, or the flag
+            timeframes are stale. changeConditions[0].text gives its exact trigger.
+          properties:
+            candidateId:
+              type: [string, "null"]
+            timeframe:
+              type: string
+            direction:
+              type: string
+              enum: [long, short]
+            state:
+              type: string
+            breakout:
+              type: [number, "null"]
+            invalidation:
+              type: [number, "null"]
+            measuredRR:
+              type: [number, "null"]
         asOf:
           type: string
           format: date-time

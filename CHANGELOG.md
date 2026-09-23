@@ -108,6 +108,16 @@ Source: `docs/OWNER_DECISIONS_2026-09-23.md` items 1a and 4a. Schema 1.16.0 → 
 - **Docs:** `openapi/scalp-context.yaml`, `docs/TRADING_MODEL_DECISION_CONTRACT.md` M-5b/M-9, `docs/FLAG_RECOMMENDATION_REVIEW_SHEET.md` samples, `docs/EDITTRADES_MCP_CONNECTOR.md`, `docs/GPT_INSTRUCTIONS.md` field map (outside the instruction block; `check:gpt` unchanged at 7976).
 - **Tests:** `test:flagplan` 42 → 43 (gross exactly 3 passes with net < 3; gross 2.9 rejects `rr_below_min`; mirrored), `test:flagrec` 17 → 18 (`net_rr_low` never BAD, ready + conditional, mirrored), `test:pattern` 32 → 33 (own-tf room check, mirrored); `test:replay` fixtures renamed; schema asserts in scalp/pattern/geometry/config bumped.
 
+## 2026-09-23 — Phase 2: recommendation completeness (branch `upgrade-signal-engine`)
+
+Owner goal: every recommendation says what supports it, what opposes it, what is unknown, and what specific event changes the call. Additive only; class logic, `flagTradePlan`, strategies and `bestSignal` unchanged. Schema 1.17.0 → 1.18.0, configVersion 2026.09.23-6 → -7.
+
+- **Context on every record** (`lib/flagRecommendation.js`, all classes except `market_data_unavailable`): `td:<sentiment>:<n>/4`, `a200:<above>/<of>`, `ema200:<tf>:<side>`, `ema200:1w:missing`, `4h:with` / `ct:4h` / `4h:flat`, `level:<geomTf>:<price>` or `level:none` (first level beyond the breakout on the candidate's own geometry timeframe; oppose when before the measured target), `tp1_capped:<price>`, `chan:<geomTf>:<edge>:<risk>`, the candidate's `conflict:`/`stoch:`/`rr:` qual codes, `divergence_*`, `data_fresh` / `data_partial`. Placed by direction; undirected context is `unknown`. Never a veto; unknown never improves a class.
+- **WATCH names its candidate:** new `candidate{candidateId, timeframe, direction, state, breakout, invalidation, measuredRR}` (triggering > forming > proto, then confidence, then smaller timeframe); `changeConditions` reads e.g. `3m close above 84,466.10, then a retest that holds it, then plan ready; a close below 84,300.00 voids it`, or `a 1m/3m/5m flag must form (none detected)`.
+- **BAD** lists the disqualifying reason first (`opposes[0]`) and a concrete remedy: chase → retest of the entry that holds; `rr_below_min` → a measured move ≥ 3R gross; `room_at_entry`, stop cap, invalid levels likewise. Mirrored for shorts.
+- `services/scalpContext.js` passes `candidates` and `geometryContext` into `buildFlagRecommendation` (read-only).
+- New suite `npm run test:flagrec:fixtures` (`test-flag-recommendation-fixtures.js`, 16 cases, pinned clock, mirrored, byte-stable). Payload on the saved 2026-09-23 fixture: default 76,864 → 78,003 B (cap 79,000), compact 41,459 → 42,598 B. GPT instructions unchanged (7,976 units). Not deployed.
+
 ## 2025-11-27
 
 ### 📊 Professional Trading Indicators - VWAP, ATR, Bollinger, MA Stack
