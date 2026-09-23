@@ -17,6 +17,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 - **[TRADING_MODEL_DECISION_CONTRACT.md](./TRADING_MODEL_DECISION_CONTRACT.md)** — draft owner-review contract for M-1..M-9, provenance, hard-veto behavior, and implementation choices in schema 1.14.0.
 - **[FLAG_RECOMMENDATION_REVIEW_SHEET.md](./FLAG_RECOMMENDATION_REVIEW_SHEET.md)** — representative GOOD/WATCH/BAD/DATA_UNAVAILABLE outputs, fixture coverage, manual GPT update checklist, and unresolved interpretations.
 - **[PLAN_FLAG_DETECTION_COVERAGE.md](./PLAN_FLAG_DETECTION_COVERAGE.md)** — F1, flag detection coverage (done 2026-09-23, schema 1.12.0): proto/expired states, EMA21 reclaim, failed/expired TTL visibility, stable candidate identity, cheap geometry fields, `qual` trade qualification. Fixes `test/fixtures/misses/MISS_003.json`.
+- **[PLAN_PYTH_MARK_PRICE.md](./PLAN_PYTH_MARK_PRICE.md)** — P1, Pyth mark price beside the Kraken price (done 2026-09-23, schema 1.16.0, not deployed): `symbols.<SYM>.mark`, `decisionTrace.bias` `mark:` token, `lib/pythMark.js`.
 
 ### API and connector
 - **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** — MCP tool and REST parity, payload controls, payload schema 1.8.0 map, scalp stop guard, security boundary, env, prod verification, test suites.
@@ -48,6 +49,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Structure | `lib/structure.js`, `lib/candleFeatures.js` |
 | Indicators | `services/indicators.js` |
 | Wallet (read-only) | `services/walletTracker.js` |
+| Pyth mark (`mark`, P1, read-only) | `lib/pythMark.js` |
 | MCP | `services/editTradesMcp.js`, `lib/mcpHttp.js` |
 | HTTP entry | `api/scalp-context.js` (REST, MCP via `__mcp=1`) |
 | Chart render (Phase 8b, in progress) | `lib/chartRender.js` |
@@ -63,7 +65,7 @@ Unreachable from `buildScalpContext()` and not to be revived without a recorded 
 
 ### Tests
 
-`test:sltp` (50), `test:scalp` (113), `test:mcp` (52), `test:wallet` (28) are the deploy gate. `test:config` (14), `test:risk` (24), `test:pattern` (32), `test:geometry` (36), `test:chart` (18), `test:replay` (36), `test:bias` (15), `test:topdown` (15), `test:freshness` (10), `test:flagplan` (40), `test:flagrec` (17), `test:ledger` (12), `test:evidence` (8, `test-model-evidence.js`: Stoch offset, divergence selection/staleness, channel breakoutRisk) cover the engine modules; `npm run check:gpt` gates the GPT instruction length separately. Counts as of 2026-09-23 (review fix pass).
+`test:sltp` (50), `test:scalp` (117), `test:mcp` (52), `test:wallet` (28) are the deploy gate. `test:config` (14), `test:risk` (24), `test:pattern` (32), `test:geometry` (36), `test:chart` (18), `test:replay` (36), `test:bias` (15), `test:topdown` (15), `test:freshness` (10), `test:flagplan` (42), `test:flagrec` (17), `test:ledger` (12), `test:evidence` (8, `test-model-evidence.js`: Stoch offset, divergence selection/staleness, channel breakoutRisk), `test:mark` (12, `test-pyth-mark.js`: mock Hermes, one request, no key → no request, failures → unavailable, drift sign, stale) cover the engine modules; `npm run check:gpt` gates the GPT instruction length separately. Counts as of 2026-09-23 (P1 Pyth mark).
 
 ---
 

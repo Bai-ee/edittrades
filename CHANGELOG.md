@@ -87,6 +87,16 @@ Follow-on work package from `EDITTRADES_21_200_DECISION_CLARITY_MASTER_PLAN.md`.
 - **GPT instructions:** schema marker bumped to 1.14.x. GPT now treats `flagRecommendation` as the 21/200 call and `flagTradePlan` as the level/math authority; legacy strategies are explicitly legacy. `npm run check:gpt` passes at 7978 UTF-16 units.
 - **Tests:** new `npm run test:flagrec` (12) covers GOOD/WATCH/BAD/DATA_UNAVAILABLE, aligned/mixed context, counter-EMA200, channel/level context, divergence agreement/conflict, missing weekly EMA200, stale data, no plan, low net R, byte stability, and mirrored short behavior. Updated `test:scalp`, `test:mcp`, `test:config`, `test:flagplan`, `test:replay`, and `test:ledger`.
 
+## 2026-09-23 — P1: Pyth mark price beside the Kraken price (branch `upgrade-signal-engine`)
+
+Plan: `docs/PLAN_PYTH_MARK_PRICE.md`. Schema 1.15.0 → 1.16.0, configVersion 2026.09.23-4 → -5. Additive only; candles, strategies, `bestSignal`, `flagTradePlan`, MCP registration and wallet unchanged.
+
+- **Mark:** new `lib/pythMark.js` reads the live Pyth price for every symbol in one Hermes request (`/v2/updates/price/latest?ids[]=..&parsed=true`, `Authorization: Bearer $PYTH_API_KEY`, 4 s timeout). Never throws; no key → no request. The key and URL are never logged. Runs alongside the candle fetches.
+- **Payload:** `symbols.<SYM>.mark = {price, conf, publishTime, source: "pyth", ageSec, driftBps, status}` beside `price` (still the closed 1m close). `status` ok | stale (> `mark.pyth.maxAgeSec` 30) | unavailable. Unavailable never changes `dataStatus` and adds no warning. Compact keeps `{price, driftBps, status}`. `decisionTrace.bias` appends `|mark:<driftBps>` or `|mark:na`. Injected-candle builds (tests, replay) read `unavailable` with no request.
+- **Config:** `mark.pyth` block: BTC/ETH/SOL feed ids, `maxAgeSec` 30, `timeoutMs` 4000.
+- **GPT instructions:** one RISK rule: stops, Thesis Eliminated and liquidation are hit on mark; check against `mark.price`, flag |driftBps| > 10.
+- **Tests:** new `npm run test:mark` (12). `test:scalp` 113 → 117 (mark on every symbol, filterPayload default/compact, fetch failure leaves `dataStatus`, byte cap with ok marks: fixture default 77,063 B ≤ 79,000).
+
 ## 2025-11-27
 
 ### 📊 Professional Trading Indicators - VWAP, ATR, Bollinger, MA Stack

@@ -1442,9 +1442,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.15.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.16.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.15.0', 'schemaVersion must be bumped to 1.15.0');
+    assertEqual(case6Result.schemaVersion, '1.16.0', 'schemaVersion must be bumped to 1.16.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1736,7 +1736,7 @@ async function main() {
         // adds at most ~25 bytes (mixed is the longest sentiment word, a200 counts stay
         // single digit at 7 timeframes).
         assert(Buffer.byteLength(b, 'utf8') <= 160, `${sym}: ${Buffer.byteLength(b, 'utf8')} bytes`);
-        assert(/^scalp:L\d+,S\d+,N\d+\|swing:L\d+,S\d+,N\d+\|tf:(1m|3m|5m|15m|1h|4h|1d)=[LSN-](,(3m|5m|15m|1h|4h|1d)=[LSN-]){6}\|ct:\d+(\|td:(bull|bear|mixed):\d\/4)?(\|a200:\d+\/\d+)?$/.test(b), `${sym}: format ${b}`);
+        assert(/^scalp:L\d+,S\d+,N\d+\|swing:L\d+,S\d+,N\d+\|tf:(1m|3m|5m|15m|1h|4h|1d)=[LSN-](,(3m|5m|15m|1h|4h|1d)=[LSN-]){6}\|ct:\d+(\|td:(bull|bear|mixed):\d\/4)?(\|a200:\d+\/\d+)?\|mark:(-?\d+(\.\d)?|na)$/.test(b), `${sym}: format ${b}`);
       }
     });
 
@@ -1850,7 +1850,13 @@ async function main() {
       console.log = () => {};
       let built;
       try {
-        built = await buildScalpContext({ now: cutMs, fetchCandles, fetchAccount: async () => ({ status: 'disabled', margin: { usd: null, byAsset: {} } }) });
+        // P1: ok marks with full-precision prices so the cap measures the live shape.
+        const fetchMarks = async () => ({
+          BTC: { status: 'ok', price: 112000.12345678, conf: 45.12345678, publishTime: cutMs / 1000 - 2 },
+          SOL: { status: 'ok', price: 215.12345678, conf: 0.12345678, publishTime: cutMs / 1000 - 2 },
+          ETH: { status: 'ok', price: 4100.12345678, conf: 2.12345678, publishTime: cutMs / 1000 - 2 }
+        });
+        built = await buildScalpContext({ now: cutMs, fetchCandles, fetchMarks, fetchAccount: async () => ({ status: 'disabled', margin: { usd: null, byAsset: {} } }) });
       } finally {
         console.log = saved;
       }
@@ -2048,6 +2054,96 @@ async function main() {
       if (savedKey === undefined) delete process.env.SCALP_CONTEXT_API_KEY;
       else process.env.SCALP_CONTEXT_API_KEY = savedKey;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // P1: Pyth mark beside the closed-candle price (schema 1.16.0)
+  // -------------------------------------------------------------------------
+  console.log('\nP1) Pyth mark (symbols.<SYM>.mark)');
+  {
+    const MARK_KEYS = ['price', 'conf', 'publishTime', 'source', 'ageSec', 'driftBps', 'status'];
+    const quietBuild = async (opts) => {
+      const saved = console.log;
+      console.log = () => {};
+      try {
+        return await buildScalpContext({
+          symbols: [HEALTHY_A, HEALTHY_B],
+          timeframes: timeframesList,
+          now: NOW,
+          fetchCandles: makeFetchCandles({ deadMatch: null, badMatch: null }),
+          fetchAccount: async () => ({ status: 'disabled', margin: { usd: null, byAsset: {} } }),
+          ...opts
+        });
+      } finally {
+        console.log = saved;
+      }
+    };
+
+    await test('mark is present on every symbol, right after price; injected candles without fetchMarks read unavailable', () => {
+      assert(case6Result, 'case 6 result not available');
+      for (const [sym, symData] of Object.entries(case6Result.symbols)) {
+        const keys = Object.keys(symData);
+        assertEqual(keys[1], 'mark', `${sym}: mark sits beside price`);
+        assert(deepEqual(Object.keys(symData.mark), MARK_KEYS), `${sym}: mark keys ${Object.keys(symData.mark)}`);
+        assertEqual(symData.mark.status, 'unavailable', `${sym}: no live mark beside injected candles`);
+        assertEqual(symData.mark.source, 'pyth', `${sym}: source`);
+        assertEqual(symData.mark.price, null, `${sym}: unavailable price is null`);
+        assert(symData.decisionTrace.bias.endsWith('|mark:na'), `${sym}: trace ${symData.decisionTrace.bias}`);
+      }
+    });
+
+    let okBuild;
+    await test('injected ok marks: driftBps vs price, ageSec, status ok; price stays the candle close', async () => {
+      const plain = await quietBuild({ fetchMarks: null });
+      const pA = plain.symbols[HEALTHY_A].price;
+      const pB = plain.symbols[HEALTHY_B].price;
+      okBuild = await quietBuild({
+        fetchMarks: async (syms) => {
+          assert(deepEqual(syms, [HEALTHY_A, HEALTHY_B]), `one call with every symbol, got ${syms}`);
+          return {
+            [HEALTHY_A]: { status: 'ok', price: pA * 1.0005, conf: 1.5, publishTime: NOW / 1000 - 3 },
+            [HEALTHY_B]: { status: 'ok', price: pB * 0.999, conf: 0.2, publishTime: NOW / 1000 - 60 }
+          };
+        }
+      });
+      const a = okBuild.symbols[HEALTHY_A];
+      const b = okBuild.symbols[HEALTHY_B];
+      assertEqual(a.price, pA, 'price unchanged by the mark');
+      assertEqual(a.mark.driftBps, 5, 'mark above price → +5 bps');
+      assertEqual(a.mark.status, 'ok', 'fresh mark ok');
+      assertEqual(a.mark.ageSec, 3, 'ageSec');
+      assertEqual(a.mark.publishTime, new Date(NOW - 3000).toISOString(), 'publishTime ISO');
+      assertEqual(b.mark.driftBps, -10, 'mark below price → -10 bps');
+      assertEqual(b.mark.status, 'stale', '60 s > maxAgeSec reads stale');
+      assert(a.decisionTrace.bias.endsWith('|mark:5'), `trace ${a.decisionTrace.bias}`);
+      assert(b.decisionTrace.bias.endsWith('|mark:-10'), `trace ${b.decisionTrace.bias}`);
+      assertEqual(okBuild.dataStatus, plain.dataStatus, 'marks never change dataStatus');
+    });
+
+    await test('fetchMarks that throws → every mark unavailable, dataStatus and warnings untouched', async () => {
+      const plain = await quietBuild({ fetchMarks: null });
+      const savedWarn = console.warn;
+      console.warn = () => {};
+      let broken;
+      try {
+        broken = await quietBuild({ fetchMarks: async () => { throw new Error('boom'); } });
+      } finally {
+        console.warn = savedWarn;
+      }
+      for (const sym of [HEALTHY_A, HEALTHY_B]) assertEqual(broken.symbols[sym].mark.status, 'unavailable', `${sym}: status`);
+      assertEqual(broken.dataStatus, plain.dataStatus, 'dataStatus');
+      assert(deepEqual(broken.warnings, plain.warnings), 'warnings unchanged');
+    });
+
+    await test('filterPayload keeps mark: default = full object, compact = { price, driftBps, status }', () => {
+      assert(okBuild, 'ok build not available');
+      const def = filterPayload(okBuild, {});
+      assert(deepEqual(def.symbols[HEALTHY_A].mark, okBuild.symbols[HEALTHY_A].mark), 'default keeps the full mark');
+      const compact = filterPayload(okBuild, { compact: true });
+      assert(deepEqual(compact.symbols[HEALTHY_A].mark, { price: okBuild.symbols[HEALTHY_A].mark.price, driftBps: 5, status: 'ok' }), `compact mark ${JSON.stringify(compact.symbols[HEALTHY_A].mark)}`);
+      const narrowed = filterPayload(okBuild, { include: ['strategies'] });
+      assert(narrowed.symbols[HEALTHY_A].mark, 'mark is core identity, not gated by include');
+    });
   }
 
   // -------------------------------------------------------------------------

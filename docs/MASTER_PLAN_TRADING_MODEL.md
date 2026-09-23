@@ -91,6 +91,8 @@ M-9. **Risk management is the edge.** Expected win rate when following the model
 | Phase | Deliverable | Size | Risk | Status |
 | --- | --- | --- | --- | --- |
 | M0 | Model spec + gap matrix + owner-labeled fixtures | 1–2 h | none | |
+
+Owner timeframe pairs (answered 2026-09-23, `docs/OWNER_DECISIONS_2026-09-23.md`): 4H direction → 1m/3m/5m entry (main use: 1-minute scalps); 1H direction → 1m/3m entry; 1D direction → 15m/1H entry. 1W → 4H is not traded. Fixtures and the EMA-map weighting use these pairs.
 | M1 | Replay outcome scoring: TP/SL first touch, R, win rate, expectancy, streaks, hold time | 3–4 h | low | done (quick pass) |
 | M2 | Top-down sentiment: 1W derived from 1D, alignment score over 1W/1D/4H/1H | 3–4 h | low | partial (quick pass) |
 | M2b | Cross-timeframe EMA21/200 direction and pull: count above 200, pull read, higher-timeframe weighting | 3–4 h | low | partial (quick pass) |

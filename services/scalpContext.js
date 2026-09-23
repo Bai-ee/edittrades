@@ -23,6 +23,7 @@ import { buildModelEvidence } from '../lib/modelEvidence.js';
 import { buildFlagRecommendation, compactRecommendation } from '../lib/flagRecommendation.js';
 import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
 import { buildWeeklyLean, buildTopDown, buildAboveBelow200 } from '../lib/topDown.js';
+import { fetchPythMarks, buildMark, markTraceToken, compactMark } from '../lib/pythMark.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
@@ -869,6 +870,10 @@ function filterSymbol(sym, tokens, compactMode) {
     } else if (key === SYMBOL_SECTION_KEYS.model) {
       if (tokens && !tokens.has('model')) continue;
       out.model = value;
+    } else if (key === 'mark') {
+      // P1: mark is a core identity field beside `price`; compact keeps the three
+      // fields a stop check needs.
+      out.mark = compactMode ? compactMark(value) : value;
     } else if (BIAS_SECTION_KEYS.includes(key)) {
       if (tokens && !tokens.has('bias')) continue;
       out[key] = value;
@@ -1042,6 +1047,10 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  * @param {number} [options.now=Date.now()]
  * @param {(pair:string, interval:string, limit:number)=>Promise<Array>} [options.fetchCandles] - injectable for tests
  * @param {Function} [options.fetchAccount] - injectable wallet snapshot reader, for tests
+ * @param {Function|null} [options.fetchMarks] - P1: `(symbols) => Promise<{SYM: raw}>`, see
+ *   lib/pythMark.js. Defaults to the live Pyth read only when candles come from the live
+ *   strict fetcher; an injected fetchCandles (tests, replay) gets `mark.status:
+ *   "unavailable"` and no request, because a live mark beside historical candles is wrong.
  * @param {boolean} [options.includeBias=false] - phase 9b: attach biasMatrix, alignment and
  *   decisionInputs per symbol. decisionTrace.bias is always present.
  * @param {boolean} [options.includeModel=false] - publish bulky model evidence (and the
@@ -1068,6 +1077,9 @@ export async function buildScalpContext(options = {}) {
     slimFailed = true,
     chart = null
   } = options || {};
+  const fetchMarks = options && options.fetchMarks !== undefined
+    ? options.fetchMarks
+    : (fetchCandles === defaultStrictFetch ? fetchPythMarks : null);
 
   const safeNow = isFiniteNumber(now) ? now : Date.now();
   const warnings = [];
@@ -1085,6 +1097,16 @@ export async function buildScalpContext(options = {}) {
       tasks.push({ symbol, tf, pair });
     }
   }
+
+  // P1: one Pyth mark request for every symbol, in flight alongside the candle fetches
+  // so it adds no wall time. Never rejects; a failure is `mark.status: "unavailable"`
+  // and deliberately stays out of `warnings` (and so out of `dataStatus`).
+  const marksPromise = typeof fetchMarks === 'function'
+    ? Promise.resolve().then(() => fetchMarks(symbolList)).catch((err) => {
+      console.warn(`[ScalpContext] mark read threw - ${err && err.message ? err.message : err}`);
+      return {};
+    })
+    : Promise.resolve({});
 
   const fetchResults = await mapLimit(tasks, MAX_CONCURRENCY, async (task) => {
     try {
@@ -1126,6 +1148,8 @@ export async function buildScalpContext(options = {}) {
   for (const r of fetchResults) {
     bySymbolTf[r.symbol][r.tf] = r;
   }
+
+  const rawMarks = (await marksPromise) || {};
 
   const symbolsOut = {};
   const newest1mCloses = [];
@@ -1554,6 +1578,9 @@ export async function buildScalpContext(options = {}) {
       });
     }
 
+    // P1: Pyth mark beside the closed-candle price. `price` itself is untouched.
+    const mark = buildMark(rawMarks[symbol], price, safeNow, ENGINE_CONFIG.mark.pyth.maxAgeSec);
+
     const decisionTrace = buildDecisionTrace({
       rawStrategies,
       bestSignal,
@@ -1562,7 +1589,7 @@ export async function buildScalpContext(options = {}) {
       candidateSetups,
       geometryContext,
       visualGate,
-      bias: bias ? bias.summary : null
+      bias: bias ? `${bias.summary}|${markTraceToken(mark)}` : null
     });
 
     const closedThroughByTf = {};
@@ -1572,6 +1599,7 @@ export async function buildScalpContext(options = {}) {
 
     symbolsOut[symbol] = {
       price,
+      mark,
       source: {
         provider: resolveSymbolProvider(tfProviders, timeframeList.length, symbolHadWarning),
         pair,
@@ -1641,7 +1669,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.15.0',
+    schemaVersion: '1.16.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

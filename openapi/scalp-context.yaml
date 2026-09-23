@@ -45,7 +45,7 @@ paths:
         - name: compact
           in: query
           required: false
-          description: When "1" or "true", omit candle arrays and keep only the computed indicator summaries.
+          description: When "1" or "true", omit candle arrays and keep only the computed indicator summaries; mark narrows to price, driftBps, status.
           schema:
             type: boolean
         - name: chart
@@ -915,7 +915,9 @@ components:
             "|td:bull:3/4|a200:5/7" - td is symbols.X.topDown.sentiment (bull, bear, or
             mixed) and how many of the four 1W/1D/4H/1H leans agree (n/4); a200 is
             above200.count/above200.of, the timeframes (of those with an EMA200) sitting
-            above it. Full objects via include=bias. Null if the bias layer failed.
+            above it. Schema 1.16.0 appends "|mark:<driftBps>" (e.g. "|mark:1.2") or
+            "|mark:na" when no usable Pyth mark, under 12 chars. Full objects via
+            include=bias. Null if the bias layer failed.
           type: [string, "null"]
       required:
         - configVersion
@@ -934,7 +936,10 @@ components:
       description: Market context for a single tracked symbol. Nested objects are intentionally loose here; consult the live response for exact contents.
       properties:
         price:
+          description: Close of the newest closed 1m candle (Kraken). Unchanged by mark.
           type: number
+        mark:
+          $ref: "#/components/schemas/Mark"
         source:
           type: object
         structure:
@@ -1003,6 +1008,46 @@ components:
           $ref: "#/components/schemas/DecisionInputs"
         topDown:
           $ref: "#/components/schemas/TopDown"
+    Mark:
+      type: object
+      description: >-
+        Schema 1.16.0. Live Pyth oracle price beside price (the closed 1m candle close).
+        Jupiter perps mark, stop and liquidate on Pyth, so check stops, Thesis Eliminated
+        and liquidation against mark.price. One Hermes read per build. Unavailable never
+        changes dataStatus and adds no warning. Compact mode keeps only price, driftBps,
+        status.
+      properties:
+        price:
+          description: Pyth price (price x 10^expo). Null when unavailable.
+          type: [number, "null"]
+        conf:
+          description: Pyth confidence interval, same units as price. Null when unavailable.
+          type: [number, "null"]
+        publishTime:
+          description: Pyth publish time. Null when unavailable.
+          type: [string, "null"]
+          format: date-time
+        source:
+          type: string
+          enum: [pyth]
+        ageSec:
+          description: Seconds from publishTime to the build time. Null when unavailable.
+          type: [integer, "null"]
+        driftBps:
+          description: >-
+            (mark.price - price) / price x 10000, 1 decimal. Positive = mark above the
+            candle close. Null when unavailable or price is null.
+          type: [number, "null"]
+        status:
+          description: >-
+            ok; stale when ageSec exceeds config mark.pyth.maxAgeSec (30); unavailable
+            when the read failed or no key is configured (other fields null).
+          type: string
+          enum: [ok, stale, unavailable]
+      required:
+        - price
+        - driftBps
+        - status
     BiasEntry:
       type: object
       description: >-

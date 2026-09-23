@@ -189,6 +189,13 @@
  *     purpose - the plan is a specific retest level, not a zone. `minNetRR` here is the
  *     only R:R floor; lib/flagRecommendation.js reads it too (no `model.minNetRR`).
  *
+ * `mark.pyth` block (P1 Pyth mark, `lib/pythMark.js`, config 2026.09.23-5):
+ *   - feedIds (BTC/ETH/SOL): Hermes price feed ids for Crypto.<SYM>/USD, resolved once
+ *     and stored as constants so the request path never looks them up.
+ *   - maxAgeSec (30): a mark older than this reads `status: "stale"`. Jupiter perps
+ *     mark on the Pyth oracle, which publishes every few seconds; 30 s is a dead feed.
+ *   - timeoutMs (4000): one Hermes request per build; a slower answer is `unavailable`.
+ *
  * `model` block (trading-model quick pass Q3 + 21/200 decision clarity):
  *   - topDownWeights (1w 4, 1d 3, 4h 2, 1h 1): weighted vote over the four leans that
  *     decides `topDown.sentiment`; higher timeframes dominate (M-6b).
