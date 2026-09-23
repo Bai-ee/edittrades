@@ -167,11 +167,18 @@ export function buildAt(symbol, historyByTf, cutMs, timeframes = TIMEFRAMES, onS
   }));
 }
 
+function isFiniteNumber(v) {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
 /**
  * Compact per-close record. `candidateLifecycle` and `confluence` are additions to the
  * phase 10 line shape: the metrics need a candidate's identity and failReason, and the
  * REGRESSION_002 replay proof needs the confluence components, neither of which the
- * decisionTrace strings carry.
+ * decisionTrace strings carry. Quick pass Q4 adds the entry/stop/target levels each
+ * strategy and confirmed candidate carried at this close (nested additions only - no new
+ * top-level key), so scripts/replay-outcomes.js can walk them forward without a second
+ * pipeline run.
  */
 export function toReplayLine(payload, symbol, cutMs) {
   const s = payload.symbols[symbol];
@@ -181,7 +188,17 @@ export function toReplayLine(payload, symbol, cutMs) {
     closedThrough: new Date(cutMs).toISOString(),
     symbol,
     dataStatus: payload.dataStatus,
-    strategies: Object.fromEntries(t.strategies.map((x) => [x.name, { valid: x.valid, rejectedAt: x.rejectedAt }])),
+    strategies: Object.fromEntries(t.strategies.map((x) => {
+      const full = s.strategies && s.strategies[x.name];
+      return [x.name, {
+        valid: x.valid,
+        rejectedAt: x.rejectedAt,
+        direction: full && full.direction !== 'NO_TRADE' ? full.direction : null,
+        entryZone: full ? full.entryZone : null,
+        stopLoss: full ? full.stopLoss : null,
+        targets: full ? full.targets : null
+      }];
+    })),
     candidates: setups.map((c) => `${c.timeframe}:${c.direction}:${c.state}:${c.confidence}`),
     candidateLifecycle: setups.map((c) => {
       const tfClose = s.timeframes[c.timeframe] && s.timeframes[c.timeframe].closedThrough;
@@ -192,7 +209,10 @@ export function toReplayLine(payload, symbol, cutMs) {
         ref: `${c.timeframe}:${c.direction}`,
         startedAt: startMs === null ? null : new Date(startMs).toISOString(),
         state: c.state,
-        failReason: c.failReason || null
+        failReason: c.failReason || null,
+        breakoutLevel: isFiniteNumber(c.breakoutLevel) ? c.breakoutLevel : null,
+        invalidation: isFiniteNumber(c.invalidation) ? c.invalidation : null,
+        measuredTarget: isFiniteNumber(c.measuredTarget) ? c.measuredTarget : null
       };
     }),
     geometry: t.geometry,

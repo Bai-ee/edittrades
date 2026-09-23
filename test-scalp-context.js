@@ -61,7 +61,9 @@ import {
 
 import { handleScalpContext } from './api/scalp-context.js';
 
-import { buildVisualGate } from './lib/patternLifecycle.js';
+import { buildVisualGate, resolveCoils } from './lib/patternLifecycle.js';
+
+import { regression001, mirror, withTimes } from './test/fixtures/flagFixtures.js';
 
 // ---------------------------------------------------------------------------
 // Tiny test runner
@@ -722,6 +724,22 @@ async function main() {
     });
     case6DurationMs = Date.now() - t0;
     assert(case6Result && typeof case6Result === 'object', 'buildScalpContext did not resolve to an object');
+  });
+
+  await test('CANDLE_LIMITS publishes 24 candles on 1m/3m/5m (payload budget, 2026-09-23)', () => {
+    for (const tf of ['1m', '3m', '5m']) assertEqual(CANDLE_LIMITS[tf], 24, `CANDLE_LIMITS[${tf}]`);
+  });
+
+  await test('published candle volume carries at most 2 decimals', () => {
+    assert(case6Result, 'case 6 result not available (did the previous test fail?)');
+    for (const sym of [HEALTHY_A, HEALTHY_B]) {
+      for (const tf of timeframesList) {
+        for (const c of case6Result.symbols[sym].timeframes[tf].candles) {
+          if (c.v === null) continue;
+          assert(Math.abs(c.v * 100 - Math.round(c.v * 100)) < 1e-6, `symbol "${sym}" timeframe "${tf}" volume ${c.v} has more than 2 decimals`);
+        }
+      }
+    }
   });
 
   await test('every timeframe emits at most CANDLE_LIMITS[tf] candles, none still-forming', () => {
@@ -1414,9 +1432,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.10.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.11.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.10.0', 'schemaVersion must be bumped to 1.10.0');
+    assertEqual(case6Result.schemaVersion, '1.11.0', 'schemaVersion must be bumped to 1.11.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1693,21 +1711,24 @@ async function main() {
   console.log('\n12) bias matrix payload (phase 9b)');
 
   {
-    const BIAS_KEYS = ['biasMatrix', 'alignment', 'decisionInputs'];
+    const BIAS_KEYS = ['biasMatrix', 'alignment', 'decisionInputs', 'topDown'];
     let biasResult;
 
-    await test('default payload: no biasMatrix/alignment/decisionInputs; decisionTrace.bias is one string ≤ 120 bytes', () => {
+    await test('default payload: no biasMatrix/alignment/decisionInputs/topDown; decisionTrace.bias is one string, extended with td:/a200: tokens (Q3)', () => {
       assert(case6Result, 'case 6 result not available');
       for (const [sym, symData] of Object.entries(case6Result.symbols)) {
         for (const k of BIAS_KEYS) assert(!(k in symData), `${sym}: ${k} must be opt-in`);
         const b = symData.decisionTrace.bias;
         assertEqual(typeof b, 'string', `${sym}: decisionTrace.bias`);
-        assert(Buffer.byteLength(b, 'utf8') <= 120, `${sym}: ${Buffer.byteLength(b, 'utf8')} bytes`);
-        assert(/^scalp:L\d+,S\d+,N\d+\|swing:L\d+,S\d+,N\d+\|tf:(1m|3m|5m|15m|1h|4h|1d)=[LSN-](,(3m|5m|15m|1h|4h|1d)=[LSN-]){6}\|ct:\d+$/.test(b), `${sym}: format ${b}`);
+        // 120 bytes was the ceiling pre-Q3 (test-bias-matrix.js); the td:/a200: suffix
+        // adds at most ~25 bytes (mixed is the longest sentiment word, a200 counts stay
+        // single digit at 7 timeframes).
+        assert(Buffer.byteLength(b, 'utf8') <= 160, `${sym}: ${Buffer.byteLength(b, 'utf8')} bytes`);
+        assert(/^scalp:L\d+,S\d+,N\d+\|swing:L\d+,S\d+,N\d+\|tf:(1m|3m|5m|15m|1h|4h|1d)=[LSN-](,(3m|5m|15m|1h|4h|1d)=[LSN-]){6}\|ct:\d+(\|td:(bull|bear|mixed):\d\/4)?(\|a200:\d+\/\d+)?$/.test(b), `${sym}: format ${b}`);
       }
     });
 
-    await test('includeBias adds exactly the three objects; everything else is byte-identical', async () => {
+    await test('includeBias adds exactly the four objects (incl. topDown); everything else is byte-identical', async () => {
       biasResult = await buildScalpContext({
         symbols: [HEALTHY_A, HEALTHY_B],
         timeframes: timeframesList,
@@ -1723,6 +1744,16 @@ async function main() {
         for (const h of ['scalp', 'swing']) {
           const t = s.decisionInputs.directionalBias[h];
           assertEqual(t.long + t.short + t.neutral, 100, `${sym}: ${h} sums to 100`);
+        }
+        if (s.topDown) {
+          assert(['bull', 'bear', 'mixed'].includes(s.topDown.sentiment), `${sym}: topDown.sentiment`);
+          assert(Number.isInteger(s.topDown.aligned) && s.topDown.aligned >= 0 && s.topDown.aligned <= 4, `${sym}: topDown.aligned`);
+          assertEqual(JSON.stringify(Object.keys(s.topDown.leans).sort()), JSON.stringify(['1d', '1h', '1w', '4h']), `${sym}: topDown.leans keys`);
+          assert(s.topDown.weekly && s.topDown.weekly.ema200 === null, `${sym}: weekly.ema200 always null`);
+          assert(s.topDown.above200 && Number.isInteger(s.topDown.above200.of), `${sym}: above200`);
+          const trace = s.decisionTrace.bias;
+          assert(trace.includes(`|td:${s.topDown.sentiment}:${s.topDown.aligned}/4`), `${sym}: trace carries the topDown token: ${trace}`);
+          assert(trace.includes(`|a200:${s.topDown.above200.count}/${s.topDown.above200.of}`), `${sym}: trace carries the above200 token: ${trace}`);
         }
       }
       const stripped = JSON.parse(JSON.stringify(biasResult));
@@ -1754,6 +1785,71 @@ async function main() {
       });
       assert(deepEqual(t.candidateSetups, ['5m:short:failed:stale', '1m:long:failed:acceptance_below', '1m:long:confirmed']), JSON.stringify(t.candidateSetups));
       assertEqual(t.bias, null, 'bias defaults to null when not supplied');
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // 13) ema200Side on flag candidates (trading-model quick pass Q2)
+  // -------------------------------------------------------------------------
+  console.log('\n13) ema200Side on flag candidates (Q2)');
+
+  {
+    /** `count` flat 1m candles at `price`, no timestamps (withTimes adds them). */
+    function flatBaseline(count, price) {
+      return Array.from({ length: count }, () => ({ open: price, high: price + 1, low: price - 1, close: price }));
+    }
+
+    async function buildEma200Case(candles1m) {
+      return buildScalpContext({
+        symbols: ['BTC'],
+        now: NOW,
+        fetchCandles: async (pair, interval) => (interval === '1m' ? withTimes(candles1m, NOW) : makeCandles(interval, 300, { now: NOW, seed: 7 })),
+        fetchAccount: async () => ({ status: 'disabled', margin: { usd: null, byAsset: {} } })
+      });
+    }
+
+    await test('null when EMA200 is unavailable (fewer than 200 1m candles)', async () => {
+      const payload = await buildEma200Case(regression001());
+      const hit = payload.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === 'long');
+      assert(hit, 'expected the regression001 long candidate');
+      assertEqual(hit.ema200Side, null, 'fewer than 200 candles → EMA200 unavailable → ema200Side null');
+    });
+
+    await test('"above" when the last close sits above EMA200 (long)', async () => {
+      const candles = [...flatBaseline(250, 90000), ...regression001()];
+      const payload = await buildEma200Case(candles);
+      const hit = payload.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === 'long' && c.state !== 'failed');
+      assert(hit, 'expected a long candidate');
+      const tf = payload.symbols.BTC.timeframes['1m'];
+      assert(tf.ema200 !== null, 'EMA200 should be computable with 250+70 candles');
+      assertEqual(hit.ema200Side, tf.priceVs200Pct >= 0 ? 'above' : 'below', 'ema200Side matches priceVs200Pct sign');
+      assertEqual(hit.ema200Side, 'above', 'a low baseline pulls EMA200 under the final close');
+    });
+
+    await test('"below" when the last close sits below EMA200 (long) — no filtering, still published', async () => {
+      const candles = [...flatBaseline(250, 115000), ...regression001()];
+      const payload = await buildEma200Case(candles);
+      const hit = payload.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === 'long' && c.state !== 'failed');
+      assert(hit, 'a below-EMA200 long candidate must still be published (never filtered)');
+      assertEqual(hit.ema200Side, 'below', 'a high baseline keeps EMA200 above the final close');
+    });
+
+    await test('the M-6 case: a short candidate above EMA200 is still published, not filtered', async () => {
+      const candles = [...flatBaseline(250, 90000), ...mirror(regression001())];
+      const payload = await buildEma200Case(candles);
+      const hit = payload.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === 'short' && c.state !== 'failed');
+      assert(hit, 'expected a short candidate (mirror of regression001)');
+      assertEqual(hit.ema200Side, 'above', 'short above EMA200: M-6 says this is never filtered');
+    });
+
+    await test('ema200Side is absent on a coil (same rule as poleHeight/measuredTarget)', () => {
+      const candidates = [
+        { timeframe: '1m', type: 'flag', direction: 'long', state: 'forming', flagHigh: 110, flagLow: 100, breakoutLevel: 110, invalidation: 100, ema200Side: 'above', confidence: 55, durationCandles: 6, levelSource: { breakout: 'flag', invalidation: 'flag' } },
+        { timeframe: '1m', type: 'flag', direction: 'short', state: 'forming', flagHigh: 111, flagLow: 102, breakoutLevel: 102, invalidation: 111, ema200Side: 'above', confidence: 62, durationCandles: 4, levelSource: { breakout: 'flag', invalidation: 'flag' } }
+      ];
+      const coil = resolveCoils(candidates)[0];
+      assertEqual(coil.type, 'coil', 'coil type');
+      assert(!('ema200Side' in coil), 'coil must not carry ema200Side');
     });
   }
 

@@ -14,6 +14,7 @@ import { buildScalpContext, dropUnclosedCandles, INTERVAL_MS, TIMEFRAMES } from 
 import { getCandlesWithProvenance } from './services/marketData.js';
 import { buildAt, closedRows, makeReplayFetch, parseArgs, replaySymbol, toReplayLine, tradesTo1m } from './scripts/replay.js';
 import { computeMetrics, formatMetrics } from './scripts/replay-metrics.js';
+import { walkOutcome, extractStrategySignals, extractCandidateSignals, aggregateOutcomes } from './scripts/replay-outcomes.js';
 import { regression001History, regression002History, REPLAY_END } from './test/fixtures/replayHistories.js';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,11 @@ function assertEqual(actual, expected, msg) {
   if (actual !== expected) {
     throw new Error(`${msg || 'mismatch'}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
   }
+}
+
+function assertClose(actual, expected, tolerance, msg) {
+  assert(typeof actual === 'number' && Number.isFinite(actual), `${msg}: actual is not a finite number (${JSON.stringify(actual)})`);
+  assert(Math.abs(actual - expected) <= tolerance, `${msg}: expected ${expected} +/- ${tolerance}, got ${actual}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -416,6 +422,114 @@ async function run() {
       assert(distancePct > 0, `current distance published (${distancePct})`);
     });
   }
+
+  console.log('\n6) Outcome scoring (Q4, scripts/replay-outcomes.js)');
+
+  const OB = Date.UTC(2026, 8, 22, 0, 0, 0);
+  const oc = (i, high, low) => ({ timestamp: OB + i * MIN, high, low });
+  const outcomeCfg = { fillWindowCandles: 3, maxHoldCandles: 20 };
+
+  await test('long win: fills inside the window, then TP1 first', () => {
+    const candles1m = [oc(0, 99, 98), oc(1, 101, 100.5), oc(2, 105, 104), oc(3, 111, 109)];
+    const r = walkOutcome({ candles1m, fromMs: OB, direction: 'long', entryMin: 100, entryMax: 101, stop: 95, target: 110, ...outcomeCfg });
+    assertEqual(r.status, 'win', 'win');
+    assertEqual(r.holdCandles, 3, 'candle 1 (fill) through candle 3 (target) = 3');
+    assertClose(r.r, Math.abs(110 - 100.5) / Math.abs(100.5 - 95), 1e-3, 'R = |target-entry| / |entry-stop|, entry = zone mid');
+  });
+
+  await test('long loss: fills, then stop first', () => {
+    const candles1m = [oc(0, 101, 100.5), oc(1, 100, 94)];
+    const r = walkOutcome({ candles1m, fromMs: OB, direction: 'long', entryMin: 100, entryMax: 101, stop: 95, target: 110, ...outcomeCfg });
+    assertEqual(r.status, 'loss', 'loss');
+    assertEqual(r.r, -1, 'loss is always -1R');
+  });
+
+  await test('short win and short loss mirror the long cases', () => {
+    const win = walkOutcome({
+      candles1m: [oc(0, 101, 100), oc(1, 96, 89)],
+      fromMs: OB, direction: 'short', entryMin: 100, entryMax: 101, stop: 105, target: 90, ...outcomeCfg
+    });
+    assertEqual(win.status, 'win', 'short win');
+    assertClose(win.r, Math.abs(90 - 100.5) / Math.abs(100.5 - 105), 1e-3, 'short R formula mirrors long');
+    const loss = walkOutcome({
+      candles1m: [oc(0, 101, 100), oc(1, 106, 100)],
+      fromMs: OB, direction: 'short', entryMin: 100, entryMax: 101, stop: 105, target: 90, ...outcomeCfg
+    });
+    assertEqual(loss.status, 'loss', 'short loss');
+    assertEqual(loss.r, -1, 'short loss is -1R too');
+  });
+
+  await test('not filled: entry zone never touched inside fillWindowCandles', () => {
+    const candles1m = [oc(0, 90, 88), oc(1, 91, 89), oc(2, 92, 90), oc(3, 101, 100)]; // touches at i=3, outside the 3-candle window
+    const r = walkOutcome({ candles1m, fromMs: OB, direction: 'long', entryMin: 100, entryMax: 101, stop: 95, target: 110, ...outcomeCfg });
+    assertEqual(r.status, 'not_filled', 'not filled');
+  });
+
+  await test('same-candle ambiguity: stop and target both touched in one candle → loss (conservative)', () => {
+    const candles1m = [oc(0, 101, 100.5), oc(1, 112, 94)]; // one candle spans both 95 (stop) and 110 (target)
+    const r = walkOutcome({ candles1m, fromMs: OB, direction: 'long', entryMin: 100, entryMax: 101, stop: 95, target: 110, ...outcomeCfg });
+    assertEqual(r.status, 'loss', 'ambiguous same-candle touch reads as a loss');
+    assertEqual(r.ambiguous, true, 'ambiguous flag set');
+  });
+
+  await test('open: filled but neither stop nor target touched within maxHoldCandles', () => {
+    const candles1m = [oc(0, 101, 100.5), oc(1, 102, 101), oc(2, 103, 102)];
+    const r = walkOutcome({ candles1m, fromMs: OB, direction: 'long', entryMin: 100, entryMax: 101, stop: 95, target: 110, fillWindowCandles: 3, maxHoldCandles: 3 });
+    assertEqual(r.status, 'open', 'open, not counted as a win or a loss');
+  });
+
+  await test('invalid levels (missing stop/target) never throw', () => {
+    assertEqual(walkOutcome({ candles1m: [oc(0, 101, 100)], fromMs: OB, direction: 'long', entryMin: 100, entryMax: 101, stop: null, target: 110, ...outcomeCfg }).status, 'invalid_levels', 'null stop');
+  });
+
+  await test('extractStrategySignals: a signal counts once until it changes, and re-arms after going invalid', () => {
+    const lines = [
+      { closedThrough: '2026-09-22T00:00:00.000Z', strategies: { SCALP_1H: { valid: true, direction: 'LONG', entryZone: { min: 100, max: 101 }, stopLoss: 95, targets: [110] } } },
+      { closedThrough: '2026-09-22T00:01:00.000Z', strategies: { SCALP_1H: { valid: true, direction: 'LONG', entryZone: { min: 100, max: 101 }, stopLoss: 95, targets: [110] } } }, // identical, not a new signal
+      { closedThrough: '2026-09-22T00:02:00.000Z', strategies: { SCALP_1H: { valid: false, direction: 'NO_TRADE' } } },
+      { closedThrough: '2026-09-22T00:03:00.000Z', strategies: { SCALP_1H: { valid: true, direction: 'LONG', entryZone: { min: 100, max: 101 }, stopLoss: 95, targets: [110] } } } // re-armed after invalid, same numbers
+    ];
+    const signals = extractStrategySignals(lines);
+    assertEqual(signals.length, 2, 'one at first appearance, one after re-arming; the repeat in between does not count');
+    assertEqual(signals[0].signalCloseMs, Date.parse('2026-09-22T00:00:00.000Z'), 'first signal timestamp');
+    assertEqual(signals[1].signalCloseMs, Date.parse('2026-09-22T00:03:00.000Z'), 'second signal timestamp');
+  });
+
+  await test('extractCandidateSignals: one entry per distinct (ref, startedAt) track, at its first confirmed close', () => {
+    const lines = [
+      { closedThrough: '2026-09-22T00:00:00.000Z', candidateLifecycle: [{ ref: '1m:long', startedAt: 't0', state: 'triggering' }] },
+      { closedThrough: '2026-09-22T00:01:00.000Z', candidateLifecycle: [{ ref: '1m:long', startedAt: 't0', state: 'confirmed', breakoutLevel: 110, invalidation: 100, measuredTarget: 130 }] },
+      { closedThrough: '2026-09-22T00:02:00.000Z', candidateLifecycle: [{ ref: '1m:long', startedAt: 't0', state: 'confirmed', breakoutLevel: 110, invalidation: 100, measuredTarget: 130 }] }
+    ];
+    const signals = extractCandidateSignals(lines);
+    assertEqual(signals.length, 1, 'the same track is not re-counted on later confirmed closes');
+    assertEqual(signals[0].entryMin, 110, 'entry = breakoutLevel');
+    assertEqual(signals[0].stop, 100, 'stop = invalidation');
+    assertEqual(signals[0].target, 130, 'target = Q1 measuredTarget');
+  });
+
+  await test('aggregateOutcomes: streak counting and expectancy arithmetic over a known win/loss sequence', () => {
+    // Four signals, same (strategy, direction): win, loss, loss, win. Fixed R=2 wins.
+    const candles1m = [
+      oc(0, 101, 100.5), oc(1, 112, 109), // signal A (t=0): fills then wins immediately, r = |110-100.5|/|100.5-95|
+      oc(2, 101, 100.5), oc(3, 94, 90),   // signal B (t=2): fills then loses
+      oc(4, 101, 100.5), oc(5, 94, 90),   // signal C (t=4): fills then loses
+      oc(6, 101, 100.5), oc(7, 112, 109)  // signal D (t=6): fills then wins
+    ];
+    const signals = [0, 2, 4, 6].map((t) => ({
+      strategy: 'SCALP_1H', direction: 'long', entryMin: 100, entryMax: 101, stop: 95, target: 110, signalCloseMs: OB + t * MIN
+    }));
+    const [row] = aggregateOutcomes(signals, candles1m, { fillWindowCandles: 1, maxHoldCandles: 2 });
+    assertEqual(row.signals, 4, 'four signals');
+    assertEqual(row.fills, 4, 'all four filled');
+    assertEqual(row.wins, 2, 'win, loss, loss, win → 2 wins');
+    assertEqual(row.losses, 2, '2 losses');
+    assertEqual(row.maxConsecutiveLosses, 2, 'the middle loss,loss run is the longest');
+    const r = Math.abs(110 - 100.5) / Math.abs(100.5 - 95);
+    assertClose(row.avgWinR, r, 1e-3, 'both wins have the identical R (same levels)');
+    const expected = 0.5 * r + 0.5 * -1;
+    assertClose(row.expectancy, expected, 1e-3, 'expectancy = winRate*avgWinR + (1-winRate)*-1');
+  });
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {

@@ -366,6 +366,18 @@ async function run() {
     assert(Buffer.byteLength(widest, 'utf8') <= 120, `${Buffer.byteLength(widest, 'utf8')} bytes: ${widest}`);
   });
 
+  await test('trace summary (quick pass Q3): topDown/above200 append td:/a200: tokens; omitted args keep the old string byte-identical', () => {
+    const m = htfUptrend(oneMinuteAtTop);
+    const r = evaluate(m, [{ timeframe: '1m', direction: 'short', state: 'forming' }]);
+    const base = biasTraceSummary(r.matrix, r.decisionInputs, r.alignment);
+    assertEqual(biasTraceSummary(r.matrix, r.decisionInputs, r.alignment, null, null), base, 'null args = old behavior');
+    const withTopDown = biasTraceSummary(r.matrix, r.decisionInputs, r.alignment, { sentiment: 'bull', aligned: 3 }, null);
+    assertEqual(withTopDown, `${base}|td:bull:3/4`, 'td: token appended alone');
+    const withBoth = biasTraceSummary(r.matrix, r.decisionInputs, r.alignment, { sentiment: 'mixed', aligned: 1 }, { count: 5, of: 7 });
+    assertEqual(withBoth, `${base}|td:mixed:1/4|a200:5/7`, 'td: then a200:, ct: before either');
+    assert(/\|ct:\d+\|td:(bull|bear|mixed):\d\/4\|a200:\d+\/\d+$/.test(withBoth), `grammar: ${withBoth}`);
+  });
+
   await test('config: every bias constant lives in config/engine.json under "bias"', () => {
     for (const k of ['neutralBelow', 'channelEdgePct', 'minRoomAtr', 'counterTrendPenalty']) assert(typeof CFG[k] === 'number', k);
     for (const k of ['basisWeights', 'contextTimeframes', 'contextWeights', 'horizons', 'strategyTimeframes']) assert(CFG[k] && typeof CFG[k] === 'object', k);

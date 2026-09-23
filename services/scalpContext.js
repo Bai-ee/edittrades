@@ -14,18 +14,21 @@ import { buildStructure } from '../lib/structure.js';
 import { getAccountSnapshot, emptySnapshot as emptyAccountSnapshot } from './walletTracker.js';
 import { ENGINE_CONFIG, CONFIG_VERSION } from '../config/engine.js';
 import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
-import { DIRECTIONS, detectFlagLifecycle } from '../lib/patternDetector.js';
+import { DIRECTIONS, detectFlagLifecycle, measuredMoveFor } from '../lib/patternDetector.js';
 import { buildGeometryContext, buildGeometryB, geometryTraceSummary, nearMissDiagonals, swingPivots } from '../lib/geometry.js';
 import { geometryTimeframeFor, snapCandidateLevels, resolveCoils, buildVisualGate } from '../lib/patternLifecycle.js';
 import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
+import { buildWeeklyLean, buildTopDown, buildAboveBelow200 } from '../lib/topDown.js';
 
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 
+// Published candles per timeframe (payload only; the engine computes on the full closed
+// window). 1m/3m/5m went 30 -> 24 on 2026-09-23 to keep the default payload under 80 KB.
 export const CANDLE_LIMITS = {
-  '1m': 30,
-  '3m': 30,
-  '5m': 30,
+  '1m': 24,
+  '3m': 24,
+  '5m': 24,
   '15m': 24,
   '1h': 24,
   '4h': 20,
@@ -50,6 +53,10 @@ const SYMBOL_PAIR_MAP = {
 
 // Timeframes ordered smallest-first, used for price fallback selection.
 const TF_SIZE_ORDER = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
+
+// biasMatrix's long/short/neutral vocabulary mapped to lib/topDown.js's bull/bear/neutral
+// (Q3, trading-model quick pass): the two modules describe the same lean, different words.
+const BIAS_TO_SENTIMENT = { long: 'bull', short: 'bear', neutral: 'neutral' };
 
 const FETCH_LIMIT = 500;
 const MAX_CONCURRENCY = 6;
@@ -265,7 +272,7 @@ function formatCandleOut(candle) {
     h: round2(candle.high),
     l: round2(candle.low),
     c: round2(candle.close),
-    v: roundN(candle.volume, 4)
+    v: round2(candle.volume)
   };
 }
 
@@ -721,12 +728,26 @@ export function filterFailedCandidateSetups(setups, includeFailed) {
   return setups.filter((s) => (s && s.state) !== 'failed');
 }
 
+/**
+ * Drop `poleHeight` from published candidateSetups (2026-09-23 follow-up item 1a): it is
+ * redundant with the already-published `|measuredTarget - breakoutLevel|` and was the
+ * single largest quick-pass contributor to the default payload. Stays on the flag
+ * detector's own output (lib/patternDetector.js) and is still read internally, before
+ * this runs, to recompute measuredTarget after geometry snapping.
+ * @param {Array<Object>} setups
+ * @returns {Array<Object>} new array; input is never mutated
+ */
+export function stripPoleHeight(setups) {
+  if (!Array.isArray(setups)) return setups;
+  return setups.map(({ poleHeight, ...rest }) => rest);
+}
+
 // Valid `include` tokens for filterPayload (phase 5, item A + G). 'geometry' gates
 // symbols.<SYM>.geometryContext (phase 7).
 export const INCLUDE_TOKENS = ['timeframes', 'strategies', 'candidates', 'geometry', 'account', 'trace', 'config', 'bias'];
 
 /** Phase 9b: symbol keys carried only when the build ran with includeBias. */
-const BIAS_SECTION_KEYS = ['biasMatrix', 'alignment', 'decisionInputs'];
+const BIAS_SECTION_KEYS = ['biasMatrix', 'alignment', 'decisionInputs', 'topDown'];
 
 /**
  * True when an include list asks for the bias section. Callers pass the result to
@@ -1064,6 +1085,9 @@ export async function buildScalpContext(options = {}) {
     // EMA/Stoch series per timeframe, kept for the bias layer's own geometry on
     // timeframes geometryContext does not publish (phase 9b). Internal, never published.
     const seriesByTf = {};
+    // Price vs EMA200 per timeframe (Q2/Q3, trading-model quick pass): feeds candidate
+    // ema200Side and the top-down above200 count. Internal, never published on its own.
+    const ema200SideByTf = {};
 
     for (const tf of timeframeList) {
       const fetched = bySymbolTf[symbol][tf];
@@ -1104,8 +1128,16 @@ export async function buildScalpContext(options = {}) {
         stochHistory: indicators.stochRSI && indicators.stochRSI.history
       };
 
-      const ema21 = isFiniteNumber(indicators.ema && indicators.ema.ema21) ? indicators.ema.ema21 : null;
-      const ema200 = isFiniteNumber(indicators.ema && indicators.ema.ema200) ? indicators.ema.ema200 : null;
+      // round2 (2026-09-23 follow-up item 1c): the EMA library's recursive formula leaves
+      // float noise (e.g. 85459.07572138119) on every downstream read of this value
+      // (published here, priceVs21/200Pct, ema200Side, structure, geometryContext, bias
+      // matrix). All of those already work in whole cents or coarser (ATR multiples,
+      // percentage points already round2'd), so rounding at the source changes no
+      // decision and removes noise from every one of them at once - the single biggest
+      // existing-field contributor to the default payload's float noise (42 instances
+      // across timeframes x symbols).
+      const ema21 = isFiniteNumber(indicators.ema && indicators.ema.ema21) ? round2(indicators.ema.ema21) : null;
+      const ema200 = isFiniteNumber(indicators.ema && indicators.ema.ema200) ? round2(indicators.ema.ema200) : null;
       const lastClose = closed[closed.length - 1].close;
 
       const priceVs21Pct = ema21 !== null && isFiniteNumber(lastClose)
@@ -1114,6 +1146,10 @@ export async function buildScalpContext(options = {}) {
       const priceVs200Pct = ema200 !== null && isFiniteNumber(lastClose)
         ? round2(((lastClose - ema200) / ema200) * 100)
         : null;
+      // Q2 (trading-model quick pass, M-6): EMA200 side on flag candidates. Never filters
+      // - a short above the 200 or a long below it is still published (the M-6 case).
+      const ema200Side = ema200 !== null && isFiniteNumber(lastClose) ? (lastClose >= ema200 ? 'above' : 'below') : null;
+      ema200SideByTf[tf] = ema200Side;
 
       tfEntries[tf] = {
         candles: trimmed.map(formatCandleOut),
@@ -1129,11 +1165,12 @@ export async function buildScalpContext(options = {}) {
 
       // Confirmation chart (phase 8b): opt-in only. Hands the renderer the EMA series for
       // the published window; the payload is not touched, so a build without `chart` is
-      // byte-identical.
+      // byte-identical. round2 (2026-09-23 follow-up item 1c) so the series's last point
+      // still matches the now-rounded timeframes.<tf>.ema21/ema200.
       if (chart && chart.symbol === symbol && chart.timeframe === tf && typeof chart.onSeries === 'function') {
         chart.onSeries({
-          ema21: windowSeries(indicators.ema && indicators.ema.ema21History, trimmed.length),
-          ema200: windowSeries(indicators.ema && indicators.ema.ema200History, trimmed.length)
+          ema21: windowSeries(indicators.ema && indicators.ema.ema21History, trimmed.length).map(round2),
+          ema200: windowSeries(indicators.ema && indicators.ema.ema200History, trimmed.length).map(round2)
         });
       }
 
@@ -1149,7 +1186,7 @@ export async function buildScalpContext(options = {}) {
           for (const direction of DIRECTIONS) {
             const found = detectFlagLifecycle(flagInput, direction);
             if (!found) continue;
-            candidateSetups.push({ timeframe: tf, ...found.candidate });
+            candidateSetups.push({ timeframe: tf, ...found.candidate, ema200Side });
             marketByTf[tf] = { price: lastClose, atr: found.atr };
           }
         } catch (err) {
@@ -1254,11 +1291,21 @@ export async function buildScalpContext(options = {}) {
           { candles: closedByTf[tf], atr: g.atr }
         );
       }
-      const snapped = candidateSetups.map((c) => snapCandidateLevels(
-        c,
-        geometryContext[geometryTimeframeFor(c.timeframe)] || null,
-        marketByTf[c.timeframe] ? marketByTf[c.timeframe].atr : null
-      ));
+      // Q1 (trading-model quick pass): snapping can move breakoutLevel/invalidation
+      // outward to a geometry edge. snapCandidateLevels itself is unchanged; the measured
+      // target is just recomputed from whatever breakoutLevel/invalidation it settled on,
+      // so a snapped candidate's measuredTarget always matches its published levels.
+      const snapped = candidateSetups.map((c) => {
+        const s = snapCandidateLevels(
+          c,
+          geometryContext[geometryTimeframeFor(c.timeframe)] || null,
+          marketByTf[c.timeframe] ? marketByTf[c.timeframe].atr : null
+        );
+        if (s.type !== 'flag' || !isFiniteNumber(s.poleHeight)) return s;
+        const sign = s.direction === 'short' ? -1 : 1;
+        const { measuredTarget, measuredRR } = measuredMoveFor({ breakoutLevel: s.breakoutLevel, invalidation: s.invalidation, poleHeight: s.poleHeight, sign });
+        return { ...s, measuredTarget, measuredRR };
+      });
       candidateSetups = [...new Set(snapped.map((c) => c.timeframe))]
         .flatMap((tf) => resolveCoils(snapped.filter((c) => c.timeframe === tf)));
       visualGate = buildVisualGate({ symbol, candidates: candidateSetups, geometryByTf: geometryContext, nearMissByTf, marketByTf });
@@ -1300,7 +1347,36 @@ export async function buildScalpContext(options = {}) {
       const matrix = buildBiasMatrix(tfEntries, biasGeometry);
       const alignment = buildAlignment({ price, candidates: candidateSetups, strategies, matrix, zonesByTf: zonesFromGeometry(biasGeometry) });
       const decisionInputs = buildDecisionInputs(matrix);
-      bias = { matrix, alignment, decisionInputs, summary: biasTraceSummary(matrix, decisionInputs, alignment) };
+
+      // Top-down sentiment (Q3, trading-model quick pass): 1W derived from the already-
+      // fetched 1D candles; 1D/4H/1H reuse this same bias matrix's leans. Same
+      // separate-channel rule as the rest of this block - a fault here still leaves the
+      // rest of `bias` (matrix/alignment/decisionInputs/summary) intact.
+      let topDown = null;
+      let above200 = null;
+      try {
+        const weekly = buildWeeklyLean(closedByTf['1d'] || []);
+        const leans = {
+          '1w': weekly.bias,
+          '1d': matrix['1d'] ? BIAS_TO_SENTIMENT[matrix['1d'].bias] : 'neutral',
+          '4h': matrix['4h'] ? BIAS_TO_SENTIMENT[matrix['4h'].bias] : 'neutral',
+          '1h': matrix['1h'] ? BIAS_TO_SENTIMENT[matrix['1h'].bias] : 'neutral'
+        };
+        const td = buildTopDown(leans);
+        const ab = buildAboveBelow200(ema200SideByTf);
+        above200 = ab.above200;
+        topDown = { sentiment: td.sentiment, aligned: td.aligned, score: td.score, leans, weekly, above200 };
+      } catch (err) {
+        console.warn(`[ScalpContext] ${symbol}: top-down sentiment failed - ${err.message}`);
+      }
+
+      bias = {
+        matrix,
+        alignment,
+        decisionInputs,
+        topDown,
+        summary: biasTraceSummary(matrix, decisionInputs, alignment, topDown, above200)
+      };
     } catch (err) {
       console.warn(`[ScalpContext] ${symbol}: bias matrix failed - ${err.message}`);
     }
@@ -1327,7 +1403,7 @@ export async function buildScalpContext(options = {}) {
       timeframes: tfEntries,
       strategies,
       bestSignal,
-      candidateSetups: filterFailedCandidateSetups(candidateSetups, includeFailed),
+      candidateSetups: stripPoleHeight(filterFailedCandidateSetups(candidateSetups, includeFailed)),
       geometryContext,
       decisionTrace
     };
@@ -1335,6 +1411,7 @@ export async function buildScalpContext(options = {}) {
       symbolsOut[symbol].biasMatrix = bias.matrix;
       symbolsOut[symbol].alignment = bias.alignment;
       symbolsOut[symbol].decisionInputs = bias.decisionInputs;
+      if (bias.topDown) symbolsOut[symbol].topDown = bias.topDown;
     }
 
     symbolDurationsMs[symbol] = Date.now() - symbolStartMs;
@@ -1381,7 +1458,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.10.0',
+    schemaVersion: '1.11.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
@@ -1418,6 +1495,7 @@ export default {
   filterPayload,
   buildConfigSnapshot,
   filterFailedCandidateSetups,
+  stripPoleHeight,
   attachCandidateRisk,
   SYMBOLS,
   TIMEFRAMES,

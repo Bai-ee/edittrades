@@ -370,6 +370,31 @@ components:
             Flag only. flagLow for long, flagHigh for short, unless snapped to geometry
             (see levelSource).
           type: number
+        poleHeight:
+          description: >-
+            Flag only (schema 1.11.0). Absolute price distance of the pole that flagged
+            out (impulse trough to peak), used to compute measuredTarget.
+          type: number
+        measuredTarget:
+          description: >-
+            Flag only (schema 1.11.0). Pole length projected from breakoutLevel:
+            breakoutLevel + poleHeight for long, breakoutLevel - poleHeight for short.
+            Recomputed from the final (possibly geometry-snapped) breakoutLevel. A major
+            level or channel line in front of it takes priority as the actual TP1. Never
+            a moving average.
+          type: number
+        measuredRR:
+          description: >-
+            Flag only (schema 1.11.0). |measuredTarget - breakoutLevel| / |breakoutLevel
+            - invalidation|, rounded to 2 decimals; null when the denominator is 0.
+          type: [number, "null"]
+        ema200Side:
+          description: >-
+            Flag only (schema 1.11.0). "above" or "below" the candidate's own timeframe
+            EMA200 (by last close), null when EMA200 is unavailable. Never filters - a
+            short above the 200 or a long below it is still published (M-6).
+          type: [string, "null"]
+          enum: [above, below, null]
         high:
           description: Coil only. Top of the combined range.
           type: number
@@ -525,12 +550,17 @@ components:
             type: string
         bias:
           description: >-
-            Compact bias summary (schema 1.10.0), always present, at most 120 bytes:
+            Compact bias summary (schema 1.10.0), always present, at most 120 bytes
+            pre-1.11.0:
             "scalp:L14,S16,N70|swing:L74,S0,N26|tf:1m=S,3m=S,5m=S,15m=N,1h=L,4h=L,1d=L|ct:2".
             scalp/swing are decisionInputs.directionalBias percentages (long, short,
             neutral); tf is each timeframe's bias letter (L long, S short, N neutral, -
-            no data); ct counts counter-trend alignment entries. Full objects via
-            include=bias. Null if the bias layer failed.
+            no data); ct counts counter-trend alignment entries. Schema 1.11.0 appends up
+            to two more tokens when the top-down layer succeeded:
+            "|td:bull:3/4|a200:5/7" - td is symbols.X.topDown.sentiment (bull, bear, or
+            mixed) and how many of the four 1W/1D/4H/1H leans agree (n/4); a200 is
+            above200.count/above200.of, the timeframes (of those with an EMA200) sitting
+            above it. Full objects via include=bias. Null if the bias layer failed.
           type: [string, "null"]
       required:
         - configVersion
@@ -610,6 +640,8 @@ components:
             $ref: "#/components/schemas/Alignment"
         decisionInputs:
           $ref: "#/components/schemas/DecisionInputs"
+        topDown:
+          $ref: "#/components/schemas/TopDown"
     BiasEntry:
       type: object
       description: >-
@@ -702,6 +734,79 @@ components:
               $ref: "#/components/schemas/DirectionalTriple"
           required: [scalp, swing]
       required: [directionalBias]
+    TopDown:
+      type: object
+      description: >-
+        Opt-in (include=bias, schema 1.11.0). Top-down sentiment over 1W/1D/4H/1H (M-1,
+        M-2, M-6b): a weighted vote (config model.topDownWeights; higher timeframes
+        dominate) over the four leans. 1W is derived from the already-fetched 1D
+        candles (Monday-aligned weeks); 1D/4H/1H reuse decisionTrace.bias's own bias
+        matrix. Never gates or changes a strategy, candidate, or confidence - alignment
+        only adjusts confidence.
+      properties:
+        sentiment:
+          type: string
+          enum: [bull, bear, mixed]
+        aligned:
+          description: >-
+            How many of the four leans (1w, 1d, 4h, 1h) agree with sentiment, 0-4. For
+            mixed (2026-09-23 follow-up), the weighted vote cancelled out but the leans
+            still split some way; aligned is the larger of the bull count and the bear
+            count (a neutral lean counts toward neither), ties going to the bull count.
+          type: integer
+        score:
+          description: Weighted conviction of the vote, 0-1.
+          type: number
+        leans:
+          type: object
+          properties:
+            "1w":
+              type: string
+              enum: [bull, bear, neutral]
+            "1d":
+              type: string
+              enum: [bull, bear, neutral]
+            "4h":
+              type: string
+              enum: [bull, bear, neutral]
+            "1h":
+              type: string
+              enum: [bull, bear, neutral]
+          required: ["1w", "1d", "4h", "1h"]
+        weekly:
+          type: object
+          description: >-
+            The 1W lean: last weekly close vs weekly EMA21 and its 3-week slope. Weekly
+            EMA200 is always null - not enough weekly history exists for it - with a
+            reason.
+          properties:
+            close:
+              type: [number, "null"]
+            ema21:
+              type: [number, "null"]
+            ema21Slope:
+              type: [number, "null"]
+            ema200:
+              description: Always null - not enough weekly history exists to compute it (see reason).
+              type: [number, "null"]
+            reason:
+              type: [string, "null"]
+          required: [close, ema21, ema21Slope, ema200, reason]
+        above200:
+          type: object
+          description: >-
+            Of the timeframes with an EMA200 (1m-1D), how many sit above it, weighted so
+            higher timeframes count for more (config model.above200Weights). Never
+            filters anything.
+          properties:
+            count:
+              type: integer
+            of:
+              type: integer
+            weighted:
+              type: [number, "null"]
+          required: [count, of, weighted]
+      required: [sentiment, aligned, score, leans, weekly, above200]
     GeometryZone:
       type: object
       description: >-

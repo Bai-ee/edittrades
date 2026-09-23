@@ -21,8 +21,10 @@
     "test:chart": "node test-chart-render.js",
     "test:replay": "node test-replay.js",
     "test:bias": "node test-bias-matrix.js",
+    "test:topdown": "node test-top-down.js",
     "replay": "node scripts/replay.js",
     "replay:metrics": "node scripts/replay-metrics.js",
+    "replay:outcomes": "node scripts/replay-outcomes.js",
     "check:gpt": "node scripts/check-gpt-instructions.js"
   },
   "keywords": [

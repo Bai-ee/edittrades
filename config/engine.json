@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-9",
+  "configVersion": "2026.09.22-10",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -137,7 +137,18 @@
   },
 
   "replay": {
-    "minComputeCandles": 200
+    "minComputeCandles": 200,
+    "outcomes": {
+      "fillWindowCandles": 15,
+      "maxHoldCandles": 2880
+    }
+  },
+
+  "model": {
+    "topDownWeights": { "1w": 4, "1d": 3, "4h": 2, "1h": 1 },
+    "above200Weights": { "1m": 0.1, "3m": 0.2, "5m": 0.3, "15m": 0.5, "1h": 1, "4h": 2, "1d": 3 },
+    "weeklyMinWeeksForEma21": 21,
+    "weeklySlopeLookbackWeeks": 3
   },
 
   "thresholds": {

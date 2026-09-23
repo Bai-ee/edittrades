@@ -13,6 +13,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 ### Start here
 - **[../CLAUDE.md](../CLAUDE.md)** (local only, untracked) — project guide, hard rules, tests, deploy.
 - **[MASTER_PLAN_ENGINE_REFINEMENT.md](./MASTER_PLAN_ENGINE_REFINEMENT.md)** — phased engine plan with status. Phases 0–8, 8b, 9, 9b, 10, 11 done; then 8c, 3b.
+- **[MASTER_PLAN_TRADING_MODEL.md](./MASTER_PLAN_TRADING_MODEL.md)** — the owner's trading model (M-1..M-9) and the phased plan to build it (`FLAG_21`). **[PLAN_TRADING_MODEL_QUICK_PASS.md](./PLAN_TRADING_MODEL_QUICK_PASS.md)** — the Q1-Q5 quick pass (done 2026-09-23, schema 1.11.0) that pre-built parts of M1/M2/M2b/M4/M10.
 
 ### API and connector
 - **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** — MCP tool and REST parity, payload controls, payload schema 1.8.0 map, scalp stop guard, security boundary, env, prod verification, test suites.
@@ -42,7 +43,9 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | HTTP entry | `api/scalp-context.js` (REST, MCP via `__mcp=1`) |
 | Chart render (Phase 8b, in progress) | `lib/chartRender.js` |
 | Bias matrix, alignment, decision inputs (Phase 9b) | `lib/biasMatrix.js` |
+| Top-down sentiment, above/below-200 (trading-model quick pass Q3) | `lib/topDown.js` |
 | Replay harness + metrics (Phase 10, dev only) | `scripts/replay.js`, `scripts/replay-metrics.js` |
+| Replay outcome scoring (trading-model quick pass Q4, dev only) | `scripts/replay-outcomes.js` |
 | GPT instruction length gate (Phase 11, dev only) | `scripts/check-gpt-instructions.js` |
 | Miss log (schema + one JSON per miss) | `test/fixtures/misses/README.md` |
 

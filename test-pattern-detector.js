@@ -11,7 +11,7 @@
 
 import { readFileSync } from 'node:fs';
 import { ENGINE_CONFIG } from './config/engine.js';
-import { detectFlag, detectFlagLifecycle, detectCandidateSetups } from './lib/patternDetector.js';
+import { detectFlag, detectFlagLifecycle, detectCandidateSetups, measuredMoveFor } from './lib/patternDetector.js';
 import { snapCandidateLevels, resolveCoils, geometryTimeframeFor } from './lib/patternLifecycle.js';
 import { calculateEMA21 } from './services/indicators.js';
 import { buildScalpContext, INTERVAL_MS } from './services/scalpContext.js';
@@ -73,7 +73,8 @@ function assertClose(actual, expected, tolerance, msg) {
 
 const OUTPUT_KEYS = [
   'type', 'direction', 'state', 'impulseStrength', 'compressionScore', 'flagHigh', 'flagLow',
-  'breakoutLevel', 'invalidation', 'ema21Hold', 'confidence', 'chaseRisk'
+  'breakoutLevel', 'invalidation', 'ema21Hold', 'confidence', 'chaseRisk',
+  'poleHeight', 'measuredTarget', 'measuredRR'
 ].sort();
 
 const SHORT_HOLD = { hold: 'hold_below', wick: 'wick_above', acceptance_below: 'acceptance_above' };
@@ -279,6 +280,46 @@ async function run() {
     assert(aligned.long.confidence > against.long.confidence, 'rising K must raise long confidence');
   });
 
+  await test('measured move (quick pass Q1): poleHeight/measuredTarget/measuredRR are internally consistent and mirror; coils carry none of them', () => {
+    const { long, short } = detectBoth(regression001);
+    assert(typeof long.poleHeight === 'number' && long.poleHeight > 0, 'poleHeight present and positive');
+    assertClose(long.measuredTarget, long.breakoutLevel + long.poleHeight, 1e-9, 'long measuredTarget = breakout + poleHeight');
+    const expectedLongRR = Math.round((Math.abs(long.measuredTarget - long.breakoutLevel) / Math.abs(long.breakoutLevel - long.invalidation)) * 100) / 100;
+    assertEqual(long.measuredRR, expectedLongRR, 'long measuredRR');
+    assertClose(short.measuredTarget, short.breakoutLevel - short.poleHeight, 1e-9, 'short measuredTarget = breakout - poleHeight');
+    assertClose(short.poleHeight, long.poleHeight, 0.05, 'poleHeight mirrors');
+    assertEqual(short.measuredRR, long.measuredRR, 'measuredRR identical across the mirror');
+    assertClose(short.measuredTarget, 2 * FIXTURE_PIVOT - long.measuredTarget, 0.1, 'measuredTarget mirrors around the fixture pivot');
+
+    const bull = flagCandidate('1m', { direction: 'long', state: 'forming', flagHigh: 110, flagLow: 100, breakoutLevel: 110, invalidation: 100, poleHeight: 20, measuredTarget: 130, measuredRR: 1.5, confidence: 55, durationCandles: 6 });
+    const bear = flagCandidate('1m', { direction: 'short', state: 'forming', flagHigh: 111, flagLow: 102, breakoutLevel: 102, invalidation: 111, poleHeight: 18, measuredTarget: 84, measuredRR: 1.3, confidence: 62, durationCandles: 4 });
+    const coil = resolveCoils([bull, bear])[0];
+    assertEqual(coil.type, 'coil', 'coil type');
+    for (const k of ['poleHeight', 'measuredTarget', 'measuredRR']) assert(!(k in coil), `coil must not carry ${k}`);
+  });
+
+  await test('measured move (2026-09-23 follow-up item 2): poleHeight/measuredTarget carry no float noise, long and mirrored short', () => {
+    const { long, short } = detectBoth(regression001);
+    const clean2dp = (v) => Math.round(v * 100) / 100 === v;
+    assert(clean2dp(long.poleHeight), `long.poleHeight has float noise: ${long.poleHeight}`);
+    assert(clean2dp(long.measuredTarget), `long.measuredTarget has float noise: ${long.measuredTarget}`);
+    assert(clean2dp(short.poleHeight), `short.poleHeight has float noise: ${short.poleHeight}`);
+    assert(clean2dp(short.measuredTarget), `short.measuredTarget has float noise: ${short.measuredTarget}`);
+    // measuredMoveFor's own output, called again after a geometry snap (as scalpContext.js does).
+    const snapped = measuredMoveFor({ breakoutLevel: 100385.07572138119, invalidation: 99999.66881508446, poleHeight: 388.6999999999971, sign: 1 });
+    assert(clean2dp(snapped.measuredTarget), `snapped measuredTarget has float noise: ${snapped.measuredTarget}`);
+  });
+
+  await test('measured move: recomputing from a snapped breakoutLevel (measuredMoveFor) matches the direct formula, both directions', () => {
+    const long = measuredMoveFor({ breakoutLevel: 112, invalidation: 100, poleHeight: 20, sign: 1 });
+    assertEqual(long.measuredTarget, 132, 'long target from a snapped (moved) breakout level');
+    assertEqual(long.measuredRR, Math.round((20 / 12) * 100) / 100, 'long RR from the snapped level');
+    const short = measuredMoveFor({ breakoutLevel: 98, invalidation: 110, poleHeight: 20, sign: -1 });
+    assertEqual(short.measuredTarget, 78, 'short target from a snapped breakout level');
+    assertEqual(short.measuredRR, Math.round((20 / 12) * 100) / 100, 'short RR mirrors');
+    assertEqual(measuredMoveFor({ breakoutLevel: 100, invalidation: 100, poleHeight: 20, sign: 1 }).measuredRR, null, 'zero denominator -> null RR');
+  });
+
   await test('deterministic: same input, same output', () => {
     const a = detectCandidateSetups(input(regression001()));
     const b = detectCandidateSetups(input(regression001()));
@@ -468,7 +509,7 @@ async function run() {
     await test(`REGRESSION_001 (${label}): 1m candidate survives while SCALP_1H stays NO_TRADE`, async () => {
       const payload = await buildWith1m(candles);
       const btc = payload.symbols.BTC;
-      assertEqual(payload.schemaVersion, '1.10.0', 'schemaVersion');
+      assertEqual(payload.schemaVersion, '1.11.0', 'schemaVersion');
       assert(Array.isArray(btc.candidateSetups), 'candidateSetups must be an array');
       const hit = btc.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === direction);
       assert(hit, `expected a 1m ${direction} candidate, got ${JSON.stringify(btc.candidateSetups)}`);

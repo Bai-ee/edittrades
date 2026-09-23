@@ -21,7 +21,7 @@ M-3. **Channels.** Identify the channels price is trading in. Trades aim at a ch
 
 M-4. **Counter-sentiment plays need a breakout read.** Shorting the top of a channel in an overall-bullish market (or longing the bottom in a bearish one) is allowed, but the engine must say how likely the edge breaks instead of rejecting. The trader must know whether they are about to miss a breakout or fade one correctly.
 
-M-5. **The setup is a flag on the EMA21.** Bull flag: impulse up, flag pulls back to / rides the EMA21, breaks out. Bear flag: the same picture inverted (the owner thinks of it as flipping the chart). Flags are hunted on all timeframes; the top-down read decides which ones matter.
+M-5. **The setup is a flag on the EMA21.** A flag is compressed or coiled price action coming off a longer pump (or dump). Bull flag: impulse up, flag compresses on / rides the EMA21. Bear flag: the same picture inverted (the owner thinks of it as flipping the chart). Two entries are valid: (a) the breakout from the top of the flag (bottom for a bear flag), or (b) catching the bottom of the flag's own channel (top for a bear flag), following the flag's borders and levels. Flags are hunted on all timeframes; the top-down read decides which ones matter.
 
 M-5b. **Flag targets are measured moves.** A big pump (or dump) that flags out projects its next target by the length of the pole: from the base of the first move to the point where the flag starts, projected from the flag's breakout. That target usually sits around 3:1 reward to risk. A major support/resistance level or channel line in the way comes before it.
 
@@ -29,7 +29,7 @@ M-6. **EMA21 and EMA200 set direction, not targets.** On every timeframe, price 
 
 M-6b. **Overall direction comes from all factors together, and small timeframes lie.** Timeframes push and pull each other; sentiment, the moving averages, channels, and major levels combine into one overall direction. The smaller the timeframe, the more price action tries to confuse, so lower timeframes carry less weight and are used for timing, not direction.
 
-M-7. **Confirmation is Stoch RSI divergence across timeframes.** Bullish or bearish divergence between price and Stoch RSI confirms momentum ("volume" in the owner's words). More timeframes agreeing = more confluence = more confidence.
+M-7. **Confirmation is Stoch RSI divergence across timeframes.** Bullish or bearish divergence between price and Stoch RSI confirms momentum ("volume" in the owner's words). Both standard (regular) and hidden divergence count. The closer a divergence is to live price (recent candles, and the timeframe being traded), the stronger it is. More timeframes agreeing = more confluence = more confidence.
 
 M-8. **Confluence as much as possible.** Sentiment, channel position, flag, the cross-timeframe EMA21/200 map, divergence, confluence zones all stack.
 
@@ -91,19 +91,25 @@ M-9. **Risk management is the edge.** Expected win rate when following the model
 | Phase | Deliverable | Size | Risk | Status |
 | --- | --- | --- | --- | --- |
 | M0 | Model spec + gap matrix + owner-labeled fixtures | 1–2 h | none | |
-| M1 | Replay outcome scoring: TP/SL first touch, R, win rate, expectancy, streaks, hold time | 3–4 h | low | |
-| M2 | Top-down sentiment: 1W derived from 1D, alignment score over 1W/1D/4H/1H | 3–4 h | low | |
-| M2b | Cross-timeframe EMA21/200 direction and pull: count above 200, pull read, higher-timeframe weighting | 3–4 h | low | |
+| M1 | Replay outcome scoring: TP/SL first touch, R, win rate, expectancy, streaks, hold time | 3–4 h | low | done (quick pass) |
+| M2 | Top-down sentiment: 1W derived from 1D, alignment score over 1W/1D/4H/1H | 3–4 h | low | partial (quick pass) |
+| M2b | Cross-timeframe EMA21/200 direction and pull: count above 200, pull read, higher-timeframe weighting | 3–4 h | low | partial (quick pass) |
 | M3 | Channels per timeframe + edge targets + breakout read | 1 day | medium | |
-| M4 | Flags on all timeframes with EMA200 side, channel position, and measured-move target | 1 day | medium | |
+| M4 | Flags on all timeframes with EMA200 side, channel position, and measured-move target | 1 day | medium | partial (quick pass) |
 | M5 | Stoch RSI divergence detector, cross-timeframe confluence count | 1 day | medium | |
 | M6 | Composite confidence model with explained breakdown | 3–4 h | medium | |
 | M7 | `FLAG_21` strategy (alongside), channel/confluence targets, ≥ 3R gate | 1 day | medium | |
 | M8 | Survival sizing: losing-streak drawdown check at the model's win rate | 2–3 h | low | |
 | M9 | Replay comparison `FLAG_21` vs SCALP_1H, owner go/no-go | 3–4 h | low | |
-| M10 | GPT instructions teach `FLAG_21` (budget-neutral) + deploy | 1–2 h | low | |
+| M10 | GPT instructions teach `FLAG_21` (budget-neutral) + deploy | 1–2 h | low | partial (quick pass) |
 
-Quick pass: `docs/PLAN_TRADING_MODEL_QUICK_PASS.md` delivers M1 in full and early parts of M2, M2b, M4 and M10 in one implementer thread (measured-move target and EMA200 side on flag candidates, top-down sentiment + timeframes-above-200, replay outcome scoring, budget-neutral GPT text). Run it before M0's later phases; the phases below then build on it.
+Quick pass delivered (2026-09-23), schema 1.11.0: `docs/PLAN_TRADING_MODEL_QUICK_PASS.md` shipped M1 in full (`scripts/replay-outcomes.js`, `test:replay` additions) and early parts of four phases in one implementer thread:
+- M2: `lib/topDown.js` `buildTopDown()` — weighted 1W/1D/4H/1H sentiment/alignment/score. Not yet done: nothing else in M2 (it was already scoped narrowly).
+- M2b: `lib/topDown.js` `buildAboveBelow200()` — above/below-200 counts and weights only. Not yet done: the pull read, `lib/maMap.js`, `config.model.maWeights`.
+- M4: `lib/patternDetector.js` `measuredMoveFor()` (poleHeight/measuredTarget/measuredRR) and `ema200Side` on the existing 1m/3m/5m `candidateSetups[]`. Not yet done: flags on 15m/1h/4h, channel position on the flag.
+- M10: `docs/GPT_INSTRUCTIONS.md` teaches `measuredTarget`/`measuredRR`/`ema200Side` and the `td:`/`a200:` trace tokens, budget-neutral (7990 → 7990). Not yet done: `FLAG_21` itself (M10's actual scope; nothing to teach until M7 exists).
+
+Run the quick pass before M0's later phases; the phases below build on it.
 
 Execution order is M0 → M1 → M2 → M2b → M3 → M4 → M5 → M6 → M7 → M8 → M9 → M10. M1 comes early on purpose: every later phase reports its effect on replay outcomes.
 
@@ -198,12 +204,12 @@ Acceptance: build duration reported; ≤ +1 s.
 Objective: detect bullish and bearish divergence per timeframe and count cross-timeframe confluence (M-7).
 
 Build:
-1. `lib/divergence.js`: from price swing pivots (`swingPivots()` in `lib/geometry.js`) and Stoch RSI history, detect regular bullish (price lower low, Stoch higher low) and regular bearish (price higher high, Stoch lower high) divergence over a config lookback. Hidden divergence is out of scope unless the owner asks. Output per timeframe `{ type: bullish|bearish|none, pivots, strength }`.
+1. `lib/divergence.js`: from price swing pivots (`swingPivots()` in `lib/geometry.js`) and Stoch RSI history, detect standard (regular) bullish (price lower low, Stoch higher low), standard bearish (price higher high, Stoch lower high), hidden bullish (price higher low, Stoch lower low), and hidden bearish (price lower high, Stoch higher high) divergence over a config lookback. Strength rises the closer the divergence's latest pivot is to the last closed candle, and for the timeframe being traded (config recency decay and timeframe weights). Output per timeframe `{ type: bullish|bearish|none, kind: standard|hidden, pivots, ageCandles, strength }`.
 2. Cross-timeframe: `divergence.confluence = { bullish: n, bearish: n, timeframes: [...] }`.
 3. Feed the breakout read in M3 (divergence at an edge lowers breakout risk for a fade).
 4. Payload: `symbols.X.model.divergence` behind `include=model`.
 
-Tests: `test-divergence.js` (`test:divergence`): synthetic bullish, bearish (mirror), none, noisy near-miss rejected, multi-timeframe count.
+Tests: `test-divergence.js` (`test:divergence`): synthetic standard bullish, standard bearish (mirror), hidden bullish, hidden bearish (mirror), none, noisy near-miss rejected, recent divergence stronger than an older one, multi-timeframe count.
 
 Acceptance: labeled fixtures from M0 produce the labeled divergence.
 
@@ -223,7 +229,11 @@ Objective: a new strategy that trades the model, alongside the existing ones.
 
 Build:
 1. `strategies.FLAG_21` from the best qualifying model flag per symbol (highest M6 confidence; ties → higher timeframe):
-   - Entry zone: the flag breakout level (snapped, from the lifecycle), direction from the flag.
+   - Entry, two types (M-5), published as `entryType`:
+     - `breakout`: the flag breakout level (snapped, from the lifecycle).
+     - `flag-border`: the flag's lower border for a bull flag (upper for a bear flag) while the flag is still forming, following the flag's channel lines; stop just beyond that border, target the opposite border first.
+     Both go through the same ≥ 3R gate to TP1. Direction from the flag.
+   - Stop, two types (owner 2026-09-23), published as `stopType`: `structure` = beyond the nearest major support/resistance level behind the entry (wider); `tight` = just beyond the flag channel's bottom (top for a bear flag). Publish both prices when they exist; the default `stopLoss` is the one that passes the ≥ 3R gate, preferring `structure`.
    - Stop: flag invalidation with ATR buffer. If the entry timeframe is ≤ 1h, apply the same ≤ 3% stop cap as the scalps (see Open decisions).
    - TP1: the flag's measured move (M4 `measuredTarget`). If a major level from M3's `levelsAhead` (channel line or major support/resistance zone) sits before it, that level becomes TP1 and the measured move becomes TP2; otherwise TP2 is the next major level beyond, or null. Moving averages are never targets.
    - Gate: R to TP1 < `config.model.minRR` (default 3.0) → canonical NO_TRADE with a stable `rejectionCode`.
@@ -268,7 +278,7 @@ Acceptance: owner runs the test sheet in a fresh GPT chat.
 1. FLAG_21 stop cap: apply the ≤ 3% scalp cap to entries on ≤ 1h timeframes? Default: yes.
 2. Per-trade wallet risk for FLAG_21 and the streak drawdown limit. Default: existing 2% cap, limit 15% (at 2% risk a 13-loss run is ~23%, so `withinLimit` would read false and the GPT sizes down).
 3. Flag timeframes for entries: default 1m, 3m, 5m, 15m, 1h, 4h.
-4. Hidden divergence: default out of scope.
+4. Hidden divergence: resolved 2026-09-23 — included, with standard; recency and traded-timeframe weighting (M-7).
 5. Weekly EMA200: default null (insufficient history); weekly lean uses EMA21, structure, Stoch.
 
 ---

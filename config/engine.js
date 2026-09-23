@@ -145,6 +145,21 @@
  *   - minComputeCandles (200): the replay starts at the first close where every replayed
  *     timeframe (3m included, derived from 1m) has at least 200 closed candles - enough
  *     for EMA200 to exist, so early closes do not score a half-warmed pipeline.
+ *   - outcomes.fillWindowCandles (15, trading-model quick pass Q4): a signal's entry zone
+ *     must be touched within 15 1m candles of the close that produced it, or it reads
+ *     "not filled". outcomes.maxHoldCandles (2880, ~2 days): a filled trade that touches
+ *     neither stop nor TP1 by then reads "open" and is excluded from win/loss.
+ *
+ * `model` block (trading-model quick pass Q3, `lib/topDown.js` only; never read on the
+ * request path outside the bias block):
+ *   - topDownWeights (1w 4, 1d 3, 4h 2, 1h 1): weighted vote over the four leans that
+ *     decides `topDown.sentiment`; higher timeframes dominate (M-6b).
+ *   - above200Weights (1m .1 … 1d 3): per-timeframe weight for `above200.weighted`,
+ *     discounting lower timeframes the same way topDownWeights does.
+ *   - weeklyMinWeeksForEma21 (21): fewer weekly candles than this and the weekly lean
+ *     reads neutral with a reason instead of computing an EMA21 on thin data.
+ *   - weeklySlopeLookbackWeeks (3): the weekly EMA21 slope compares the current value to
+ *     this many weeks back.
  */
 
 import { readFileSync } from 'node:fs';
