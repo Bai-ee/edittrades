@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Last updated:** 2026-09-22
+**Last updated:** 2026-09-23
 **Branch:** `upgrade-signal-engine`
 **Current product:** EditTrades scalp context — closed-candle BTC/SOL/ETH context and strategy engine, served to ChatGPT via REST Action (`GET /api/scalp-context`) and MCP (`POST /api/mcp`). Payload schema 1.8.0, `configVersion` 2026.09.22-6, live on Vercel.
 
@@ -14,6 +14,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 - **[../CLAUDE.md](../CLAUDE.md)** (local only, untracked) — project guide, hard rules, tests, deploy.
 - **[MASTER_PLAN_ENGINE_REFINEMENT.md](./MASTER_PLAN_ENGINE_REFINEMENT.md)** — phased engine plan with status. Phases 0–8, 8b, 9, 9b, 10, 11 done; then 8c, 3b.
 - **[MASTER_PLAN_TRADING_MODEL.md](./MASTER_PLAN_TRADING_MODEL.md)** — the owner's trading model (M-1..M-9) and the phased plan to build it (`FLAG_21`). **[PLAN_TRADING_MODEL_QUICK_PASS.md](./PLAN_TRADING_MODEL_QUICK_PASS.md)** — the Q1-Q5 quick pass (done 2026-09-23, schema 1.11.0) that pre-built parts of M1/M2/M2b/M4/M10.
+- **[PLAN_FLAG_DETECTION_COVERAGE.md](./PLAN_FLAG_DETECTION_COVERAGE.md)** — F1, flag detection coverage (done 2026-09-23, schema 1.12.0): proto/expired states, EMA21 reclaim, failed/expired TTL visibility, stable candidate identity, cheap geometry fields, `qual` trade qualification. Fixes `test/fixtures/misses/MISS_003.json`.
 
 ### API and connector
 - **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** — MCP tool and REST parity, payload controls, payload schema 1.8.0 map, scalp stop guard, security boundary, env, prod verification, test suites.
@@ -35,6 +36,8 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Config | `config/engine.json`, `config/engine.js` |
 | Risk (leverage, loss at stop) | `lib/riskEngine.js` |
 | Flag detector (`candidateSetups`) | `lib/patternDetector.js` |
+| Flag lifecycle (geometry snap, coils, visual gate, stable identity F1) | `lib/patternLifecycle.js` |
+| Trade qualification (`qual`, F1) | `lib/candidateQualifier.js` |
 | Geometry (zones, ATR, diagonals, channel, confluence) | `lib/geometry.js` |
 | Structure | `lib/structure.js`, `lib/candleFeatures.js` |
 | Indicators | `services/indicators.js` |
@@ -53,7 +56,7 @@ Unreachable from `buildScalpContext()` and not to be revived without a recorded 
 
 ### Tests
 
-`test:sltp` (50), `test:scalp` (101), `test:mcp` (52), `test:wallet` (28) are the deploy gate. `test:config` (14), `test:risk` (24), `test:pattern` (23), `test:geometry` (36), `test:chart` (18), `test:replay` (20), `test:bias` (14) cover the engine modules; `npm run check:gpt` (Phase 11) gates the GPT instruction length separately. Counts as of 2026-09-22 (Phase 11).
+`test:sltp` (50), `test:scalp` (108), `test:mcp` (52), `test:wallet` (28) are the deploy gate. `test:config` (14), `test:risk` (24), `test:pattern` (32), `test:geometry` (36), `test:chart` (18), `test:replay` (31), `test:bias` (15), `test:topdown` (15) cover the engine modules; `npm run check:gpt` (Phase 11) gates the GPT instruction length separately. Counts as of 2026-09-23 (F1, flag detection coverage).
 
 ---
 

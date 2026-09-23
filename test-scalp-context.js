@@ -726,8 +726,8 @@ async function main() {
     assert(case6Result && typeof case6Result === 'object', 'buildScalpContext did not resolve to an object');
   });
 
-  await test('CANDLE_LIMITS publishes 24 candles on 1m/3m/5m (payload budget, 2026-09-23)', () => {
-    for (const tf of ['1m', '3m', '5m']) assertEqual(CANDLE_LIMITS[tf], 24, `CANDLE_LIMITS[${tf}]`);
+  await test('CANDLE_LIMITS publishes 20 candles on 1m/3m/5m (payload budget, F1 2026-09-23)', () => {
+    for (const tf of ['1m', '3m', '5m']) assertEqual(CANDLE_LIMITS[tf], 20, `CANDLE_LIMITS[${tf}]`);
   });
 
   await test('published candle volume carries at most 2 decimals', () => {
@@ -1434,7 +1434,7 @@ async function main() {
 
   await test('buildScalpContext (case 6) carries schemaVersion 1.11.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.11.0', 'schemaVersion must be bumped to 1.11.0');
+    assertEqual(case6Result.schemaVersion, '1.12.0', 'schemaVersion must be bumped to 1.11.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');

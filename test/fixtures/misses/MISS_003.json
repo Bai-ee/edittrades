@@ -1,0 +1,23 @@
+{
+  "id": "MISS_003",
+  "date": "2026-09-23",
+  "symbol": "SOL",
+  "timeframe": "1m",
+  "preImageRead": "Production 1m longs on BTC/SOL/ETH around 14:45-15:03 UTC: forming 14:45-14:47, then 10+ minutes of total silence (nothing in candidateSetups) 14:48-14:57 while a flag had actually failed at 14:48, then either nothing (ETH/SOL) or a new flag forming (BTC) 14:58-15:00, forming->triggering 15:01-15:02, confirmed at 15:03. SOL never showed the triggering flag its own chart had at 14:52, and SOL's confirmed flag (14:53) vanished from the payload at 14:57 with no explanation instead of aging out visibly.",
+  "missingFeature": "Four compounding gaps: (1) flag.includeFailed:false plus no failed-visibility window meant a failed candidate disappeared outright instead of reading 'failed at 14:48, reason'; (2) flag.maxImpulseCandles:8 was too short to see SOL's longer pump, so the search never found the pole behind the 14:52 flag; (3) flag.maxBreakoutAge:5 silently dropped a confirmed flag from the search entirely once its break was more than 5 candles old, with no expired/aging state to replace it; (4) flag.minCandles:3 plus the live chart's unclosed candle put every read 1-3 minutes behind the eye, and there was no proto state for the 1-2 pullback candles right after an impulse.",
+  "postImageRead": "Replayed via scripts/replay.js against test/fixtures/history/2026-09-23 (test-replay.js MISS_003 via replay): 1m long candidates for BTC, ETH and SOL never read 'none' at any close from 14:45 to 15:03 - every close shows proto/forming/triggering/confirmed/expired/failed with a reason. SOL specifically: forming 14:45-14:47, failed (with failReason) 14:48-14:51, triggering at 14:52 (the flag production never showed), confirmed 14:53-14:56, expired (not gone) 14:57-15:00 once past maxBreakoutAge, forming again 15:01, triggering 15:02, confirmed 15:03. BTC and ETH show the equivalent failed-with-reason and forming/triggering/confirmed sequences at the same closes, matching the plan's Root-causes replay exactly.",
+  "missClass": "MISSED_FLAG",
+  "fixLocation": "lib/patternDetector.js (proto state, maxImpulseCandles 8->20, EMA21 reclaim, expired state, cheap geometry fields, stable-identity offsets), lib/patternLifecycle.js (identifyCandidate: candidateId/firstDetectedAt/failedAt), lib/candidateQualifier.js (qual, new module), services/scalpContext.js (failedTtl-aware filterFailedCandidateSetups, qual/identity wiring, CANDLE_LIMITS 24->20 on 1m/3m/5m for payload budget), config/engine.json (flag.reclaimCandles, flag.failedTtlCandles, flag.expiredTtlCandles, flag.quality, flag.maxImpulseCandles).",
+  "proposedFeature": "docs/PLAN_FLAG_DETECTION_COVERAGE.md (F1) Build items 1-8: proto state; wider impulse lookback; EMA21 reclaim; failed stays visible for failedTtlCandles with failedAt; expired state for a confirmed flag aging past maxBreakoutAge; stable candidateId/firstDetectedAt; cheap geometry fields (flagSlope/breakoutDistancePct/invalidationDistancePct); a compact qual (quality/decision/reasons) layer separate from detection.",
+  "status": "validated",
+  "regressionTest": [
+    { "file": "test-replay.js", "name": "MISS_003 via replay: ETH/SOL/BTC 1m longs are visible (never silently vanish) 14:45-15:03, SOL triggers at 14:52 (F1 fixture)" },
+    { "file": "test-pattern-detector.js", "name": "F1 item 1: proto - impulse qualifies, 1 or 2 pullback candles, no entry call (long + short mirror)" },
+    { "file": "test-pattern-detector.js", "name": "F1 item 3: EMA21 reclaim within reclaimCandles keeps the flag alive, ema21Hold \"reclaim\" (long + short mirror)" },
+    { "file": "test-pattern-detector.js", "name": "F1 item 5: a confirmed flag past maxBreakoutAge reads expired with chaseRisk true, then disappears past expiredTtlCandles (long + short mirror)" },
+    { "file": "test-pattern-detector.js", "name": "F1 item 4: a failed candidate stays visible with failReason/failedAt inside failedTtlCandles; older follows includeFailed (long + short mirror)" },
+    { "file": "test-pattern-detector.js", "name": "F1 item 6: candidateId/impulseStart stay identical while the same flag runs through forming → triggering → confirmed (long + short mirror)" },
+    { "file": "test-pattern-detector.js", "name": "F1 item 8: qual codes - conflict/stoch/room/ema200/ct/chase/rr and the decision rule (long + short mirror)" }
+  ],
+  "source": "docs/PLAN_FLAG_DETECTION_COVERAGE.md 'Incident (replayed on real data, 2026-09-23, 1m longs)'; owner's incident write-up /Users/bballi/Downloads/flag_detection_problem_and_requirements.docx"
+}

@@ -38,5 +38,8 @@ Miss classes (handoff §7): `MISSED_FLAG`, `MISSED_DIAGONAL_SUPPORT`, `MISSED_DI
 | --- | --- | --- | --- |
 | MISS_001 | MISSED_FLAG | implemented | `test-pattern-detector.js` REGRESSION_001 tests, `test-replay.js` REGRESSION_001 via replay |
 | MISS_002 | OTHER (leverage/stop incompatibility; no class fits) | implemented | `test-risk-engine.js` MISS_002 fixture tests |
+| MISS_003 | MISSED_FLAG | validated | `test-replay.js` MISS_003 via replay, `test-pattern-detector.js` F1 items 1/3/4/5/6/8 |
 
 MISS_002 is the playbook's leverage miss. It is not the handoff's REGRESSION_002, which is the 4h diagonal + demand confluence (`test-geometry.js`, `test-replay.js`).
+
+MISS_003 (F1, `docs/PLAN_FLAG_DETECTION_COVERAGE.md`) is the 2026-09-23 flag-visibility incident: failed candidates vanishing, a too-short impulse lookback missing a longer pump, a confirmed flag silently dropped past `maxBreakoutAge`, and detection lagging the live chart. Fixed by the proto/reclaim/failed-TTL/expired states and the wider impulse lookback; validated by replaying `test/fixtures/history/2026-09-23` and checking the exact incident timeline.

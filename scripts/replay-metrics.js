@@ -28,7 +28,8 @@ import { fileURLToPath } from 'node:url';
 import { INTERVAL_MS } from '../services/scalpContext.js';
 
 export const LABEL_STATES = ['forming', 'triggering', 'confirmed', 'none'];
-const STATES = ['forming', 'triggering', 'confirmed', 'failed'];
+// F1 (flag detection coverage) added proto (item 1) and expired (item 5).
+const STATES = ['proto', 'forming', 'triggering', 'confirmed', 'expired', 'failed'];
 const DIRECTIONS = ['long', 'short', 'neutral'];
 
 const round = (v, n = 4) => (Number.isFinite(v) ? Math.round(v * 10 ** n) / 10 ** n : null);

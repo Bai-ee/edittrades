@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.22-10",
+  "configVersion": "2026.09.23-1",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -46,7 +46,7 @@
     "timeframes": ["1m", "3m", "5m"],
     "atrPeriod": 14,
     "minImpulseAtr": 2.0,
-    "maxImpulseCandles": 8,
+    "maxImpulseCandles": 20,
     "maxContractionRatio": 0.5,
     "minCandles": 3,
     "maxFlagCandles": 12,
@@ -55,6 +55,9 @@
     "confirmCloses": 2,
     "maxBreakoutAge": 5,
     "chaseAtr": 1.5,
+    "reclaimCandles": 2,
+    "failedTtlCandles": 10,
+    "expiredTtlCandles": 10,
     "confidence": {
       "impulseFullAtr": 4.0,
       "weights": {
@@ -63,6 +66,10 @@
         "ema21": 0.3,
         "stoch": 0.15
       }
+    },
+    "quality": {
+      "highConfidence": 75,
+      "medConfidence": 50
     }
   },
 

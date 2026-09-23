@@ -45,9 +45,13 @@
  *   - timeframes (1m, 3m, 5m): where the detector runs; the plan's scalp timeframes.
  *   - atrPeriod (14): Wilder's standard ATR length, the unit for impulse and chase.
  *   - minImpulseAtr (2.0): an impulse must span at least 2 ATR to be a pole, not noise.
- *   - maxImpulseCandles (8): the pole is a burst; 8 bars is ~8 min on 1m, ~40 min on 5m.
+ *   - maxImpulseCandles (20, F1 item 2; was 8): the pole is a burst, but 8 bars was too
+ *     short for "a longer pump" (F1 incident, 2026-09-23: with 20, SOL/ETH/BTC 1m longs
+ *     showed the real flag the old window missed entirely). 20 bars is ~20 min on 1m,
+ *     ~100 min on 5m.
  *   - maxContractionRatio (0.5): flag range at most half the pole - a flag, not a range.
- *   - minCandles (3): fewer than 3 bars is a pause, not a consolidation.
+ *   - minCandles (3): fewer than 3 bars is a pause, not a consolidation; 1-2 pullback
+ *     bars after a qualifying impulse are a `proto` candidate instead (F1 item 1).
  *   - maxFlagCandles (12): longer than 12 bars on a scalp timeframe is a new range.
  *   - wickToleranceAtr (0.2, phase 7; was wickTolerancePct 0.02): EMA21 band in ATRs of
  *     the prior candle - a touch counts as a hold, a real poke through counts as a wick.
@@ -56,11 +60,30 @@
  *     0.1-0.6 and the test:scalp synthetic symbols for 0.1-0.25; 0.2 sits inside both.
  *   - acceptanceCloses (2): two consecutive closes through EMA21 = acceptance, one = wick.
  *   - confirmCloses (2): a break is confirmed on its second close past the level.
- *   - maxBreakoutAge (5): a break older than 5 bars is history, not a setup.
+ *   - maxBreakoutAge (5): a break older than 5 bars is no longer read fresh (`triggering`
+ *     unconfirmed becomes `failed`/`stale`); it does not, by itself, drop a flag from
+ *     the search window any more (see failedTtlCandles/expiredTtlCandles, F1 items 4-5).
  *   - chaseAtr (1.5): last close more than 1.5 ATR past the breakout = chasing.
+ *   - reclaimCandles (2, F1 item 3): a flag whose first candle sits on the wrong side of
+ *     EMA21 is still valid if a close within this many candles reclaims it
+ *     (`ema21Hold: "reclaim"`); never reclaiming in that window means there was no flag.
+ *   - failedTtlCandles (10, F1 item 4): a failed candidate's own timeframe candles after
+ *     its failure candle during which it stays in the default `candidateSetups` with
+ *     `failReason`/`failedAt` regardless of `includeFailed`. Detection itself is not
+ *     capped at this age - "older failures follow includeFailed" - only default
+ *     visibility is.
+ *   - expiredTtlCandles (10, F1 item 5): candles past maxBreakoutAge a flag that would
+ *     have stayed `confirmed` is instead published as `state: "expired"`,
+ *     `chaseRisk: true`, before detection stops finding it at all (replaces the old
+ *     silent drop at exactly maxBreakoutAge candles, the F1 incident's SOL 14:57 miss).
  *   - confidence.impulseFullAtr (4.0): impulse score saturates at 4 ATR.
  *   - confidence.weights: impulse 0.3, compression 0.25, ema21 0.3, stoch 0.15 (sum 1);
- *     structure first, Stoch RSI slope as a tiebreaker.
+ *     structure first, Stoch RSI slope as a tiebreaker. A `reclaim` hold scores the same
+ *     as `wick` (0.5): recovered, not as strong as never having left.
+ *   - quality.highConfidence / .medConfidence (75 / 50, F1 item 8): bands `confidence`
+ *     into the candidate's `qual.quality` (high/med/low) - the qualification layer's own
+ *     evidence-amount read, reusing the detector's existing 0-100 score rather than a
+ *     second competing one.
  *
  * `geometry` block (phase 7, `lib/geometry.js`), one line each:
  *   - timeframes (15m, 1h, 4h; phase 8 dropped 5m): where geometryContext is built and

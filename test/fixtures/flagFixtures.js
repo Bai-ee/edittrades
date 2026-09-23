@@ -171,9 +171,19 @@ export function extendedBreakout() {
   return s.candles;
 }
 
-/** No impulse: quiet chop only. Expected: no candidates in either direction. */
+/**
+ * Perfectly flat candles: true range 0 everywhere, so `measureImpulse` (F1) can never
+ * find a positive-range impulse no matter how far its lookback reaches. Used both as
+ * `noImpulse()` and as neutral padding that cannot itself masquerade as a pole once
+ * `flag.maxImpulseCandles` (F1 item 2, 8 -> 20) widens how far back the detector looks.
+ */
+function flatCandles(count, price = BASE_PRICE) {
+  return Array.from({ length: count }, () => ({ open: price, high: price, low: price, close: price }));
+}
+
+/** No impulse: flat, zero-range candles. Expected: no candidates in either direction, at any lookback. */
 export function noImpulse() {
-  return series(5).base(BASE_CANDLES + 20).candles;
+  return flatCandles(BASE_CANDLES + 20);
 }
 
 /** Same flag as REGRESSION_001, one bar before the break. Expected: forming. */
@@ -198,16 +208,114 @@ export function invalidationClose() {
 }
 
 /**
- * Phase 9: REGRESSION_001 through the break, then four bars back inside the flag without
- * a second close above it or a close below it. The break has sat `flag.maxBreakoutAge`
- * candles unconfirmed. Expected: failed, stale.
+ * F1 item 1: an impulse that qualifies, then 1 (or 2, `pullbackCandles`) closed candles
+ * pulling back without a new extreme beyond the impulse peak - not yet `minCandles`
+ * pullback bars, so it is not a real flag yet either. Expected: state `proto`.
+ * @param {1|2} pullbackCandles
+ */
+export function protoFlag(pullbackCandles = 1) {
+  const s = series(11);
+  s.base(BASE_CANDLES).move(5, 80);
+  const peak = s.lastClose();
+  s.push(peak, peak - 10, { high: peak + 1, low: peak - 15 });
+  if (pullbackCandles === 2) s.push(s.lastClose(), peak - 5, { high: peak, low: peak - 15 });
+  return s.candles;
+}
+
+/**
+ * F1 item 3: the flag's first candle closes off-side of EMA21 (a dip below it right after
+ * the pole), then the very next candle reclaims it (closes back on-side) - within
+ * `flag.reclaimCandles` (default 2). Expected: `ema21Hold: "reclaim"`, candidate survives
+ * (not failed).
+ */
+export function reclaimFlag() {
+  const s = series(21);
+  s.base(BASE_CANDLES).move(5, 80);
+  const emaAfterPole = s.ema();
+  s.push(s.lastClose(), emaAfterPole - 30, { high: emaAfterPole + 5, low: emaAfterPole - 35 }); // dip: off-side close
+  s.push(s.lastClose(), s.ema() + 15, { high: s.ema() + 20, low: s.lastClose() - 5 }); // reclaim: back on-side
+  const flagTop = s.lastClose() + 5;
+  const flagBottom = s.lastClose() - 10;
+  s.flag(4, flagTop, flagBottom);
+  return s.candles;
+}
+
+/**
+ * F1 items 4-5: REGRESSION_001 confirmed, then `extraCandles` more closes drifting up
+ * (still above breakoutLevel, so it stays "confirmed" by the phase-4 rule on its own).
+ * Past `flag.maxBreakoutAge` candles since the break this reads `expired` instead
+ * (chaseRisk forced true); past `flag.maxBreakoutAge + flag.expiredTtlCandles` it is not
+ * found at all.
+ */
+export function expiredConfirmed(extraCandles) {
+  const base = regression001();
+  const out = [...base];
+  let last = out[out.length - 1].close;
+  for (let i = 0; i < extraCandles; i++) {
+    last += 1;
+    out.push({ open: last - 1, high: last + 1, low: last - 2, close: last });
+  }
+  return out;
+}
+
+/**
+ * A dedicated, modest pole/flag/break (F1 item 2 follow-up), shared by every fixture
+ * below that needs to extend well past the break: with `maxImpulseCandles` widened
+ * 8 -> 20, a handful of quiet bars after REGRESSION_001's much larger pole can
+ * themselves look like a *fresh* forming flag from a tip-anchored window, masking
+ * whatever the extension means to test - the pole and the extension would both be
+ * within the wider lookback's reach. A small, purpose-built pole keeps that from
+ * happening once the caller adds wide-wick padding (see `wideWickTail`).
+ * @param {number} seed
+ * @returns {{s:Object, flagHigh:number, flagLow:number}} `s` has already pushed the pole,
+ *   flag, and break candle; `s.candles` is REGRESSION_001-shaped but ~60-point, not ~400.
+ */
+function smallPoleBreak(seed) {
+  const s = series(seed);
+  s.base(BASE_CANDLES).move(5, 12); // a modest pole - contractionRatio math needs it small
+  const poleTop = s.lastClose();
+  const flagHigh = poleTop - 2;
+  const flagLow = poleTop - 17; // range 15, well under 0.5x the pole's ~60
+  s.flag(6, flagHigh, flagLow);
+  s.push(s.lastClose(), flagHigh + 3, { high: flagHigh + 4 }); // the break
+  return { s, flagHigh, flagLow };
+}
+
+/**
+ * `count` candles wicking `amplitude`+ points off `level` with `close` fixed there -
+ * enough range that any window spanning one of them blows `maxContractionRatio` against
+ * `smallPoleBreak`'s small pole, so a tip-anchored window can never mistake this padding
+ * for a fresh consolidation. Close never moving means it never confirms or invalidates
+ * anything past `level` either.
+ */
+function wideWickTail(s, level, count, amplitude = 60) {
+  for (let i = 0; i < count; i++) {
+    const wide = amplitude + (i % 2) * 20;
+    s.push(level, level, { high: level + wide, low: level - wide });
+  }
+  return s;
+}
+
+/**
+ * Phase 9: a break that sits `flag.maxBreakoutAge` candles unconfirmed, without a second
+ * close above the flag high or a close below the flag low. Expected: failed, stale.
  */
 export function staleBreak() {
-  return [
-    ...triggeringFlag(),
-    { open: 100395, high: 100397, low: 100360, close: 100370 },
-    { open: 100370, high: 100380, low: 100340, close: 100350 },
-    { open: 100350, high: 100370, low: 100340, close: 100360 },
-    { open: 100360, high: 100370, low: 100345, close: 100355 }
-  ];
+  const { s, flagHigh, flagLow } = smallPoleBreak(6);
+  wideWickTail(s, (flagHigh + flagLow) / 2, 5);
+  return s.candles;
+}
+
+/**
+ * F1 item 4: a break that closes back under the flag low once, then stays down for
+ * `extraCandles` more (wide-wick, per `smallPoleBreak`/`wideWickTail`) - stays `failed`/
+ * `invalidation_close` throughout; only default-payload visibility (services/
+ * scalpContext.js's `failedTtlCandles` check) changes as `extraCandles` grows.
+ */
+export function invalidationCloseAged(extraCandles) {
+  const { s, flagLow } = smallPoleBreak(7);
+  const invalidatedLevel = flagLow - 10;
+  s.push(s.lastClose(), invalidatedLevel, { high: s.lastClose() + 1, low: invalidatedLevel - 5 });
+  wideWickTail(s, invalidatedLevel, extraCandles);
+  return s.candles;
 }

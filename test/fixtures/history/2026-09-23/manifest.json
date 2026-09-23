@@ -1,0 +1,110 @@
+{
+  "capturedAt": "2026-09-23T15:13:28.321Z",
+  "provider": "kraken",
+  "symbols": [
+    "BTC",
+    "SOL",
+    "ETH"
+  ],
+  "timeframes": [
+    "1m",
+    "5m",
+    "15m",
+    "1h",
+    "4h",
+    "1d"
+  ],
+  "files": {
+    "BTC_1m.json": {
+      "count": 719,
+      "from": "2026-09-23T03:14:00.000Z",
+      "closedThrough": "2026-09-23T15:13:00.000Z"
+    },
+    "BTC_5m.json": {
+      "count": 719,
+      "from": "2026-09-21T03:15:00.000Z",
+      "closedThrough": "2026-09-23T15:10:00.000Z"
+    },
+    "BTC_15m.json": {
+      "count": 719,
+      "from": "2026-09-16T03:15:00.000Z",
+      "closedThrough": "2026-09-23T15:00:00.000Z"
+    },
+    "BTC_1h.json": {
+      "count": 719,
+      "from": "2026-08-24T16:00:00.000Z",
+      "closedThrough": "2026-09-23T15:00:00.000Z"
+    },
+    "BTC_4h.json": {
+      "count": 719,
+      "from": "2026-05-26T16:00:00.000Z",
+      "closedThrough": "2026-09-23T12:00:00.000Z"
+    },
+    "BTC_1d.json": {
+      "count": 719,
+      "from": "2024-10-04T00:00:00.000Z",
+      "closedThrough": "2026-09-23T00:00:00.000Z"
+    },
+    "SOL_1m.json": {
+      "count": 719,
+      "from": "2026-09-23T03:14:00.000Z",
+      "closedThrough": "2026-09-23T15:13:00.000Z"
+    },
+    "SOL_5m.json": {
+      "count": 719,
+      "from": "2026-09-21T03:15:00.000Z",
+      "closedThrough": "2026-09-23T15:10:00.000Z"
+    },
+    "SOL_15m.json": {
+      "count": 719,
+      "from": "2026-09-16T03:15:00.000Z",
+      "closedThrough": "2026-09-23T15:00:00.000Z"
+    },
+    "SOL_1h.json": {
+      "count": 719,
+      "from": "2026-08-24T16:00:00.000Z",
+      "closedThrough": "2026-09-23T15:00:00.000Z"
+    },
+    "SOL_4h.json": {
+      "count": 719,
+      "from": "2026-05-26T16:00:00.000Z",
+      "closedThrough": "2026-09-23T12:00:00.000Z"
+    },
+    "SOL_1d.json": {
+      "count": 719,
+      "from": "2024-10-04T00:00:00.000Z",
+      "closedThrough": "2026-09-23T00:00:00.000Z"
+    },
+    "ETH_1m.json": {
+      "count": 719,
+      "from": "2026-09-23T03:14:00.000Z",
+      "closedThrough": "2026-09-23T15:13:00.000Z"
+    },
+    "ETH_5m.json": {
+      "count": 719,
+      "from": "2026-09-21T03:15:00.000Z",
+      "closedThrough": "2026-09-23T15:10:00.000Z"
+    },
+    "ETH_15m.json": {
+      "count": 719,
+      "from": "2026-09-16T03:15:00.000Z",
+      "closedThrough": "2026-09-23T15:00:00.000Z"
+    },
+    "ETH_1h.json": {
+      "count": 719,
+      "from": "2026-08-24T16:00:00.000Z",
+      "closedThrough": "2026-09-23T15:00:00.000Z"
+    },
+    "ETH_4h.json": {
+      "count": 719,
+      "from": "2026-05-26T16:00:00.000Z",
+      "closedThrough": "2026-09-23T12:00:00.000Z"
+    },
+    "ETH_1d.json": {
+      "count": 719,
+      "from": "2024-10-04T00:00:00.000Z",
+      "closedThrough": "2026-09-23T00:00:00.000Z"
+    }
+  },
+  "backfill1m": {}
+}

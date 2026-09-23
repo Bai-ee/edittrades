@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { detectFlag, detectFlagLifecycle, detectCandidateSetups, measuredMoveFor } from './lib/patternDetector.js';
 import { snapCandidateLevels, resolveCoils, geometryTimeframeFor } from './lib/patternLifecycle.js';
+import { buildQualification, attachQualification } from './lib/candidateQualifier.js';
 import { calculateEMA21 } from './services/indicators.js';
 import { buildScalpContext, INTERVAL_MS } from './services/scalpContext.js';
 import {
@@ -27,7 +28,11 @@ import {
   formingFlag,
   triggeringFlag,
   invalidationClose,
-  staleBreak
+  staleBreak,
+  protoFlag,
+  reclaimFlag,
+  expiredConfirmed,
+  invalidationCloseAged
 } from './test/fixtures/flagFixtures.js';
 
 // ---------------------------------------------------------------------------
@@ -74,10 +79,11 @@ function assertClose(actual, expected, tolerance, msg) {
 const OUTPUT_KEYS = [
   'type', 'direction', 'state', 'impulseStrength', 'compressionScore', 'flagHigh', 'flagLow',
   'breakoutLevel', 'invalidation', 'ema21Hold', 'confidence', 'chaseRisk',
-  'poleHeight', 'measuredTarget', 'measuredRR'
+  'poleHeight', 'measuredTarget', 'measuredRR',
+  'flagSlope', 'breakoutDistancePct', 'invalidationDistancePct'
 ].sort();
 
-const SHORT_HOLD = { hold: 'hold_below', wick: 'wick_above', acceptance_below: 'acceptance_above' };
+const SHORT_HOLD = { hold: 'hold_below', wick: 'wick_above', acceptance_below: 'acceptance_above', reclaim: 'reclaim' };
 
 function input(candles, stochRsi = null) {
   return { candles, ema21History: calculateEMA21(candles.map((c) => c.close)), stochRsi };
@@ -115,6 +121,14 @@ function assertMirrored(long, short) {
   assertEqual(long.invalidation, long.flagLow, 'long invalidation is the flag low');
   assertEqual(short.breakoutLevel, short.flagLow, 'short breakoutLevel is the flag low');
   assertEqual(short.invalidation, short.flagHigh, 'short invalidation is the flag high');
+
+  // F1 item 7: cheap geometry, computed on real (not oriented) prices - a mirror
+  // reflects the trend, so the slope's sign flips; the mirrored candle values keep the
+  // two distance percentages close (not exact: the mirror pivot is not the exact price).
+  assert(typeof long.flagSlope === 'number' || long.flagSlope === null, 'long flagSlope present');
+  if (long.flagSlope !== null) assertClose(short.flagSlope, -long.flagSlope, 0.05, 'short flagSlope mirrors (sign flips)');
+  assertClose(short.breakoutDistancePct, -long.breakoutDistancePct, 0.05, 'short breakoutDistancePct mirrors');
+  assertClose(short.invalidationDistancePct, -long.invalidationDistancePct, 0.05, 'short invalidationDistancePct mirrors');
 }
 
 /** Quiet chop for the timeframes that are not under test, aligned to `now`. */
@@ -260,6 +274,26 @@ async function run() {
     assertEqual(short.chaseRisk, true, 'short chaseRisk');
   });
 
+  await test('F1 item 1: proto - impulse qualifies, 1 or 2 pullback candles, no entry call (long + short mirror)', () => {
+    for (const n of [1, 2]) {
+      const { long, short } = detectBoth(() => protoFlag(n));
+      assertMirrored(long, short);
+      assertEqual(long.state, 'proto', `${n}-candle pullback: long state`);
+      assertEqual(short.state, 'proto', `${n}-candle pullback: short state`);
+      assertEqual(long.chaseRisk, false, 'proto has no entry call, chaseRisk false');
+    }
+  });
+
+  await test('F1 item 3: EMA21 reclaim within reclaimCandles keeps the flag alive, ema21Hold "reclaim" (long + short mirror)', () => {
+    const { long, short } = detectBoth(reclaimFlag);
+    assertMirrored(long, short);
+    assertEqual(long.ema21Hold, 'reclaim', 'long ema21Hold');
+    assertEqual(short.ema21Hold, 'reclaim', 'short ema21Hold');
+    assert(long.state !== 'failed', `a timely reclaim must not fail the flag, got ${long.state}`);
+    // Acceptance-fail is unchanged: reclaiming once does not excuse a later acceptance.
+    assertEqual(detectFlag(input(acceptanceBelow()), 'long').ema21Hold, 'acceptance_below', 'acceptance still wins over any reclaim label');
+  });
+
   await test('no impulse → empty array, both directions, fixture and mirror', () => {
     assertEqual(detectCandidateSetups(input(noImpulse())).length, 0, 'long-side fixture');
     assertEqual(detectCandidateSetups(input(mirror(noImpulse()))).length, 0, 'mirrored fixture');
@@ -397,6 +431,20 @@ async function run() {
     assertEqual(detectFlag(input(staleBreak()), 'long').state, 'triggering', 'detectFlag unchanged on the stale window');
   });
 
+  await test('F1 item 5: a confirmed flag past maxBreakoutAge reads expired with chaseRisk true, then disappears past expiredTtlCandles (long + short mirror)', () => {
+    const cfg = ENGINE_CONFIG.flag;
+    const withinTtl = cfg.maxBreakoutAge + Math.floor(cfg.expiredTtlCandles / 2);
+    const pastTtl = cfg.maxBreakoutAge + cfg.expiredTtlCandles + 1;
+    for (const [dir, build] of [['long', () => expiredConfirmed(withinTtl)], ['short', () => mirror(expiredConfirmed(withinTtl))]]) {
+      const flag = detectFlag(input(build()), dir);
+      assert(flag, `${dir}: expected a candidate within the expired TTL`);
+      assertEqual(flag.state, 'expired', `${dir}: state`);
+      assertEqual(flag.chaseRisk, true, `${dir}: expired always carries chaseRisk`);
+    }
+    assertEqual(detectFlag(input(expiredConfirmed(pastTtl)), 'long'), null, 'long: gone past maxBreakoutAge + expiredTtlCandles');
+    assertEqual(detectFlag(input(mirror(expiredConfirmed(pastTtl))), 'short'), null, 'short mirror: gone past the same TTL');
+  });
+
   // --- Phase 9: geometry snap --------------------------------------------------
 
   await test('phase 9: invalidation and breakout snap outward to zone edges within snapTolAtr, levelSource "zone" (long + short mirror)', () => {
@@ -509,7 +557,7 @@ async function run() {
     await test(`REGRESSION_001 (${label}): 1m candidate survives while SCALP_1H stays NO_TRADE`, async () => {
       const payload = await buildWith1m(candles);
       const btc = payload.symbols.BTC;
-      assertEqual(payload.schemaVersion, '1.11.0', 'schemaVersion');
+      assertEqual(payload.schemaVersion, '1.12.0', 'schemaVersion');
       assert(Array.isArray(btc.candidateSetups), 'candidateSetups must be an array');
       const hit = btc.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === direction);
       assert(hit, `expected a 1m ${direction} candidate, got ${JSON.stringify(btc.candidateSetups)}`);
@@ -521,11 +569,133 @@ async function run() {
       assert(hit.levelSource && typeof hit.levelSource.breakout === 'string' && typeof hit.levelSource.invalidation === 'string', 'levelSource recorded (phase 9)');
       assertEqual(hit.ageCandles, 1, 'ageCandles (phase 9)');
       assert(Number.isInteger(hit.durationCandles), 'durationCandles (phase 9)');
+      // F1 item 6: stable identity. impulseStart/impulseEnd are not separately published
+      // (byte budget, item 9 - see lib/patternLifecycle.js identifyCandidate): impulseStart
+      // is candidateId's own last colon-segment; impulseEnd is firstDetectedAt minus one
+      // candle of the timeframe.
+      assert(!Number.isNaN(Date.parse(hit.firstDetectedAt)), 'firstDetectedAt is a time (F1 item 6)');
+      const impulseStartFromId = hit.candidateId.split(':').slice(3).join(':');
+      assertEqual(hit.candidateId, `BTC:1m:${direction}:${impulseStartFromId}`, 'candidateId shape (F1 item 6)');
+      assert(!Number.isNaN(Date.parse(impulseStartFromId)), 'candidateId embeds a valid impulseStart time');
+      assert(Date.parse(impulseStartFromId) <= Date.parse(hit.firstDetectedAt), 'impulseStart at or before firstDetectedAt');
+      assert(!('impulseStart' in hit) && !('impulseEnd' in hit), 'impulseStart/impulseEnd are not separately published (byte budget)');
+      assert(!('impulseStartCandlesAgo' in hit) && !('failedAtCandlesAgo' in hit), 'internal candle-count offsets are stripped');
+      // F1 item 8: qual attached, never changing the candidate's own fields.
+      assert(hit.qual && ['low', 'med', 'high'].includes(hit.qual.quality), 'qual.quality (F1 item 8)');
+      assert(['watch', 'wait', 'dont', 'actionable'].includes(hit.qual.decision), 'qual.decision (F1 item 8)');
+      assert(Array.isArray(hit.qual.reasons), 'qual.reasons (F1 item 8)');
+      assertEqual(hit.qual.decision, 'actionable', 'confirmed, chaseRisk false, RR high -> actionable');
       for (const c of btc.candidateSetups) {
         assert(ENGINE_CONFIG.flag.timeframes.includes(c.timeframe), `unexpected timeframe ${c.timeframe}`);
       }
     });
   }
+
+  await test('F1 item 6: candidateId/impulseStart stay identical while the same flag runs through forming → triggering → confirmed (long + short mirror)', async () => {
+    // Timestamps are fixed once against the full series, then sliced - not re-anchored to
+    // NOW per cut the way buildWith1m's withTimes(...) would (that re-anchoring is a test
+    // fixture convenience, not how real candles behave, and would shift every earlier
+    // candle's ISO time as the array length changes).
+    for (const [dir, fullTimed] of [['long', withTimes(regression001(), NOW)], ['short', withTimes(mirror(regression001()), NOW)]]) {
+      const ids = [];
+      for (const cut of [3, 2, 1, 0]) {
+        const slice = fullTimed.slice(0, fullTimed.length - cut);
+        const payload = await buildScalpContext({
+          symbols: ['BTC'],
+          now: NOW,
+          fetchCandles: async (pair, interval) => (interval === '1m' ? slice : quietCandles(interval, 300, NOW)),
+          fetchAccount: async () => ({ status: 'disabled', margin: { usd: null, byAsset: {} } })
+        });
+        const hit = payload.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === dir);
+        assert(hit, `${dir} cut=${cut}: expected a candidate`);
+        ids.push({ id: hit.candidateId, state: hit.state });
+      }
+      const distinctIds = new Set(ids.map((x) => x.id));
+      assertEqual(distinctIds.size, 1, `${dir}: candidateId must stay the same across states, got ${JSON.stringify(ids)}`);
+      assertEqual(ids.map((x) => x.state).join(','), 'forming,forming,triggering,confirmed', `${dir}: states advanced as expected`);
+    }
+  });
+
+  await test('F1 item 4: a failed candidate stays visible with failReason/failedAt inside failedTtlCandles; older follows includeFailed (long + short mirror)', async () => {
+    const cfg = ENGINE_CONFIG.flag;
+    const withinTtl = cfg.failedTtlCandles; // failedAtCandlesAgo == extra for this fixture (see flagFixtures.js)
+    const pastTtl = cfg.failedTtlCandles + 3;
+    for (const [dir, build] of [['long', invalidationCloseAged], ['short', (n) => mirror(invalidationCloseAged(n))]]) {
+      const visible = await buildWith1m(build(withinTtl));
+      const vHit = visible.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === dir);
+      assert(vHit, `${dir}: failed candidate must still be published within failedTtlCandles`);
+      assertEqual(vHit.state, 'failed', `${dir}: state`);
+      assertEqual(vHit.failReason, 'invalidation_close', `${dir}: failReason`);
+      assert(!Number.isNaN(Date.parse(vHit.failedAt)), `${dir}: failedAt is a time`);
+
+      const hiddenDefault = await buildWith1m(build(pastTtl));
+      const hHit = hiddenDefault.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === dir);
+      assert(!hHit, `${dir}: a failure past failedTtlCandles must not appear in the default payload`);
+      assert(hiddenDefault.symbols.BTC.decisionTrace.candidateSetups.some((s) => s.startsWith(`1m:${dir}:failed:invalidation_close`)), `${dir}: decisionTrace still references it regardless`);
+
+      const hiddenWithFlag = await buildScalpContext({
+        symbols: ['BTC'],
+        now: NOW,
+        includeFailed: true,
+        fetchCandles: async (pair, interval) => (interval === '1m' ? withTimes(build(pastTtl), NOW) : quietCandles(interval, 300, NOW)),
+        fetchAccount: async () => ({ status: 'disabled', margin: { usd: null, byAsset: {} } })
+      });
+      const fHit = hiddenWithFlag.symbols.BTC.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === dir);
+      assert(fHit, `${dir}: includeFailed:true must still surface an older failure`);
+      assertEqual(fHit.state, 'failed', `${dir}: includeFailed state`);
+    }
+  });
+
+  await test('F1 item 8: qual codes - conflict/stoch/room/ema200/ct/chase/rr and the decision rule (long + short mirror)', () => {
+    const base = { timeframe: '1m', type: 'flag', direction: 'long', state: 'confirmed', confidence: 80, chaseRisk: false, measuredRR: 5, breakoutLevel: 110, measuredTarget: 130, ema200Side: 'below' };
+    const mirrorBase = { ...base, direction: 'short', breakoutLevel: 90, measuredTarget: 70, ema200Side: 'above' };
+
+    for (const [dir, cand] of [['long', base], ['short', mirrorBase]]) {
+      const opposite = dir === 'long' ? 'short' : 'long';
+      const conflicting = { timeframe: '3m', type: 'flag', direction: opposite, state: 'forming' };
+      const stochRsiByTf = { '1m': { state: dir === 'long' ? 'OVERBOUGHT' : 'OVERSOLD', cross: dir === 'long' ? 'BEARISH_CROSS' : 'BULLISH_CROSS' } };
+      const geometryContext = {
+        '1h': {
+          horizontalResistanceZones: dir === 'long' ? [{ low: 115, high: 120 }] : [],
+          horizontalSupportZones: dir === 'short' ? [{ low: 75, high: 80 }] : []
+        }
+      };
+      const q = buildQualification(cand, [cand, conflicting], { geometryContext, stochRsiByTf, fourHourBias: opposite });
+      assert(q.reasons.includes(`conflict:3m-${opposite}`), `${dir}: conflict code, got ${JSON.stringify(q.reasons)}`);
+      assert(q.reasons.includes(dir === 'long' ? 'stoch:ob-cross' : 'stoch:os-cross'), `${dir}: stoch code`);
+      assert(q.reasons.includes('room:blocked-1h'), `${dir}: room:blocked code`);
+      assert(q.reasons.includes('ema200:counter'), `${dir}: ema200:counter code`);
+      assert(q.reasons.includes('ct:4h'), `${dir}: ct:4h code`);
+      assertEqual(q.decision, 'wait', `${dir}: a blocking room:blocked keeps confirmed at wait, not actionable`);
+      assertEqual(q.quality, 'high', `${dir}: confidence 80 bands to high`);
+
+      const clean = buildQualification({ ...cand, ema200Side: null, breakoutLevel: dir === 'long' ? 110 : 90, measuredTarget: dir === 'long' ? 130 : 70 }, [cand], {});
+      assertEqual(clean.reasons.length, 0, `${dir}: no reasons with nothing else present`);
+      assertEqual(clean.decision, 'actionable', `${dir}: confirmed with nothing blocking -> actionable`);
+
+      const chasing = buildQualification({ ...cand, chaseRisk: true }, [cand], {});
+      assert(chasing.reasons.includes('chase'), `${dir}: chase code`);
+      assertEqual(chasing.decision, 'wait', `${dir}: chase blocks actionable`);
+
+      const lowRR = buildQualification({ ...cand, measuredRR: 1.5 }, [cand], {});
+      assert(lowRR.reasons.includes('rr:1.5'), `${dir}: rr:<x> code`);
+      assertEqual(lowRR.decision, 'wait', `${dir}: RR below 3 blocks actionable`);
+
+      for (const [state, decision] of [['proto', 'watch'], ['forming', 'watch'], ['triggering', 'wait'], ['failed', 'dont'], ['expired', 'dont']]) {
+        const d = buildQualification({ ...cand, state }, [cand], {});
+        assertEqual(d.decision, decision, `${dir} ${state}: decision`);
+      }
+    }
+
+    const setups = [
+      { timeframe: '1m', type: 'flag', direction: 'long', state: 'confirmed', confidence: 30, chaseRisk: false, measuredRR: 4 },
+      { timeframe: '3m', type: 'flag', direction: 'long', state: 'forming', confidence: 55 }
+    ];
+    attachQualification(setups, {});
+    assert(setups[0].qual && setups[0].qual.quality === 'low', 'attachQualification bands low confidence to low');
+    assert(setups[1].qual && setups[1].qual.quality === 'med', 'attachQualification bands mid confidence to med');
+    assertEqual(setups[0].direction, 'long', 'attachQualification never changes the candidate itself');
+  });
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {

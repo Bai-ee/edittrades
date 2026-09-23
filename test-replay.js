@@ -12,7 +12,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { buildScalpContext, dropUnclosedCandles, INTERVAL_MS, TIMEFRAMES } from './services/scalpContext.js';
 import { getCandlesWithProvenance } from './services/marketData.js';
-import { buildAt, closedRows, makeReplayFetch, parseArgs, replaySymbol, toReplayLine, tradesTo1m } from './scripts/replay.js';
+import { buildAt, closedRows, loadHistoryDir, makeReplayFetch, parseArgs, replaySymbol, toReplayLine, tradesTo1m } from './scripts/replay.js';
 import { computeMetrics, formatMetrics } from './scripts/replay-metrics.js';
 import { walkOutcome, extractStrategySignals, extractCandidateSignals, aggregateOutcomes } from './scripts/replay-outcomes.js';
 import { regression001History, regression002History, REPLAY_END } from './test/fixtures/replayHistories.js';
@@ -232,7 +232,7 @@ async function run() {
         assertEqual(typeof s.valid, 'boolean', 'valid');
         assert(s.valid ? s.rejectedAt === null : typeof s.rejectedAt === 'string', 'rejectedAt');
       }
-      for (const c of line.candidates) assert(/^(1m|3m|5m):(long|short|neutral):(forming|triggering|confirmed|failed):\d+$/.test(c), `candidate ${c}`);
+      for (const c of line.candidates) assert(/^(1m|3m|5m):(long|short|neutral):(proto|forming|triggering|confirmed|expired|failed):\d+$/.test(c), `candidate ${c}`);
       assertEqual(line.candidateLifecycle.length, line.candidates.length, 'one lifecycle entry per candidate');
       assertEqual(line.geometry.length, ENGINE_CONFIG.geometry.timeframes.length, 'geometry strings');
       assertEqual(typeof line.gate.needsVisualConfirmation, 'boolean', 'gate flag');
@@ -402,7 +402,9 @@ async function run() {
       const firstSeen = states.findIndex((s) => s !== 'none');
       assert(firstSeen > 0, `no 1m ${direction} candidate before the flag: ${states.join(',')}`);
       const seq = states.slice(firstSeen).filter((s, i, a) => i === 0 || s !== a[i - 1]);
-      assertEqual(seq.join('→'), 'forming→triggering→confirmed', 'lifecycle on the replayed closes');
+      // F1 item 1: a proto reading (1-2 pullback candles after the impulse, before
+      // minCandles) now precedes forming - it did not exist before this plan.
+      assertEqual(seq.join('→'), 'proto→forming→triggering→confirmed', 'lifecycle on the replayed closes');
       assertEqual(states[states.length - 1], 'confirmed', 'confirmed on the last close');
       for (const l of r.lines) {
         assertEqual(l.strategies.SCALP_1H.valid, false, `SCALP_1H at ${l.closedThrough}`);
@@ -422,6 +424,39 @@ async function run() {
       assert(distancePct > 0, `current distance published (${distancePct})`);
     });
   }
+
+  await test('MISS_003 via replay: ETH/SOL/BTC 1m longs are visible (never silently vanish) 14:45-15:03, SOL triggers at 14:52 (F1 fixture)', async () => {
+    const dir = new URL('./test/fixtures/history/2026-09-23', import.meta.url).pathname;
+    const history = loadHistoryDir(dir, ['BTC', 'ETH', 'SOL']);
+    const from = Date.UTC(2026, 8, 23, 14, 45);
+    const to = Date.UTC(2026, 8, 23, 15, 3);
+
+    const byState = (lines) => lines.map((l) => {
+      const c = l.candidates.find((x) => x.startsWith('1m:long:'));
+      return { at: l.closedThrough, state: c ? c.split(':')[2] : 'none' };
+    });
+
+    for (const symbol of ['BTC', 'ETH', 'SOL']) {
+      const r = await replaySymbol({ symbol, historyByTf: history[symbol], from, to });
+      assertEqual(r.lines.length, 19, `${symbol}: one line per minute, 14:45-15:03 inclusive`);
+      const states = byState(r.lines);
+      const missing = states.filter((s) => s.state === 'none');
+      assert(missing.length === 0, `${symbol}: closes with no 1m long candidate at all (silent vanish): ${JSON.stringify(missing)}`);
+      assertEqual(states[states.length - 1].state, 'confirmed', `${symbol}: confirmed by 15:03`);
+    }
+
+    // The incident's own claim (docs/PLAN_FLAG_DETECTION_COVERAGE.md): with the wider
+    // impulse lookback (item 2), SOL shows a flag triggering at 14:52 that production
+    // never showed.
+    const sol = await replaySymbol({ symbol: 'SOL', historyByTf: history.SOL, from, to });
+    const at1452 = byState(sol.lines).find((s) => s.at === '2026-09-23T14:52:00.000Z');
+    assertEqual(at1452.state, 'triggering', 'SOL 1m long triggers at 14:52');
+
+    // Item 5: SOL's confirmed flag ages past maxBreakoutAge (5 candles past its 14:53
+    // break) instead of vanishing the way it did in production - it reads expired.
+    const at1457 = byState(sol.lines).find((s) => s.at === '2026-09-23T14:57:00.000Z');
+    assertEqual(at1457.state, 'expired', 'SOL 1m long reads expired, not gone, past maxBreakoutAge');
+  });
 
   console.log('\n6) Outcome scoring (Q4, scripts/replay-outcomes.js)');
 

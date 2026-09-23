@@ -345,9 +345,16 @@ components:
           type: string
           enum: [long, short, neutral]
         state:
-          description: A coil is always forming; once one side triggers, that side's flag is published instead.
+          description: >-
+            A coil is always forming; once one side triggers, that side's flag is
+            published instead. proto (schema 1.12.0, F1 item 1) is an impulse that
+            qualified with 1 to flag.minCandles-1 pullback candles so far - no entry
+            call. expired (schema 1.12.0, F1 item 5) is a flag that stayed confirmed past
+            flag.maxBreakoutAge candles since its break, published for
+            flag.expiredTtlCandles more with chaseRisk forced true instead of
+            disappearing.
           type: string
-          enum: [forming, triggering, confirmed, failed]
+          enum: [proto, forming, triggering, confirmed, expired, failed]
         impulseStrength:
           description: Flag only. Impulse range in ATR multiples.
           type: number
@@ -395,6 +402,57 @@ components:
             short above the 200 or a long below it is still published (M-6).
           type: [string, "null"]
           enum: [above, below, null]
+        flagSlope:
+          description: >-
+            Flag only (schema 1.12.0, F1 item 7). Least-squares slope of the flag's own
+            closes, percent of their average per candle, sign in real price space
+            (positive = rising closes) - not oriented for direction. Null when the flag
+            window is too short to fit.
+          type: [number, "null"]
+        breakoutDistancePct:
+          description: >-
+            Flag only (schema 1.12.0, F1 item 7). Percent from the last close to
+            breakoutLevel, signed; positive means breakoutLevel sits above the last close.
+          type: number
+        invalidationDistancePct:
+          description: >-
+            Flag only (schema 1.12.0, F1 item 7). Percent from the last close to
+            invalidation, signed the same way as breakoutDistancePct.
+          type: number
+        candidateId:
+          description: >-
+            Flag only (schema 1.12.0, F1 item 6). Stable identity across the same flag's
+            states - "SYMBOL:timeframe:direction:impulseStart" (impulseStart is the
+            close time of the pole's trough candle, the id's own last colon-segment) -
+            derived from this request's own candle window (no stored state); unchanged
+            while the run advances proto/forming/triggering/confirmed/expired/failed.
+            impulseStart and impulseEnd are not separately published: impulseStart is
+            this id's last segment; impulseEnd (the pole's peak candle) is always exactly
+            firstDetectedAt minus one candle of the timeframe. Dropped to hold the
+            default payload under its byte budget - see lib/patternLifecycle.js
+            identifyCandidate.
+          type: string
+        firstDetectedAt:
+          description: >-
+            Flag only (schema 1.12.0, F1 item 6). Close time of the candle at which this
+            flag first met the proto rule (one candle after the pole's peak).
+          type: string
+          format: date-time
+        failedAt:
+          description: >-
+            Failed only (schema 1.12.0, F1 item 4). Close time of the failure candle
+            (the acceptance close, the invalidation close, or the candle the break first
+            went stale on). Default-payload visibility past flag.failedTtlCandles of this
+            timeframe follows config.flag.includeFailed; decisionTrace.candidateSetups
+            still references it either way.
+          type: string
+          format: date-time
+        qual:
+          description: >-
+            Every candidate, flag or coil (schema 1.12.0, F1 item 8). A compact
+            qualification read built only from data already in this payload - never a
+            new detection signal, never a probability of profit.
+          $ref: "#/components/schemas/CandidateQualification"
         high:
           description: Coil only. Top of the combined range.
           type: number
@@ -425,10 +483,12 @@ components:
         ema21Hold:
           description: >-
             Flag only. How price treated EMA21 from flag start. Long - hold, wick,
-            acceptance_below. Short - hold_below, wick_above, acceptance_above.
+            acceptance_below. Short - hold_below, wick_above, acceptance_above. reclaim
+            (schema 1.12.0, F1 item 3) - the flag's first candle was off-side but a close
+            within flag.reclaimCandles brought it back; same for both directions.
             Acceptance means the flag failed.
           type: string
-          enum: [hold, wick, acceptance_below, hold_below, wick_above, acceptance_above]
+          enum: [hold, wick, acceptance_below, hold_below, wick_above, acceptance_above, reclaim]
         confidence:
           description: >-
             0-100 score from impulse, compression, EMA21 hold, and Stoch RSI slope. A
@@ -474,6 +534,42 @@ components:
         breakoutDown:
           type: string
           enum: [flag, zone, diagonal, confluence]
+    CandidateQualification:
+      type: object
+      description: >-
+        Schema 1.12.0, F1 item 8. Built only from data already elsewhere in this
+        payload (the symbol's other candidates, its geometryContext, its Stoch RSI, the
+        4h bias lean, and the candidate's own ema200Side/chaseRisk/measuredRR); never a
+        new detection signal, never a probability of profit.
+      properties:
+        quality:
+          description: Bands the candidate's own 0-100 confidence; not a second, competing score.
+          type: string
+          enum: [low, med, high]
+        decision:
+          description: >-
+            proto/forming -> watch; triggering -> wait; failed/expired -> dont;
+            confirmed with no blocking reason (room:blocked-*, chase, rr:<3) ->
+            actionable, else wait. Never a probability of profit.
+          type: string
+          enum: [watch, wait, dont, actionable]
+        reasons:
+          description: >-
+            Zero or more codes: conflict:<tf>-<dir> (an opposite-direction candidate
+            forming or later on another 1m/3m/5m timeframe), stoch:ob-cross /
+            stoch:os-cross (the candidate's own timeframe Stoch RSI overbought+bearish-
+            cross against a long, oversold+bullish-cross against a short),
+            room:blocked-<tf> (a resistance zone for a long, support for a short,
+            between breakoutLevel and measuredTarget on that geometry timeframe),
+            ema200:counter (ema200Side against the direction), ct:4h (against the 4h
+            bias lean), chase (chaseRisk true), rr:<x> (measuredRR below 3).
+          type: array
+          items:
+            type: string
+      required:
+        - quality
+        - decision
+        - reasons
     DecisionTrace:
       type: object
       description: >-

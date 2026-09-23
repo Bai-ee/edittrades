@@ -16,7 +16,8 @@ import { ENGINE_CONFIG, CONFIG_VERSION } from '../config/engine.js';
 import { maxLeverageForStop, positionPlan } from '../lib/riskEngine.js';
 import { DIRECTIONS, detectFlagLifecycle, measuredMoveFor } from '../lib/patternDetector.js';
 import { buildGeometryContext, buildGeometryB, geometryTraceSummary, nearMissDiagonals, swingPivots } from '../lib/geometry.js';
-import { geometryTimeframeFor, snapCandidateLevels, resolveCoils, buildVisualGate } from '../lib/patternLifecycle.js';
+import { geometryTimeframeFor, snapCandidateLevels, resolveCoils, buildVisualGate, identifyCandidate } from '../lib/patternLifecycle.js';
+import { attachQualification } from '../lib/candidateQualifier.js';
 import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
 import { buildWeeklyLean, buildTopDown, buildAboveBelow200 } from '../lib/topDown.js';
 
@@ -24,11 +25,16 @@ export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 
 // Published candles per timeframe (payload only; the engine computes on the full closed
-// window). 1m/3m/5m went 30 -> 24 on 2026-09-23 to keep the default payload under 80 KB.
+// window). 1m/3m/5m went 30 -> 24 on 2026-09-23 to keep the default payload under 80 KB;
+// F1 (flag detection coverage) took them 24 -> 20 the same day for the same reason - the
+// wider flag.maxImpulseCandles lookback and the new proto/failedTtl/expiredTtl states
+// (F1 items 1-5) legitimately surface more candidates, each carrying F1's own new
+// identity/geometry/qualification fields (items 6-8), and the two together pushed the
+// live default payload past 79 KB. 20 candles is still 20 minutes of 1m history.
 export const CANDLE_LIMITS = {
-  '1m': 24,
-  '3m': 24,
-  '5m': 24,
+  '1m': 20,
+  '3m': 20,
+  '5m': 20,
   '15m': 24,
   '1h': 24,
   '4h': 20,
@@ -715,17 +721,32 @@ export function buildConfigSnapshot(includeFailed = ENGINE_CONFIG.flag.includeFa
 
 /**
  * Drop `state: failed` entries from a symbol's published candidateSetups[] (phase 5,
- * item J). decisionTrace.candidateSetups is built from the unfiltered array before
- * this runs, so a failed attempt is still visible there as a compact reference string
- * even when includeFailed is false - only the full candidate geometry is omitted here.
+ * item J), except a failure still inside `flag.failedTtlCandles` of its own timeframe
+ * (F1 item 4) - those stay regardless of `includeFailed`, carrying `failReason` and
+ * `failedAt`. Older failures (or one with no `failedAt` to measure from) follow
+ * `includeFailed` as before. decisionTrace.candidateSetups is built from the unfiltered
+ * array before this runs, so a dropped failure is still visible there as a compact
+ * reference string.
  * @param {Array<Object>} setups
  * @param {boolean} includeFailed
+ * @param {Object} [opts]
+ * @param {Object<string,string>} [opts.closedThroughByTf] - tf -> that timeframe's
+ *   closedThrough ISO string this build, the same anchor `failedAt` was computed from
+ * @param {number} [opts.failedTtlCandles=ENGINE_CONFIG.flag.failedTtlCandles]
  * @returns {Array<Object>}
  */
-export function filterFailedCandidateSetups(setups, includeFailed) {
+export function filterFailedCandidateSetups(setups, includeFailed, opts = {}) {
   if (!Array.isArray(setups)) return [];
   if (includeFailed) return setups;
-  return setups.filter((s) => (s && s.state) !== 'failed');
+  const { closedThroughByTf = {}, failedTtlCandles = ENGINE_CONFIG.flag.failedTtlCandles } = opts;
+  return setups.filter((s) => {
+    if (!s || s.state !== 'failed') return true;
+    const intervalMs = INTERVAL_MS[s.timeframe];
+    const closedThroughIso = closedThroughByTf[s.timeframe];
+    if (typeof s.failedAt !== 'string' || typeof closedThroughIso !== 'string' || !isFiniteNumber(intervalMs)) return false;
+    const ageMs = Date.parse(closedThroughIso) - Date.parse(s.failedAt);
+    return isFiniteNumber(ageMs) && ageMs / intervalMs <= failedTtlCandles;
+  });
 }
 
 /**
@@ -1186,7 +1207,14 @@ export async function buildScalpContext(options = {}) {
           for (const direction of DIRECTIONS) {
             const found = detectFlagLifecycle(flagInput, direction);
             if (!found) continue;
-            candidateSetups.push({ timeframe: tf, ...found.candidate, ema200Side });
+            // F1 item 6: stable identity, derived from this request's own candle window
+            // (candidateId, firstDetectedAt, impulseStart, impulseEnd, failedAt); drops
+            // the raw candle-count offsets detectFlagLifecycle carried them in as.
+            candidateSetups.push(identifyCandidate({ timeframe: tf, ...found.candidate, ema200Side }, {
+              symbol,
+              closedThroughIso: tfEntries[tf].closedThrough,
+              intervalMs: INTERVAL_MS[tf]
+            }));
             marketByTf[tf] = { price: lastClose, atr: found.atr };
           }
         } catch (err) {
@@ -1381,6 +1409,25 @@ export async function buildScalpContext(options = {}) {
       console.warn(`[ScalpContext] ${symbol}: bias matrix failed - ${err.message}`);
     }
 
+    // Trade qualification (F1 item 8): a compact read layered on the finalized
+    // candidates, never a detection input. Runs after coil resolution/snapping and bias
+    // so it can read the symbol's own geometryContext, per-timeframe Stoch RSI, and the
+    // 4h lean; a fault is logged, never warned, matching every other candidate-adjacent
+    // layer here.
+    try {
+      const stochRsiByTf = {};
+      for (const tf of ENGINE_CONFIG.flag.timeframes) {
+        if (tfEntries[tf]) stochRsiByTf[tf] = tfEntries[tf].stochRsi;
+      }
+      attachQualification(candidateSetups, {
+        geometryContext,
+        stochRsiByTf,
+        fourHourBias: bias && bias.matrix && bias.matrix['4h'] ? bias.matrix['4h'].bias : null
+      });
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: candidate qualification failed - ${err.message}`);
+    }
+
     const decisionTrace = buildDecisionTrace({
       rawStrategies,
       bestSignal,
@@ -1391,6 +1438,11 @@ export async function buildScalpContext(options = {}) {
       visualGate,
       bias: bias ? bias.summary : null
     });
+
+    const closedThroughByTf = {};
+    for (const tf of timeframeList) {
+      if (tfEntries[tf]) closedThroughByTf[tf] = tfEntries[tf].closedThrough;
+    }
 
     symbolsOut[symbol] = {
       price,
@@ -1403,7 +1455,7 @@ export async function buildScalpContext(options = {}) {
       timeframes: tfEntries,
       strategies,
       bestSignal,
-      candidateSetups: stripPoleHeight(filterFailedCandidateSetups(candidateSetups, includeFailed)),
+      candidateSetups: stripPoleHeight(filterFailedCandidateSetups(candidateSetups, includeFailed, { closedThroughByTf })),
       geometryContext,
       decisionTrace
     };
@@ -1458,7 +1510,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.11.0',
+    schemaVersion: '1.12.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
