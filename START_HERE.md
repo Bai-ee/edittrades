@@ -1,5 +1,7 @@
 # 🚀 START HERE - How to Run the Dashboard
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## ⚠️ IMPORTANT: Do NOT Double-Click index.html!
 
 This won't work due to browser security (CORS policy).

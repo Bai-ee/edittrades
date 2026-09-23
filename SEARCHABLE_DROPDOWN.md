@@ -1,5 +1,7 @@
 # ✅ Searchable Symbol Dropdown Complete
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## What Was Added
 
 I've replaced the text input with a **searchable dropdown** that shows all available trading pairs.

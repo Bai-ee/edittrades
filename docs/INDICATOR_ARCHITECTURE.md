@@ -1,5 +1,7 @@
 # Indicator Architecture Overview
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 This document explains how indicators flow through the entire system, from calculation to display to JSON export.
 
 > **See Also:** `SYSTEM_WORKFLOW.md` for complete system workflow and how tweaking indicators affects strategies.

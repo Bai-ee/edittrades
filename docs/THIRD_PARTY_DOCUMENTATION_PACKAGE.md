@@ -1,5 +1,7 @@
 # Third-Party Documentation Package
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 **For External Developers Evaluating or Improving the Signal Generation System**
 
 ---

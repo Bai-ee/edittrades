@@ -1,5 +1,7 @@
 # Jupiter Perps Integration Status
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 **Last Updated:** 2025-12-03  
 **Status:** Client Library Connected, Package Compatibility Issue Identified
 

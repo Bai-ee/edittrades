@@ -1,5 +1,7 @@
 # 📊 Dashboard View JSON
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## Overview
 
 The **Dashboard View** JSON format captures **exactly what you see** on the dashboard UI - no more, no less. It's a compact, human-readable snapshot of your analysis that automatically grows as we add new features.

@@ -1,5 +1,7 @@
 # EditTrades AI Reasoning Agent Setup
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## Overview
 
 The AI Reasoning Agent provides intelligent trade analysis on top of the EditTrades rule engine. It evaluates market data, applies higher-level reasoning, and generates human-readable trade calls with confluence analysis.

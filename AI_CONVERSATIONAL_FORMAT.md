@@ -1,5 +1,7 @@
 # AI Conversational Response Format
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## ✅ **What Changed**
 
 The AI Reasoning Agent now provides **conversational, paragraph-style responses** instead of bulleted lists.

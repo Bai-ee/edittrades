@@ -2,9 +2,12 @@
 
 **Complete Technical Specification for Trade Signal Generation System**
 
-**Last Updated:** 2025-01-XX  
-**Version:** 1.0.0  
-**Implementation:** `services/strategy.js`, `api/analyze-full.js`
+- **Last Updated:** 2026-09-22
+- **Version:** 1.1.0
+- **Implementation:** `services/strategy.js` (`evaluateAllStrategies`), constants in `config/engine.json`
+- **Consumers:** `services/scalpContext.js` → `GET /api/scalp-context` and MCP `get_scalp_context` (canonical form, payload schema 1.10.0); `api/analyze-full.js` and the dashboard (legacy full form)
+
+> **2026-09-22 changes from 1.0.0:** R:R targets are 3R minimum and come from `config/engine.json` (table below replaces the old 1R/1.5R/2R values). Stops are side-validated structure stops with a percentage fallback. `SCALP_1H` and `MICRO_SCALP` stops are capped at 3% from entry mid (see "Scalp Stop-Distance Policy"). Signals carry `stopSource`. Gatekeeper, confidence and mode sections below were not re-audited in this pass; `services/strategy.js` is the authority where they differ. Additive payload layers built on top of this engine (`decisionTrace`, `risk`, `candidateSetups`, `geometryContext`) are documented in `docs/EDITTRADES_MCP_CONNECTOR.md` and never change a strategy decision.
 
 ---
 
@@ -342,13 +345,13 @@ trend1h === 'uptrend' || (trend1h === 'flat' && stoch1h.condition === 'BULLISH')
 
 #### Stop Loss
 
-- **LONG:** 4H swing low (or 1H swing low if closer)
-- **SHORT:** 4H swing high (or 1H swing high if closer)
+- **LONG:** 4H swing low, else 1D swing low, on the correct side of the entry zone (0.3% buffer); else 3% percentage stop
+- **SHORT:** mirror (swing highs)
 
 #### Targets
 
-- **TP1:** 1R (1x risk)
-- **TP2:** 2R (2x risk)
+- **TP1:** 3R (config `riskReward.bySetupType.default`)
+- **TP2:** 4R
 
 #### Confidence
 
@@ -402,13 +405,13 @@ stoch15m.condition === 'BULLISH' || stoch15m.condition === 'OVERSOLD'
 
 #### Stop Loss
 
-- **LONG:** 1H swing low (or 4H swing low if closer)
-- **SHORT:** 1H swing high (or 4H swing high if closer)
+- **LONG:** 4H swing low, else 1D swing low, on the correct side of the entry zone (0.3% buffer); else 3% percentage stop (`setupType: 'TrendRider'`)
+- **SHORT:** mirror (swing highs)
 
 #### Targets
 
-- **TP1:** 2R (2x risk)
-- **TP2:** 3.5R (3.5x risk)
+- **TP1:** 3R (config `riskReward.byStrategy.TREND_RIDER`)
+- **TP2:** 4.5R
 
 #### Confidence
 
@@ -462,13 +465,16 @@ stoch15m.condition === 'BULLISH' || stoch15m.condition === 'OVERSOLD' || stoch15
 
 #### Stop Loss
 
-- **LONG:** 15m swing low (or 5m swing low if closer)
-- **SHORT:** 15m swing high (or 5m swing high if closer)
+- Built by `applyScalpStopPolicy()` → `calculateSLTP(..., 'Scalp', ...)`
+- **LONG:** first of 5m, 15m, 4H swing low on the correct side of the entry zone (0.3% buffer); else a 3% stop anchored at entry mid
+- **SHORT:** mirror (swing highs)
+- **Gate:** stop more than 3% from entry mid → canonical NO_TRADE (see "Scalp Stop-Distance Policy")
+- `stopSource` published: `5m` | `15m` | `4h` | `percentage`
 
 #### Targets
 
-- **TP1:** 1.5R (1.5x risk)
-- **TP2:** 3R (3x risk)
+- **TP1:** 3R (config `riskReward.byStrategy.SCALP_1H`)
+- **TP2:** 4.5R
 
 #### Confidence
 
@@ -527,13 +533,13 @@ pullback5m.state === 'ENTRY_ZONE' || pullback5m.state === 'RETRACING'
 
 #### Stop Loss
 
-- **LONG:** Minimum of 15m swing low and 5m swing low
-- **SHORT:** Maximum of 15m swing high and 5m swing high
+- Same path as SCALP_1H: `applyScalpStopPolicy()` over 5m, 15m, 4H swings, 3% gate from entry mid
+- Rejection sets `reason` (`Setup rejected: scalp stop distance X% exceeds 3.00% maximum`), surfaced by `evaluateAllStrategies`
 
 #### Targets
 
-- **TP1:** 1R (1x risk)
-- **TP2:** 1.5R (1.5x risk)
+- **TP1:** 3R (config `riskReward.byStrategy.MICRO_SCALP`)
+- **TP2:** 4R
 
 #### Confidence
 
@@ -705,6 +711,7 @@ const THRESHOLDS = {
   },
   stopLoss: number,
   invalidationLevel: number,
+  stopSource: '5m' | '15m' | '4h' | '1d' | '3d' | 'percentage',  // SCALP_1H publishes it; canonical form nulls it on invalid
   targets: [number, number],      // [TP1, TP2] or [TP1, TP2, TP3] for SWING
   riskReward: {
     tp1RR: number,
@@ -849,23 +856,22 @@ entryMax = currentPrice * 0.9999   // 0.01% below current price
 
 ### Stop Loss Selection
 
-The system selects the stop loss from available swing levels:
+Structure candidates are tried in order; the first swing level that sits on the correct side of the entry zone (long: below `entryZone.min`, short: above `entryZone.max`) wins, with a 0.3% buffer (`config stops.structureBuffer`). `stopSource` records which timeframe was used.
 
-**LONG:**
-1. 5m swing low (if available and closest)
-2. 15m swing low (if available)
-3. 1H swing low (if available)
-4. 4H swing low (if available)
-5. 1D swing low (if available)
-6. 3D swing low (if available)
+| setupType | Candidate order | Fallback |
+|---|---|---|
+| `Swing` | 3D → 1D → 4H | 3% from the zone edge |
+| `Scalp` (SCALP_1H, MICRO_SCALP) | 5m → 15m → 4H | 3% from entry mid; zone edge if the mid-anchored stop cannot clear the zone (then rejected by the gate) |
+| `4h`, `TrendRider` | 4H → 1D | 3% from the zone edge |
 
-**SHORT:**
-1. 5m swing high (if available and closest)
-2. 15m swing high (if available)
-3. 1H swing high (if available)
-4. 4H swing high (if available)
-5. 1D swing high (if available)
-6. 3D swing high (if available)
+SWING computes its own stop and 3R/4R/5R targets inside the SWING evaluator (3D swing, 1D EMA21 fallback).
+
+### Scalp Stop-Distance Policy
+
+- `MAX_SCALP_STOP_DISTANCE_PCT` = `config/engine.json` `scalp.maxStopDistancePct` = 3.
+- `validateScalpStopDistance(entry, stop)` measures from entry mid, `1e-9` epsilon.
+- Applies to SCALP_1H and MICRO_SCALP only, both via `applyScalpStopPolicy()`. Over the limit → canonical NO_TRADE: `valid: false`, all levels null, targets empty.
+- Hard invariant: do not raise the threshold. Tests: section 6b of `test-strategy-sltp.js`.
 
 ### Target Calculation
 
@@ -885,13 +891,15 @@ tp3 = entryMid - (R * rrTargets[2])  // SWING only
 
 ### R:R Targets by Strategy
 
-| Strategy | TP1 | TP2 | TP3 |
-|----------|-----|-----|-----|
-| SWING | 3R | 4R | 5R |
-| TREND_4H | 1R | 2R | - |
-| TREND_RIDER | 2R | 3.5R | - |
-| SCALP_1H | 1.5R | 3R | - |
-| MICRO_SCALP | 1R | 1.5R | - |
+Source: `config/engine.json` `riskReward` (`rrForSetupType`, `rrForStrategy` in `config/engine.js`). Published in the payload under `config.riskReward`.
+
+| Strategy | TP1 | TP2 | TP3 | Config key |
+|----------|-----|-----|-----|-----|
+| SWING | 3R | 4R | 5R | `bySetupType.Swing` |
+| TREND_4H | 3R | 4R | - | `bySetupType.default` |
+| TREND_RIDER | 3R | 4.5R | - | `byStrategy.TREND_RIDER` |
+| SCALP_1H | 3R | 4.5R | - | `byStrategy.SCALP_1H` |
+| MICRO_SCALP | 3R | 4R | - | `byStrategy.MICRO_SCALP` |
 
 ---
 
@@ -929,6 +937,10 @@ All signals are validated before being marked as `valid: true`:
 
 ## Related Documentation
 
+- `docs/EDITTRADES_MCP_CONNECTOR.md` - Canonical strategy form in the scalp-context payload, stop guard, payload layers
+- `config/engine.json` - Tunable constants and `configVersion`
+- `docs/MASTER_PLAN_ENGINE_REFINEMENT.md` - Engine refinement phases
+
 - `STRATEGY_MODES.md` - STANDARD vs AGGRESSIVE mode differences
 - `STRATEGY_IMPLEMENTATION_GUIDE.md` - Strategy implementation details
 - `COMPLETE_DATA_REFERENCE.md` - Data structure reference
@@ -936,6 +948,4 @@ All signals are validated before being marked as `valid: true`:
 
 ---
 
-**Last Updated:** 2025-01-XX  
-**Version:** 1.0.0  
-**Maintained By:** Development Team
+**Last Updated:** 2026-09-22 · **Version:** 1.1.0

@@ -1,5 +1,7 @@
 # Strategy Modes: STANDARD vs AGGRESSIVE
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 Complete reference for STANDARD and AGGRESSIVE trading modes.
 
 **Last Updated:** 2025-01-XX  

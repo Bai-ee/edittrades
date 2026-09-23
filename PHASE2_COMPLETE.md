@@ -1,5 +1,7 @@
 # 🎉 Phase 2 Complete: 4-Hour "Set & Forget" Trading System
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## ✅ What We Just Built
 
 You now have a **complete 4-hour trading strategy automation system** that implements your PRD requirements!

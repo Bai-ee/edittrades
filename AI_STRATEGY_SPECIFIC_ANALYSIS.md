@@ -1,5 +1,7 @@
 # AI Strategy-Specific Analysis Update
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## 🎯 **What Changed**
 
 The AI Reasoning Agent now provides **strategy-specific analysis** for each trade type (Swing, Scalp, 4H) and includes a **"WHAT TO WATCH FOR"** section that tells you exactly what needs to happen for that strategy to become valid.

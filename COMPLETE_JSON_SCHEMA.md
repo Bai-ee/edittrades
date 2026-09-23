@@ -1,5 +1,7 @@
 # 📋 Complete JSON Schema - Final Structure
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## Overview
 
 This document describes the **complete** JSON structure returned by `/api/analyze` and `/api/indicators` endpoints, including all fields for professional-grade trading analysis.

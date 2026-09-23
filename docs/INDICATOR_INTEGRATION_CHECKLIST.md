@@ -1,5 +1,7 @@
 # Indicator Integration Checklist
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 Quick reference checklist for adding a new indicator. Use this alongside `ADDING_INDICATORS.md` for detailed instructions.
 
 ## Pre-Integration

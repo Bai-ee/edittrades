@@ -1,5 +1,7 @@
 # 🚀 Push to GitHub - Quick Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## Step 1: Create GitHub Repository
 
 1. **Open your browser** and go to: https://github.com/new

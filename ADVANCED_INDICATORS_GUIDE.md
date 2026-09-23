@@ -1,5 +1,7 @@
 # 🎯 Advanced Indicators Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## Overview
 
 The API now includes **VWAP, ATR, Bollinger Bands, and MA Stack** - professional-grade indicators that provide deeper market context for high-leverage trading and LLM-powered signal generation.

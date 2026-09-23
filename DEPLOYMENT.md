@@ -1,5 +1,7 @@
 # 🚀 Vercel Deployment Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 This guide will help you deploy the Snapshot TradingView application to Vercel with serverless API endpoints.
 
 ## 📋 Prerequisites

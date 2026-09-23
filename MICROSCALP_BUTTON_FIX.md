@@ -1,5 +1,7 @@
 # ✅ Micro-Scalp Button Fixed - Proper Strategy Display
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## 🐛 **The Problem**
 
 The M-S (Micro-Scalp) button was displaying **4-Hour strategy info** instead of Micro-Scalp specific information. The AI agent was also not analyzing the Micro-Scalp strategy correctly.

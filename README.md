@@ -1,4 +1,38 @@
-# 📊 Snapshot TradingView - 4H Strategy Automation
+# EditTrades (snapshot_tradingview)
+
+Closed-candle BTC, SOL and ETH market context and strategy engine, served to ChatGPT through a Custom GPT REST Action and a read-only MCP connector. Deployed on Vercel.
+
+## Current state (2026-09-22)
+
+| | |
+| --- | --- |
+| REST Action | `GET /api/scalp-context` — Bearer `SCALP_CONTEXT_API_KEY`; optional `symbols`, `include`, `compact` |
+| MCP | `POST /api/mcp` — one read-only tool, `get_scalp_context`; no execution tools, ever |
+| Trade execution | `POST /api/execute-trade` — separate key, off unless `TRADE_EXECUTION_ENABLED=true` |
+| Payload | schema 1.10.0, `configVersion` 2026.09.22-9: multi-timeframe candles and indicators, 5 strategies with canonical NO_TRADE, `decisionTrace`, risk/leverage blocks, 1m/3m/5m flag `candidateSetups`, `geometryContext` (zones, ATR, room, diagonals, channel, confluence), pattern lifecycle + visual gate, bias matrix (`include=bias`), tracked-wallet `account` |
+| Engine work | `docs/MASTER_PLAN_ENGINE_REFINEMENT.md` — phases 0–11, 8b and 9b done; next 8c (journal), then 3b (positions) |
+
+Read next:
+
+- `docs/DOCUMENTATION_INDEX.md` — what is current and what is legacy
+- `docs/EDITTRADES_MCP_CONNECTOR.md` — endpoints, payload map, stop guard, verification
+- `CHATGPT_ACTION_SETUP.md` — Custom GPT setup
+- `openapi/scalp-context.yaml` — field-level schema
+
+Tests (all must pass before a deploy):
+
+```bash
+npm run test:sltp && npm run test:scalp && npm run test:mcp && npm run test:wallet
+npm run test:config && npm run test:risk && npm run test:pattern && npm run test:geometry
+```
+
+Deploy: `npx vercel --prod --yes`, then run "Verify after any redeploy" in `docs/EDITTRADES_MCP_CONNECTOR.md`.
+
+---
+
+## Legacy: dashboard and analyze API (Nov–Dec 2025)
+
+> Everything below describes the original 4H strategy dashboard, scanner and `/api/analyze*` endpoints as of December 2025. That code still exists but this section was not re-audited. In particular, R:R values below are out of date: all strategies now use 3R minimum targets from `config/engine.json`.
 
 Professional crypto trading signal generator with serverless API deployment. Built for the "set and forget" 4-hour trading strategy with multi-timeframe confirmation.
 

@@ -6,6 +6,8 @@ Plan: `docs/MASTER_PLAN_ENGINE_REFINEMENT.md`
 Rules source: `~/Downloads/EditTrades_Master_Orchestration_Handoff_v1.md` §1–§22
 Code baseline: this repo, read on the date above. No code was changed in this phase.
 
+> **Status note (2026-09-22, after Phase 8):** the "Today" column and the Measurements section are the Phase 0 baseline and are kept as-is for comparison. Rows whose Phase column is 1, 2, 3, 4, 5, 6, 7 or 8 have since been delivered (see the phase map in `docs/MASTER_PLAN_ENGINE_REFINEMENT.md`); `capReason` shipped as `risk.reason`. Rows for 3b, 8b, 9, 9b, 10 and 11 are still open. Gaps adopted into Phases 2 and 7 are delivered. Current payload: schema 1.8.0, ~77 KB full, ~31 KB compact, build 1.1–1.5 s locally.
+
 ## Owner legend
 
 | Owner | Meaning |
@@ -323,15 +325,16 @@ Miss log is repo fixtures, never a write API (plan, Out of scope).
 | Item | Handoff ref | Recommendation | Status |
 | --- | --- | --- | --- |
 | EMA21/EMA200 **slope** per timeframe | §3, §4 | Add to Phase 7 `lib/geometry.js` output (cheap: histories already computed, currently dropped) | Adopted — Phase 7 `emaSlope` |
-| Stoch RSI acceleration / deceleration | §3, §4 | Add to Phase 7, alongside slopes; one extra derivative from existing history | Adopted — Phase 7 `stochAcceleration` |
+| Stoch RSI acceleration / deceleration | §3, §4 | Add to Phase 7, alongside slopes; one extra derivative from existing history | Adopted — Phase 7 (shipped as `geometryContext.<tf>.stochAccelK`) |
 | `decisionTrace` candle **window bounds** (first/last timestamp per TF actually used) | §19 | Add to Phase 2 trace shape; `closedThrough` + `candleCount` alone do not pin the window | Adopted — Phase 2 `trace.window` |
 | `decisionAllocation` (GO_IN / HOLD_WAIT / DONT_DO_IT) and `directionalBias` | §9, §13 | Leave GPT-owned; confirm in Phase 11 that they are computed from named API components, not re-derived prose | Unchanged — GPT, Phase 11 |
 | `dataQualityConfidence` as a named field | §9 | Decide in Phase 2: either treat `dataStatus` as the field or add a scored one; do not leave both | Decided — `dataStatus` is the field, Phase 2 |
 
 ## Decisions recorded (so no cell reads "unknown")
 
-- Account extras (positions, PnL, trade history, liquidation, win rate) are **out of scope** for this
-  workstream per the plan; their matrix rows are marked "Out of scope", not "no phase".
+- Account extras (positions, PnL, trade history, liquidation, win rate) were **out of scope** at Phase 0;
+  their matrix rows are marked "Out of scope", not "no phase". Amended 2026-09-22: the plan now adds
+  Phase 8c (user-logged trade journal with basic stats) and Phase 3b (read-only positions), both scheduled last.
 - Cross-request pattern state (KV) stays out; lifecycle is derived per request (Phase 9).
 - The miss log is repo fixtures under `test/fixtures/misses/`, never a write endpoint.
 - Screenshot handling stays GPT/VISUAL; the API contribution is `needsVisualConfirmation` and

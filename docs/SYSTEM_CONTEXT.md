@@ -1,5 +1,7 @@
 # System Context - Complete Reference for AI Strategy Updates
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 **Purpose:** This document provides complete system context for generating strategy updates that are compatible with the current implementation.
 
 **Last Updated:** 2025-01-XX  

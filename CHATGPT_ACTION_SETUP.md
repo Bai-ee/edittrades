@@ -13,10 +13,16 @@
 openssl rand -hex 32
 ```
 
-## 2b. Status of this deployment (2026-09-21)
+## 2b. Status of this deployment (updated 2026-09-22)
 
-- Production is live and verified: `https://snapshottradingview.vercel.app/api/scalp-context`
-  (401 without auth, 401 on a bad key, 405 on POST, 200 authed in ~0.8s / ~57KB).
+- Production is live: `https://snapshottradingview.vercel.app/api/scalp-context`
+  (401 without auth, 401 on a bad key, 405 on POST, 200 authed).
+- Payload `schemaVersion` 1.10.0, `configVersion` 2026.09.22-9. Full response ~79 KB,
+  ~31 KB with `compact=1`. Build ~0.7–1.7 s.
+- The schema grew from 1.1.0 to 1.10.0 on 2026-09-22 (decisionTrace, risk, candidateSetups,
+  geometryContext, config snapshot, query options). If the GPT Action was imported before
+  that, re-paste `openapi/scalp-context.yaml` into the Action (step 5) so ChatGPT sees the
+  new fields and parameters. Field reference: `docs/EDITTRADES_MCP_CONNECTOR.md`.
 - `SCALP_CONTEXT_API_KEY` is already set in Vercel for Production, Preview and
   Development. The value is stored locally in the git-ignored `.env.local`.
 - To copy the key to your clipboard without displaying it:
@@ -68,6 +74,18 @@ One-time setup in the ChatGPT UI:
 5. Set **Authentication** = API Key, **Auth Type** = Bearer, and paste the same key value.
 6. Click **Save**.
 
+## 5b. Optional query parameters
+
+All optional; with none the full payload is returned.
+
+| Param | Example | Effect |
+|---|---|---|
+| `symbols` | `symbols=BTC,SOL` | Only these symbols |
+| `include` | `include=strategies,geometry,account` | Only these sections: `timeframes`, `strategies`, `candidates`, `geometry`, `account`, `trace`, `config`. `price`, `source`, `structure`, `bestSignal` always stay. |
+| `compact` | `compact=1` | Drop candle arrays, keep indicator summaries |
+
+Unknown values are ignored and noted in `warnings`; they do not change `dataStatus`.
+
 ## 6. GPT instructions
 
 Paste this into the GPT's instructions:
@@ -90,7 +108,7 @@ Load my latest market context and compare BTC, SOL, and ETH.
 
 A healthy response calls `getScalpContext`, then states the `generatedAt` and `closedThrough` timestamps, summarizes each symbol's structure/trend and best signal (if any), and flags any `warnings` or `dataStatus: partial`/`unavailable` as reduced-confidence conditions — without claiming any trade was placed.
 
-## 7b. Wallet tracking (schemaVersion 1.1.0)
+## 7b. Wallet tracking (since schemaVersion 1.1.0)
 
 The payload carries an `account` block for the dedicated trading wallet
 `F48Q...KeCi`. Read-only: `services/walletTracker.js` reads a **public** address over

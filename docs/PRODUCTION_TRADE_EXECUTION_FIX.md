@@ -1,5 +1,7 @@
 # 🔧 Production Trade Execution Fix
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 ## 🐛 **The Problem**
 
 **Symptom:**

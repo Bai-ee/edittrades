@@ -1,5 +1,7 @@
 # Chart-Based Analysis Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 ## Overview
 
 The chart-based analysis module enhances trading signals by detecting candlestick patterns, analyzing multi-timeframe momentum alignment, and providing advanced wick/body analysis. These insights are integrated into the strategy engine to improve trade confidence and entry timing.

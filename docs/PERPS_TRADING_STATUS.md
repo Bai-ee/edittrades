@@ -1,5 +1,7 @@
 # Perpetual Trading Status - December 2024
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 **Last Updated:** 2024-12-06  
 **Status:** ✅ Technical Implementation Complete | ⚠️ Rate Limiting on Free Tier
 

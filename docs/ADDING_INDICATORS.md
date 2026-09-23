@@ -1,5 +1,7 @@
 # Adding New Indicators - Step-by-Step Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 This guide walks you through adding a new indicator to the system. We'll use **50 EMA** as a complete example.
 
 > **See Also:** `SYSTEM_WORKFLOW.md` for complete system workflow and how tweaking indicators affects strategies.

@@ -1,5 +1,7 @@
 # Funding Wallet with USDC Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 **Question:** Can I fund the wallet with USDC and trade with that?
 
 **Answer:** Yes! You can fund with USDC and trade USDC pairs. However, you still need a small amount of SOL for transaction fees.

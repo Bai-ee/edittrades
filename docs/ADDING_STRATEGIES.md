@@ -1,5 +1,7 @@
 # Adding New Strategies - Best Practices Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 This guide provides a systematic approach to adding new trading strategies to the system without breaking existing functionality.
 
 **Related Documentation:**

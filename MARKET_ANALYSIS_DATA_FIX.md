@@ -1,5 +1,7 @@
 # ✅ Current Market Analysis - Data Paths Fixed
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## 🐛 **The Problem**
 
 The "Current Market Analysis" section in the details view was showing:

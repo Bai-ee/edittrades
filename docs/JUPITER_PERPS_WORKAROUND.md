@@ -1,5 +1,7 @@
 # Jupiter Perps Client Library Workaround
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 ## Problem
 
 The `jup-perps-client` npm package has ES module compatibility issues. The package uses directory imports (e.g., `import ... from '../types'`) which are not supported in Node.js ES modules. This prevents direct import of the package in our ESM codebase.

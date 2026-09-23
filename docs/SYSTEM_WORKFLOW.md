@@ -1,5 +1,7 @@
 # System Workflow & Element Impact Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md).
+
 **Last Updated:** 2025-01-XX  
 **Purpose:** Complete documentation of system workflow and how tweaking elements affects strategy evaluation and output.
 

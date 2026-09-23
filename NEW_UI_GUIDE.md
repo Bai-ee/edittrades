@@ -1,5 +1,7 @@
 # 🎨 New Mobile-First UI Guide
 
+> **Legacy (Nov–Dec 2025).** Not updated for the September 2026 scalp-context engine (payload schema 1.10.0). Current docs: [docs/DOCUMENTATION_INDEX.md](./docs/DOCUMENTATION_INDEX.md).
+
 ## Overview
 
 The UI has been completely redesigned with a **mobile-first, minimalist dark theme** focused on quick analysis and easy readability on small devices.
