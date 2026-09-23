@@ -118,6 +118,14 @@ Owner goal: every recommendation says what supports it, what opposes it, what is
 - `services/scalpContext.js` passes `candidates` and `geometryContext` into `buildFlagRecommendation` (read-only).
 - New suite `npm run test:flagrec:fixtures` (`test-flag-recommendation-fixtures.js`, 16 cases, pinned clock, mirrored, byte-stable). Payload on the saved 2026-09-23 fixture: default 76,864 → 78,003 B (cap 79,000), compact 41,459 → 42,598 B. GPT instructions unchanged (7,976 units). Not deployed.
 
+## 2026-09-23 — T1: call tracker (branch `upgrade-signal-engine`)
+
+Plan: `docs/PLAN_CALL_TRACKER.md`. No engine, payload, MCP, or Vercel change; schema stays 1.18.0. Owner decisions: 10-minute cadence; the tracker repo is self-contained.
+
+- **`scripts/tracker/`** (Node ≥ 20, no dependencies, every script takes `--data <dir>`, page takes `--out <dir>`): `collect.js` (GET `/api/scalp-context` with `SCALP_CONTEXT_API_KEY` from env; one row per symbol to `data/calls/YYYY-MM-DD.jsonl`; strips `account`/`wallet`/`performance`/`margin`/`holdings*` and any key containing wallet/balance/address at any depth, then refuses the write if any survived; dedupe on symbol+closedThrough; closed 1m/5m/15m candles to `data/candles/<tf>.jsonl`), `store.js`, `score.js` (ready plans filled at the ready close; conditional plans scored only through the ready plan they became; rejected plans counted by reason; every recommendation class change scored as a call; 24 h window then `expired`; idempotent; gross R, plan netRR carried), `aggregate.js`, `build-page.js` (static `docs/index.html` + `docs/report.md`, "provisional; not evidence of an edge" on every section), `walk-outcome.js` (vendored copy of `scripts/replay-outcomes.js` `walkOutcome`, parity-tested), `sync.js` + `repo-template/` (README, package.json, collect/score workflows).
+- npm scripts `test:tracker` (17), `tracker:collect`, `tracker:score`, `tracker:page`, `tracker:sync`.
+- Tracker repo `Bai-ee/edittrades-tracker` (private): `collect.yml` every 10 min, `score.yml` hourly.
+
 ## 2025-11-27
 
 ### 📊 Professional Trading Indicators - VWAP, ATR, Bollinger, MA Stack

@@ -29,12 +29,17 @@
     "test:topdown": "node test-top-down.js",
     "test:evidence": "node test-model-evidence.js",
     "test:mark": "node test-pyth-mark.js",
+    "test:tracker": "node test-tracker.js",
     "replay": "node scripts/replay.js",
     "replay:metrics": "node scripts/replay-metrics.js",
     "replay:outcomes": "node scripts/replay-outcomes.js",
     "ledger:record": "node scripts/paper-ledger.js record",
     "ledger:score": "node scripts/paper-ledger.js score",
-    "check:gpt": "node scripts/check-gpt-instructions.js"
+    "check:gpt": "node scripts/check-gpt-instructions.js",
+    "tracker:collect": "node scripts/tracker/collect.js",
+    "tracker:score": "node scripts/tracker/score.js",
+    "tracker:page": "node scripts/tracker/build-page.js",
+    "tracker:sync": "node scripts/tracker/sync.js"
   },
   "keywords": [
     "trading",

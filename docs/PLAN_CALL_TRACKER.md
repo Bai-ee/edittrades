@@ -1,0 +1,55 @@
+# T1 — Call tracker: automatic collection, scoring, and a daily review page
+
+Last updated: 2026-09-23
+Status: plan only. Not started. Owner approval needed before code.
+Goal: every engine call (flag plan + 21/200 recommendation) is recorded automatically, scored against later closed candles, and shown on one page the owner opens day to day. No self-tuning: the page shows numbers; threshold changes stay owner decisions.
+
+## Shape
+
+```
+GitHub repo  edittrades-tracker  (new, private)
+  .github/workflows/collect.yml   every 5 min: GET /api/scalp-context → data/calls/YYYY-MM-DD.jsonl
+  .github/workflows/score.yml     hourly: score open calls, rebuild the page → docs/index.html (+ report.md)
+  data/calls/*.jsonl              one line per symbol per capture (no account/wallet fields ever)
+  data/candles/*.jsonl            closed 1m/5m/15m candles lifted from the same payload (scoring source)
+  data/outcomes.jsonl             one line per scored call
+  docs/index.html                 the review page (GitHub Pages, private repo ⇒ owner-only)
+```
+
+Why a separate repo: no commit noise in the engine repo, Pages hosting for free, git history is the audit log. Why GitHub Actions: no new Vercel function (12-cap), no Vercel cron limits, no new storage service.
+
+## Build (single implementer pass, Opus)
+
+1. **Collector** `scripts/tracker/collect.js` (lives in the engine repo, copied into the tracker repo's workflow): calls the REST endpoint with `SCALP_CONTEXT_API_KEY` from a GitHub secret, writes per symbol: `capturedAt, closedThrough, schemaVersion, configVersion, symbol, price, mark{price,driftBps,status}, flagTradePlan (full), flagRecommendation (default record), candidateSetups (slim: id, tf, dir, state, breakout, invalidation, measuredRR, qual), decisionTrace.bias`. **Strips `account`, `wallet`, `performance`, `margin` before writing. A test asserts no such key can reach disk.** Dedupes on `closedThrough` per symbol (a 5-min cron sees the same close twice sometimes).
+2. **Candle store**: from each capture, append the payload's closed 1m/5m/15m candles not yet stored (keyed by timestamp). 5-minute captures with 20 published 1m candles give contiguous 1m coverage; 15m gives a long tail. Scoring never needs a live exchange call.
+3. **Scorer** `scripts/tracker/score.js`: reuses `scripts/replay-outcomes.js` `walkOutcome` (exact published entry condition, ready fills at the ready close, R labeled gross; net shown from the plan's own `netRR`). Scores: every `ready` plan; every `conditional` plan that later became ready (linked by candidateId); every GOOD/WATCH/BAD recommendation as a "call" with its class. Outcome per call: `not_filled | tp1 | stop | open | expired` + R + minutes to resolution. Window: 24 h after entry, then `expired`. Idempotent: a call is scored once, re-scored only while `open`.
+4. **Aggregates** (by day, by symbol, by timeframe, by class, by plan status, by reason code): calls, fills, win rate at TP1, avg R, expectancy, max losing streak, median time to TP1, chase/rr_below_min/room counts, GOOD count per day, mark drift stats, DATA_UNAVAILABLE count, capture gaps.
+5. **Page** `docs/index.html` (static, rebuilt hourly, dark/light, phone-width): top row = last capture time, calls today, GOOD today, fills 7d, win rate 7d, expectancy 7d, losing streak; then "open calls right now" table; then 7d / 30d tables by class and by reason code; then a daily log (each call, its class, levels, outcome). Plus `report.md` with the same numbers for pasting into a chat. Provisional labels carried through: nothing on the page says "edge".
+6. **Alerts (optional, later)**: none in this pass.
+
+## Owner does once
+
+- Create the private repo `edittrades-tracker` (or let me create it via `gh` on your say-so), enable Pages from `docs/`.
+- Add repo secret `SCALP_CONTEXT_API_KEY` (same value as Vercel). I can set it via `gh secret set` if you say so; otherwise paste it in GitHub settings.
+- Nothing else. The page URL is `https://<your-github-user>.github.io/edittrades-tracker/`.
+
+## Costs and limits
+
+- GitHub Actions: ~288 runs/day × ~20 s ≈ 1.6 h/day, inside the free 2,000 min/month for a private repo? No: 1.6 h × 30 = 48 h/month = 2,880 min > 2,000. **Use a 10-minute cadence (1,440 min/month) or make the repo public with no secret data on the page.** Recommend 10 min; the payload carries 20 1m candles so 1m coverage stays contiguous.
+- Cron delay: GitHub can run scheduled jobs a few minutes late; captures are keyed by `closedThrough`, so gaps are visible, not silent.
+- Engine load: one extra REST call per 10 min.
+
+## Out of scope
+
+Tier 2 (trades you tell the GPT; needs a write endpoint + key), real positions (3b), any threshold change, any MCP change, any engine change beyond adding the two scripts and their tests.
+
+## Verification
+
+- `test:tracker`: collector strips account fields (fails closed), dedupe, candle store, scorer on a synthetic day (long + short, tp1 / stop / not_filled / open / expired), aggregate math, page renders from an empty store.
+- Dry run locally against prod for 30 min, then one Actions run, then the page loads on the phone.
+
+## Decisions needed before code
+
+1. Cadence: 10 min (recommended) or 5 min with a public repo.
+2. Repo: I create it with `gh`, or you do.
+3. Secret: I set it with `gh secret set`, or you paste it.

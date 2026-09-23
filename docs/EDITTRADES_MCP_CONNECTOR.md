@@ -62,8 +62,9 @@ Tests:
 | `npm run test:ledger` | `test-paper-ledger.js` (`scripts/paper-ledger.js`; append-only forward-paper ledger, work package 3) | 12 |
 | `npm run test:evidence` | `test-model-evidence.js` (`lib/modelEvidence.js`; EMA map, channels, divergence) | 8 |
 | `npm run test:mark` | `test-pyth-mark.js` (`lib/pythMark.js`; mock Hermes: expo/conf, one request, no key → no request, failures → unavailable, drift sign, stale; `dataStatus` untouched) | 12 |
+| `npm run test:tracker` | `test-tracker.js` (`scripts/tracker/`, T1 call tracker: collector strips account/wallet/balance/address keys before disk, dedupe, candle store, vendored `walkOutcome` parity, scorer synthetic day, idempotency, aggregates, page from an empty store; dev only, never on the request path) | 17 |
 
-The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all nineteen before a deploy.
+The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all twenty before a deploy (`test:tracker` covers the out-of-band call tracker, not the request path).
 
 Replay (Phase 10, dev only, never on the request path): `npm run replay -- --capture BTC,SOL,ETH --out test/fixtures/history/<date>/ [--backfill-1m 360]` saves a live pull; `npm run replay -- --history <dir> --symbols BTC --out btc.jsonl` runs `buildScalpContext()` once per closed candle with no lookahead; `npm run replay:metrics -- btc.jsonl` prints candidate counts, visual-gate rate by code, lifetime and label precision/recall; `npm run replay:outcomes -- btc.jsonl <historyDir>` (trading-model quick pass Q4; signal-reliability minimum plan work package 3 added exact-`flagTradePlan` scoring alongside the existing strategy/`FLAG_MEASURED` rows, plus a rejection-reason breakdown) walks the same JSONL forward on 1m candles and scores every valid strategy signal, confirmed flag candidate, and selected flag trade plan: fill rate, win rate, average win R, expectancy, max losing streak, median time to TP1. Details: master plan, Phase 10; `docs/PLAN_TRADING_MODEL_QUICK_PASS.md` Q4.
 

@@ -1,0 +1,13 @@
+{
+  "name": "edittrades-tracker",
+  "private": true,
+  "type": "module",
+  "description": "Automatic collection and scoring of EditTrades engine calls. Synced from snapshot_tradingview scripts/tracker; edit there, then npm run tracker:sync.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "collect": "node scripts/collect.js --data data",
+    "score": "node scripts/score.js --data data",
+    "aggregate": "node scripts/aggregate.js --data data",
+    "page": "node scripts/build-page.js --data data --out docs"
+  }
+}
