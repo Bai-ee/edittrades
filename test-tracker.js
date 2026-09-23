@@ -11,7 +11,8 @@ import { mkdtempSync, rmSync, readFileSync, readdirSync, statSync, existsSync } 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  isSensitiveKey, stripSensitive, findSensitiveKeys, recordsFromPayload, candlesFromPayload, ingestPayload
+  isSensitiveKey, stripSensitive, findSensitiveKeys, recordsFromPayload, candlesFromPayload, ingestPayload,
+  candlesFromKraken
 } from './scripts/tracker/collect.js';
 import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs } from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir } from './scripts/tracker/score.js';
@@ -120,6 +121,21 @@ function payloadWithSecrets() {
 }
 
 async function run() {
+  await test('candlesFromKraken: converts rows, drops the open last candle, skips bad rows', () => {
+    const result = { XXBTZUSD: [
+      [1790200000, '100.1', '101.2', '99.5', '100.9', '100.5', '12.5', 40],
+      [1790200060, 'x', '1', '1', '1', '1', '1', 1],
+      [1790200120, '100.9', '102', '100', '101.5', '101', '3', 9],
+      [1790200180, '101.5', '101.6', '101.4', '101.5', '101.5', '0.1', 1]
+    ], last: 1790200120 };
+    const rows = candlesFromKraken('BTC', result);
+    assertEqual(rows.length, 2, 'two closed valid candles');
+    assertEqual(rows[0].t, new Date(1790200000 * 1000).toISOString(), 'first t');
+    assertEqual(rows[0].h, 101.2, 'high parsed');
+    assertEqual(rows[1].v, 3, 'volume parsed');
+    assertEqual(candlesFromKraken('BTC', null).length, 0, 'null result is empty');
+  });
+
   console.log('\nscripts/tracker\n');
 
   await test('isSensitiveKey: account/wallet/performance/margin/holdings* and *wallet*/*balance*/*address*', () => {

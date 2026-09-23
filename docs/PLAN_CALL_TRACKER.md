@@ -1,15 +1,15 @@
 # T1 — Call tracker: automatic collection, scoring, and a daily review page
 
 Last updated: 2026-09-23
-Status: plan only. Not started. Owner approval needed before code.
+Status: built 2026-09-23. Page: https://edittrades-tracker.vercel.app (public URL, no account data). GitHub Pages and 10-min cadence dropped: GitHub Free bills private-repo Actions at 1 min per job, so one merged job every 30 min (1,440 min/month) with Kraken 1m backfill for candle continuity.
 Goal: every engine call (flag plan + 21/200 recommendation) is recorded automatically, scored against later closed candles, and shown on one page the owner opens day to day. No self-tuning: the page shows numbers; threshold changes stay owner decisions.
 
 ## Shape
 
 ```
 GitHub repo  edittrades-tracker  (new, private)
-  .github/workflows/collect.yml   every 5 min: GET /api/scalp-context → data/calls/YYYY-MM-DD.jsonl
-  .github/workflows/score.yml     hourly: score open calls, rebuild the page → docs/index.html (+ report.md)
+  .github/workflows/track.yml     every 30 min: collect (REST + Kraken 1m backfill) → score → aggregate → page
+  vercel.json                     Vercel deploys docs/ on every push → https://edittrades-tracker.vercel.app
   data/calls/*.jsonl              one line per symbol per capture (no account/wallet fields ever)
   data/candles/*.jsonl            closed 1m/5m/15m candles lifted from the same payload (scoring source)
   data/outcomes.jsonl             one line per scored call
