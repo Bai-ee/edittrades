@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-09-24 — T6 completion plan Step A: review-pass fixes (branch `upgrade-signal-engine`)
+
+`docs/PLAN_T6_COMPLETION_V2.md` (reviewer-consolidated, overrides T6 sequencing). Fix
+pass, not deployed - stops for the gate. Schema 1.21.0 → **1.22.0**.
+
+- **A1 (payload cap, real production incident - live had measured 79,863 B over the
+  79,000 cap):** removed `breakoutEntry` from the payload (shadow-mode research,
+  unpromoted; `lib/breakoutEntry.js` stays, just unwired) and dropped
+  `flagSlope`/`breakoutDistancePct`/`invalidationDistancePct`/`levelSource` from every
+  candidate (confirmed unread by the GPT, the tracker, or pathOutlook/flag-paths).
+  Replaced the frozen-fixture cap test with a synthetic worst case (3 symbols x 6
+  simultaneous failed-in-TTL candidates + 1 ready GOOD plan each); it still measured
+  80,148 B after both trims, so the default cap moved 79,000 → **80,200 B** (owner
+  decision, minimal, documented) rather than a deeper cut. Compact cap unchanged at
+  45,000 B (passes at 44,743 B).
+- **A2:** `net_rr_below_min`/`stop_inside_costs` direct `flagRecommendation` tests
+  (primary reason + remedy text) - the hard-rejection mapping itself already shipped in
+  phase 1.
+- **A3 (correctness fix):** a retest candle whose wick reached through the plan's own
+  stop before closing back on the hold side was counted as a valid hold - a live
+  position would have stopped out on that wick. Fixed in `observeRetestHold`
+  (`lib/flagTradePlan.js` and its vendored copy in `scripts/tracker/flag-paths.js`) and
+  in `labelPath`'s own `retestReachedHeld` (a stop-wicked touch no longer mislabels a
+  path `retest_go` instead of `runner`).
+- **A4 (correctness fix):** the blob first-write race - two concurrent requests
+  creating the same day's file both saw no existing blob, both wrote with no `ifMatch`,
+  and the loser's row vanished with no error. `writeBlob` now asks `allowOverwrite:
+  false` on a create; `updateBlob` retries the resulting `BlobAccessError` the same as
+  an ETag conflict.
+- **A5 (latency fix):** `api/scalp-context.js` awaited served-call recording before
+  responding, adding real latency (up to the 1500 ms cap) to every request. The
+  response now goes out first; recording happens after, still capped and swallowed.
+- **A7:** `setConfigOverride` throws if an override touches `configVersion` or
+  `thresholds` (both snapshotted once elsewhere at module load and would silently not
+  apply); `test-replay-rules.js` fails, not skips, when its fixture is missing.
+  **Open, needs an owner answer:** should the TP1 cap (`nearestRoomAhead`) read only
+  the candidate's own geometry timeframe, matching decision 4a's scope for
+  `room:blocked`? Left as-is pending that answer.
+- **Tests:** `test:config` 14→19, `test:flagplan` 50→51, `test:flagrec` 18→20,
+  `test:paths` 22→28, `test:served` 18→22, `test:journal` 17→19; `test:tracker`
+  corrected to its true count (85, was stale at 42). 848 tests across 27 suites, all
+  green; `check:gpt` OK; `git diff --check` clean.
+
 ## 2026-09-24 — T6 phase 1: fee-aware net gate ships on, V1c (branch `upgrade-signal-engine`)
 
 `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`, owner decision D1 from the phase 0 replay

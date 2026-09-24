@@ -555,7 +555,13 @@ components:
         calls). Flag-only fields are absent on a coil. Schema 1.15.0: a failed candidate
         publishes only timeframe, type, direction, state, failReason, failedAt,
         candidateId, breakoutLevel, invalidation, confidence and qual (every other field,
-        including levelSource and durationCandles, is absent on it).
+        including durationCandles, is absent on it). Schema 1.22.0 (T6 completion plan
+        A1, docs/PLAN_T6_COMPLETION_V2.md, payload byte cap): flagSlope,
+        breakoutDistancePct, invalidationDistancePct and levelSource removed from every
+        state - confirmed unread by the GPT instructions, the tracker capture whitelist,
+        or pathOutlook/flag-paths' feature bucketing; still computed internally
+        (lib/patternDetector.js) where used before this runs, only the published shape
+        dropped them. Not a lowering of any gate or threshold.
       properties:
         timeframe:
           type: string
@@ -592,13 +598,14 @@ components:
           type: number
         breakoutLevel:
           description: >-
-            Flag only. flagHigh for long, flagLow for short, unless snapped to geometry
-            (see levelSource).
+            Flag only. flagHigh for long, flagLow for short, unless snapped to nearby
+            geometry (a zone/diagonal/confluence edge; the source itself, levelSource,
+            was dropped in schema 1.22.0 - unread by any consumer).
           type: number
         invalidation:
           description: >-
-            Flag only. flagLow for long, flagHigh for short, unless snapped to geometry
-            (see levelSource).
+            Flag only. flagLow for long, flagHigh for short, unless snapped to nearby
+            geometry (see breakoutLevel).
           type: number
         poleHeight:
           description: >-
@@ -625,23 +632,6 @@ components:
             short above the 200 or a long below it is still published (M-6).
           type: [string, "null"]
           enum: [above, below, null]
-        flagSlope:
-          description: >-
-            Flag only (schema 1.12.0, F1 item 7). Least-squares slope of the flag's own
-            closes, percent of their average per candle, sign in real price space
-            (positive = rising closes) - not oriented for direction. Null when the flag
-            window is too short to fit.
-          type: [number, "null"]
-        breakoutDistancePct:
-          description: >-
-            Flag only (schema 1.12.0, F1 item 7). Percent from the last close to
-            breakoutLevel, signed; positive means breakoutLevel sits above the last close.
-          type: number
-        invalidationDistancePct:
-          description: >-
-            Flag only (schema 1.12.0, F1 item 7). Percent from the last close to
-            invalidation, signed the same way as breakoutDistancePct.
-          type: number
         candidateId:
           description: >-
             Flag only (schema 1.12.0, F1 item 6). Stable identity across the same flag's
@@ -688,8 +678,6 @@ components:
         breakoutLevelDown:
           description: Coil only. The bear flag's breakout level.
           type: number
-        levelSource:
-          $ref: "#/components/schemas/LevelSource"
         durationCandles:
           description: Candles since the pattern's first flag candle (0 = it started on the last closed candle).
           type: integer
@@ -733,28 +721,6 @@ components:
         - direction
         - state
         - confidence
-    LevelSource:
-      type: object
-      description: >-
-        Where each level came from. flag - the flag's own edge; zone - a horizontal
-        zone edge; diagonal - a detected diagonal's current level; confluence - a
-        confluence zone edge. Geometry is the candidate's own timeframe or the nearest
-        higher one with geometry (15m for 1m/3m/5m), within lifecycle.snapTolAtr ATRs.
-        A flag carries breakout and invalidation; a coil carries breakoutUp and
-        breakoutDown.
-      properties:
-        breakout:
-          type: string
-          enum: [flag, zone, diagonal, confluence]
-        invalidation:
-          type: string
-          enum: [flag, zone, diagonal, confluence]
-        breakoutUp:
-          type: string
-          enum: [flag, zone, diagonal, confluence]
-        breakoutDown:
-          type: string
-          enum: [flag, zone, diagonal, confluence]
     CandidateQualification:
       type: object
       description: >-
@@ -863,54 +829,6 @@ components:
             "tf=5m|structureSteps=some|roomR=roomy".
           type: string
       required: [id, tf, dir, at, lean, likely, chase, w, n, cal, key]
-    BreakoutEntry:
-      type: [object, "null"]
-      description: >-
-        Schema 1.20.0 (T4 P4, docs/PLAN_FLAG_PATHS.md "P4"), SHADOW MODE ONLY - tracking
-        and research, never a trade instruction. Do not act on this field: it is not
-        gated by the same review flagTradePlan is, and status is always "shadow". A
-        second, shadow-only entry for the symbol's pathOutlook candidate (same
-        candidateId): the breakout candle's own close, published only when that candle
-        is the FIRST closed candle beyond breakoutLevel (nothing after it) and
-        pathOutlook.chase is elevated or high. Gated on the same grossRR >=
-        flagPlan.minRR and stop distance <= scalp.maxStopDistancePct the engine uses
-        everywhere else - never a lowered bar. Null most of the time: null when
-        pathOutlook is null or not "broken", when chase is "low", when the candidate has
-        already aged past its own breakout candle, or when the entry fails either gate.
-        Never an input to flagTradePlan, flagRecommendation, strategies, bestSignal, or
-        any gate/threshold - see lib/breakoutEntry.js. Replay evaluation and the
-        promotion recommendation: docs/BREAKOUT_ENTRY_SHADOW.md.
-      properties:
-        id:
-          description: The candidateSetups[] entry this shadow entry was built from (matches pathOutlook.id).
-          type: string
-        tf:
-          type: string
-          enum: ["1m", "3m", "5m"]
-        dir:
-          type: string
-          enum: [long, short]
-        at:
-          description: ISO close time of the breakout candle (the entry fill time).
-          type: string
-        entry:
-          description: The breakout candle's own close.
-          type: number
-        stop:
-          type: number
-        tp1:
-          description: The candidate's measuredTarget, unadjusted (no geometry TP1 cap).
-          type: number
-        grossRR:
-          type: number
-        netRR:
-          description: Net of config.risk fees/slippage, same formula flagTradePlan.js uses. Information only.
-          type: [number, "null"]
-        status:
-          description: Always "shadow" - never an executable trade state.
-          type: string
-          enum: [shadow]
-      required: [id, tf, dir, at, entry, stop, tp1, grossRR, netRR, status]
     FlagTradePlan:
       type: [object, "null"]
       description: >-
@@ -1428,8 +1346,6 @@ components:
           $ref: "#/components/schemas/FlagRecommendation"
         pathOutlook:
           $ref: "#/components/schemas/PathOutlook"
-        breakoutEntry:
-          $ref: "#/components/schemas/BreakoutEntry"
         model:
           $ref: "#/components/schemas/ModelEvidence"
         timeframes:

@@ -52,9 +52,16 @@ export const DEFAULT_PATH_OPTS = Object.freeze({ windowCandles: 24, retestTolR: 
  * the parity test can prove the underlying rule (reached-within-tolerance-and-held,
  * sequenced after a breakout close, "ready" while the latest close still holds) has not
  * drifted from the engine's own copy.
+ * T6 completion plan A3 (docs/PLAN_T6_COMPLETION_V2.md): a retest candle whose wick
+ * reaches through the STOP (`low <= stop` for a long, `high >= stop` for a short) before
+ * closing back on the hold side is not a valid hold - in a live position that wick would
+ * have triggered the stop loss already. Kept byte-for-byte in step with the engine's own
+ * copy (see this file's own parity test).
  * @param {Object} p
  * @param {'long'|'short'} p.direction
  * @param {number} p.entry
+ * @param {number} p.stop - the plan's own invalidation; a retest candle that wicks past
+ *   it is disqualified regardless of where it closed.
  * @param {Array<{timestamp:number, high:number, low:number, close:number}>|null} p.candles
  * @param {number|null} p.fromMs
  * @param {number|null} p.currentPrice
@@ -62,7 +69,7 @@ export const DEFAULT_PATH_OPTS = Object.freeze({ windowCandles: 24, retestTolR: 
  * @param {number} p.toleranceAtr
  * @returns {{status:'ready'|'conditional', reasonCode:string|null}}
  */
-export function observeRetestHold({ direction, entry, candles, fromMs, currentPrice, atrValue, toleranceAtr }) {
+export function observeRetestHold({ direction, entry, stop, candles, fromMs, currentPrice, atrValue, toleranceAtr }) {
   const sign = direction === 'short' ? -1 : 1;
   const closedThrough = (c) => isFiniteNumber(c.close) && sign * (c.close - entry) > 0;
 
@@ -78,10 +85,11 @@ export function observeRetestHold({ direction, entry, candles, fromMs, currentPr
   if (!last || breakoutIdx >= windowed.length - 1) return { status: 'conditional', reasonCode: 'awaiting_retest' };
 
   const tolerance = toleranceAtr * atrValue;
+  const stopBreached = (c) => isFiniteNumber(stop) && (direction === 'short' ? c.high >= stop : c.low <= stop);
   const isRetestHold = (c) => {
     const reached = direction === 'short' ? c.high >= entry - tolerance : c.low <= entry + tolerance;
     const held = isFiniteNumber(c.close) && sign * (c.close - entry) >= 0;
-    return reached && held;
+    return reached && held && !stopBreached(c);
   };
   const retestIdx = windowed.findIndex((c, i) => i > breakoutIdx && isRetestHold(c));
   const lastHeld = isFiniteNumber(last.close) && sign * (last.close - entry) >= 0;
@@ -235,13 +243,18 @@ export function labelPath(candidate, candlesTf, candles1m, opts = {}) {
   // A retest is a return to the level AFTER the breakout candle has closed: the 1m
   // candles inside the breakout candle itself (the one that crossed from inside the flag)
   // always "touch and hold" the level and must not count.
+  // T6 completion plan A3: a 1m touch candle that also wicked through invalidation
+  // (stop) before closing back on the hold side is not a valid hold, same rule as
+  // observeRetestHold's stopBreached check - in a live position that wick would have
+  // stopped the trade out.
   const breakoutCloseMs = breakoutAt + (intervalMs !== null ? intervalMs : 60_000);
   const tolerance = o.retestTolR * r;
+  const stopBreached1m = (c) => (direction === 'short' ? c.high >= invalidation : c.low <= invalidation);
   const retestReachedHeld = (c) => {
     if (c.timestamp < breakoutCloseMs) return false;
     const reached = direction === 'short' ? c.high >= breakoutLevel - tolerance : c.low <= breakoutLevel + tolerance;
     const held = isFiniteNumber(c.close) && sign * (c.close - breakoutLevel) >= 0;
-    return reached && held;
+    return reached && held && !stopBreached1m(c);
   };
 
   let path;

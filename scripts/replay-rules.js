@@ -246,7 +246,7 @@ function makeStructureCollector({ symbol, candles1m, historyByTf, cfg, mode, sin
         const fromMs = isFiniteNumber(firstDetectedMs) ? firstDetectedMs - INTERVAL_MS[tf] : null;
         const candles = closedRows(historyByTf[tf], tf, cutMs, 500);
         const currentPrice = candles.length ? candles[candles.length - 1].close : null;
-        const { status } = observeRetestHold({ direction: candidate.direction, entry: built.entry, candles, fromMs, currentPrice, atrValue, toleranceAtr: cfg.flagPlan.entryToleranceAtr });
+        const { status } = observeRetestHold({ direction: candidate.direction, entry: built.entry, stop: built.stop, candles, fromMs, currentPrice, atrValue, toleranceAtr: cfg.flagPlan.entryToleranceAtr });
         if (status !== 'ready') continue;
         seen.add(candidate.candidateId);
         const walked = walkPlan({ candles1m, closedThroughIso: line.closedThrough, direction: candidate.direction, entry: built.entry, stop: built.stop, target: built.tp1 });

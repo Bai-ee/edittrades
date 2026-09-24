@@ -557,7 +557,7 @@ async function run() {
     await test(`REGRESSION_001 (${label}): 1m candidate survives while SCALP_1H stays NO_TRADE`, async () => {
       const payload = await buildWith1m(candles);
       const btc = payload.symbols.BTC;
-      assertEqual(payload.schemaVersion, '1.21.0', 'schemaVersion');
+      assertEqual(payload.schemaVersion, '1.22.0', 'schemaVersion');
       assert(Array.isArray(btc.candidateSetups), 'candidateSetups must be an array');
       const hit = btc.candidateSetups.find((c) => c.timeframe === '1m' && c.direction === direction);
       assert(hit, `expected a 1m ${direction} candidate, got ${JSON.stringify(btc.candidateSetups)}`);
@@ -566,7 +566,10 @@ async function run() {
       assertEqual(btc.strategies.SCALP_1H.direction, 'NO_TRADE', 'SCALP_1H.direction');
       assert(!('candidateSetups' in btc.strategies), 'candidates must not leak into strategies');
       assert(btc.decisionTrace.candidateSetups.includes(`1m:${direction}:confirmed`), 'decisionTrace references the candidate');
-      assert(hit.levelSource && typeof hit.levelSource.breakout === 'string' && typeof hit.levelSource.invalidation === 'string', 'levelSource recorded (phase 9)');
+      // levelSource dropped from the published shape (T6 completion plan A1, schema
+      // 1.22.0, payload cap fix) - unread by any consumer; still computed internally
+      // (see lib/patternLifecycle.js's own snap tests for that coverage).
+      assert(!('levelSource' in hit), 'levelSource should be dropped from the published shape');
       assertEqual(hit.ageCandles, 1, 'ageCandles (phase 9)');
       assert(Number.isInteger(hit.durationCandles), 'durationCandles (phase 9)');
       // F1 item 6: stable identity. impulseStart/impulseEnd are not separately published

@@ -1447,7 +1447,7 @@ async function main() {
 
   await test('buildScalpContext (case 6) carries schemaVersion 1.18.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.21.0', 'schemaVersion must be bumped to 1.21.0');
+    assertEqual(case6Result.schemaVersion, '1.22.0', 'schemaVersion must be bumped to 1.22.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1710,8 +1710,10 @@ async function main() {
         } else {
           assertEqual(t.visualTarget, null, `${sym}: visualTarget null when off`);
         }
+        // levelSource dropped from the published shape (T6 completion plan A1, schema
+        // 1.22.0, payload cap fix) - unread by any consumer; still computed internally.
         for (const c of symData.candidateSetups) {
-          assert(c.levelSource && typeof c.levelSource === 'object', `${sym} ${c.timeframe}: levelSource`);
+          assert(!('levelSource' in c), `${sym} ${c.timeframe}: levelSource should be dropped from the published shape`);
           assert(Number.isInteger(c.durationCandles), `${sym} ${c.timeframe}: durationCandles`);
         }
       }
@@ -1841,7 +1843,114 @@ async function main() {
       assertEqual(failed.flagHigh, 3, 'input not mutated');
     });
 
-    await test('review fix 6d: payload byte caps on the saved 2026-09-23 live fixture (default <= 79,000 B, compact <= 45,000 B)', async () => {
+    await test('T6 completion plan A1: payload byte caps on a synthetic worst case, not a frozen day (default <= 80,200 B, compact <= 45,000 B)', async () => {
+      // A frozen historical fixture only proves "this one day fit" - it says nothing
+      // about the worst case, and the live payload has already exceeded 79,000 B on a
+      // day this suite never captured. This test instead builds the worst SHAPE the
+      // engine can honestly publish per symbol: 6 simultaneous failed-in-TTL candidates
+      // (every 1m/3m/5m x long/short slot, each carrying its own qual/failReason), one
+      // confirmed candidate with a ready flagTradePlan (every field populated, unlike a
+      // rejected plan's mostly-null shape), a GOOD flagRecommendation (its richest class:
+      // both rr_ok/net_rr_ok supports, a full context-token oppose set, an entryCondition
+      // changeCondition), and a non-null pathOutlook - the real per-symbol
+      // decisionTrace/geometryContext/strategies/structure/mark are kept from an actual
+      // build (those aren't what this pass is stress-testing), only
+      // candidateSetups/flagTradePlan/flagRecommendation/pathOutlook are replaced with
+      // this worst-case shape, identically on all three symbols at once.
+      const TFS = ['1m', '3m', '5m'];
+      const DIRS = ['long', 'short'];
+
+      function worstFailedCandidate(symbol, tf, dir, whenIso) {
+        const up = dir === 'long';
+        return {
+          timeframe: tf,
+          type: 'flag',
+          direction: dir,
+          state: 'failed',
+          failReason: up ? 'acceptance_below' : 'acceptance_above',
+          failedAt: whenIso,
+          candidateId: `${symbol}:${tf}:${dir}:${whenIso}`,
+          breakoutLevel: 114.05,
+          invalidation: 115.78,
+          confidence: 47,
+          qual: { quality: 'low', decision: 'dont', reasons: ['conflict:1m-long', 'room:blocked-15m', 'ct:4h', 'rr:2.43'] }
+        };
+      }
+
+      function worstConfirmedCandidate(symbol, candidateId, firstDetectedAtIso) {
+        return {
+          timeframe: '1m',
+          type: 'flag',
+          direction: 'long',
+          state: 'confirmed',
+          impulseStrength: 6,
+          compressionScore: 0.68,
+          flagHigh: 115.49,
+          flagLow: 114.15,
+          breakoutLevel: 114.05,
+          invalidation: 112.32,
+          ema21Hold: 'hold',
+          confidence: 82,
+          chaseRisk: false,
+          measuredTarget: 120.5,
+          measuredRR: 3.42,
+          durationCandles: 6,
+          ema200Side: 'above',
+          candidateId,
+          firstDetectedAt: firstDetectedAtIso,
+          // flagSlope/breakoutDistancePct/invalidationDistancePct/levelSource dropped
+          // from the published shape by stripUnusedGeometryFields (A1) - matches reality.
+          qual: { quality: 'high', decision: 'actionable', reasons: ['conflict:5m-short', 'room:clear', 'ema200:above', 'rr:3.42'] }
+        };
+      }
+
+      function worstPlan(candidateId, closedThroughIso) {
+        return {
+          candidateId,
+          timeframe: '1m',
+          direction: 'long',
+          status: 'ready',
+          reasonCode: null,
+          entryType: 'retest',
+          entryCondition: 'a closed candle closes above 114.05, then a later closed candle\'s low reaches within 0.1 ATR of 114.05 and closes at or above it',
+          entry: 114.05,
+          stop: 112.32,
+          tp1: 118.9,
+          tp2: 120.5,
+          grossRR: 3.42,
+          netRR: 2.87,
+          costR: 0.41,
+          stopDistancePct: 1.517,
+          planId: `${candidateId}|${closedThroughIso}|2026.09.24-3`
+        };
+      }
+
+      function worstRecommendation(symbol, candidateId, planId, closedThroughIso) {
+        return {
+          class: 'GOOD',
+          setupId: planId,
+          candidateId,
+          candidate: null,
+          asOf: closedThroughIso,
+          primaryReason: { code: 'ready_flag_plan', text: 'The engine has a ready long flag plan with entry 114.05, stop 112.32, TP1 118.9.' },
+          readiness: 'ready',
+          qualityBand: 'high',
+          policyVersion: 'flag-21-decision-v1',
+          supports: ['rr_ok', 'net_rr_ok', 'td:bull:4/4', '4h:with', 'a200:6/7', 'ema200:1m:above', 'divergence_agrees', 'data_fresh'],
+          opposes: ['chan:15m:top:elevated', 'level:15m:118.90'],
+          unknowns: ['ema200:1w:missing'],
+          changeConditions: [{ code: 'entry_condition', text: 'a closed candle closes above 114.05, then a later closed candle\'s low reaches within 0.1 ATR of 114.05 and closes at or above it' }],
+          trace: { symbol, class: 'GOOD', code: 'ready_flag_plan', score: 92, planStatus: 'ready', planReasonCode: null }
+        };
+      }
+
+      function worstPathOutlook(candidateId) {
+        return {
+          id: candidateId, tf: '1m', dir: 'long', at: 'tightening', lean: 'bull', likely: 'retest_go', chase: 'elevated',
+          w: { retest_go: 32, runner: 30, false_break: 24, fail_first: 48, chop: 14 }, n: 421, cal: true, key: '1m|2|1.2|tight'
+        };
+      }
+
       const dir = 'test/fixtures/history/2026-09-23';
       const history = loadHistoryDir(dir, ['BTC', 'SOL', 'ETH']);
       const cutMs = Math.min(...['BTC', 'SOL', 'ETH'].map((sym) => {
@@ -1854,7 +1963,6 @@ async function main() {
       console.log = () => {};
       let built;
       try {
-        // P1: ok marks with full-precision prices so the cap measures the live shape.
         const fetchMarks = async () => ({
           BTC: { status: 'ok', price: 112000.12345678, conf: 45.12345678, publishTime: cutMs / 1000 - 2 },
           SOL: { status: 'ok', price: 215.12345678, conf: 0.12345678, publishTime: cutMs / 1000 - 2 },
@@ -1864,12 +1972,29 @@ async function main() {
       } finally {
         console.log = saved;
       }
+      assertEqual(Object.keys(built.symbols).length, 3, 'three symbols built');
+
+      const closedThroughIso = new Date(cutMs).toISOString();
+      for (const symbol of ['BTC', 'SOL', 'ETH']) {
+        const confirmedId = `${symbol}:1m:long:${closedThroughIso}`;
+        const failed = [];
+        for (const tf of TFS) {
+          for (const d of DIRS) {
+            failed.push(worstFailedCandidate(symbol, tf, d, new Date(cutMs - 5 * 60000).toISOString()));
+          }
+        }
+        const plan = worstPlan(confirmedId, closedThroughIso);
+        built.symbols[symbol].candidateSetups = [...failed, worstConfirmedCandidate(symbol, confirmedId, new Date(cutMs - 20 * 60000).toISOString())];
+        built.symbols[symbol].flagTradePlan = plan;
+        built.symbols[symbol].flagRecommendation = worstRecommendation(symbol, confirmedId, plan.planId, closedThroughIso);
+        built.symbols[symbol].pathOutlook = worstPathOutlook(confirmedId);
+      }
+
       const def = Buffer.byteLength(JSON.stringify(filterPayload(built, {})), 'utf8');
       const compact = Buffer.byteLength(JSON.stringify(filterPayload(built, { compact: true })), 'utf8');
-      console.log(`      fixture payload: default ${def} B, compact ${compact} B`);
-      assertEqual(Object.keys(built.symbols).length, 3, 'three symbols built');
-      assert(def <= 79000, `default payload ${def} B exceeds 79,000`);
-      assert(compact <= 45000, `compact payload ${compact} B exceeds 45,000`);
+      console.log(`      worst-case payload: default ${def} B, compact ${compact} B`);
+      assert(def <= 80200, `default worst-case payload ${def} B exceeds 80,200`);
+      assert(compact <= 45000, `compact worst-case payload ${compact} B exceeds 45,000`);
     });
 
     await test('failed candidate trace string carries failReason as a fourth token; live ones keep three', () => {

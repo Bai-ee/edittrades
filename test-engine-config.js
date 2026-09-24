@@ -218,6 +218,25 @@ async function run() {
     assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, before, 'override was not cleared');
   });
 
+  await test('T6 completion plan A7: setConfigOverride throws on configVersion/thresholds instead of silently not applying (snapshotted elsewhere at module load)', () => {
+    let threw = false;
+    try { setConfigOverride({ configVersion: '2099.01.01-1' }); } catch (err) { threw = true; assert(/configVersion/.test(err.message), 'error names configVersion'); }
+    assert(threw, 'configVersion override must throw');
+    assertEqual(ENGINE_CONFIG.configVersion, CONFIG_VERSION, 'base config untouched after the throw');
+
+    threw = false;
+    try { setConfigOverride({ thresholds: { STANDARD: { emaPullbackMax: 5 } } }); } catch (err) { threw = true; assert(/thresholds/.test(err.message), 'error names thresholds'); }
+    assert(threw, 'thresholds override must throw');
+    assertEqual(ENGINE_CONFIG.thresholds.STANDARD.emaPullbackMax, 1.0, 'base thresholds untouched after the throw');
+
+    // A sibling key in the same override call is fine to reject alongside - the whole
+    // call is refused, nothing partially applies.
+    threw = false;
+    try { setConfigOverride({ thresholds: {}, flagPlan: { minNetRR: 1.5 } }); } catch { threw = true; }
+    assert(threw, 'a mixed override with thresholds still throws (all or nothing)');
+    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, 2.0, 'flagPlan was never touched by the refused call');
+  });
+
   await test('setConfigOverride: an array override replaces the base array outright (no element merge)', () => {
     const baseTfs = ENGINE_CONFIG.flag.timeframes;
     try {
@@ -330,7 +349,7 @@ async function run() {
       fetchCandles: fakeFetch,
       fetchAccount: fakeAccount
     });
-    assertEqual(payload.schemaVersion, '1.21.0', 'schemaVersion was not bumped');
+    assertEqual(payload.schemaVersion, '1.22.0', 'schemaVersion was not bumped');
     assertEqual(payload.configVersion, CONFIG_VERSION, 'payload configVersion does not match the loader');
     assertEqual(typeof payload.configVersion, 'string', 'configVersion is not a string in the payload');
   });

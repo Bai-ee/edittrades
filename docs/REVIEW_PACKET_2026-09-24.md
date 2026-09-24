@@ -228,6 +228,16 @@ Plus `check:gpt` OK (7,984 / 7,990), `git diff --check` clean.
 - Tracker commits tagged `[skip deploy]` mean the public tracker page may lag the data.
 - The replay approximates the retest walk with an R-sized tolerance (0.15R) instead of the engine's ATR tolerance. `roomR` in the replay uses its own nearest-zone function, not `flagTradePlan`'s private cap.
 - `PRODUCT.md` is untracked and belongs to neither thread; left alone.
+- **Payload over cap - FIXED (T6 completion plan A1, `docs/PLAN_T6_COMPLETION_V2.md`,
+  2026-09-24):** live had measured 79,863 B, over the documented 79,000 B default cap,
+  on a busier-market day this packet's own review range never captured. Root cause:
+  `breakoutEntry` (shadow-mode research, T4 P4) and four unread candidate fields
+  (`flagSlope`/`breakoutDistancePct`/`invalidationDistancePct`/`levelSource`) were
+  published unconditionally with no consumer reading them. Removed both; a new
+  synthetic worst-case test (3 symbols x 6 simultaneous failed-in-TTL candidates + 1
+  ready GOOD plan each, replacing the old frozen-fixture cap test that could not have
+  caught this) measured 80,148 B even after the trim, so the default cap moved to a
+  documented, minimal 80,200 B (compact unchanged at 45,000 B). Schema 1.22.0.
 
 ## 11. Where to look (quick index)
 

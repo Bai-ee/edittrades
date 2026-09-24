@@ -110,12 +110,15 @@ const quiet = async (fn) => {
 
 function mockRes() {
   return {
-    statusCode: 200, headers: {}, body: undefined,
+    statusCode: 200, headers: {}, body: undefined, jsonAt: null,
     setHeader(k, v) { this.headers[k.toLowerCase()] = v; return this; },
     status(code) { this.statusCode = code; return this; },
-    json(b) { this.headers['content-type'] = this.headers['content-type'] || 'application/json'; this.body = b; return this; },
-    send(b) { this.body = b; return this; },
-    end(b) { if (b !== undefined) this.body = b; return this; }
+    // jsonAt (T6 completion plan A5): when the response was actually handed to the
+    // caller - lets a test prove the handler's own promise resolving later (while it
+    // finishes recording in the background) never delayed this.
+    json(b) { this.headers['content-type'] = this.headers['content-type'] || 'application/json'; this.body = b; this.jsonAt = Date.now(); return this; },
+    send(b) { this.body = b; this.jsonAt = Date.now(); return this; },
+    end(b) { if (b !== undefined) this.body = b; this.jsonAt = Date.now(); return this; }
   };
 }
 
@@ -318,6 +321,27 @@ async function main() {
     const res = await callHandler({ build, record: (p) => recordServedCalls(p, { now: T0, env: ENV, store: hang }) });
     assertEqual(res.statusCode, 200, 'status');
     assert(Date.now() - t < SERVED_TIMEOUT_MS + 500, 'within cap');
+  });
+
+  await test('T6 completion plan A5: the response is sent before a slow recorder finishes, not after', async () => {
+    const RECORD_DELAY_MS = 300;
+    const t = Date.now();
+    let recordFinishedAt = null;
+    const slowRecord = async (p) => {
+      await new Promise((r) => setTimeout(r, RECORD_DELAY_MS));
+      recordFinishedAt = Date.now();
+      return { recorded: 1, skipped: null };
+    };
+    const res = await callHandler({ build, record: slowRecord });
+    assertEqual(res.statusCode, 200, 'status');
+    assert(res.jsonAt !== null, 'json() was called');
+    assert(res.jsonAt - t < RECORD_DELAY_MS / 2, `response sent well before the recorder's own ${RECORD_DELAY_MS} ms delay (took ${res.jsonAt - t} ms)`);
+    assert(recordFinishedAt !== null && recordFinishedAt > res.jsonAt, 'the recorder genuinely finished after the response, not before (proves this is not a no-op fake)');
+  });
+
+  await test('T6 completion plan A5: a recorder that throws after the response never surfaces to the caller', async () => {
+    const res = await callHandler({ build, record: async () => { await new Promise((r) => setTimeout(r, 10)); throw new Error('late boom'); } });
+    assertEqual(res.statusCode, 200, 'status is still 200, unaffected by a post-response throw');
   });
 
   await test('no record on 401, 405, build error, unavailable data or ?chart', async () => {

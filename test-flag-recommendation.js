@@ -183,6 +183,30 @@ async function run() {
     }
   });
 
+  await test('T6 completion plan A2: BAD on net_rr_below_min cites the net floor and grossRR (long + short mirror)', () => {
+    for (const direction of ['long', 'short']) {
+      const r = rec({ plan: readyPlan({ direction, status: 'rejected', reasonCode: 'net_rr_below_min', grossRR: 3.5, netRR: 1.2, costR: 0.3 }), planCfg: { minRR: 3, minNetRR: 2.0 } });
+      assertEqual(r.class, 'BAD', `${direction}: class`);
+      assert(hasCode(r.opposes, 'net_rr_below_min'), `${direction}: net rejection is opposes[0]`);
+      assertEqual(r.primaryReason.code, 'net_rr_below_min', `${direction}: primary reason`);
+      assert(/net R:R after fees is 1\.2, below the 2R floor/.test(r.primaryReason.text), `${direction}: text cites netRR and the net floor, got ${r.primaryReason.text}`);
+      assert(hasCode(r.changeConditions, 'new_valid_plan'), `${direction}: remedy event`);
+      const remedy = r.changeConditions.find((c) => c.code === 'new_valid_plan');
+      assert(/net R:R after fees is >= 2R/.test(remedy.text), `${direction}: remedy names the net floor, got ${remedy.text}`);
+    }
+  });
+
+  await test('T6 completion plan A2: BAD on stop_inside_costs cites the cost fraction of risk (long + short mirror)', () => {
+    for (const direction of ['long', 'short']) {
+      // The real BTC 0.066%-stop incident: gross 3.30 passes, net 0.07 fails hard, costR ~3.0.
+      const r = rec({ plan: readyPlan({ direction, status: 'rejected', reasonCode: 'stop_inside_costs', grossRR: 3.3, netRR: 0.07, costR: 3.04 }), planCfg: { minRR: 3, minNetRR: 2.0 } });
+      assertEqual(r.class, 'BAD', `${direction}: class`);
+      assert(hasCode(r.opposes, 'stop_inside_costs'), `${direction}: cost rejection is opposes[0]`);
+      assertEqual(r.primaryReason.code, 'stop_inside_costs', `${direction}: primary reason`);
+      assert(/round-trip cost is 3\.04R of this stop's risk/.test(r.primaryReason.text), `${direction}: text cites costR, got ${r.primaryReason.text}`);
+    }
+  });
+
   await test('owner decision 1a + T6 phase 1: gross >= floor but net < floor is never BAD; fees_heavy warns (long + short mirror, ready + conditional)', () => {
     for (const direction of ['long', 'short']) {
       const ready = rec({ plan: readyPlan({ direction, grossRR: 3.16, netRR: 0.023 }), td: topDown({ sentiment: direction === 'short' ? 'bear' : 'bull' }) });

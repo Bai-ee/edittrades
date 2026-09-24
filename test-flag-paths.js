@@ -156,6 +156,24 @@ function m1Candles(startMs, rows) {
     assertEqual(r.retestAt, T0 + 11 * MIN, 'retestAt (short)');
   });
 
+  await test('T6 completion plan A3: a 1m touch that wicks through invalidation before closing back does not count as a retest -> runner, not retest_go', () => {
+    const candidate = { direction: 'long', breakoutLevel: 200, invalidation: 198 };
+    const candlesTf = tfCandles(T0, [
+      { o: 199.4, h: 199.7, l: 199.3, c: 199.5 },
+      { o: 199.6, h: 200.6, l: 199.6, c: 200.5 }, // breakout close
+      { o: 200.5, h: 200.8, l: 200.4, c: 200.6 }
+    ]);
+    const candles1m = m1Candles(T0 + 10 * MIN, [
+      { o: 200.5, h: 200.60, l: 200.40, c: 200.50 },
+      { o: 200.50, h: 200.45, l: 197.90, c: 200.25 }, // reached (low<=200.3) + held (close>=200), but wicked through invalidation 198 first - not a valid retest
+      { o: 200.25, h: 201.00, l: 200.50, c: 200.90 }, // stays clear of the retest tolerance band (<=200.3) - not itself a retest touch
+      { o: 200.90, h: 202.00, l: 200.90, c: 201.90 } // target touch (+1R = 202)
+    ]);
+    const r = labelPath(candidate, candlesTf, candles1m, { fromMs: T0 });
+    assertEqual(r.path, 'runner', 'the only retest-shaped touch was stop-wicked, so this resolves as a runner, not retest_go');
+    assertEqual(r.retestAt, null, 'no valid retest recorded');
+  });
+
   // ============ labelPath: false_break ============
   await test('labelPath: long false_break', () => {
     const candidate = { direction: 'long', breakoutLevel: 300, invalidation: 298 };
@@ -355,15 +373,37 @@ function m1Candles(startMs, rows) {
       c(T0 + MIN, 49.8, 49.5, 49.6), // breakout close
       c(T0 + 2 * MIN, 49.95, 49.55, 49.7) // retest reached+held
     ];
+    // T6 completion plan A3: reached+held, but the wick also breaches the stop (19.5) - not a valid hold.
+    const long20StopWick = [
+      c(T0, 19.8, 19.6, 19.7),
+      c(T0 + MIN, 20.5, 20.2, 20.4),
+      c(T0 + 2 * MIN, 20.45, 19.45, 20.05)
+    ];
     const cases = [
-      { direction: 'long', entry: 20, candles: long20, fromMs: T0, currentPrice: 20.5, atrValue: 4, toleranceAtr: 0.1 },
-      { direction: 'long', entry: 20, candles: long20NoHold, fromMs: T0, currentPrice: 19.95, atrValue: 4, toleranceAtr: 0.1 },
-      { direction: 'short', entry: 50, candles: short50, fromMs: T0, currentPrice: 49.7, atrValue: 3, toleranceAtr: 0.1 },
-      { direction: 'long', entry: 20, candles: long20.slice(0, 1), fromMs: T0, currentPrice: 19.7, atrValue: 4, toleranceAtr: 0.1 }, // no breakout yet
-      { direction: 'long', entry: 20, candles: null, fromMs: T0, currentPrice: 20.5, atrValue: null, toleranceAtr: 0.1 } // falls to the ATR-less branch
+      { direction: 'long', entry: 20, stop: 19.5, candles: long20, fromMs: T0, currentPrice: 20.5, atrValue: 4, toleranceAtr: 0.1 },
+      { direction: 'long', entry: 20, stop: 19.5, candles: long20NoHold, fromMs: T0, currentPrice: 19.95, atrValue: 4, toleranceAtr: 0.1 },
+      { direction: 'short', entry: 50, stop: 50.5, candles: short50, fromMs: T0, currentPrice: 49.7, atrValue: 3, toleranceAtr: 0.1 },
+      { direction: 'long', entry: 20, stop: 19.5, candles: long20.slice(0, 1), fromMs: T0, currentPrice: 19.7, atrValue: 4, toleranceAtr: 0.1 }, // no breakout yet
+      { direction: 'long', entry: 20, stop: 19.5, candles: null, fromMs: T0, currentPrice: 20.5, atrValue: null, toleranceAtr: 0.1 }, // falls to the ATR-less branch
+      { direction: 'long', entry: 20, stop: 19.5, candles: long20StopWick, fromMs: T0, currentPrice: 20.05, atrValue: 4, toleranceAtr: 0.1 } // A3: stop-wicked retest
     ];
     for (const args of cases) {
       assertEqual(JSON.stringify(vendoredRetestHold(args)), JSON.stringify(sourceRetestHold(args)), `parity ${JSON.stringify(args.direction)} ${args.candles ? args.candles.length : 'null'}`);
+    }
+  });
+
+  await test('T6 completion plan A3: a retest candle that wicks through the stop is not a valid hold (both copies)', () => {
+    const c = (ts, h, l, close) => ({ timestamp: ts, high: h, low: l, close });
+    const stopWick = [
+      c(T0, 19.8, 19.6, 19.7),
+      c(T0 + MIN, 20.5, 20.2, 20.4), // breakout close
+      c(T0 + 2 * MIN, 20.45, 19.45, 20.05) // reached (low<=20.4) + held (close>=20) but wicks through stop 19.5
+    ];
+    const args = { direction: 'long', entry: 20, stop: 19.5, candles: stopWick, fromMs: T0, currentPrice: 20.05, atrValue: 4, toleranceAtr: 0.1 };
+    for (const fn of [sourceRetestHold, vendoredRetestHold]) {
+      const r = fn(args);
+      assertEqual(r.status, 'conditional', 'a live position would have stopped out on this wick, so it cannot be a hold');
+      assertEqual(r.reasonCode, 'awaiting_retest', 'reasonCode');
     }
   });
 

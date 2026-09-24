@@ -318,26 +318,30 @@ async function run() {
   console.log('\n4) end-to-end wiring: the override hook actually reaches buildScalpContext through this script\n');
 
   const HISTORY_DIR = 'test/fixtures/history/deep-2026-09-24';
-  if (!existsSync(`${HISTORY_DIR}/manifest.json`)) {
-    console.log('  (skipped: fixture history not present in this checkout)');
-  } else {
-    await test('runVariant: V0 and V1b share the same replayed closes but V1b never publishes a plan below its net floor', async () => {
-      const opts = { historyDir: HISTORY_DIR, symbols: ['BTC'], step: 1, from: '2026-09-20T00:00:00Z', to: '2026-09-20T06:00:00Z' };
-      const v0 = await runVariant({ variantId: 'V0', ...opts });
-      const v1b = await runVariant({ variantId: 'V1b', ...opts });
-      assertEqual(v0.buildMs.totalCloses, v1b.buildMs.totalCloses, 'both variants replay the same number of closes');
-      for (const c of v1b.goodCalls) assert(c.plannedNetRR === null || c.plannedNetRR >= 1.5, `V1b GOOD call ${c.candidateId} published below its own net floor`);
-      // Every V1b GOOD call's net RR floor is a subset condition of V0's own set (net gate only removes calls, never adds).
-      const v0Ids = new Set(v0.goodCalls.map((c) => c.candidateId));
-      for (const c of v1b.goodCalls) assert(v0Ids.has(c.candidateId), `V1b surfaced a candidateId (${c.candidateId}) V0 never reached ready on`);
-    });
+  // T6 completion plan A7: fails, does not silently skip, when the fixture is missing -
+  // a quietly-shrinking test count on a machine without the (gitignored) fixture would
+  // hide real breakage instead of surfacing it. Recreate it with
+  // `node scripts/replay.js --capture BTC,SOL,ETH --out test/fixtures/history/deep-2026-09-24/ --backfill-1m 20880`.
+  const HAS_FIXTURE = existsSync(`${HISTORY_DIR}/manifest.json`);
 
-    await test('runVariant: ENGINE_CONFIG is restored to the on-disk default after the run (override hook cleans up)', async () => {
-      await runVariant({ historyDir: HISTORY_DIR, symbols: ['BTC'], step: 5, from: '2026-09-20T00:00:00Z', to: '2026-09-20T01:00:00Z', variantId: 'V2' });
-      assertEqual(ENGINE_CONFIG.flag.timeframes.length, 3, 'V2 override (5 flag timeframes) must not leak past the run');
-      assert(ENGINE_CONFIG.flag.timeframes.includes('1m') && ENGINE_CONFIG.flag.timeframes.includes('5m'), 'base flag.timeframes restored');
-    });
-  }
+  await test('runVariant: V0 and V1b share the same replayed closes but V1b never publishes a plan below its net floor', async () => {
+    assert(HAS_FIXTURE, `fixture history missing at ${HISTORY_DIR} - see this section's header comment to recreate it`);
+    const opts = { historyDir: HISTORY_DIR, symbols: ['BTC'], step: 1, from: '2026-09-20T00:00:00Z', to: '2026-09-20T06:00:00Z' };
+    const v0 = await runVariant({ variantId: 'V0', ...opts });
+    const v1b = await runVariant({ variantId: 'V1b', ...opts });
+    assertEqual(v0.buildMs.totalCloses, v1b.buildMs.totalCloses, 'both variants replay the same number of closes');
+    for (const c of v1b.goodCalls) assert(c.plannedNetRR === null || c.plannedNetRR >= 1.5, `V1b GOOD call ${c.candidateId} published below its own net floor`);
+    // Every V1b GOOD call's net RR floor is a subset condition of V0's own set (net gate only removes calls, never adds).
+    const v0Ids = new Set(v0.goodCalls.map((c) => c.candidateId));
+    for (const c of v1b.goodCalls) assert(v0Ids.has(c.candidateId), `V1b surfaced a candidateId (${c.candidateId}) V0 never reached ready on`);
+  });
+
+  await test('runVariant: ENGINE_CONFIG is restored to the on-disk default after the run (override hook cleans up)', async () => {
+    assert(HAS_FIXTURE, `fixture history missing at ${HISTORY_DIR} - see this section's header comment to recreate it`);
+    await runVariant({ historyDir: HISTORY_DIR, symbols: ['BTC'], step: 5, from: '2026-09-20T00:00:00Z', to: '2026-09-20T01:00:00Z', variantId: 'V2' });
+    assertEqual(ENGINE_CONFIG.flag.timeframes.length, 3, 'V2 override (5 flag timeframes) must not leak past the run');
+    assert(ENGINE_CONFIG.flag.timeframes.includes('1m') && ENGINE_CONFIG.flag.timeframes.includes('5m'), 'base flag.timeframes restored');
+  });
 
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {

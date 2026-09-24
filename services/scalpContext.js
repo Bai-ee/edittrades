@@ -22,7 +22,6 @@ import { buildFlagTradePlan } from '../lib/flagTradePlan.js';
 import { buildModelEvidence } from '../lib/modelEvidence.js';
 import { buildFlagRecommendation, compactRecommendation } from '../lib/flagRecommendation.js';
 import { buildPathOutlook } from '../lib/pathOutlook.js';
-import { buildBreakoutEntry } from '../lib/breakoutEntry.js';
 import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
 import { buildWeeklyLean, buildTopDown, buildAboveBelow200 } from '../lib/topDown.js';
 import { fetchPythMarks, buildMark, markTraceToken, compactMark } from '../lib/pythMark.js';
@@ -38,7 +37,15 @@ export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 // identity/geometry/qualification fields (items 6-8), and the two together pushed the
 // live default payload past 79 KB. 20 candles is still 20 minutes of 1m history.
 // 15m/1h 24 -> 20 in the review fix pass (2026-09-23, config 2026.09.23-4) for the same
-// 79,000-byte default cap (the engine still computes on the full closed window).
+// default cap (the engine still computes on the full closed window). Cap raised
+// 79,000 -> 80,200 B (2026-09-24, T6 completion plan A1, owner-approved, minimal): a
+// synthetic worst case (3 symbols x 6 simultaneous failed-in-TTL candidates + 1 ready
+// plan each) measured 80,148 B after removing `breakoutEntry` from the payload and
+// dropping flagSlope/breakoutDistancePct/invalidationDistancePct/levelSource (schema
+// 1.22.0, confirmed unread by any consumer - see openapi/scalp-context.yaml); the
+// remaining gap on that extreme tail case was judged not worth a further field cut.
+// Compact cap stays 45,000 B (already passes, no change). See test-scalp-context.js's
+// "T6 completion plan A1" test.
 export const CANDLE_LIMITS = {
   '1m': 20,
   '3m': 20,
@@ -790,6 +797,28 @@ export function slimFailedCandidates(setups) {
 export function stripPoleHeight(setups) {
   if (!Array.isArray(setups)) return setups;
   return setups.map(({ poleHeight, ...rest }) => rest);
+}
+
+/**
+ * T6 completion plan A1 (docs/PLAN_T6_COMPLETION_V2.md, payload cap fix): drop
+ * `flagSlope`, `breakoutDistancePct`, `invalidationDistancePct` and `levelSource` from
+ * every published candidate. Confirmed unread by any consumer in this codebase - not in
+ * `docs/GPT_INSTRUCTIONS.md`'s field table (explicitly "not named in the instructions
+ * box" there), not in `scripts/tracker/records.js`'s capture whitelist, not read by
+ * `lib/pathOutlook.js` or `scripts/tracker/flag-paths.js`'s feature bucketing (unlike
+ * `compressionScore`/`durationCandles`/`impulseStrength`/`flagHigh`/`flagLow`, which
+ * those DO read and this keeps). Same precedent as the `impulseStart`/`impulseEnd` drop
+ * (2026-09-23, `docs/EDITTRADES_MCP_CONNECTOR.md`'s work log): still computed and
+ * available internally (`lib/patternDetector.js`) for whatever needs them before this
+ * runs; only the published shape is smaller. Runs on every state, not just failed - a
+ * failed candidate never carried these fields anyway (`FAILED_CANDIDATE_KEYS`), so this
+ * is a no-op there.
+ * @param {Array<Object>} setups
+ * @returns {Array<Object>}
+ */
+export function stripUnusedGeometryFields(setups) {
+  if (!Array.isArray(setups)) return setups;
+  return setups.map(({ flagSlope, breakoutDistancePct, invalidationDistancePct, levelSource, ...rest }) => rest);
 }
 
 // Valid `include` tokens for filterPayload (phase 5, item A + G). 'geometry' gates
@@ -1608,23 +1637,6 @@ export async function buildScalpContext(options = {}) {
       console.warn(`[ScalpContext] ${symbol}: path outlook failed - ${err.message}`);
     }
 
-    // T4 P4 SHADOW MODE (docs/PLAN_FLAG_PATHS.md "P4"): a breakout-close entry for
-    // runner-prone flags, published for the tracker to score - info only, never an
-    // input to flagTradePlan, flagRecommendation, strategies, bestSignal, or any gate/
-    // threshold (lib/breakoutEntry.js). Same separate-channel rule as pathOutlook above:
-    // a fault is logged, never warned, and the field is simply null.
-    let breakoutEntry = null;
-    try {
-      breakoutEntry = buildBreakoutEntry({
-        candidateSetups,
-        pathOutlook,
-        tfEntries,
-        closedByTf
-      });
-    } catch (err) {
-      console.warn(`[ScalpContext] ${symbol}: breakout entry failed - ${err.message}`);
-    }
-
     const decisionTrace = buildDecisionTrace({
       rawStrategies,
       bestSignal,
@@ -1653,7 +1665,7 @@ export async function buildScalpContext(options = {}) {
       timeframes: tfEntries,
       strategies,
       bestSignal,
-      candidateSetups: (slimFailed ? slimFailedCandidates : (x) => x)(stripPoleHeight(filterFailedCandidateSetups(candidateSetups, includeFailed, { closedThroughByTf }))),
+      candidateSetups: (slimFailed ? slimFailedCandidates : (x) => x)(stripUnusedGeometryFields(stripPoleHeight(filterFailedCandidateSetups(candidateSetups, includeFailed, { closedThroughByTf })))),
       geometryContext,
       decisionTrace,
       flagTradePlan,
@@ -1662,10 +1674,7 @@ export async function buildScalpContext(options = {}) {
       flagRecommendation: compactRecommendation(recommendationFull),
       // T4 P1: measured-history scenario weights for the live flag candidate. null when
       // none exists. Never gates anything above.
-      pathOutlook,
-      // T4 P4 SHADOW MODE: breakout-close entry for runner-prone flags, tracker-scored
-      // only, status always 'shadow'. null most of the time. Never gates anything above.
-      breakoutEntry
+      pathOutlook
     };
     if (includeModel && modelEvidence) symbolsOut[symbol].model = { ...modelEvidence, recommendation: recommendationFull };
     if (includeBias && bias) {
@@ -1719,7 +1728,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.21.0',
+    schemaVersion: '1.22.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
@@ -1757,6 +1766,7 @@ export default {
   buildConfigSnapshot,
   filterFailedCandidateSetups,
   stripPoleHeight,
+  stripUnusedGeometryFields,
   slimFailedCandidates,
   attachCandidateRisk,
   wantsBias,

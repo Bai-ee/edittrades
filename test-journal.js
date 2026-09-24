@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { validateJournalEntry, journalDay, parseJournalLines, KINDS, RECORD_KEYS, MAX_RECORD_BYTES } from './lib/journalSchema.js';
 import { handleJournal, resetRateLimit, RATE_LIMIT } from './api/journal.js';
+import { updateBlob, isOverwriteConflict, WRITE_ATTEMPTS } from './lib/blobJsonl.js';
 
 let passed = 0;
 let failed = 0;
@@ -38,16 +39,32 @@ function assertEqual(actual, expected, msg) {
   if (actual !== expected) throw new Error(`${msg || 'mismatch'}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
+async function assertRejects(fn, pattern) {
+  try {
+    await fn();
+  } catch (err) {
+    if (pattern && !pattern.test(String(err.message))) throw new Error(`rejected with the wrong message: ${err.message}`);
+    return;
+  }
+  throw new Error('expected a rejection, got none');
+}
+
 const KEY = 'test-journal-key-0123456789';
 const ENV = { JOURNAL_API_KEY: KEY };
 const T0 = Date.parse('2026-09-24T14:05:00.000Z');
 const BASE = 'https://fakestore.public.blob.vercel-storage.com';
 
-/** In-memory Vercel Blob with ETags; `raceOnce` makes the next ifMatch write fail once. */
+/**
+ * In-memory Vercel Blob with ETags; `raceOnce` makes the next `ifMatch` write fail once
+ * (an existing blob, concurrent update race). `raceCreateOnce` (T6 completion plan A4)
+ * makes the next `allowOverwrite: false` write on a not-yet-existing pathname fail once
+ * with `BlobAccessError`, as if a concurrent request created the blob a moment earlier -
+ * the first-write race `writeBlob`'s create path now guards against.
+ */
 function fakeBlob() {
   const files = new Map();
   let n = 0;
-  const state = { files, puts: [], raceOnce: false };
+  const state = { files, puts: [], raceOnce: false, raceCreateOnce: false };
   state.get = async (pathname) => {
     const f = files.get(pathname);
     if (!f) return null;
@@ -56,7 +73,7 @@ function fakeBlob() {
   state.put = async (pathname, body, opts) => {
     state.puts.push({ pathname, opts });
     assertEqual(opts.addRandomSuffix, false, 'addRandomSuffix');
-    assertEqual(opts.allowOverwrite, true, 'allowOverwrite');
+    assertEqual(opts.allowOverwrite, !!opts.ifMatch, 'allowOverwrite matches whether ifMatch is set (A4)');
     assertEqual(opts.access, 'public', 'access');
     const cur = files.get(pathname);
     if (state.raceOnce && opts.ifMatch) {
@@ -66,6 +83,16 @@ function fakeBlob() {
     }
     if (opts.ifMatch && (!cur || cur.etag !== opts.ifMatch)) {
       const err = new Error('Precondition failed'); err.name = 'BlobPreconditionFailedError'; throw err;
+    }
+    if (state.raceCreateOnce && !opts.ifMatch && opts.allowOverwrite === false && !cur) {
+      state.raceCreateOnce = false;
+      files.set(pathname, { text: 'concurrent-writer-won\n', etag: `"e${++n}"` });
+      const err = new Error('This blob already exists, use `allowOverwrite: true`'); err.name = 'BlobAccessError'; throw err;
+    }
+    // Real Vercel Blob semantics: allowOverwrite:false against an existing blob (no
+    // ifMatch) always throws, race or not.
+    if (!opts.ifMatch && opts.allowOverwrite === false && cur) {
+      const err = new Error('This blob already exists, use `allowOverwrite: true`'); err.name = 'BlobAccessError'; throw err;
     }
     files.set(pathname, { text: String(body), etag: `"e${++n}"` });
     return { url: `${BASE}/${pathname}`, pathname };
@@ -236,6 +263,35 @@ async function run() {
     const res = await call({ body: { text: 'note two' }, blob, nowMs: T0 + 1000 });
     assertEqual(res.statusCode, 201, 'retried');
     assertEqual(parseJournalLines(blob.files.get('journal/2026-09-24.jsonl').text).length, 2, 'two lines');
+  });
+
+  await test('T6 completion plan A4: lib/blobJsonl.js updateBlob retries past a first-write race instead of silently losing a row', async () => {
+    const blob = fakeBlob();
+    blob.raceCreateOnce = true;
+    const append = (text) => `${text || ''}my-write\n`;
+    const { written, result } = await updateBlob(blob, 'race/2026-09-24.jsonl', 'text/plain; charset=utf-8', append);
+    assert(written, 'eventually wrote');
+    // The retry re-read the concurrent writer's row and appended onto it - neither write was lost.
+    assertEqual(blob.files.get('race/2026-09-24.jsonl').text, 'concurrent-writer-won\nmy-write\n', 'both writes survive, in race order');
+    assertEqual(blob.puts.filter((p) => p.pathname === 'race/2026-09-24.jsonl').length, 2, 'exactly one retry (attempt 1 conflict, attempt 2 success)');
+    assert(!blob.puts[0].opts.ifMatch, 'first attempt had no ifMatch (it believed it was creating)');
+    assertEqual(blob.puts[0].opts.allowOverwrite, false, 'first attempt asked allowOverwrite:false (A4)');
+    assert(result, 'second attempt returned a put result');
+  });
+
+  await test('T6 completion plan A4: isOverwriteConflict recognizes BlobAccessError; updateBlob gives up after WRITE_ATTEMPTS', async () => {
+    assert(isOverwriteConflict({ name: 'BlobAccessError' }), 'name match');
+    assert(isOverwriteConflict({ name: 'Error', message: 'This blob already exists, use allowOverwrite: true' }), 'message match');
+    assert(!isOverwriteConflict({ name: 'Error', message: 'unrelated' }), 'no false positive');
+
+    const blob = fakeBlob();
+    let attempts = 0;
+    blob.put = async () => { attempts++; const err = new Error('This blob already exists'); err.name = 'BlobAccessError'; throw err; };
+    await assertRejects(
+      () => updateBlob(blob, 'race/2026-09-24.jsonl', 'text/plain; charset=utf-8', (text) => `${text || ''}x\n`),
+      /already exists/i
+    );
+    assertEqual(attempts, WRITE_ATTEMPTS, `gives up after exactly ${WRITE_ATTEMPTS} attempts, never loops forever`);
   });
 
   await test('GET: newest first across days, default 10, ?limit capped at 50, empty store -> []', async () => {

@@ -197,6 +197,12 @@
  *     of it and close on the hold side for `ready` (else `conditional`). Tight on
  *     purpose - the plan is a specific retest level, not a zone. `minRR` here is the
  *     only R:R floor; lib/flagRecommendation.js reads it too (no `model.minRR`).
+ *     T6 completion plan A3: that retest candle is also disqualified if its wick reaches
+ *     through the plan's own stop first, even though it closed back on the hold side - a
+ *     live position would have been stopped out on that wick, so it cannot be credited
+ *     as a hold (`observeRetestHold`'s `stopBreached`, and its byte-for-byte-identical
+ *     vendored copy in `scripts/tracker/flag-paths.js`, used the same way by
+ *     `labelPath`'s own `retestReachedHeld`).
  *
  * `mark.pyth` block (P1 Pyth mark, `lib/pythMark.js`, config 2026.09.23-5):
  *   - feedIds (BTC/ETH/SOL): Hermes price feed ids for Crypto.<SYM>/USD, resolved once
@@ -276,9 +282,23 @@ export const CONFIG_VERSION = ENGINE_CONFIG.configVersion;
  * suite. Not safe to call concurrently with another build in the same process - it is a
  * single shared module-level binding - so a caller that wants isolated variants must run
  * them in separate processes (`scripts/replay-rules.js` invoked once per variant).
+ *
+ * T6 completion plan A7 (docs/PLAN_T6_COMPLETION_V2.md): this live-binding trick only
+ * reaches code that reads `ENGINE_CONFIG.<section>` at call time. Two things don't -
+ * `CONFIG_VERSION` (this module's own `export const`, snapshotted from `raw` once at
+ * load) and `services/strategy.js`'s `const THRESHOLDS = ENGINE_CONFIG.thresholds`
+ * (also snapshotted once, at that module's own load) - so an override touching
+ * `configVersion` or `thresholds` would silently apply everywhere else while those two
+ * keep reading the base values, a correctness trap for the next variant that needs
+ * either. No current variant does, so this throws instead of quietly mis-behaving;
+ * making both genuinely live is a bigger change (every `THRESHOLDS` read site in
+ * strategy.js) that isn't worth it until a variant actually needs it.
  * @param {Object|null} [overrides]
  */
 export function setConfigOverride(overrides) {
+  if (overrides && ('configVersion' in overrides || 'thresholds' in overrides)) {
+    throw new Error('setConfigOverride: configVersion/thresholds are snapshotted elsewhere at module load (CONFIG_VERSION, services/strategy.js THRESHOLDS) and would not actually take effect there - see this function\'s own comment before overriding either');
+  }
   ENGINE_CONFIG = overrides ? deepFreeze(deepMerge(raw, overrides)) : deepFreeze(raw);
 }
 

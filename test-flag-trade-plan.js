@@ -107,6 +107,10 @@ function levelCandles(direction, kind) {
   const retest = bar(2, 1005, 1006, 1000.3, 1003);
   if (kind === 'continuation') return [inside, breakout, retest, bar(3, 1003, 1009, 1002, 1008)];
   if (kind === 'fallback') return [inside, breakout, retest, bar(3, 1003, 1004, 997, 998)];
+  // T6 completion plan A3: the "retest" candle's wick reaches through the stop (990 for
+  // long, invalidation is entry-10) before closing back on the hold side (1003) - not a
+  // valid hold; a live position would have been stopped out on this candle's wick.
+  if (kind === 'stopWick') return [inside, breakout, bar(2, 1005, 1006, 985, 1003)];
   return kind === 'retest' ? [inside, breakout, retest] : [bar(0, 996, 998, 994, 995), bar(1, 995, 998, 994, 996), { ...breakout, timestamp: NOW - 60000 }];
 }
 
@@ -164,6 +168,15 @@ async function run() {
     assertEqual(l.status, 'ready', 'long status');
     const s = buildFlagTradePlan(baseParams({ candidate: shortCandidate(), price: 992, candles: levelCandles('short', 'continuation') }));
     assertEqual(s.status, 'ready', 'short status');
+  });
+
+  await test('T6 completion plan A3: a retest candle that wicks through the stop before closing back on the hold side is not a valid hold (long + short mirror)', () => {
+    const l = buildFlagTradePlan(baseParams({ candidate: longCandidate(), price: 1003, candles: levelCandles('long', 'stopWick') }));
+    assertEqual(l.status, 'conditional', 'long status: the wick to 985 breached the 990 stop, so this is not a hold');
+    assertEqual(l.reasonCode, 'awaiting_retest', 'long reasonCode');
+    const s = buildFlagTradePlan(baseParams({ candidate: shortCandidate(), price: 997, candles: levelCandles('short', 'stopWick') }));
+    assertEqual(s.status, 'conditional', 'short status: the wick breached the 1010 stop');
+    assertEqual(s.reasonCode, 'awaiting_retest', 'short reasonCode');
   });
 
   await test('awaiting_retest again (long + short mirror): retest-hold seen, then the latest close falls back through the level', () => {

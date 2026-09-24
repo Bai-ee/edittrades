@@ -181,19 +181,32 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
       return res.status(200).send(chart.png);
     }
 
-    // Served-call recording (T3): the unfiltered payload, so compact/include/symbols
-    // filters never hide the plan. Capped and swallowed; the response below is unchanged.
-    // The tracker's own cron GET (X-EditTrades-Client: tracker) is not a served call.
+    // T6 completion plan A5 (docs/PLAN_T6_COMPLETION_V2.md): the response goes out FIRST -
+    // served-call recording never delays what the caller sees, even in the non-hanging
+    // case (recordServedCalls's own 1500 ms cap only bounds a stuck Blob call; awaiting
+    // it before responding still added real latency to every request). The unfiltered
+    // payload, so compact/include/symbols filters never hide the plan. The tracker's own
+    // cron GET (X-EditTrades-Client: tracker) is not a served call.
     const fromTracker = String((req.headers && req.headers['x-edittrades-client']) || '').toLowerCase() === 'tracker';
-    if (!fromTracker) {
-      try { await record(payload); } catch { /* recording never affects the response */ }
-    }
 
     console.log(`[ScalpContext] requestId=${requestId} status=200 durationMs=${Date.now() - startedAt} symbols=${symbolsCount} warnings=${warningsCount}`);
-    return res.status(200).json({
+    res.status(200).json({
       ...filtered,
       requestId
     });
+
+    if (!fromTracker) {
+      // recordServedCalls never throws and never runs past its own timeoutMs cap (see
+      // lib/servedCalls.js); this try/catch is belt-and-suspenders so a defect there can
+      // never reach here and affect an already-sent response.
+      try {
+        const outcome = await record(payload);
+        if (outcome && outcome.skipped) console.log(`[ScalpContext] requestId=${requestId} served-call skipped=${outcome.skipped}`);
+      } catch (err) {
+        console.warn(`[ScalpContext] requestId=${requestId} served-call recording threw unexpectedly: ${err && err.message}`);
+      }
+    }
+    return;
   } catch (error) {
     console.log(`[ScalpContext] requestId=${requestId} status=500 durationMs=${Date.now() - startedAt} symbols=0 warnings=0`);
     return res.status(500).json({ error: 'Internal error', requestId });
