@@ -144,7 +144,7 @@ export function renderHtml(agg) {
   // Primary: hero.
   const heroValue = isNum(t.expectancy7d) && scored7 > 0
     ? `<div class="hero-value ${rStatus(t.expectancy7d)}" id="tile-expectancy-7d">${esc(signed(t.expectancy7d))}<span class="hero-unit">R</span></div>`
-    : `<div class="hero-value hero-empty" id="tile-expectancy-7d">${emptyInline()}</div>`;
+    : `<div class="hero-value hero-empty" id="tile-expectancy-7d">0.00<span class="hero-unit">R</span></div><div class="hero-empty-note" id="hero-empty-note">${emptyInline()}</div>`;
   const hero = `<section id="performance-hero-section" data-section="performance-hero-section" class="hero">`
     + `<div class="section-head" id="performance-hero-head"><span class="label">Expectancy · 7d · gross R per scored call</span><span class="prov-tag">PROVISIONAL</span></div>`
     + heroValue
@@ -276,6 +276,7 @@ h2{margin:0;font:500 var(--fs-md)/1.2 var(--grotesk);letter-spacing:-.01em;color
 h3{margin:24px 0 8px;font:400 var(--fs-sm)/1.2 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
 .hero{margin-top:48px}
 .hero .section-head{border-bottom:0;padding-bottom:0;margin-bottom:0}
+.hero-empty{color:var(--text-disabled)}.hero-empty-note{margin:0 0 8px}
 .hero-value{font-family:var(--doto);font-weight:700;font-size:var(--fs-hero);line-height:1;letter-spacing:-.03em;color:var(--text-display);margin:16px 0 8px;font-variant-numeric:tabular-nums}
 .hero-unit{font-family:var(--mono);font-weight:400;font-size:var(--fs-md);letter-spacing:0;vertical-align:top;margin-left:8px;color:var(--text-secondary)}
 .hero-empty{font-size:var(--fs-md);font-family:var(--mono);font-weight:400;letter-spacing:.04em;margin:32px 0 16px}
