@@ -26,6 +26,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile } from './store.js';
 import { round, median, isFiniteNumber } from './walk-outcome.js';
+import { costR } from './costs.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 export const CAPTURE_GAP_MINUTES = 20;
@@ -52,6 +53,20 @@ export function statsFor(rows) {
   const winRs = wins.map((r) => r.r).filter(isFiniteNumber);
   const net = rows.filter((r) => r.filledAt && isFiniteNumber(r.netRR)).map((r) => r.netRR);
   const count = (o) => rows.filter((r) => r.outcome === o).length;
+  // Net R (T5 S1, fees + slippage): gross R minus round-trip cost in R, cost from
+  // scripts/tracker/costs.js (mirrors lib/flagTradePlan.js's netRiskReward cost model -
+  // see costs.js's own header). Only decided rows with usable entry/stop levels count;
+  // outcomes.jsonl itself is never written to.
+  const costRs = [];
+  const netRs = [];
+  for (const r of decided) {
+    const gross = r.outcome === 'stop' ? -1 : r.r;
+    if (!isFiniteNumber(gross)) continue;
+    const cost = costR(r.entry, r.stop);
+    if (cost === null) continue;
+    costRs.push(cost);
+    netRs.push(gross - cost);
+  }
   return {
     calls: rows.length,
     fills: rows.filter((r) => r.filledAt).length,
@@ -67,6 +82,8 @@ export function statsFor(rows) {
     avgWinR: winRs.length ? round(winRs.reduce((a, b) => a + b, 0) / winRs.length) : null,
     expectancy: rs.length ? round(rs.reduce((a, b) => a + b, 0) / rs.length) : null,
     avgNetRR: net.length ? round(net.reduce((a, b) => a + b, 0) / net.length) : null,
+    avgCostR: costRs.length ? round(costRs.reduce((a, b) => a + b, 0) / costRs.length) : null,
+    netExpectancy: netRs.length ? round(netRs.reduce((a, b) => a + b, 0) / netRs.length) : null,
     maxLosingStreak,
     medianMinutesToTP1: median(wins.map((r) => r.minutesToResolution).filter(isFiniteNumber))
   };
@@ -247,6 +264,7 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
       fills7d: t7.fills,
       winRate7d: t7.winRate,
       expectancy7d: t7.expectancy,
+      netExpectancy7d: t7.netExpectancy,
       losingStreak7d: t7.maxLosingStreak
     },
     totals: { outcomes: outcomes.length, recCalls: recs.length, tradable: statsFor(tradable) },

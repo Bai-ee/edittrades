@@ -26,7 +26,7 @@
  */
 
 import {
-  roomRAhead, buildRow, runSymbol, computeTicks, buildReport, parseArgs
+  roomRAhead, tp1Ahead, mergeZones, buildRow, runSymbol, computeTicks, buildReport, parseArgs
 } from './scripts/replay-paths.js';
 import { PATHS } from './scripts/tracker/flag-paths.js';
 
@@ -108,6 +108,41 @@ function m1Candles(startMs, rows) {
     assertEqual(roomRAhead('long', 200, 0, { a: { horizontalResistanceZones: [{ low: 205, high: 206 }] } }), null, 'r<=0');
   });
 
+  // ============ tp1Ahead (T5 P0, docs/PLAN_DIVERGENCE_OPPORTUNITIES.md item 2) ============
+  await test('tp1Ahead: long - nearest resistance edge short of measuredTarget caps TP1', () => {
+    const geometryContext = { '15m': { horizontalResistanceZones: [{ low: 202, high: 203 }, { low: 206, high: 207 }] } };
+    assertEqual(tp1Ahead('long', 200, 210, geometryContext), 202, 'nearest resistance edge ahead of entry and short of measuredTarget wins');
+  });
+
+  await test('tp1Ahead: long - no zone short of measuredTarget falls back to measuredTarget', () => {
+    const geometryContext = { '15m': { horizontalResistanceZones: [{ low: 215, high: 216 }] } };
+    assertEqual(tp1Ahead('long', 200, 210, geometryContext), 210, 'a zone beyond measuredTarget never caps it');
+  });
+
+  await test('tp1Ahead: short mirror - nearest support edge short of measuredTarget', () => {
+    const geometryContext = { '1h': { horizontalSupportZones: [{ low: 97, high: 98 }, { low: 90, high: 91 }] } };
+    assertEqual(tp1Ahead('short', 100, 90, geometryContext), 98, 'nearer support edge (98, not 91) wins');
+  });
+
+  await test('tp1Ahead: no zones -> measuredTarget; invalid entry/target -> null', () => {
+    assertEqual(tp1Ahead('long', 200, 210, {}), 210, 'no zones -> measuredTarget');
+    assertEqual(tp1Ahead('long', NaN, 210, {}), null, 'invalid entry -> null');
+    assertEqual(tp1Ahead('long', 200, NaN, {}), null, 'invalid measuredTarget -> null');
+  });
+
+  // ============ mergeZones ============
+  await test('mergeZones: flattens one zone key across every geometryContext timeframe', () => {
+    const geometryContext = {
+      '5m': { horizontalSupportZones: [{ low: 100, high: 101 }], horizontalResistanceZones: [{ low: 110, high: 111 }] },
+      '15m': { horizontalSupportZones: [{ low: 95, high: 96 }], horizontalResistanceZones: [] },
+      '1h': null
+    };
+    assertEqual(JSON.stringify(mergeZones(geometryContext, 'horizontalSupportZones')), JSON.stringify([{ low: 100, high: 101 }, { low: 95, high: 96 }]), 'support zones merged across timeframes, null tf skipped');
+    assertEqual(JSON.stringify(mergeZones(geometryContext, 'horizontalResistanceZones')), JSON.stringify([{ low: 110, high: 111 }]), 'resistance zones merged');
+    assertEqual(JSON.stringify(mergeZones(null, 'horizontalSupportZones')), '[]', 'null geometryContext -> empty array');
+    assertEqual(JSON.stringify(mergeZones({}, 'horizontalSupportZones')), '[]', 'empty geometryContext -> empty array');
+  });
+
   // ============ buildRow ============
   function baseCandidate(over = {}) {
     return {
@@ -180,6 +215,57 @@ function m1Candles(startMs, rows) {
     assertEqual(row.roomR, 2.5, '(205-200)/2 ahead resistance edge');
     assertEqual(row.features.roomR, 'moderate', 'roomR 2.5 buckets moderate (edges [1,3])');
     assert(typeof row.atrValue === 'number' && row.atrValue > 0, 'atrValue computed from the pre-tightening candles');
+  });
+
+  await test('buildRow: wires the T5 additions (divergence, atLevel, sweepReclaim, counterTrend) from s.model/s.geometryContext/s.biasMatrix', () => {
+    const candidate = baseCandidate(); // invalidation 198, direction long
+    const s = baseSymbolPayload({
+      geometryContext: {
+        '15m': { horizontalResistanceZones: [{ low: 205, high: 206 }], horizontalSupportZones: [{ low: 197.9, high: 198.0 }] }
+      },
+      model: { divergence: { byTimeframe: { '5m': { type: 'bullish', strength: 0.6 } } } },
+      biasMatrix: { '4h': { bias: 'short', strength: 40, basis: [] } }
+    });
+    const fullByTf = { '5m': retestGo5mCandles(), '1m': candles1mForLabel };
+    const row = buildRow('BTC', candidate, s, [candidate], fullByTf, {});
+    assertEqual(row.features.divergence, 'agrees', 'long candidate + fresh bullish divergence on its own tf -> agrees');
+    assertEqual(row.features.atLevel, 'yes', 'invalidation 198 sits inside the 197.9-198.0 support zone -> yes');
+    assertEqual(row.features.sweepReclaim, 'no', 'none of the fixture candles wick below invalidation 198 -> no, not unknown');
+    assertEqual(row.features.counterTrend, 'yes', '4h short vs a long candidate -> yes');
+  });
+
+  await test('buildRow: T5 additions default to unknown when s.model/s.biasMatrix are absent (includeModel/includeBias off)', () => {
+    const candidate = baseCandidate();
+    const s = baseSymbolPayload(); // no s.model, no s.biasMatrix
+    const fullByTf = { '5m': retestGo5mCandles(), '1m': candles1mForLabel };
+    const row = buildRow('BTC', candidate, s, [candidate], fullByTf, {});
+    assertEqual(row.features.divergence, 'unknown', 'no s.model -> divergence unknown');
+    assertEqual(row.features.counterTrend, 'unknown', 'no s.biasMatrix -> counterTrend unknown');
+  });
+
+  await test('buildRow: tighteningClose is the tightening candle\'s own close (candlesTfAsOf\'s last row, by CLOSE time)', () => {
+    // closedRows cuts off by CLOSE time (candle.timestamp + intervalMs when no explicit
+    // closeTime field, scripts/replay.js's closeTimeOf) - so the candle whose close time
+    // equals fromMs (closedThrough) is one candle EARLIER (by timestamp) than fromMs
+    // itself, not the candle whose own `timestamp` equals fromMs.
+    const preCandles = flat5mBefore(T0 - FIVE_MIN, 20); // ends right before the tightening candle
+    const tighteningCandle = { timestamp: T0 - FIVE_MIN, open: 199.0, high: 199.6, low: 198.8, close: 199.45 }; // closeTime = T0
+    const post = [
+      { timestamp: T0, open: 199.6, high: 200.6, low: 199.6, close: 200.5 }, // opens at fromMs, closes after it - excluded from "as of"
+      { timestamp: T0 + FIVE_MIN, open: 200.5, high: 200.8, low: 200.4, close: 200.6 }
+    ];
+    const candlesTf = [...preCandles, tighteningCandle, ...post];
+    const candidate = baseCandidate();
+    const s = baseSymbolPayload();
+    const row = buildRow('BTC', candidate, s, [candidate], { '5m': candlesTf, '1m': candles1mForLabel }, {});
+    assertEqual(row.tighteningClose, 199.45, 'tighteningClose is the candle whose CLOSE time equals fromMs');
+  });
+
+  await test('buildRow: tp1Cap wires tp1Ahead(direction, breakoutLevel, measuredTarget, geometryContext)', () => {
+    const candidate = baseCandidate(); // breakoutLevel 200, measuredTarget 204
+    const s = baseSymbolPayload({ geometryContext: { '15m': { horizontalResistanceZones: [{ low: 202, high: 203 }], horizontalSupportZones: [] } } });
+    const row = buildRow('BTC', candidate, s, [candidate], { '5m': retestGo5mCandles(), '1m': candles1mForLabel }, {});
+    assertEqual(row.tp1Cap, 202, 'nearest resistance edge (202) sits short of measuredTarget (204) -> capped TP1');
   });
 
   await test('buildRow: missing/invalid closedThrough for the candidate\'s own timeframe -> null', () => {

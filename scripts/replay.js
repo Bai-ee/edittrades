@@ -29,16 +29,26 @@
  * `--backfill-1m <minutes>` extends the 1m capture further back than Kraken's 720-row
  * OHLC window by bucketing Kraken public trades into 1m candles. A 60-minute overlap
  * with the OHLC window is compared candle by candle and the result is written to
- * manifest.json; OHLC rows win wherever both exist. It is resumable: progress (the
- * Kraken Trades `since` cursor and the trades collected so far) is checkpointed to
- * `<out>/<SYMBOL>_1m.backfill.json` and picked back up on a rerun of the same command,
- * and Kraken rate-limit responses (`EAPI:Rate limit exceeded`, HTTP 429) are retried
- * with increasing backoff instead of aborting the run.
+ * manifest.json; OHLC rows win wherever both exist. It is resumable: progress is
+ * checkpointed to `<out>/<SYMBOL>_1m.backfill.json` and picked back up on a rerun of the
+ * same command, and Kraken rate-limit responses (`EAPI:Rate limit exceeded`, HTTP 429)
+ * are retried with increasing backoff instead of aborting the run. The checkpoint holds
+ * the Kraken Trades `since` cursor plus the completed 1m candles folded so far (not raw
+ * trades - trades arrive in chronological pages, so a candle's minute is final the
+ * moment a later trade's minute is seen, and only the still-open partial minute plus a
+ * `prevClose` gap-fill cursor need to stay live). This keeps a multi-month checkpoint's
+ * size proportional to candles (~1 per minute of depth), not trades, of which a single
+ * symbol can see millions over a deep backfill. A checkpoint written before this format
+ * (a raw `trades` array) is converted to the candle format on load, then resumes as
+ * normal - the merged result is identical either way.
  *
  * `--derive-deep` (automatic whenever `--backfill-1m` is used) aggregates the backfilled
- * 1m candles into UTC-aligned 5m/15m candles and prepends them to those timeframes'
- * OHLC rows wherever OHLC doesn't reach that far back - OHLC still wins on overlap,
- * recorded per timeframe in manifest.json the same way as the 1m backfill.
+ * 1m candles into UTC-aligned 5m/15m/1h candles and prepends them to those timeframes'
+ * OHLC rows wherever OHLC doesn't reach that far back (Kraken's 720-row OHLC window is
+ * ~30 days for 1h, deeper than 5m/15m but still shallower than a multi-month backfill) -
+ * OHLC still wins on overlap, recorded per timeframe in manifest.json the same way as the
+ * 1m backfill. 4h/1d are never derived: their 720-row OHLC windows (120 days / ~2 years)
+ * already reach past any realistic backfill depth.
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, createWriteStream } from 'node:fs';
@@ -357,14 +367,74 @@ export function tradesTo1m(trades, startMs, endMs, seedPrevClose = null) {
 }
 
 /**
+ * Fold one page of raw Kraken trades into `state` (`{ candles, partial, prevClose,
+ * tradesSeen }`), in place. Trades within `[startMs, endMs)` are bucketed into 1m
+ * candles exactly as `tradesTo1m` does, but incrementally: trades arrive in
+ * chronological order (Kraken's `since` cursor pagination guarantees it), so once a
+ * trade's minute is later than the open `partial` bucket, that bucket - and any
+ * trade-less gap minutes before the new one, flat at `prevClose` - is final and moves
+ * into `candles`. This is what lets the checkpoint hold candles instead of the trades
+ * that built them.
+ */
+function foldTradesIntoState(state, trades, startMs, endMs) {
+  const step = INTERVAL_MS['1m'];
+  for (const [price, volume, time] of trades) {
+    state.tradesSeen++;
+    const ms = Math.round(Number(time) * 1000);
+    if (ms < startMs || ms >= endMs) continue;
+    const t = Math.floor(ms / step) * step;
+    const p = Number(price);
+    const v = Number(volume);
+    if (state.partial && state.partial.timestamp === t) {
+      state.partial.high = Math.max(state.partial.high, p);
+      state.partial.low = Math.min(state.partial.low, p);
+      state.partial.close = p;
+      state.partial.volume += v;
+    } else {
+      closePartialThrough(state, t);
+      state.partial = { timestamp: t, open: p, high: p, low: p, close: p, volume: v, closeTime: t + step };
+    }
+  }
+}
+
+/**
+ * Finalizes the open `partial` 1m bucket - proven closed once a trade in a later minute
+ * is seen, or the backfill itself ends - flat-filling any gap minutes between it and
+ * `uptoTs` (exclusive) at `prevClose`, same rule as `tradesTo1m`. A no-op with no open
+ * partial (before the first trade, or when called twice at the same boundary).
+ */
+function closePartialThrough(state, uptoTs) {
+  if (!state.partial) return;
+  const step = INTERVAL_MS['1m'];
+  state.partial.volume = Number(state.partial.volume.toFixed(8));
+  state.candles.push(state.partial);
+  state.prevClose = state.partial.close;
+  for (let t = state.partial.timestamp + step; t < uptoTs; t += step) {
+    state.candles.push({ timestamp: t, open: state.prevClose, high: state.prevClose, low: state.prevClose, close: state.prevClose, volume: 0, closeTime: t + step });
+  }
+  state.partial = null;
+}
+
+/** Fresh fold state: no candles yet, no open bucket, no gap-fill cursor. */
+function newFoldState() {
+  return { candles: [], partial: null, prevClose: null, tradesSeen: 0 };
+}
+
+/**
  * Backfill 1m candles from Kraken public Trades further back than Kraken's 720-row OHLC
- * window. Resumable via `opts.checkpointFile`: the Kraken Trades `since` cursor and the
- * trades collected so far are written to disk every `flushEveryPages` pages and on
- * completion, so a killed or crashed run continues from where it left off on a rerun
- * instead of re-paginating from the start. `startMs` is pinned from the checkpoint's
- * first run (the requested depth is a fixed historical range, independent of "now"), and
- * `overlapEnd` only ever grows to match the freshest OHLC pull, so a later resume also
- * covers any gap opened by real time elapsing between runs.
+ * window. Resumable via `opts.checkpointFile`: progress is written to disk every
+ * `flushEveryPages` pages and on completion, so a killed or crashed run continues from
+ * where it left off on a rerun instead of re-paginating from the start. The checkpoint
+ * holds the Kraken Trades `since` cursor and the fold state (`candles` completed so far,
+ * the still-open `partial` minute, and the `prevClose` gap-fill cursor) rather than raw
+ * trades, so its size stays proportional to backfill depth (~1 candle/minute) instead of
+ * trade volume. A checkpoint from before this format (a raw `trades` array) is folded
+ * into the same state once on load, via `foldTradesIntoState`, then resumes exactly as a
+ * native checkpoint would - the merged result is identical either way. `startMs` is
+ * pinned from the checkpoint's first run (the requested depth is a fixed historical
+ * range, independent of "now"), and `overlapEnd` only ever grows to match the freshest
+ * OHLC pull, so a later resume also covers any gap opened by real time elapsing between
+ * runs.
  * @param {string} symbol
  * @param {Array<Object>} ohlc1m - ascending, closed 1m OHLC candles from Kraken
  * @param {number} minutes - how far back of trades to backfill, from `ohlc1m`'s oldest row
@@ -401,48 +471,75 @@ export async function backfill1m(symbol, ohlc1m, minutes, opts = {}) {
 
   const resumable = checkpoint && checkpoint.symbol === symbol
     && Number.isFinite(checkpoint.startMs) && Number.isFinite(checkpoint.overlapEnd)
-    && typeof checkpoint.since === 'string' && Array.isArray(checkpoint.trades);
+    && typeof checkpoint.since === 'string'
+    && (Array.isArray(checkpoint.trades) || Array.isArray(checkpoint.candles));
 
   let startMs;
   let overlapEnd;
   let since;
-  let trades;
+  let state;
   let done;
+
+  const persist = () => {
+    if (checkpointFile) {
+      writeFileSync(checkpointFile, JSON.stringify({
+        symbol, startMs, overlapEnd, since, done,
+        candles: state.candles, partial: state.partial, prevClose: state.prevClose, tradesSeen: state.tradesSeen
+      }));
+    }
+  };
+
   if (resumable) {
     startMs = checkpoint.startMs;
     overlapEnd = Math.max(checkpoint.overlapEnd, oldest + 60 * step);
     since = checkpoint.since;
-    trades = checkpoint.trades.slice();
     done = checkpoint.done === true && overlapEnd <= checkpoint.overlapEnd;
-    log(`[replay] ${symbol} backfill: resuming from checkpoint (${trades.length} trades buffered, since ${since})`);
+    if (Array.isArray(checkpoint.trades)) {
+      // Pre-format checkpoint: fold its buffered raw trades into fold state once, then
+      // persist immediately so the (possibly huge) raw-trade file is replaced on disk
+      // right away rather than re-converted on every future load, then carry on exactly
+      // as a native (candle) checkpoint would.
+      state = newFoldState();
+      foldTradesIntoState(state, checkpoint.trades, startMs, overlapEnd);
+      log(`[replay] ${symbol} backfill: converting a legacy (raw-trade) checkpoint (${checkpoint.trades.length} buffered trades) to the candle checkpoint format`);
+      persist();
+    } else {
+      state = {
+        candles: checkpoint.candles.map((c) => ({ ...c })),
+        partial: checkpoint.partial ? { ...checkpoint.partial } : null,
+        prevClose: Number.isFinite(checkpoint.prevClose) ? checkpoint.prevClose : null,
+        tradesSeen: Number.isFinite(checkpoint.tradesSeen) ? checkpoint.tradesSeen : 0
+      };
+    }
+    log(`[replay] ${symbol} backfill: resuming from checkpoint (${state.candles.length} candles buffered, since ${since})`);
   } else {
     startMs = oldest - minutes * step;
     overlapEnd = oldest + 60 * step;
     since = String(BigInt(startMs) * 1000000n);
-    trades = [];
+    state = newFoldState();
     done = false;
   }
-
-  const persist = () => {
-    if (checkpointFile) writeFileSync(checkpointFile, JSON.stringify({ symbol, startMs, overlapEnd, since, trades, done }));
-  };
 
   let pagesFetched = 0;
   while (!done) {
     const page = await krakenTrades(pair, since, { fetchImpl, retryDelayMs, log });
     pagesFetched++;
-    if (page.trades.length) trades.push(...page.trades);
+    if (page.trades.length) foldTradesIntoState(state, page.trades, startMs, overlapEnd);
     const lastMs = page.trades.length ? Number(page.trades[page.trades.length - 1][2]) * 1000 : 0;
     done = page.trades.length === 0 || lastMs >= overlapEnd || page.last === since;
     since = page.last;
     if (pagesFetched % logEveryPages === 0 || done) {
-      log(`[replay] ${symbol} backfill: page ${pagesFetched}, ${trades.length} trades so far${lastMs ? `, at ${new Date(lastMs).toISOString()}` : ''}`);
+      log(`[replay] ${symbol} backfill: page ${pagesFetched}, ${state.tradesSeen} trades so far${lastMs ? `, at ${new Date(lastMs).toISOString()}` : ''}`);
     }
     if (checkpointFile && (pagesFetched % flushEveryPages === 0 || done)) persist();
     if (!done) await sleep(pageDelayMs);
   }
 
-  const built = tradesTo1m(trades, startMs, overlapEnd);
+  // The final minute (or gap since the last real trade) is only provably closed once the
+  // backfill itself ends - fold it in the same way a later trade's minute would.
+  closePartialThrough(state, overlapEnd);
+
+  const built = state.candles;
   const ohlcByTs = new Map(ohlc1m.map((c) => [c.timestamp, c]));
   let compared = 0;
   let mismatches = 0;
@@ -453,11 +550,17 @@ export async function backfill1m(symbol, ohlc1m, minutes, opts = {}) {
     if (['open', 'high', 'low', 'close'].some((k) => Math.abs(o[k] - c[k]) > 1e-9)) mismatches++;
   }
   const merged = [...built.filter((c) => !ohlcByTs.has(c.timestamp)), ...ohlc1m].sort((a, b) => a.timestamp - b.timestamp);
-  return { candles: merged, report: { minutes, trades: trades.length, overlapCompared: compared, overlapMismatches: mismatches } };
+  return { candles: merged, report: { minutes, trades: state.tradesSeen, overlapCompared: compared, overlapMismatches: mismatches } };
 }
 
-/** Timeframes deep-derived from backfilled 1m via aggregateToBuckets (their native OHLC window is shallower than 14 days; 1h/4h/1d already reach far enough). */
-const DERIVE_DEEP_TIMEFRAMES = ['5m', '15m'];
+/**
+ * Timeframes deep-derived from backfilled 1m via aggregateToBuckets, wherever native
+ * OHLC doesn't reach that far back: 5m/15m always (their 720-row OHLC window is only
+ * ~2.5/7.5 days), 1h once the backfill goes deeper than its 720-row/~30-day window. 4h
+ * (720 rows = 120 days) and 1d (720 rows = ~2 years) are never derived - their native
+ * windows already reach past any realistic backfill depth.
+ */
+export const DERIVE_DEEP_TIMEFRAMES = ['5m', '15m', '1h'];
 
 /**
  * Aggregate 1m candles into `tf`-width, UTC-aligned buckets (production's own

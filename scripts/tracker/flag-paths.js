@@ -339,6 +339,110 @@ function countStructureSteps(flagCandles, direction) {
   return count;
 }
 
+// ---- T5 P0 additions (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md "P0 item 1") ----
+// Additive only: every existing featuresAt field/bucket above is unchanged, so the T4
+// pathOutlook table (config/engine.json's pathOutlook.broken, keyed on the OLD feature
+// set) still resolves the same buckets it always did.
+
+/**
+ * Nearest distance from `price` to any zone in `zones` (0 when `price` sits inside one),
+ * or null when there is no valid zone to measure against (empty/missing `zones`, or
+ * every entry lacks finite low/high).
+ * @param {number} price
+ * @param {Array<{low:number, high:number}>|null|undefined} zones
+ * @returns {number|null}
+ */
+function nearestZoneDistance(price, zones) {
+  if (!isFiniteNumber(price) || !Array.isArray(zones) || zones.length === 0) return null;
+  let best = null;
+  for (const z of zones) {
+    if (!z || !isFiniteNumber(z.low) || !isFiniteNumber(z.high)) continue;
+    const d = price >= z.low && price <= z.high ? 0 : (price < z.low ? z.low - price : price - z.high);
+    if (best === null || d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * `atLevel` bucket (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md P0 item 1): does the flag's
+ * invalidation sit within 0.5 ATR of a support zone (long) / resistance zone (short).
+ * 'unknown' only when a required input (direction, invalidation, atr) is missing -
+ * an empty/no-zone read with valid inputs is a genuine 'no', not 'unknown'.
+ * @param {'long'|'short'|null} direction
+ * @param {number|null} invalidation
+ * @param {number|null} atrValue
+ * @param {Array<Object>|null|undefined} supportZones
+ * @param {Array<Object>|null|undefined} resistanceZones
+ * @returns {'yes'|'no'|'unknown'}
+ */
+function atLevelBucket(direction, invalidation, atrValue, supportZones, resistanceZones) {
+  if (!direction || !isFiniteNumber(invalidation) || !isFiniteNumber(atrValue) || atrValue <= 0) return 'unknown';
+  const zones = direction === 'long' ? supportZones : resistanceZones;
+  const distance = nearestZoneDistance(invalidation, zones);
+  if (distance === null) return 'no';
+  return distance <= 0.5 * atrValue ? 'yes' : 'no';
+}
+
+/**
+ * `sweepReclaim` bucket: within `candles` (already limited by the caller to the last N
+ * candidate-tf candles as of the tightening point), a wick beyond `level` (the flag's
+ * invalidation) on the invalidation side, with that same candle's close back on the flag
+ * side of it. 'unknown' when there is no candle data or `level`/`direction` is missing;
+ * otherwise a scan that finds nothing is a genuine 'no'.
+ * @param {Array<{high:number, low:number, close:number}>|null|undefined} candles
+ * @param {'long'|'short'|null} direction
+ * @param {number|null} level - the flag's invalidation price
+ * @returns {'yes'|'no'|'unknown'}
+ */
+function sweepReclaimBucket(candles, direction, level) {
+  if (!direction || !isFiniteNumber(level) || !Array.isArray(candles) || candles.length === 0) return 'unknown';
+  const sign = direction === 'short' ? -1 : 1;
+  for (const c of candles) {
+    if (!c || !isFiniteNumber(c.high) || !isFiniteNumber(c.low) || !isFiniteNumber(c.close)) continue;
+    const wickBeyond = direction === 'long' ? c.low < level : c.high > level;
+    const closeBack = sign * (c.close - level) >= 0;
+    if (wickBeyond && closeBack) return 'yes';
+  }
+  return 'no';
+}
+
+/**
+ * `divergence` bucket: Stoch RSI divergence on the candidate timeframe
+ * (`lib/modelEvidence.js`'s `buildDivergenceEvidence`), fresh only (its own `strength`
+ * field is 0 when stale beyond `divergenceMaxAgeCandles` - a stale divergence reads the
+ * same as no divergence here, mirroring how that module excludes stale hits from its own
+ * confluence count). 'unknown' when direction or the divergence type itself could not be
+ * read (missing price/Stoch history upstream).
+ * @param {'long'|'short'|null} direction
+ * @param {'bullish'|'bearish'|'none'|'unknown'|null} divergenceType
+ * @param {number|null} divergenceStrength
+ * @returns {'agrees'|'conflicts'|'none'|'unknown'}
+ */
+function divergenceBucket(direction, divergenceType, divergenceStrength) {
+  if (!direction) return 'unknown';
+  if (divergenceType !== 'bullish' && divergenceType !== 'bearish' && divergenceType !== 'none') return 'unknown';
+  if (divergenceType === 'none') return 'none';
+  if (!(isFiniteNumber(divergenceStrength) && divergenceStrength > 0)) return 'none'; // stale -> fresh-only means "no divergence"
+  const agreeType = direction === 'long' ? 'bullish' : 'bearish';
+  return divergenceType === agreeType ? 'agrees' : 'conflicts';
+}
+
+/**
+ * `counterTrend` bucket: the 4h bias (`lib/biasMatrix.js` timeframeBias, `long`/`short`/
+ * `neutral`) leaning against the flag's own direction. A measured `neutral` 4h is a known
+ * "no lean" - a real 'no', not 'unknown'. 'unknown' only when the 4h bias could not be
+ * measured at all (null - insufficient 4h data upstream) or direction is missing.
+ * @param {'long'|'short'|null} direction
+ * @param {'long'|'short'|'neutral'|null} fourHourBias
+ * @returns {'yes'|'no'|'unknown'}
+ */
+function counterTrendBucket(direction, fourHourBias) {
+  if (!direction) return 'unknown';
+  if (fourHourBias !== 'long' && fourHourBias !== 'short' && fourHourBias !== 'neutral') return 'unknown';
+  if (fourHourBias === 'neutral') return 'no';
+  return fourHourBias !== direction ? 'yes' : 'no';
+}
+
 /**
  * Bucketed features at the candidate's tightening point (docs/PLAN_FLAG_PATHS.md
  * "Features at the tightening point"). Every value is a bucket label or 'unknown' - never
@@ -358,11 +462,23 @@ function countStructureSteps(flagCandles, direction) {
  * @param {string} [ctx.ema200Side] - 'above'/'below' (candidate.ema200Side upstream).
  * @param {number} [ctx.roomR] - room to the next opposing geometry level, in R.
  * @param {number} [ctx.fromMs] - the tightening point, for `hourUtc`.
+ * @param {Array<{low:number,high:number}>} [ctx.supportZones] - horizontal support zones
+ *   (geometryContext, merged across timeframes) for `atLevel` (long).
+ * @param {Array<{low:number,high:number}>} [ctx.resistanceZones] - horizontal resistance
+ *   zones for `atLevel` (short).
+ * @param {Array<Object>} [ctx.recentCandles] - the last N candidate-tf candles as of the
+ *   tightening point (no lookahead), for `sweepReclaim`.
+ * @param {string} [ctx.divergenceType] - 'bullish'/'bearish'/'none' (lib/modelEvidence.js
+ *   `buildDivergenceEvidence`'s `byTimeframe[tf].type`), for `divergence`.
+ * @param {number} [ctx.divergenceStrength] - the same object's `strength` (0 = stale).
+ * @param {string} [ctx.fourHourBias] - 'long'/'short'/'neutral' (lib/biasMatrix.js
+ *   `matrix['4h'].bias`), for `counterTrend`.
  * @returns {Object} bucketed feature map (see field list in the source)
  */
 export function featuresAt(candidate, ctx = {}) {
   const direction = candidate && (candidate.direction === 'long' || candidate.direction === 'short') ? candidate.direction : null;
   const breakoutLevel = candidate && isFiniteNumber(candidate.breakoutLevel) ? candidate.breakoutLevel : null;
+  const invalidation = candidate && isFiniteNumber(candidate.invalidation) ? candidate.invalidation : null;
   const atrValue = isFiniteNumber(ctx.atrValue) ? ctx.atrValue : null;
   const flagCandles = Array.isArray(ctx.flagCandles) ? ctx.flagCandles : null;
 
@@ -393,7 +509,13 @@ export function featuresAt(candidate, ctx = {}) {
     tdSide: typeof ctx.tdSide === 'string' && ctx.tdSide ? ctx.tdSide : 'unknown',
     ema200Side: typeof ctx.ema200Side === 'string' && ctx.ema200Side ? ctx.ema200Side : 'unknown',
     roomR: isFiniteNumber(ctx.roomR) ? bucketByEdges(ctx.roomR, ROOM_R_BUCKET_EDGES, ROOM_R_BUCKET_LABELS) : 'unknown',
-    hourUtc: hour !== null ? bucketByEdges(hour, HOUR_UTC_BUCKET_EDGES, HOUR_UTC_BUCKET_LABELS) : 'unknown'
+    hourUtc: hour !== null ? bucketByEdges(hour, HOUR_UTC_BUCKET_EDGES, HOUR_UTC_BUCKET_LABELS) : 'unknown',
+    // T5 P0 (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md): additive fields, computed by the
+    // helpers just above.
+    divergence: divergenceBucket(direction, typeof ctx.divergenceType === 'string' ? ctx.divergenceType : null, ctx.divergenceStrength),
+    atLevel: atLevelBucket(direction, invalidation, atrValue, ctx.supportZones, ctx.resistanceZones),
+    sweepReclaim: sweepReclaimBucket(Array.isArray(ctx.recentCandles) ? ctx.recentCandles : null, direction, invalidation),
+    counterTrend: counterTrendBucket(direction, typeof ctx.fourHourBias === 'string' ? ctx.fourHourBias : null)
   };
 }
 

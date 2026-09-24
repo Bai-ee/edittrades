@@ -111,8 +111,13 @@ async function quietly(fn) {
 }
 
 /**
- * One production build of one symbol at `cutMs`, with bias/topDown included (unlike
- * scripts/replay.js's `buildAt`, which never requests it - see this file's header).
+ * One production build of one symbol at `cutMs`, with bias/topDown AND model evidence
+ * included (unlike scripts/replay.js's `buildAt`, which requests neither - see this
+ * file's header). `includeModel` publishes `s.model` (`lib/modelEvidence.js`'s
+ * `buildDivergenceEvidence`), the only source for the T5 `divergence` feature
+ * (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md P0 item 1) - the underlying evidence is always
+ * computed by `buildScalpContext` regardless of this flag, `includeModel` only controls
+ * whether it is attached to the payload, so this costs nothing extra per build.
  * @param {string} symbol
  * @param {Object} historyByTf - tf -> ascending candles, this symbol only
  * @param {number} cutMs
@@ -125,6 +130,7 @@ export function buildFull(symbol, historyByTf, cutMs, timeframes = TIMEFRAMES) {
     now: cutMs,
     includeFailed: true,
     includeBias: true,
+    includeModel: true,
     slimFailed: false,
     fetchCandles: makeReplayFetch(historyByTf, cutMs),
     fetchAccount: async () => REPLAY_ACCOUNT
@@ -217,6 +223,63 @@ export function roomRAhead(direction, entry, r, geometryContext) {
 }
 
 /**
+ * The TP1 `lib/flagTradePlan.js`'s (private, unexported) `nearestRoomAhead` would select
+ * for a `breakoutLevel` entry: the nearest opposing zone edge strictly ahead of `entry`
+ * AND short of `measuredTarget`, else `measuredTarget` itself. A price-returning
+ * equivalent of that rule (same zone read and near-edge selection as `roomRAhead` above,
+ * but bounded at `measuredTarget` and returning a price, not an R-multiple) - written
+ * here, not exported from `lib/flagTradePlan.js`, because this thread does not touch
+ * `lib/` (CLAUDE.md). Used by `scripts/replay-early-entry.js` (T5 P0,
+ * docs/PLAN_DIVERGENCE_OPPORTUNITIES.md) as the shared TP1 for both its early and
+ * retest-hold entries - both are always capped relative to `breakoutLevel`, the only
+ * "entry" `flagTradePlan` itself ever caps against.
+ * @param {'long'|'short'} direction
+ * @param {number} entry - breakoutLevel
+ * @param {number} measuredTarget
+ * @param {Object|null} geometryContext
+ * @returns {number|null} null when `entry`/`measuredTarget` are not finite numbers
+ */
+export function tp1Ahead(direction, entry, measuredTarget, geometryContext) {
+  if (!isFiniteNumber(entry) || !isFiniteNumber(measuredTarget)) return null;
+  const sign = direction === 'short' ? -1 : 1;
+  const orientedEntry = sign * entry;
+  const orientedTarget = sign * measuredTarget;
+  let nearestOriented = null;
+  for (const g of Object.values(geometryContext || {})) {
+    if (!g) continue;
+    const zones = direction === 'long' ? g.horizontalResistanceZones : g.horizontalSupportZones;
+    for (const z of zones || []) {
+      const near = direction === 'long' ? z.low : z.high;
+      if (!isFiniteNumber(near)) continue;
+      const orientedNear = sign * near;
+      if (orientedNear > orientedEntry && orientedNear < orientedTarget) {
+        if (nearestOriented === null || orientedNear < nearestOriented) nearestOriented = orientedNear;
+      }
+    }
+  }
+  return nearestOriented === null ? measuredTarget : sign * nearestOriented;
+}
+
+/**
+ * All zones of one kind (`horizontalSupportZones`/`horizontalResistanceZones`) across
+ * every geometryContext timeframe, flattened - the same "read every timeframe's zones,
+ * not just one borrowed timeframe" approach `roomRAhead` above and `flagTradePlan.js`'s
+ * `nearestRoomAhead` both take, feeding `featuresAt`'s `atLevel` (T5 P0,
+ * docs/PLAN_DIVERGENCE_OPPORTUNITIES.md).
+ * @param {Object|null} geometryContext
+ * @param {'horizontalSupportZones'|'horizontalResistanceZones'} key
+ * @returns {Array<{low:number, high:number}>}
+ */
+export function mergeZones(geometryContext, key) {
+  const out = [];
+  for (const g of Object.values(geometryContext || {})) {
+    if (!g || !Array.isArray(g[key])) continue;
+    for (const z of g[key]) out.push(z);
+  }
+  return out;
+}
+
+/**
  * Build one output row for a candidate at its first tightening point.
  * @param {string} symbol
  * @param {Object} candidate - a candidateSetups entry, state forming/proto
@@ -244,11 +307,28 @@ export function buildRow(symbol, candidate, s, flagCandidates, fullByTf, pathOpt
 
   const flagLen = Math.max(1, (isFiniteNumber(candidate.durationCandles) ? candidate.durationCandles : 0) + 1);
   const flagCandles = candlesTfAsOf.slice(Math.max(0, candlesTfAsOf.length - flagLen));
+  // The tightening candle's OWN close: closedRows' cutoff is a close-time boundary
+  // (scripts/replay.js's closeTimeOf), so the tightening candle - the newest one closed
+  // as of fromMs by construction - is always candlesTfAsOf's LAST row. T5 P0
+  // (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md): the early-entry price, before confirmation.
+  const tighteningClose = candlesTfAsOf.length ? candlesTfAsOf[candlesTfAsOf.length - 1].close : null;
 
   const stochRsi = (s.timeframes && s.timeframes[tf] && s.timeframes[tf].stochRsi) || {};
   const sameDirOtherTf = flagCandidates.some((c) => c.timeframe !== tf && c.direction === direction && c.state !== 'failed');
   const tdSide = s.topDown && typeof s.topDown.sentiment === 'string' ? s.topDown.sentiment : undefined;
   const roomR = r !== null && r > 0 ? roomRAhead(direction, candidate.breakoutLevel, r, s.geometryContext) : null;
+  const tp1Cap = (direction === 'long' || direction === 'short') && isFiniteNumber(candidate.breakoutLevel) && isFiniteNumber(candidate.measuredTarget)
+    ? tp1Ahead(direction, candidate.breakoutLevel, candidate.measuredTarget, s.geometryContext) : null;
+
+  // T5 P0 (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md item 1): divergence, atLevel,
+  // sweepReclaim, counterTrend - all read from the SAME "as of fromMs" build `s` already
+  // is (buildFull requests includeModel/includeBias), never re-derived.
+  const divergenceTf = s.model && s.model.divergence && s.model.divergence.byTimeframe ? s.model.divergence.byTimeframe[tf] : null;
+  const supportZones = mergeZones(s.geometryContext, 'horizontalSupportZones');
+  const resistanceZones = mergeZones(s.geometryContext, 'horizontalResistanceZones');
+  // "As of" fromMs only, same as flagCandles/atrValue above - never a candle closed after it.
+  const recentCandles = candlesTfAsOf.slice(Math.max(0, candlesTfAsOf.length - 5));
+  const fourHourBias = s.biasMatrix && s.biasMatrix['4h'] ? s.biasMatrix['4h'].bias : undefined;
 
   const ctx = {
     flagCandles,
@@ -259,7 +339,13 @@ export function buildRow(symbol, candidate, s, flagCandidates, fullByTf, pathOpt
     tdSide,
     ema200Side: candidate.ema200Side || undefined,
     roomR: roomR !== null ? roomR : undefined,
-    fromMs
+    fromMs,
+    divergenceType: divergenceTf && typeof divergenceTf.type === 'string' ? divergenceTf.type : undefined,
+    divergenceStrength: divergenceTf && isFiniteNumber(divergenceTf.strength) ? divergenceTf.strength : undefined,
+    supportZones,
+    resistanceZones,
+    recentCandles,
+    fourHourBias: typeof fourHourBias === 'string' ? fourHourBias : undefined
   };
   const features = featuresAt(candidate, ctx);
 
@@ -285,6 +371,10 @@ export function buildRow(symbol, candidate, s, flagCandidates, fullByTf, pathOpt
     ema200Side: candidate.ema200Side || null,
     roomR,
     atrValue,
+    // T5 P0 (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md item 2): consumed by
+    // scripts/replay-early-entry.js, not by the T4 path-label/base-rate report above.
+    tighteningClose,
+    tp1Cap,
     path: label.path,
     breakoutAt: label.breakoutAt,
     retestAt: label.retestAt,
@@ -474,4 +564,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   });
 }
 
-export default { buildFull, computeTicks, roomRAhead, buildRow, runSymbol, buildReport, parseArgs };
+export default { buildFull, computeTicks, roomRAhead, tp1Ahead, mergeZones, buildRow, runSymbol, buildReport, parseArgs };

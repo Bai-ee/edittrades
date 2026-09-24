@@ -426,6 +426,56 @@ function m1Candles(startMs, rows) {
     assertEqual(f3.stochSlope, 'flat', 'already-labelled string slope passes through');
   });
 
+  // ============ featuresAt: T5 P0 additions (docs/PLAN_DIVERGENCE_OPPORTUNITIES.md) ============
+  await test('featuresAt: divergence bucket (agrees/conflicts/none/unknown, fresh only)', () => {
+    const longCand = { direction: 'long', timeframe: '5m' };
+    const shortCand = { direction: 'short', timeframe: '5m' };
+    assertEqual(featuresAt(longCand, { divergenceType: 'bullish', divergenceStrength: 0.5 }).divergence, 'agrees', 'long + fresh bullish -> agrees');
+    assertEqual(featuresAt(longCand, { divergenceType: 'bearish', divergenceStrength: 0.5 }).divergence, 'conflicts', 'long + fresh bearish -> conflicts');
+    assertEqual(featuresAt(shortCand, { divergenceType: 'bearish', divergenceStrength: 0.2 }).divergence, 'agrees', 'short + fresh bearish -> agrees');
+    assertEqual(featuresAt(shortCand, { divergenceType: 'bullish', divergenceStrength: 0.2 }).divergence, 'conflicts', 'short + fresh bullish -> conflicts');
+    assertEqual(featuresAt(longCand, { divergenceType: 'none', divergenceStrength: 0 }).divergence, 'none', 'type none -> none');
+    assertEqual(featuresAt(longCand, { divergenceType: 'bullish', divergenceStrength: 0 }).divergence, 'none', 'stale (strength 0) -> none, fresh only');
+    assertEqual(featuresAt(longCand, { divergenceType: 'unknown' }).divergence, 'unknown', 'type unknown -> unknown');
+    assertEqual(featuresAt(longCand, {}).divergence, 'unknown', 'no ctx -> unknown');
+    assertEqual(featuresAt({}, { divergenceType: 'bullish', divergenceStrength: 0.5 }).divergence, 'unknown', 'no candidate direction -> unknown');
+  });
+
+  await test('featuresAt: atLevel bucket (invalidation within 0.5 ATR of a support/resistance zone)', () => {
+    const longCand = { direction: 'long', timeframe: '5m', invalidation: 100 };
+    const shortCand = { direction: 'short', timeframe: '5m', invalidation: 100 };
+    assertEqual(featuresAt(longCand, { atrValue: 1, supportZones: [{ low: 100.1, high: 100.4 }] }).atLevel, 'yes', 'distance 0.4 within 0.5 ATR -> yes');
+    assertEqual(featuresAt(longCand, { atrValue: 1, supportZones: [{ low: 100.6, high: 100.9 }] }).atLevel, 'no', 'distance 0.6 beyond 0.5 ATR -> no');
+    assertEqual(featuresAt(longCand, { atrValue: 1, supportZones: [] }).atLevel, 'no', 'no zones at all -> no (not unknown)');
+    assertEqual(featuresAt(longCand, {}).atLevel, 'unknown', 'no atr -> unknown');
+    assertEqual(featuresAt({ direction: 'long', timeframe: '5m' }, { atrValue: 1, supportZones: [{ low: 99, high: 100 }] }).atLevel, 'unknown', 'no invalidation -> unknown');
+    assertEqual(featuresAt(shortCand, { atrValue: 1, resistanceZones: [{ low: 99.6, high: 99.9 }] }).atLevel, 'yes', 'short mirror: within 0.5 ATR of resistance');
+    assertEqual(featuresAt(shortCand, { atrValue: 1, supportZones: [{ low: 100.1, high: 100.2 }] }).atLevel, 'no', 'short ignores support zones');
+  });
+
+  await test('featuresAt: sweepReclaim bucket (wick beyond invalidation, close back on the flag side, last N candles)', () => {
+    const longCand = { direction: 'long', timeframe: '5m', invalidation: 100 };
+    const shortCand = { direction: 'short', timeframe: '5m', invalidation: 100 };
+    const wickReclaim = [{ high: 100.5, low: 99.8, close: 100.2 }]; // wicks below 100, closes back above
+    const noReclaim = [{ high: 100.5, low: 100.1, close: 100.3 }]; // never wicks below 100
+    assertEqual(featuresAt(longCand, { recentCandles: wickReclaim }).sweepReclaim, 'yes', 'wick below invalidation then close back above -> yes');
+    assertEqual(featuresAt(longCand, { recentCandles: noReclaim }).sweepReclaim, 'no', 'no wick beyond invalidation -> no');
+    assertEqual(featuresAt(longCand, { recentCandles: [] }).sweepReclaim, 'unknown', 'no candles -> unknown');
+    assertEqual(featuresAt(longCand, {}).sweepReclaim, 'unknown', 'missing ctx -> unknown');
+    const shortWickReclaim = [{ high: 100.3, low: 99.5, close: 99.8 }]; // wicks above 100, closes back below
+    assertEqual(featuresAt(shortCand, { recentCandles: shortWickReclaim }).sweepReclaim, 'yes', 'short mirror: wick above then close back below -> yes');
+  });
+
+  await test('featuresAt: counterTrend bucket (4h lean against the flag direction)', () => {
+    const longCand = { direction: 'long', timeframe: '5m' };
+    const shortCand = { direction: 'short', timeframe: '5m' };
+    assertEqual(featuresAt(longCand, { fourHourBias: 'short' }).counterTrend, 'yes', 'long flag, 4h short -> yes');
+    assertEqual(featuresAt(longCand, { fourHourBias: 'long' }).counterTrend, 'no', 'long flag, 4h long -> no');
+    assertEqual(featuresAt(longCand, { fourHourBias: 'neutral' }).counterTrend, 'no', 'neutral 4h is a known no-lean -> no, not unknown');
+    assertEqual(featuresAt(shortCand, { fourHourBias: 'long' }).counterTrend, 'yes', 'short flag, 4h long -> yes (mirror)');
+    assertEqual(featuresAt(longCand, {}).counterTrend, 'unknown', 'no 4h bias data -> unknown');
+  });
+
   // ============ baseRates ============
   await test('baseRates: calibrated flag and per-path shares', () => {
     const rows = [];

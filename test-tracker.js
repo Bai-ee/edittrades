@@ -25,6 +25,7 @@ import {
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
 import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
 import { statsFor, computeAggregates, classCheck, aggregateDataDir } from './scripts/tracker/aggregate.js';
+import { FEE_BPS, SLIPPAGE_BPS, costR, netR } from './scripts/tracker/costs.js';
 import {
   buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED,
   NO_CALIBRATION, CALIBRATION_MIN_N, EMPTY_CALIBRATION, NO_SHADOW, SHADOW_TOO_FEW
@@ -428,6 +429,26 @@ async function run() {
     assertEqual(JSON.stringify(a), JSON.stringify(b), 'rerun identical');
   });
 
+  // ---------------------------------------------------------------- T5 S1 costs.js (net R, fees + slippage)
+
+  await test('costs.js: cost math hand example - entry 100, stop 99, FEE_BPS=SLIPPAGE_BPS=5 -> cost 0.2R; stop nets -1.2, tp1(r=3) nets 2.8', () => {
+    assertEqual(FEE_BPS, 5, 'FEE_BPS');
+    assertEqual(SLIPPAGE_BPS, 5, 'SLIPPAGE_BPS');
+    assertEqual(costR(100, 99), 0.2, 'cost = 2*(5+5)/10000 * entry / |entry-stop| = 0.002 * 100 / 1');
+    assertEqual(netR(100, 99, -1), -1.2, 'stop leg nets -1 - cost');
+    assertEqual(netR(100, 99, 3), 2.8, 'tp1 leg (r=3) nets r - cost');
+    assertEqual(costR(100, 100), null, 'zero risk (entry === stop) -> null');
+    assertEqual(netR(100, 100, 3), null, 'no cost -> no net R');
+    assertEqual(costR(null, 99), null, 'non-finite entry -> null');
+    assertEqual(netR(100, 99, null), null, 'non-finite gross R -> null');
+  });
+
+  await test('costs.js: FEE_BPS/SLIPPAGE_BPS match config/engine.json risk (documented, tested source of truth)', () => {
+    const engineCfg = JSON.parse(readFileSync('config/engine.json', 'utf8'));
+    assertEqual(FEE_BPS, engineCfg.risk.feeBps, 'feeBps');
+    assertEqual(SLIPPAGE_BPS, engineCfg.risk.slippageBps, 'slippageBps');
+  });
+
   await test('aggregate: win rate, expectancy, losing streak, median time', () => {
     const r = (outcome, rv, mins, at) => ({ kind: 'plan', planStatus: 'ready', outcome, r: rv, filledAt: at, resolvedAt: at, calledAt: at, minutesToResolution: mins, netRR: 3 });
     const s = statsFor([
@@ -442,6 +463,24 @@ async function run() {
     assertEqual(s.maxLosingStreak, 2, 'streak');
     assertEqual(s.medianMinutesToTP1, 20, 'median min to TP1');
     assertEqual(s.avgNetRR, 3, 'avg net');
+    assertEqual(s.avgCostR, null, 'no entry/stop on these rows -> no cost');
+    assertEqual(s.netExpectancy, null, 'no entry/stop on these rows -> no net expectancy');
+  });
+
+  await test('aggregate: net expectancy (fees + slippage, costs.js) derived per-row from entry/stop', () => {
+    const r = (outcome, rv, entry, stop) => ({
+      kind: 'plan', planStatus: 'ready', outcome, r: rv, entry, stop,
+      filledAt: iso(T0), resolvedAt: iso(T0), calledAt: iso(T0), minutesToResolution: 5, netRR: 3
+    });
+    const s = statsFor([
+      r('stop', -1, 100, 99), r('stop', -1, 100, 99), r('tp1', 3, 100, 99),
+      r('stop', -1, 100, 99), r('tp1', 4, 100, 99)
+    ]);
+    assertEqual(s.expectancy, 0.8, 'gross expectancy (3+4-1-1-1)/5, same math as costR-free stats');
+    assertEqual(s.avgCostR, 0.2, 'cost = 2*(5+5)/10000 * 100 / 1 = 0.2R on every row here');
+    assertEqual(s.netExpectancy, 0.6, 'net expectancy = gross 0.8 - avgCostR 0.2 (constant cost across rows)');
+    const noLevels = statsFor([{ kind: 'plan', planStatus: 'ready', outcome: 'tp1', r: 3, entry: null, stop: null, filledAt: iso(T0), resolvedAt: iso(T0), calledAt: iso(T0) }]);
+    assertEqual(noLevels.netExpectancy, null, 'missing levels -> net expectancy null, never a crash');
   });
 
   await test('aggregate: tiles, classes, capture gaps', () => {
@@ -613,6 +652,25 @@ async function run() {
     assertEqual(rStatus(0), 'st-good', '0R is green');
     assertEqual(rStatus(-0.3), 'st-warn', 'amber band');
     assertEqual(rStatus(-0.6), 'st-bad', 'red below -0.5R');
+  });
+
+  await test('page: hero shows net expectancy beside gross, labelled "net of fees" (T5 S1)', () => {
+    const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
+    const agg = computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN, { phaseStartMs: T0 - 60 * MIN });
+    const html = renderHtml(agg);
+    const net = agg.tiles.netExpectancy7d;
+    assert(typeof net === 'number', 'synthetic day has a net expectancy (entry/stop present on every decided ready plan)');
+    assert(net < agg.tiles.expectancy7d, 'net is lower than gross once fees + slippage are charged');
+    const m = html.match(/id="hero-net-expectancy-7d">([^<]+)R net of fees<\/div>/);
+    assert(m, 'hero shows a net-of-fees line beside the gross hero value');
+    assert(html.indexOf('id="tile-expectancy-7d"') < html.indexOf('id="hero-net-expectancy-7d"'), 'net line follows the gross hero value');
+  });
+
+  await test('page: window stat tables show a net-of-fees column beside gross expectancy (T5 S1)', () => {
+    const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
+    const agg = computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN, { phaseStartMs: T0 - 60 * MIN });
+    const html = renderHtml(agg);
+    assert((html.match(/Net exp\. \(net of fees\)/g) || []).length >= 2, 'net-of-fees column header appears across the window stat tables');
   });
 
   await test('page: populated render escapes values', () => {
@@ -1026,6 +1084,17 @@ async function run() {
     const scripts = html.match(/<script\b[^>]*>/gi) || [];
     assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'exactly one executable inline script');
     assert(!/gradient|box-shadow|drop-shadow/i.test(html), 'no gradients or shadows');
+  });
+
+  await test('aggregate: net-R stats (T5 S1) are additive only - outcomes.jsonl on disk stays byte-identical after aggregateDataDir runs', () => {
+    const dir = tmp();
+    ingestPayload(dir, payloadWithSecrets(), T0);
+    scoreDataDir(dir, T0 + MIN);
+    const before = readFileSync(outcomesFile(dir), 'utf8');
+    const agg = aggregateDataDir(dir, T0 + 2 * MIN);
+    assertEqual(readFileSync(outcomesFile(dir), 'utf8'), before, 'outcomes.jsonl untouched by aggregate.js (read-only)');
+    assert('netExpectancy' in agg.totals.tradable && 'avgCostR' in agg.totals.tradable, 'statsFor output gained the additive net-R fields');
+    assert('netExpectancy7d' in agg.tiles, 'tiles gained netExpectancy7d');
   });
 
   // ---------------------------------------------------------------- T4 flag paths (paths.js, docs/PLAN_FLAG_PATHS.md P0)
@@ -1584,6 +1653,30 @@ async function run() {
     assertEqual(empty.shadow.overall.winRate, null, 'null win rate on empty, not 0');
   });
 
+  await test('shadow.js: shadow/retest legs carry an additive netR field, cost from costs.js (T5 S1)', () => {
+    const { pathsRow, callRows, candlesByTf } = buildShadowRunnerFixture();
+    const rows = computeShadowRows([pathsRow], callRows, candlesByTf, [], T0 + 60 * MIN);
+    const shadow = rows[0].shadow;
+    assertEqual(shadow.outcome, 'tp1', 'sanity: resolves tp1');
+    const expectedCost = costR(shadow.entry, shadow.stop);
+    const expectedNet = Math.round((shadow.r - expectedCost) * 10000) / 10000;
+    assertEqual(shadow.netR, expectedNet, 'netR = gross r - costR(entry, stop), cost mirrors netRiskReward');
+    assert(shadow.netR < shadow.r, 'net is lower than gross once fees + slippage are charged');
+    assert(typeof shadow.netRR === 'number' && shadow.netRR !== shadow.netR, 'planned netRR field (netRiskReward ratio) is a distinct field from the new realised netR');
+  });
+
+  await test("shadow.js: shadowSummary netExpectancy averages each leg's own netR field (fees + slippage, T5 S1)", () => {
+    const leg = (outcome, r, legNetR, resolvedAt) => ({ entry: 1, stop: 1, tp1: 1, grossRR: 3, netRR: 3, outcome, r, netR: legNetR, resolvedAt, minutes: 1 });
+    const rows = [
+      { candidateId: 'a', chase: 'high', shadow: leg('tp1', 3, 2.8, T0), retest: null },
+      { candidateId: 'b', chase: 'elevated', shadow: leg('stop', -1, -1.2, T0 + MIN), retest: leg('tp1', 2, 1.9, T0 + MIN) },
+      { candidateId: 'c', chase: 'low', shadow: leg('stop', -1, -1.2, T0 + 2 * MIN), retest: null }
+    ];
+    const s = shadowSummary(rows);
+    assertEqual(s.shadow.overall.netExpectancy, 0.1333, 'net expectancy (2.8-1.2-1.2)/3, rounded to 4dp');
+    assertEqual(s.retest.overall.netExpectancy, 1.9, 'single retest leg net R carried through');
+  });
+
   await test('shadow.js + paths.js: shadowDataDir end to end through the store, stable on rerun', () => {
     const dir = tmp();
     const cid = 'BTC:5m:long:e2e';
@@ -1622,8 +1715,8 @@ async function run() {
     assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'still exactly one executable inline script');
   });
 
-  function shadowLegStats(n, wins, losses, open, winRate, expectancy, maxLosingStreak) {
-    return { n, wins, losses, open, winRate, expectancy, maxLosingStreak };
+  function shadowLegStats(n, wins, losses, open, winRate, expectancy, maxLosingStreak, netExpectancy = null) {
+    return { n, wins, losses, open, winRate, expectancy, netExpectancy, maxLosingStreak };
   }
 
   await test('page: breakout-shadow tile shows TOO FEW CALLS under n=30 and lists last entries', () => {
@@ -1655,6 +1748,7 @@ async function run() {
     assert(html.includes('id="breakout-shadow-list-table"'), 'last-entries list renders');
     assert(html.includes('>BTC<'), 'row shows symbol');
     assert(html.includes('>tp1<'), 'row shows outcome');
+    assert(html.includes('Net exp. (net of fees)'), 'shadow summary table carries a net-of-fees column beside gross (T5 S1)');
     assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'still one provisional tag per section');
   });
 
@@ -1663,7 +1757,7 @@ async function run() {
     const dataDir = path.join(dir, 'data');
     const summary = {
       generatedAt: iso(T0), n: 30,
-      shadow: { overall: shadowLegStats(30, 15, 15, 0, 0.5, 0.1, 3), byChase: { highElevated: shadowLegStats(0, 0, 0, 0, null, null, 0), lowUnknown: shadowLegStats(0, 0, 0, 0, null, null, 0) } },
+      shadow: { overall: shadowLegStats(30, 15, 15, 0, 0.5, 0.1, 3, 0.05), byChase: { highElevated: shadowLegStats(0, 0, 0, 0, null, null, 0), lowUnknown: shadowLegStats(0, 0, 0, 0, null, null, 0) } },
       retest: { overall: shadowLegStats(0, 0, 0, 0, null, null, 0), byChase: { highElevated: shadowLegStats(0, 0, 0, 0, null, null, 0), lowUnknown: shadowLegStats(0, 0, 0, 0, null, null, 0) } }
     };
     writeJson(shadowSummaryFile(dataDir), summary);
@@ -1671,6 +1765,7 @@ async function run() {
     const html = readFileSync(htmlFile, 'utf8');
     assert(html.includes('50%'), 'win rate shown numerically at n=30, not TOO FEW CALLS');
     assert(!html.includes(SHADOW_TOO_FEW), 'nothing in this fixture is below the threshold');
+    assert(html.includes('+0.05R'), 'net expectancy shown numerically beside gross once n=SHADOW_MIN_N (T5 S1)');
   });
 
   await test('parseArgs: --data default ./data, --out default ./docs', () => {

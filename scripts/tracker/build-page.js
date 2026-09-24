@@ -175,6 +175,7 @@ const STAT_COLUMNS = [
   ['Open', (s) => s.open + s.pending],
   ['Win rate', (s) => pct(s.winRate)],
   ['Exp. (gross R)', (s) => ({ v: rVal(s.expectancy), cls: rStatus(s.expectancy) })],
+  ['Net exp. (net of fees)', (s) => ({ v: rVal(s.netExpectancy), cls: rStatus(s.netExpectancy) })],
   ['Avg net R:R (plan)', (s) => num(s.avgNetRR)],
   ['Max loss streak', (s) => ({ v: s.maxLosingStreak, cls: s.maxLosingStreak >= 5 ? 'st-bad' : '' })],
   ['Median min to TP1', (s) => num(s.medianMinutesToTP1, 0)]
@@ -455,7 +456,7 @@ export const SHADOW_MIN_N = 30;
 export const SHADOW_TOO_FEW = 'TOO FEW CALLS';
 export const SHADOW_NOTE = "Shadow mode: a breakout-close entry, scored but never traded (docs/PLAN_FLAG_PATHS.md P4). Never feeds flagTradePlan, class logic or any gate. Retest is the same stop/target from a retest-hold entry, for comparison. n < 30 per row reads too few calls.";
 
-const EMPTY_SHADOW_LEG_STATS = { n: 0, wins: 0, losses: 0, open: 0, winRate: null, expectancy: null, maxLosingStreak: 0 };
+const EMPTY_SHADOW_LEG_STATS = { n: 0, wins: 0, losses: 0, open: 0, winRate: null, expectancy: null, netExpectancy: null, maxLosingStreak: 0 };
 export const EMPTY_SHADOW_SUMMARY = {
   n: 0,
   shadow: { overall: EMPTY_SHADOW_LEG_STATS, byChase: { highElevated: EMPTY_SHADOW_LEG_STATS, lowUnknown: EMPTY_SHADOW_LEG_STATS } },
@@ -463,9 +464,9 @@ export const EMPTY_SHADOW_SUMMARY = {
 };
 
 function shadowStatRow(label, s) {
-  if (!s || !s.n) return [label, 0, dash, dash];
-  if (s.n < SHADOW_MIN_N) return [label, s.n, { v: SHADOW_TOO_FEW, cls: 'dim' }, dash];
-  return [label, s.n, pct(s.winRate), { v: rVal(s.expectancy), cls: rStatus(s.expectancy) }];
+  if (!s || !s.n) return [label, 0, dash, dash, dash];
+  if (s.n < SHADOW_MIN_N) return [label, s.n, { v: SHADOW_TOO_FEW, cls: 'dim' }, dash, dash];
+  return [label, s.n, pct(s.winRate), { v: rVal(s.expectancy), cls: rStatus(s.expectancy) }, { v: rVal(s.netExpectancy), cls: rStatus(s.netExpectancy) }];
 }
 
 function shadowSummaryBody(summary) {
@@ -477,7 +478,7 @@ function shadowSummaryBody(summary) {
     shadowStatRow('RETEST · CHASE HIGH/ELEVATED', summary.retest.byChase.highElevated),
     shadowStatRow('RETEST · CHASE LOW/UNKNOWN', summary.retest.byChase.lowUnknown)
   ];
-  return table('breakout-shadow-summary-table', ['Entry', 'N', 'Win rate', 'Exp. (gross R)'], rows, NO_SHADOW, 1);
+  return table('breakout-shadow-summary-table', ['Entry', 'N', 'Win rate', 'Exp. (gross R)', 'Net exp. (net of fees)'], rows, NO_SHADOW, 1);
 }
 
 const legR = (leg) => (leg.outcome === 'stop' ? -1 : leg.outcome === 'tp1' ? leg.r : null);
@@ -537,12 +538,15 @@ export function renderHtml(agg, data = {}) {
       ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"']
     ]);
 
-  // Primary: hero.
+  // Primary: hero. Net (fees + slippage, costs.js) shown beside gross (T5 S1).
   const heroValue = isNum(t.expectancy7d) && scored7 > 0
     ? `<div class="hero-value ${rStatus(t.expectancy7d)}" id="tile-expectancy-7d">${esc(signed(t.expectancy7d))}<span class="hero-unit">R</span></div>`
     : `<div class="hero-value hero-empty" id="tile-expectancy-7d">0.00<span class="hero-unit">R</span></div><div class="hero-empty-note" id="hero-empty-note">${emptyInline()}</div>`;
+  const heroNetLine = isNum(t.expectancy7d) && scored7 > 0
+    ? `<div class="hero-n" id="hero-net-expectancy-7d">${esc(signed(t.netExpectancy7d))}R net of fees</div>`
+    : '';
   const hero = section('performance-hero-section', 'Expectancy · gross R per scored call',
-    `<div class="hero-stack" id="performance-hero-stack">${heroValue}`
+    `<div class="hero-stack" id="performance-hero-stack">${heroValue}${heroNetLine}`
     + `<div class="hero-n" id="hero-sample-size">n=${scored7} scored call${scored7 === 1 ? '' : 's'} · 7d</div></div>`
     + `<p class="edge-note" id="hero-edge-note">${esc(EDGE_NOTE)}</p>`
     + `<p class="note" id="instrument-row-note">Scored = a ready flag plan that reached TP1 or stop. R is gross, before fees and slippage.</p>`,

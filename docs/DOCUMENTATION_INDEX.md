@@ -24,6 +24,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 - **[PLAN_FLAG_PATHS.md](./PLAN_FLAG_PATHS.md)** — T4 plan: measured scenario weights (retest_go / runner / false_break / fail_first / chop) at the moment a flag tightens; P0 done, P1–P4 not approved.
 - **[BREAKOUT_ENTRY_SHADOW.md](./BREAKOUT_ENTRY_SHADOW.md)** — T4 P4 shadow breakout-close entry: replay results vs the retest entry (net negative after fees; not promoted), live shadow tracking in the tracker.
 - **[FLAG_PATHS_BASE_RATES.md](./FLAG_PATHS_BASE_RATES.md)** — T4 P0, flag-path base rates (provisional, measure-only, dev-only): `scripts/replay-paths.js` + `scripts/tracker/flag-paths.js`, path mix and feature base rates from replayed history, no production change.
+- **[PLAN_DIVERGENCE_OPPORTUNITIES.md](./PLAN_DIVERGENCE_OPPORTUNITIES.md)** — T5 plan: does divergence at a level give an early-entry edge; P0 (measure-only) done, P1–P3 not approved. Results: **[DIVERGENCE_OPPORTUNITIES_BASE_RATES.md](./DIVERGENCE_OPPORTUNITIES_BASE_RATES.md)** (provisional, measure-only, dev-only): `scripts/replay-early-entry.js` + the new `featuresAt` fields (`divergence`/`atLevel`/`sweepReclaim`/`counterTrend`), early-vs-retest entry net expectancy, no production change.
 
 ### API and connector
 - **[EDITTRADES_MCP_CONNECTOR.md](./EDITTRADES_MCP_CONNECTOR.md)** — MCP tool and REST parity, payload controls, payload schema 1.8.0 map, scalp stop guard, security boundary, env, prod verification, test suites.

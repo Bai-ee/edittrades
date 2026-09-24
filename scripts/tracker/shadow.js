@@ -49,6 +49,7 @@ import { parseArgs, readAllCalls, readJsonl, writeJsonl, writeJson } from './sto
 import { isFiniteNumber } from './walk-outcome.js';
 import { pathsFile, readAllTfCandles, extractTighteningPoints } from './paths.js';
 import { shadowEntryFromBreakout, walkShadow } from './breakout-entry.js';
+import { costR } from './costs.js';
 
 // Same values config/engine.json publishes in THIS repo (see this file's header) -
 // flagPlan.minRR, scalp.maxStopDistancePct, risk.feeBps, risk.slippageBps. Kept in step by
@@ -69,6 +70,23 @@ function roundN(value, decimals) {
   if (!isFiniteNumber(value)) return null;
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
+}
+
+/**
+ * Net R (T5 S1, fees + slippage) for one walked leg: gross R (-1 for a stop, `walk.r` for
+ * a tp1, null while open/expired/unresolved) minus round-trip cost in R from
+ * ./costs.js (mirrors lib/flagTradePlan.js's netRiskReward cost model - see costs.js's own
+ * header). Additive: never changes `walk.outcome` or `walk.r`.
+ * @param {number} entry
+ * @param {number} stop
+ * @param {{outcome:string, r:number|null}} walk
+ * @returns {number|null}
+ */
+function legNetR(entry, stop, walk) {
+  const grossR = walk.outcome === 'stop' ? -1 : walk.outcome === 'tp1' ? walk.r : null;
+  if (!isFiniteNumber(grossR)) return null;
+  const cost = costR(entry, stop);
+  return cost === null ? null : roundN(grossR - cost, 4);
 }
 
 export function shadowOutcomesFile(dataDir) {
@@ -147,7 +165,7 @@ function retestLegFor(direction, breakoutLevel, invalidation, measuredTarget, re
 
   const fromMs = retestAtMs + 60_000;
   const walk = walkShadow({ dir: direction, entry, stop, tp1 }, candles1m, fromMs, WINDOW_MS);
-  return { entry: roundN(entry, 2), stop: roundN(stop, 2), tp1: roundN(tp1, 2), grossRR, ...walk };
+  return { entry: roundN(entry, 2), stop: roundN(stop, 2), tp1: roundN(tp1, 2), grossRR, ...walk, netR: legNetR(entry, stop, walk) };
 }
 
 /** A leg is terminal (nothing left to walk) when it is not applicable (null) or resolved. */
@@ -193,7 +211,7 @@ export function computeShadowRows(pathsRows, callRows, candlesByTf, previous = [
         const intervalMs = TF_MS[row.tf] || 60_000;
         const fromMs = row.breakoutAt + intervalMs; // breakout candle's own close time
         const walk = walkShadow({ dir: direction, entry: entryObj.entry, stop: entryObj.stop, tp1: entryObj.tp1 }, candles1m, fromMs, WINDOW_MS);
-        shadow = { ...entryObj, ...walk };
+        shadow = { ...entryObj, ...walk, netR: legNetR(entryObj.entry, entryObj.stop, walk) };
       }
     }
 
@@ -238,6 +256,9 @@ function legStats(legs) {
     if (l.outcome === 'stop') { streak++; maxLosingStreak = Math.max(maxLosingStreak, streak); } else streak = 0;
   }
   const rs = decided.map((l) => (l.outcome === 'stop' ? -1 : l.r)).filter(isFiniteNumber);
+  // Net R (T5 S1): each leg's own additive `netR` field (fees + slippage, see legNetR
+  // above), averaged the same way as gross expectancy.
+  const netRs = decided.map((l) => l.netR).filter(isFiniteNumber);
   return {
     n: list.length,
     wins,
@@ -245,6 +266,7 @@ function legStats(legs) {
     open,
     winRate: decided.length ? roundN(wins / decided.length, 4) : null,
     expectancy: rs.length ? roundN(rs.reduce((a, b) => a + b, 0) / rs.length, 4) : null,
+    netExpectancy: netRs.length ? roundN(netRs.reduce((a, b) => a + b, 0) / netRs.length, 4) : null,
     maxLosingStreak
   };
 }

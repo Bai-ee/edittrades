@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-24 — T5 P0 divergence measurement, net R on the tracker (branch `upgrade-signal-engine`)
+
+`docs/PLAN_DIVERGENCE_OPPORTUNITIES.md`. No engine, payload, config or threshold change.
+
+- **S1:** tracker net R after fees + slippage (`scripts/tracker/costs.js`, parity-tested with `config/engine.json` `risk`): `netExpectancy`/`avgCostR` in stats, hero, window tables and the shadow tile. `outcomes.jsonl` untouched.
+- **S2 (in progress):** `scripts/replay.js` backfill checkpoint stores 1m candles instead of raw trades (old checkpoints convert on load); 1h derived from 1m for 60-day depth.
+- **T5 P0:** `featuresAt` gains `divergence`, `atLevel`, `sweepReclaim`, `counterTrend` (additive); `scripts/replay-early-entry.js` (`npm run replay:early`) compares an early entry at the tightening close with the confirmed retest entry, net of fees. 15 days, 10,997 flags: early entry −0.65R net; retest −0.32R net; divergence and support nudge fail_first down (47.9% → ~43.5%) but no early-entry combination is net-positive. Results: `docs/DIVERGENCE_OPPORTUNITIES_BASE_RATES.md`.
+- **Tests:** `test:tracker` 85, `test:paths` 26, `test:replay-paths` 28, `test:replay` 45.
+
 ## 2026-09-24 — T4 P3 calibration + P4 shadow breakout entry (branch `upgrade-signal-engine`)
 
 Schema 1.19.0 → 1.20.0 (additive). Nothing that drives a trade changed: `flagTradePlan`, `flagRecommendation`, GO IN, strategies, gates, minRR, the 3% scalp stop guard are byte-identical; the GPT instructions do not mention the shadow field.

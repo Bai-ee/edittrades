@@ -8,7 +8,7 @@
  * Run: node test-replay.js
  */
 
-import { readFileSync, readdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ENGINE_CONFIG } from './config/engine.js';
@@ -16,7 +16,7 @@ import { buildScalpContext, dropUnclosedCandles, INTERVAL_MS, TIMEFRAMES } from 
 import { getCandlesWithProvenance } from './services/marketData.js';
 import {
   buildAt, closedRows, loadHistoryDir, makeReplayFetch, parseArgs, replaySymbol, toReplayLine, tradesTo1m,
-  backfill1m, deriveTimeframe, krakenTrades
+  backfill1m, deriveTimeframe, krakenTrades, DERIVE_DEEP_TIMEFRAMES
 } from './scripts/replay.js';
 import { computeMetrics, formatMetrics } from './scripts/replay-metrics.js';
 import { walkOutcome, extractStrategySignals, extractCandidateSignals, extractFlagPlanSignals, aggregateOutcomes, scoreSymbol } from './scripts/replay-outcomes.js';
@@ -659,6 +659,29 @@ async function run() {
     assertEqual(report.overlapMismatches, 1, 'derived and OHLC deliberately differ at the overlap');
   });
 
+  await test('deep-derive covers 1h (its 720-row/~30-day OHLC window is shallower than a multi-month backfill) alongside 5m/15m, but not 4h/1d (their native windows already reach far enough)', () => {
+    assertEqual(JSON.stringify(DERIVE_DEEP_TIMEFRAMES.slice().sort()), JSON.stringify(['15m', '1h', '5m'].sort()), 'derived set');
+    assert(!DERIVE_DEEP_TIMEFRAMES.includes('4h') && !DERIVE_DEEP_TIMEFRAMES.includes('1d'), '4h/1d are never deep-derived');
+  });
+
+  await test('deriveTimeframe: 1h alignment from 1m, OHLC wins on overlap, same as 5m/15m', () => {
+    const H1 = INTERVAL_MS['1h'];
+    const base = Date.UTC(2026, 8, 20, 0, 0, 0);
+    const c1m = [];
+    for (let i = 0; i < 125; i++) { // 2 full 1h buckets (0-120) + a 5-minute partial (120-125)
+      const t = base + i * MIN;
+      c1m.push({ timestamp: t, open: 100 + i, high: 100 + i + 0.5, low: 100 + i - 0.5, close: 100 + i + 0.2, volume: 1, closeTime: t + MIN });
+    }
+    // OHLC only reaches back to the second 1h bucket, with different values so a real merge is provable.
+    const ohlc1h = [{ timestamp: base + H1, open: 999, high: 999, low: 999, close: 999, volume: 42, closeTime: base + 2 * H1 }];
+    const { candles, report } = deriveTimeframe(c1m, '1h', ohlc1h);
+    assertEqual(candles.length, 2, 'derived 0h + OHLC 1h bucket (wins); the 120-125 partial bucket is dropped');
+    assertEqual(candles[0].timestamp, base, '1h buckets align to the UTC boundary');
+    assertEqual(candles.find((c) => c.timestamp === base + H1).close, 999, 'OHLC wins at the one overlapping timestamp');
+    assertEqual(report.overlapCompared, 1, 'one overlapping timestamp compared');
+    assertEqual(report.overlapMismatches, 1, 'derived and OHLC deliberately differ at the overlap');
+  });
+
   await test('deriveTimeframe: 15m alignment and partial-bucket drop, no OHLC at all', () => {
     const base = Date.UTC(2026, 8, 20, 0, 0, 0);
     const c1m = [];
@@ -751,7 +774,8 @@ async function run() {
       assert(threw, 'the simulated outage propagates (the run did not silently complete)');
       assert(existsSync(checkpointFile), 'checkpoint file written before the failure');
       const cp1 = JSON.parse(readFileSync(checkpointFile, 'utf8'));
-      assert(cp1.trades.length > 0 && cp1.trades.length < allTrades.length, `checkpoint has partial progress (${cp1.trades.length}/${allTrades.length})`);
+      assert(cp1.tradesSeen > 0 && cp1.tradesSeen < allTrades.length, `checkpoint has partial progress (${cp1.tradesSeen}/${allTrades.length})`);
+      assert(!('trades' in cp1), 'the checkpoint holds candles, not a raw trade array');
       assert(cp1.since !== String(BigInt(startMs) * 1000000n), 'checkpoint cursor has advanced past the start');
 
       // Run 2: a fetch that never fails, but records the very first `since` it is asked for -
@@ -769,6 +793,85 @@ async function run() {
       assertEqual(merged[0].timestamp, startMs, 'the merged result still covers the full requested depth after resuming');
       const at = merged.find((c) => c.timestamp === oldest);
       assertEqual(at.volume, 1, 'OHLC still wins at the overlap after a resumed run');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test('backfill1m: the checkpoint holds completed 1m candles (plus the open partial and cursor), not raw trades - size tracks depth, not trade volume', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'replay-backfill-format-'));
+    try {
+      const checkpointFile = path.join(dir, 'BTC_1m.backfill.json');
+      const step = MIN;
+      const oldest = Date.UTC(2026, 8, 20, 3, 0, 0);
+      const ohlc1m = [{ timestamp: oldest, open: 400, high: 400, low: 400, close: 400, volume: 1, closeTime: oldest + step }];
+      const minutes = 10;
+      const startMs = oldest - minutes * step;
+      // Four trades per minute, so trade volume is well above the candle count that should end up on disk.
+      const allTrades = [];
+      for (let t = startMs; t < oldest; t += step) {
+        for (let k = 0; k < 4; k++) allTrades.push([String(200 + (t - startMs) / step), '1', String(t / 1000 + 5 + k * 10)]);
+      }
+      const fetchImpl = async (url) => {
+        const since = BigInt(new URL(url).searchParams.get('since'));
+        const sinceMs = Number(since / 1000000n);
+        const rest = allTrades.filter((tr) => Math.round(Number(tr[2]) * 1000) > sinceMs);
+        const page = rest.slice(0, 6); // small pages so several mid-run checkpoint flushes happen
+        const last = page.length ? String(BigInt(Math.round(Number(page[page.length - 1][2]) * 1e9))) : String(since);
+        return { status: 200, json: async () => ({ error: [], result: { XXXUSD: page, last } }) };
+      };
+      const r = await backfill1m('BTC', ohlc1m, minutes, { fetchImpl, checkpointFile, flushEveryPages: 1, logEveryPages: 1000, pageDelayMs: 5, log: () => {} });
+      assertEqual(r.report.trades, allTrades.length, 'every trade folded');
+      const cp = JSON.parse(readFileSync(checkpointFile, 'utf8'));
+      assert(!('trades' in cp), 'the checkpoint no longer stores a raw trade array');
+      assert(Array.isArray(cp.candles), 'the checkpoint stores completed candles');
+      assert(cp.candles.length <= minutes + 2, `candle count (${cp.candles.length}) tracks minutes of depth (${minutes}), not the ${allTrades.length} trades that built them`);
+      assert('prevClose' in cp, 'the gap-fill cursor is persisted');
+      assertEqual(cp.tradesSeen, allTrades.length, 'trade count is tracked without keeping the trades themselves');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await test('backfill1m: a legacy (raw-trade) checkpoint converts to the candle format on load and finishes with the exact result a fresh run over the same trades would produce', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'replay-backfill-legacy-'));
+    try {
+      const checkpointFile = path.join(dir, 'BTC_1m.backfill.json');
+      const step = MIN;
+      const oldest = Date.UTC(2026, 8, 20, 4, 0, 0);
+      const ohlc1m = [{ timestamp: oldest, open: 500, high: 500, low: 500, close: 500, volume: 1, closeTime: oldest + step }];
+      const minutes = 12;
+      const startMs = oldest - minutes * step;
+      const overlapEnd = oldest + 60 * step;
+      const allTrades = [];
+      for (let t = startMs; t < overlapEnd; t += step) allTrades.push([String(300 + (t - startMs) / step), '1', String(t / 1000 + 30)]);
+      const fetchImpl = async (url) => {
+        const since = BigInt(new URL(url).searchParams.get('since'));
+        const sinceMs = Number(since / 1000000n);
+        const rest = allTrades.filter((tr) => Math.round(Number(tr[2]) * 1000) > sinceMs);
+        const page = rest.slice(0, 4);
+        const last = page.length ? String(BigInt(Math.round(Number(page[page.length - 1][2]) * 1e9))) : String(since);
+        return { status: 200, json: async () => ({ error: [], result: { XXXUSD: page, last } }) };
+      };
+
+      // Ground truth: one straight run over every trade, no checkpoint involved at all.
+      const truth = await backfill1m('BTC', ohlc1m, minutes, { fetchImpl, pageDelayMs: 5, logEveryPages: 1000, log: () => {} });
+
+      // The same trades, but the first 5 minutes are already "collected" into a checkpoint
+      // written in the pre-candle format: a raw `trades` array, no candles/partial/prevClose.
+      const splitAt = startMs + 5 * step;
+      const already = allTrades.filter((tr) => Math.round(Number(tr[2]) * 1000) < splitAt);
+      const lastAlready = already[already.length - 1];
+      const sinceAfterAlready = String(BigInt(Math.round(Number(lastAlready[2]) * 1e9)));
+      writeFileSync(checkpointFile, JSON.stringify({ symbol: 'BTC', startMs, overlapEnd, since: sinceAfterAlready, trades: already, done: false }));
+
+      const resumed = await backfill1m('BTC', ohlc1m, minutes, { fetchImpl, checkpointFile, pageDelayMs: 5, logEveryPages: 1000, log: () => {} });
+
+      assertEqual(JSON.stringify(resumed.candles), JSON.stringify(truth.candles), 'converted-legacy resume matches a fresh run over the same trades, candle for candle');
+      assertEqual(resumed.report.trades, truth.report.trades, 'trade count matches too');
+      const cpAfter = JSON.parse(readFileSync(checkpointFile, 'utf8'));
+      assert(!('trades' in cpAfter), 'the checkpoint on disk is upgraded to the candle format, not left holding raw trades');
+      assert(Array.isArray(cpAfter.candles), 'upgraded checkpoint has the candle array');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
