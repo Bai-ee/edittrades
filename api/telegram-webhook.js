@@ -14,6 +14,12 @@
  * secret (else 403); sender id in TELEGRAM_ALLOWED_USER_IDS (else 200 and silence).
  * Every accepted update answers 200 so Telegram does not redeliver it. Secrets, message
  * text and user ids are never logged.
+ *
+ * Buttons: plain replies carry the persistent reply keyboard (lib/telegram.js MENU_ROWS;
+ * a tapped label maps to its command). Inline buttons arrive as `callback_query` updates
+ * (setWebhook allowed_updates ["message","callback_query"]): the same allowlist applies,
+ * answerCallbackQuery is sent first, then the button runs as its command. Took it /
+ * Skipped journal the alert's plan (state.buttons, else the live plan with that ref).
  */
 
 import crypto from 'crypto';
@@ -26,7 +32,8 @@ import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
-  parseState, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet
+  parseState, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet,
+  parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot
 } from '../lib/telegram.js';
 
 function safeCompare(a, b) {
@@ -34,6 +41,8 @@ function safeCompare(a, b) {
   const hashB = crypto.createHash('sha256').update(String(b)).digest();
   return crypto.timingSafeEqual(hashA, hashB);
 }
+
+const isObjLike = (v) => v !== null && typeof v === 'object';
 
 function readUpdate(req) {
   let raw = req.body;
@@ -115,10 +124,13 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   }
 
   const update = readUpdate(req);
-  const msg = update && (update.message || update.edited_message);
-  const fromId = msg && msg.from ? msg.from.id : null;
-  const chatId = msg && msg.chat ? msg.chat.id : null;
-  if (!msg || chatId === null) {
+  const cq = update && isObjLike(update.callback_query) ? update.callback_query : null;
+  const msg = cq ? null : update && (update.message || update.edited_message);
+  const fromId = cq ? (cq.from ? cq.from.id : null) : (msg && msg.from ? msg.from.id : null);
+  const chatId = cq
+    ? (cq.message && cq.message.chat ? cq.message.chat.id : fromId)
+    : (msg && msg.chat ? msg.chat.id : null);
+  if ((!msg && !cq) || chatId === null || chatId === undefined) {
     log(200, ' ignored=no_message');
     return res.status(200).json({ ok: true });
   }
@@ -128,22 +140,35 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   }
 
   const bot = createBotClient({ token: env.TELEGRAM_BOT_TOKEN, fetchImpl });
-  const reply = (text) => bot.sendMessage(chatId, text);
+  // Every plain reply re-sends the persistent menu keyboard; inline pickers replace it.
+  const reply = (text, markup = menuKeyboard()) => bot.sendMessage(chatId, text, { replyMarkup: markup });
   const hasStore = Boolean(deps.put || deps.get || env.BLOB_READ_WRITE_TOKEN);
   const store = { put, get };
-  const parsed = parseCommand(typeof msg.text === 'string' ? msg.text : '');
+  let parsed;
+  if (cq) {
+    await bot.answerCallbackQuery(cq.id); // promptly, before any build
+    parsed = parseCallbackData(cq.data);
+  } else {
+    const text = typeof msg.text === 'string' ? msg.text : '';
+    parsed = parseCommand(text) || parseMenuLabel(text);
+  }
   const cmd = parsed ? parsed.cmd : null;
+  const via = cq ? 'cb:' : '';
 
   try {
     if (!parsed) {
-      await reply('Send /help for the command list.');
+      await reply(cq ? 'That button is no longer valid. Send /menu.' : 'Send /help for the command list.');
     } else if (!parsed.known) {
       await reply(`Unknown command /${escapeHtml(cmd)}. Send /help.`);
     } else if (cmd === 'help' || cmd === 'start') {
       await reply(formatHelp());
+    } else if (cmd === 'menu') {
+      await reply('Menu is on the keyboard below.');
+    } else if (cmd === 'charts') {
+      await reply('Pick a chart:', chartsKeyboard());
     } else if (cmd === 'signals') {
       const payload = filterPayload(await build(), { compact: true });
-      await reply(formatSignals(payload, now()));
+      await reply(formatSignals(payload, now()), signalsKeyboard(payload) || menuKeyboard());
     } else if (cmd === 'why') {
       const sym = parseSymbol(parsed.args[0]);
       if (!sym) await reply('Usage: /why BTC (BTC, ETH or SOL)');
@@ -213,7 +238,8 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       else if (a.action === 'show' || a.action === 'quiet_show') {
         const blob = await readBlob(get, TELEGRAM_STATE_PATH);
         const prefs = parseState(blob ? blob.text : null).prefs;
-        await reply(a.action === 'show' ? formatAlertPrefs(prefs) : `Quiet hours: ${fmtQuiet(prefs.quiet)}`);
+        if (a.action === 'show') await reply(formatAlertPrefs(prefs), alertsKeyboard());
+        else await reply(`Quiet hours: ${fmtQuiet(prefs.quiet)}`);
       } else {
         // Same ETag-guarded update as the cron, so a concurrent cron run cannot lose it.
         const change = a.action === 'level' ? { level: a.level } : { quiet: a.action === 'quiet_off' ? null : a.quiet };
@@ -223,7 +249,24 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           prefs = parseState(next).prefs;
           return next;
         });
-        await reply(`Saved.\n${formatAlertPrefs(prefs)}`);
+        await reply(`Saved.\n${formatAlertPrefs(prefs)}`, alertsKeyboard());
+      }
+    } else if (cmd === 'button_log') {
+      if (!hasStore) await reply('Journal store unavailable.');
+      else {
+        let state = null;
+        try { const blob = await readBlob(get, TELEGRAM_STATE_PATH); state = parseState(blob ? blob.text : null); } catch { state = null; }
+        let snap = findButtonSnapshot(state, null, parsed.symbol, parsed.ref);
+        if (!snap) snap = findButtonSnapshot(null, filterPayload(await build(), { compact: true }), parsed.symbol, parsed.ref);
+        if (!snap) await reply(`That ${escapeHtml(parsed.symbol)} plan is no longer on file. Use /log to journal it by hand.`);
+        else {
+          const checked = validateJournalEntry(buttonLogBody(parsed.kind, snap, parsed.ref), { now: now(), newId: () => `tg_${parsed.kind}_${parsed.ref}`, source: 'telegram' });
+          if (!checked.ok) await reply(`Not logged: ${escapeHtml(checked.errors.join('; '))}`);
+          else {
+            const { duplicate } = await appendRecord(store, checked.record);
+            await reply(`[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''}`);
+          }
+        }
       }
     } else if (cmd === 'testalert') {
       const payload = await build();
@@ -237,9 +280,9 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         await reply(`TEST chart unavailable: ${escapeHtml(err.message)}`);
       }
     }
-    log(200, ` cmd=${cmd || 'none'}`);
+    log(200, ` cmd=${via}${cmd || 'none'}`);
   } catch (err) {
-    log(200, ` cmd=${cmd || 'none'} error=${JSON.stringify(String(err && err.name ? err.name : 'Error'))}`);
+    log(200, ` cmd=${via}${cmd || 'none'} error=${JSON.stringify(String(err && err.name ? err.name : 'Error'))}`);
     await reply('Something failed on the server; try again in a minute.');
   }
   return res.status(200).json({ ok: true });

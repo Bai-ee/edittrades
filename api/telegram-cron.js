@@ -112,7 +112,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
       try { png = (await render(payload, alert.chart)).png; } catch { png = null; }
     }
     for (const chatId of chats) {
-      const r = await bot.sendMessage(chatId, alert.text, { silent });
+      const r = await bot.sendMessage(chatId, alert.text, { silent, replyMarkup: alert.replyMarkup || null });
       if (r.ok) sent++; else failed++;
       if (png) {
         const p = await bot.sendPhoto(chatId, png, `${escapeHtml(alert.chart.symbol)} ${escapeHtml(alert.chart.timeframe)} · ${escapeHtml(alert.kind)}`, { silent });

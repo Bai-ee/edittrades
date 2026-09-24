@@ -5,7 +5,8 @@
  * /log body must validate against the journal schema), api/telegram-webhook.js (method,
  * secret 403, allowlist silence, commands, /log through the journal's own append path)
  * and api/telegram-cron.js (401, 503 reasons, send-once under overlapping runs), alert
- * levels (good/setup/watch), WATCH dedup + cooldown, Chicago quiet hours (DST), plus
+ * levels (good/setup/watch), WATCH dedup + cooldown, Chicago quiet hours (DST), the reply
+ * keyboard and inline buttons (callback_query, Took it / Skipped journaling), plus
  * isolation: no execution, signing or wallet-writing import anywhere reachable.
  * All HTTP (Bot API, Blob) is an in-memory fake; no network.
  *
@@ -22,6 +23,8 @@ import {
   formatGoodAlert, emptyState, parseState, diffAlerts, createBotClient, inQuietHours, COMMANDS,
   formatWatchAlert, formatAlertPrefs, parseAlertsArgs, parseQuietSpec, normalizePrefs, applyPrefsChange, chicagoHour,
   WATCH_COOLDOWN_MS, WATCH_RECENT_IDS, DEFAULT_QUIET_HOURS,
+  MENU_ROWS, parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, shortRef, tradeButtonRow, signalsKeyboard,
+  parseCallbackData, MAX_CALLBACK_BYTES, BUTTON_MEMORY, ALLOWED_UPDATES,
   HEALTH_PERSIST_MS, HEALTH_REPEAT_MS, HEARTBEAT_WRITE_MS, MAX_MESSAGE_CHARS, TELEGRAM_STATE_PATH
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
@@ -162,7 +165,7 @@ function fakeTelegram({ fail = false } = {}) {
       entry.photo = init.body.get('photo');
     } else {
       const b = JSON.parse(init.body);
-      Object.assign(entry, { chatId: String(b.chat_id), text: b.text, parseMode: b.parse_mode, silent: b.disable_notification });
+      Object.assign(entry, { chatId: String(b.chat_id), text: b.text, parseMode: b.parse_mode, silent: b.disable_notification, replyMarkup: b.reply_markup, callbackQueryId: b.callback_query_id });
     }
     calls.push(entry);
     if (fail) throw Object.assign(new Error('network down'), { name: 'TypeError' });
@@ -200,6 +203,17 @@ async function hook({ text, from = OWNER, secret = SECRET, method = 'POST', env 
   const { logs } = await quiet(() => handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render: fakeRender, now: () => nowMs, env }));
   return { res, tg, blob, logs };
 }
+
+/** A button tap: a callback_query update from `from`, on a message in the owner chat. */
+async function tap({ data, from = OWNER, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0 }) {
+  const update = { update_id: updateSeq++, callback_query: { id: `cbq${updateSeq}`, from: { id: from }, message: { message_id: 9, chat: { id: from, type: 'private' } }, data } };
+  const req = { method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) };
+  const res = mockRes();
+  const { logs } = await quiet(() => handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render: fakeRender, now: () => nowMs, env: ENV }));
+  return { res, tg, blob, logs };
+}
+
+const allCallbackData = (markup) => (markup && markup.inline_keyboard ? markup.inline_keyboard.flat().map((b) => b.callback_data) : []);
 
 async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0 }) {
   const req = { method: 'GET', headers: auth ? { authorization: auth } : {} };
@@ -642,6 +656,137 @@ async function run() {
     const f = await hook({ text: '/signals', build: async () => { throw new Error('kraken down'); } });
     assertEqual(f.res.statusCode, 200, '200 so Telegram does not retry');
     assert(f.tg.calls[0].text.startsWith('Something failed'), 'error reply');
+  });
+
+
+  console.log('\nbuttons');
+
+  await test('reply keyboard: persistent, resized, the four owner rows; on /start, /menu and every plain reply', async () => {
+    const kb = menuKeyboard();
+    assertEqual(JSON.stringify(kb.keyboard.map((r) => r.map((b) => b.text))), JSON.stringify(MENU_ROWS), 'rows');
+    assertEqual(JSON.stringify(MENU_ROWS), '[["Signals","Flags"],["Why BTC","Why ETH","Why SOL"],["Charts","Wallet"],["Journal","Status","Alerts"]]', 'owner layout');
+    assert(kb.resize_keyboard === true && kb.is_persistent === true, 'flags');
+    for (const text of ['/start', '/menu', '/help', '/status', '/wallet', 'hello']) {
+      const r = await hook({ text });
+      const last = r.tg.calls[r.tg.calls.length - 1];
+      assert(last.replyMarkup && last.replyMarkup.is_persistent && last.replyMarkup.keyboard, `${text} has the keyboard`);
+    }
+  });
+
+  await test('menu labels map to commands (case-insensitive, exact label only)', async () => {
+    const m = (t) => { const p = parseMenuLabel(t); return p ? `${p.cmd}${p.args.length ? ` ${p.args.join(' ')}` : ''}` : null; };
+    const want = { Signals: 'signals', Flags: 'flags', 'Why BTC': 'why BTC', 'Why ETH': 'why ETH', 'Why SOL': 'why SOL', Charts: 'charts', Wallet: 'wallet', Journal: 'journal', Status: 'status', Alerts: 'alerts' };
+    for (const label of MENU_ROWS.flat()) assertEqual(m(label), want[label], label);
+    assertEqual(m('why btc'), 'why BTC', 'lower case');
+    assertEqual(m('  SIGNALS '), 'signals', 'upper, padded');
+    for (const no of ['Why DOGE', 'signals please', 'Chart', '']) assertEqual(m(no), null, `not a label: ${no}`);
+    const sig = await hook({ text: 'signals' });
+    assert(sig.tg.calls[0].text.includes('🟢 GO IN'), 'label runs /signals');
+    const flags = await hook({ text: 'Flags' });
+    assert(flags.tg.calls[0].text.includes('<b>BTC</b>'), 'label runs /flags');
+  });
+
+  await test('Charts label -> 3x5 inline grid (chart:SYM:TF); Alerts label -> level + quiet buttons', async () => {
+    const c = await hook({ text: 'Charts' });
+    const grid = c.tg.calls[0].replyMarkup.inline_keyboard;
+    assertEqual(grid.map((r) => r.map((b) => b.callback_data).join(',')).join(' | '),
+      'chart:BTC:1m,chart:BTC:3m,chart:BTC:5m,chart:BTC:15m,chart:BTC:1h | chart:ETH:1m,chart:ETH:3m,chart:ETH:5m,chart:ETH:15m,chart:ETH:1h | chart:SOL:1m,chart:SOL:3m,chart:SOL:5m,chart:SOL:15m,chart:SOL:1h', 'grid');
+    const a = await hook({ text: 'Alerts' });
+    assertEqual(a.tg.calls[0].replyMarkup.inline_keyboard.map((r) => r.map((b) => `${b.text}=${b.callback_data}`).join(',')).join(' | '),
+      'Good=alerts:good,Setup=alerts:setup,Watch=alerts:watch | Quiet on=alerts:quiet:on,Quiet off=alerts:quiet:off', 'alerts buttons');
+    assert(a.tg.calls[0].text.includes('Alert level: <b>setup</b>'), 'shows prefs');
+  });
+
+  await test('callback parsing; every callback_data fits 64 bytes; allowed_updates value', () => {
+    const j = (d) => { const p = parseCallbackData(d); return p ? `${p.cmd}:${p.args.join(' ')}${p.kind ? `:${p.kind}:${p.symbol}:${p.ref}` : ''}` : null; };
+    assertEqual(j('chart:BTC:1m'), 'chart:BTC 1m', 'chart');
+    assertEqual(j('why:SOL'), 'why:SOL', 'why');
+    assertEqual(j('alerts:watch'), 'alerts:watch', 'level');
+    assertEqual(j('alerts:quiet:on'), 'alerts:quiet 1-5', 'quiet on = default window');
+    assertEqual(j('alerts:quiet:off'), 'alerts:quiet off', 'quiet off');
+    assertEqual(j('log:took:BTC:dc2f0cdc'), 'button_log::open:BTC:dc2f0cdc', 'took');
+    assertEqual(j('log:skip:ETH:0000abcd'), 'button_log::skip:ETH:0000abcd', 'skip');
+    for (const bad of ['chart:DOGE:1m', 'why:btc', 'log:took:BTC:xyz', 'log:sell:BTC:dc2f0cdc', 'buy:BTC', '', null]) assertEqual(j(bad), null, `reject ${bad}`);
+    const longId = `BTC:15m:short:2026-09-24T13:50:00.000Z:${'x'.repeat(80)}`;
+    const all = [...allCallbackData(chartsKeyboard()), ...allCallbackData(alertsKeyboard()), ...tradeButtonRow('BTC', '15m', longId).map((b) => b.callback_data)];
+    for (const d of all) assert(Buffer.byteLength(d) <= MAX_CALLBACK_BYTES, `${d} over 64 bytes`);
+    assertEqual(shortRef('BTC:5m:long:2026-09-24T13:50:00.000Z'), 'dc2f0cdc', 'stable ref');
+    assertEqual(JSON.stringify(ALLOWED_UPDATES), '["message","callback_query"]', 'allowed_updates');
+  });
+
+  await test('GOOD and SETUP alerts carry Why/Chart/Took it/Skipped; /signals has one row per symbol', async () => {
+    const d = diffAlerts(emptyState(), payload({ ETH: watchSym(setupEth) }), T0);
+    const good = d.alerts.find((x) => x.kind === 'GOOD');
+    const ref = shortRef('BTC:5m:long:2026-09-24T13:50:00.000Z');
+    assertEqual(good.replyMarkup.inline_keyboard[0].map((b) => `${b.text}=${b.callback_data}`).join(','), `Why=why:BTC,Chart=chart:BTC:5m,Took it=log:took:BTC:${ref},Skipped=log:skip:BTC:${ref}`, 'GOOD buttons');
+    const setup = d.alerts.find((x) => x.kind === 'SETUP');
+    assertEqual(allCallbackData(setup.replyMarkup).join(','), `why:ETH,chart:ETH:3m,log:took:ETH:${shortRef(setupEth.candidateId)},log:skip:ETH:${shortRef(setupEth.candidateId)}`, 'SETUP buttons');
+    assertEqual(d.state.buttons[ref].entry, 84600, 'plan snapshot stored');
+    let st = d.state;
+    for (let i = 0; i < 60; i++) st = diffAlerts(st, payload({ BTC: goodSym(`BTC:5m:long:c${i}`), ETH: watchSym() }), T0 + (i + 1) * MIN).state;
+    assertEqual(Object.keys(st.buttons).length, BUTTON_MEMORY, 'snapshots capped at 50');
+    const kb = signalsKeyboard(payload());
+    assertEqual(kb.inline_keyboard.map((r) => r.map((b) => b.text).join(',')).join(' | '), `Why BTC,Chart BTC 5m,Took it BTC,Skipped BTC | Why ETH,Chart ETH 5m | Why SOL,Chart SOL 5m`, 'signals rows');
+    const sig = await hook({ text: '/signals' });
+    assertEqual(JSON.stringify(sig.tg.calls[0].replyMarkup), JSON.stringify(kb), '/signals sends the inline rows');
+    const tg = fakeTelegram();
+    await cron({ tg });
+    const goodMsg = tg.calls.find((c) => c.text && c.text.includes('NEW GOOD'));
+    assert(goodMsg.replyMarkup && allCallbackData(goodMsg.replyMarkup).includes(`log:took:BTC:${ref}`), 'cron sends the buttons');
+  });
+
+  await test('Took it from a cron GOOD alert writes kind open with the plan levels and engineRef; double tap logs once; Skipped = skip', async () => {
+    const blob = fakeBlob();
+    const tg = fakeTelegram();
+    await cron({ blob, tg });
+    const took = allCallbackData(tg.calls.find((c) => c.text && c.text.includes('NEW GOOD')).replyMarkup).find((x) => x.startsWith('log:took:'));
+    // The live plan has moved on: the log must use the alert's plan from state, not a rebuild.
+    const t = await tap({ data: took, blob, build: async () => payload({ BTC: watchSym() }) });
+    assertEqual(t.tg.calls[0].method, 'answerCallbackQuery', 'answered first');
+    const ref = took.split(':')[3];
+    assertEqual(t.tg.calls[1].text, `[LOGGED tg_open_${ref}]`, 'reply');
+    const rec = JSON.parse(blob.files.get('journal/2026-09-24.jsonl').text.trim());
+    assertEqual(`${rec.kind}|${rec.symbol}|${rec.direction}|${rec.entry}|${rec.stop}|${rec.tp1}|${rec.source}`, 'open|BTC|long|84600|84390|85146|telegram', 'record');
+    assertEqual(JSON.stringify(rec.engineRef), JSON.stringify({ candidateId: 'BTC:5m:long:2026-09-24T13:50:00.000Z', planId: 'BTC:5m:long:2026-09-24T13:50:00.000Z|2026-09-24T14:05:00.000Z|cfg', recClass: 'GOOD', reasonCode: 'ready_flag_plan' }), 'engineRef');
+    assertEqual(Object.keys(rec).join(), RECORD_KEYS.join(), 'journal schema keys');
+    const again = await tap({ data: took, blob });
+    assertEqual(again.tg.calls[1].text, `[LOGGED tg_open_${ref}] (already logged)`, 'double tap');
+    const skip = await tap({ data: took.replace('log:took:', 'log:skip:'), blob });
+    assertEqual(skip.tg.calls[1].text, `[LOGGED tg_skip_${ref}]`, 'skip reply');
+    const lines = blob.files.get('journal/2026-09-24.jsonl').text.trim().split('\n').map((l) => JSON.parse(l));
+    assertEqual(lines.map((r) => r.kind).join(), 'open,skip', 'two records');
+  });
+
+  await test('Took it with no stored snapshot falls back to the live plan with that ref; an unknown ref explains', async () => {
+    const blob = fakeBlob();
+    const ref = shortRef(setupEth.candidateId);
+    const t = await tap({ data: `log:took:ETH:${ref}`, blob, build: async () => payload({ ETH: watchSym(setupEth) }) });
+    assertEqual(t.tg.calls[1].text, `[LOGGED tg_open_${ref}]`, 'logged from live SETUP');
+    const rec = JSON.parse(blob.files.get('journal/2026-09-24.jsonl').text.trim());
+    assertEqual(`${rec.symbol}|${rec.direction}|${rec.entry}|${rec.stop}|${rec.tp1}|${rec.engineRef.recClass}|${rec.engineRef.planId}`, 'ETH|short|2601.5|2612|2575|WATCH|null', 'setup levels');
+    const gone = await tap({ data: 'log:took:SOL:00000000' });
+    assert(gone.tg.calls[1].text.includes('no longer on file'), gone.tg.calls[1].text);
+  });
+
+  await test('callbacks: chart photo, why, alerts level/quiet persisted; allowlist applies (no answer, no build)', async () => {
+    const c = await tap({ data: 'chart:ETH:15m' });
+    assertEqual(c.tg.calls.map((x) => x.method).join(), 'answerCallbackQuery,sendPhoto', 'answer then photo');
+    assert(c.tg.calls[1].caption.startsWith('ETH 15m'), 'chart caption');
+    const w = await tap({ data: 'why:BTC' });
+    assert(w.tg.calls[1].text.startsWith('<b>BTC — GOOD</b>'), w.tg.calls[1].text.slice(0, 40));
+    const blob = fakeBlob();
+    await tap({ data: 'alerts:watch', blob });
+    await tap({ data: 'alerts:quiet:off', blob });
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null}', 'level + off');
+    const on = await tap({ data: 'alerts:quiet:on', blob });
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.quiet), '{"start":1,"end":5}', 'on = default');
+    assert(on.tg.calls[1].replyMarkup.inline_keyboard, 'alerts buttons again');
+    const stale = await tap({ data: 'bogus:1' });
+    assert(stale.tg.calls[1].text.includes('no longer valid'), 'unknown button');
+    let built = 0;
+    const stranger = await tap({ data: 'log:took:BTC:dc2f0cdc', from: 999, build: async () => { built++; return payload(); } });
+    assertEqual(`${stranger.res.statusCode}|${stranger.tg.calls.length}|${built}`, '200|0|0', 'stranger: silence');
+    assert(!stranger.logs.join('\n').includes('999'), 'sender id not logged');
   });
 
   console.log('\ncron');
