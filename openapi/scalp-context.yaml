@@ -102,6 +102,7 @@ paths:
   /api/journal:
     post:
       operationId: postJournal
+      x-openai-isConsequential: false
       description: >-
         Record one journal line (the "log" command): a trade the user took, closed, adjusted
         or skipped, or a note, in their words. Never executes anything; never invent numbers.
@@ -159,6 +160,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     get:
       operationId: getJournal
+      x-openai-isConsequential: false
       description: >-
         Return the user's most recent journal records, newest first (the "journal" command).
       security:
