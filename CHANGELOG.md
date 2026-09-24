@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-24 — T4 P1 + P2 path outlook (branch `upgrade-signal-engine`)
+
+`docs/PLAN_FLAG_PATHS.md`. Schema 1.18.0 → 1.19.0 (additive), configVersion 2026.09.23-7 → 2026.09.24-1. Information only: `flagTradePlan`, `flagRecommendation`, strategies, gates, thresholds and the scalp stop guard are unchanged.
+
+- **P1:** `symbols.<SYM>.pathOutlook` (`lib/pathOutlook.js`, pure): for the symbol's live flag candidate, measured path weights (retest_go / runner / false_break / fail_first / chop), `lean`, `likely`, `chase`, `n`, `cal`, bucket `key`. Weights come from `config/engine.json` `pathOutlook` (built by `scripts/build-path-table.js` / `npm run paths:table` from 10,997 replayed flags, backoff `tf|structureSteps|roomR|compression` to n ≥ 100). Separate tables before and after breakout. Default payload 78,003 → 78,922 B, compact 42,598 → 43,517 B (caps unchanged).
+- **P2:** `docs/GPT_INSTRUCTIONS.md` renders a fixed SCENARIO block from `pathOutlook`; the GPT never invents percentages; a runner without a retest is a missed entry, not confirmation. 7,984 / 7,990 units. **Owner must paste the new instructions into the Custom GPT.**
+- **Tests:** new `test:outlook` 27; schemaVersion pins updated in config/geometry/pattern/scalp suites.
+
 ## 2026-09-24 — Fix: Blob appends after a day's first write (served calls, journal)
 
 `get()` returns a weak ETag (`W/"..."`) and `put({ifMatch})` only matches the strong form, so every append after a day's first write failed "Precondition failed: ETag mismatch" and was swallowed. Served calls recorded only 3 rows on 2026-09-24 (the first write); journal appends could 503. `lib/blobJsonl.js` `readBlob` now strips the `W/` prefix (`strongEtag`). Regression test in `test-served.js` (20).

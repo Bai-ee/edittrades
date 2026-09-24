@@ -791,6 +791,78 @@ components:
         - quality
         - decision
         - reasons
+    PathOutlook:
+      type: [object, "null"]
+      description: >-
+        Schema 1.19.0 (T4 P1, docs/PLAN_FLAG_PATHS.md). A measured-history read on the
+        symbol's live flag candidate - what usually happens from here, with a sample
+        size, never an invented probability. Info only: it never changes
+        flagTradePlan, flagRecommendation, strategies, bestSignal, or any gate/
+        threshold. Candidate choice: flagRecommendation.candidateId's own candidate if
+        still live, else flagTradePlan.candidateId's, else the nearest live
+        forming/proto/triggering/confirmed 1m/3m/5m flag (triggering > forming > proto
+        > confirmed, then confidence, then smaller timeframe, then candidateId). Null
+        when no live flag candidate exists this build, or the configured table cannot
+        resolve any bucket for it.
+      properties:
+        id:
+          description: The candidateSetups[] entry this read was built from.
+          type: string
+        tf:
+          type: string
+          enum: ["1m", "3m", "5m"]
+        dir:
+          type: string
+          enum: [long, short]
+        at:
+          description: forming/proto -> tightening; triggering/confirmed -> broken.
+          type: string
+          enum: [tightening, broken]
+        lean:
+          description: (retest_go+runner) vs (false_break+fail_first); even within 5 points.
+          type: string
+          enum: [breakout, failure, even]
+        likely:
+          description: Highest-weight path.
+          type: string
+          enum: [retest_go, runner, false_break, fail_first, chop]
+        chase:
+          description: >-
+            high - runner share >= retest_go share * 1.2, or the candidate's own
+            chaseRisk is true. elevated - runner share above the table-wide baseline
+            for this at. else low.
+          type: string
+          enum: [low, elevated, high]
+        w:
+          description: >-
+            Integer percents summing to ~100. at:"broken" always reads fail_first 0
+            (fail_first requires an invalidation close before any breakout close, which
+            cannot happen once a candidate has already broken out).
+          type: object
+          properties:
+            retest_go:
+              type: integer
+            runner:
+              type: integer
+            false_break:
+              type: integer
+            fail_first:
+              type: integer
+            chop:
+              type: integer
+          required: [retest_go, runner, false_break, fail_first, chop]
+        n:
+          description: Sample size of the resolved bucket.
+          type: integer
+        cal:
+          description: n >= config pathOutlook.minN (100).
+          type: boolean
+        key:
+          description: >-
+            The backoff bucket key actually used, e.g.
+            "tf=5m|structureSteps=some|roomR=roomy".
+          type: string
+      required: [id, tf, dir, at, lean, likely, chase, w, n, cal, key]
     FlagTradePlan:
       type: [object, "null"]
       description: >-
@@ -1278,6 +1350,8 @@ components:
           $ref: "#/components/schemas/FlagTradePlan"
         flagRecommendation:
           $ref: "#/components/schemas/FlagRecommendation"
+        pathOutlook:
+          $ref: "#/components/schemas/PathOutlook"
         model:
           $ref: "#/components/schemas/ModelEvidence"
         timeframes:

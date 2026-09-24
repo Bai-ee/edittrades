@@ -21,6 +21,7 @@ import { attachQualification } from '../lib/candidateQualifier.js';
 import { buildFlagTradePlan } from '../lib/flagTradePlan.js';
 import { buildModelEvidence } from '../lib/modelEvidence.js';
 import { buildFlagRecommendation, compactRecommendation } from '../lib/flagRecommendation.js';
+import { buildPathOutlook } from '../lib/pathOutlook.js';
 import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
 import { buildWeeklyLean, buildTopDown, buildAboveBelow200 } from '../lib/topDown.js';
 import { fetchPythMarks, buildMark, markTraceToken, compactMark } from '../lib/pythMark.js';
@@ -1585,6 +1586,27 @@ export async function buildScalpContext(options = {}) {
     // P1: Pyth mark beside the closed-candle price. `price` itself is untouched.
     const mark = buildMark(rawMarks[symbol], price, safeNow, ENGINE_CONFIG.mark.pyth.maxAgeSec);
 
+    // Flag paths outlook (T4 P1, docs/PLAN_FLAG_PATHS.md): a measured-history read on the
+    // symbol's live flag candidate, info only - never an input to flagTradePlan,
+    // flagRecommendation, strategies, bestSignal, or any gate/threshold. Same
+    // separate-channel rule as qualification/risk/trade-plan above: a fault is logged,
+    // never warned, and the field is simply null.
+    let pathOutlook = null;
+    try {
+      pathOutlook = buildPathOutlook({
+        candidateSetups,
+        flagRecommendation: recommendationFull,
+        flagTradePlan,
+        geometryContext,
+        tfEntries,
+        closedByTf,
+        marketByTf,
+        topDown: topDownModel
+      });
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: path outlook failed - ${err.message}`);
+    }
+
     const decisionTrace = buildDecisionTrace({
       rawStrategies,
       bestSignal,
@@ -1619,7 +1641,10 @@ export async function buildScalpContext(options = {}) {
       flagTradePlan,
       // Review fix 6a: codes + one-line text by default; the full record (refs,
       // factorStates, per-reason text) only under model.recommendation.
-      flagRecommendation: compactRecommendation(recommendationFull)
+      flagRecommendation: compactRecommendation(recommendationFull),
+      // T4 P1: measured-history scenario weights for the live flag candidate. null when
+      // none exists. Never gates anything above.
+      pathOutlook
     };
     if (includeModel && modelEvidence) symbolsOut[symbol].model = { ...modelEvidence, recommendation: recommendationFull };
     if (includeBias && bias) {
@@ -1673,7 +1698,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.18.0',
+    schemaVersion: '1.19.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
