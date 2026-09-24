@@ -447,11 +447,12 @@ async function run() {
     const { htmlFile, howToFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
     const index = readFileSync(htmlFile, 'utf8');
     const howTo = readFileSync(howToFile, 'utf8');
-    assert(index.includes('id="tracker-how-to-link" href="how-to.html"'), 'index links to how-to');
+    assert(/<a href="how-to.html"[^>]*id="tracker-how-to-link"/.test(index), 'index links to how-to');
     assert(howTo.includes('href="index.html"'), 'how-to links back');
-    for (const cmd of ['signals', 'trades', 'forming', 'flags', 'track', 'balance', 'data check']) {
-      assert(howTo.includes(`<dt>${cmd}</dt>`), `command ${cmd}`);
+    for (const cmd of ['signals', 'forming', 'flags', 'track', 'balance', 'data check']) {
+      assert(howTo.includes(`data-command="${cmd}"`), `command ${cmd}`);
     }
+    assert(howTo.includes('&quot;trades&quot; gives the same answer'), 'trades = signals');
     for (const id of ['howto-session-section', 'howto-commands-section', 'howto-reading-section', 'howto-follow-ups-section', 'howto-donts-section', 'howto-tracker-section']) {
       assert(howTo.includes(`id="${id}"`), `missing #${id}`);
     }

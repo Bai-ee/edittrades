@@ -35,6 +35,7 @@ import {
   FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, NO_JOURNAL, NO_JOURNAL_TRADES, CHART_CSS
 } from './charts.js';
 import { PAGE_CSS } from './page-style.js';
+import { tile, zone, sub, jumpNav } from './bento.js';
 import { renderHowTo } from './how-to-page.js';
 
 export const PROVISIONAL = 'provisional; not evidence of an edge';
@@ -117,9 +118,9 @@ function statTable(id, groups, keyLabel) {
   return table(id, [keyLabel, ...STAT_COLUMNS.map((c) => c[0])], groups.map((g) => [g.key, ...STAT_COLUMNS.map((c) => c[1](g))]), '[NO ROWS YET]', 1);
 }
 
-function section(id, title, body, extraClass = '') {
-  return `<section id="${id}" data-section="${id}"${extraClass ? ` class="${extraClass}"` : ''}>`
-    + `<div class="section-head" id="${id}-head"><h2>${esc(title)}</h2><span class="prov-tag">PROVISIONAL</span></div>${body}</section>`;
+/** A bento tile that carries the PROVISIONAL tag (every <section> on this page does). */
+function section(id, title, body, span = {}) {
+  return tile({ id, title, tag: 'PROVISIONAL', body, ...span });
 }
 
 /** Segmented progress bar: discrete square blocks, 2px gaps. */
@@ -134,8 +135,12 @@ function inlineBar(id, ratio) {
   return `<div class="ibar" id="${id}" role="img" aria-label="${Math.round(w)}%"><i style="width:${w.toFixed(1)}%"></i></div>`;
 }
 
-function instrument(id, label, valueHtml, visual = '', sub = '') {
-  return `<div class="instrument" id="${id}"><div class="label">${esc(label)}</div><div class="inst-value">${valueHtml}</div>${visual}${sub ? `<div class="inst-sub">${esc(sub)}</div>` : ''}</div>`;
+/** One instrument = one small bento tile (a div, so no PROVISIONAL chip of its own). */
+function instrument(id, label, valueHtml, visual = '', subText = '', span = { sm: 1, lg: 4 }) {
+  return tile({
+    id: `${id}-tile`, as: 'div', cls: 'tile-instrument', ...span,
+    body: `<div class="instrument" id="${id}"><div class="label">${esc(label)}</div><div class="inst-value">${valueHtml}</div>${visual}${subText ? `<div class="inst-sub">${esc(subText)}</div>` : ''}</div>`
+  });
 }
 
 const emptyInline = (text = NO_SCORED) => `<span class="empty-inline">${esc(text)}</span>`;
@@ -165,9 +170,9 @@ function equityBody(rows, nowMs, you = []) {
     + `<div class="chart-readout" id="equity-you-readout">${kit.youReadoutHtml(kit.equityStats(you), NO_JOURNAL_TRADES)}</div>`
     + `<div class="chart-frame-box" id="equity-chart-frame">${kit.equitySvg('equity-chart-svg', rows, SSR_WIDTH, nowMs, NO_SCORED_CHART, you)}</div>`
     + legend
-    + `<p class="note" id="equity-chart-caption">Cumulative gross R of scored ready flag plans, 1R risked per call: TP1 = +R to TP1 as walked by the scorer, stop = ${MINUS}1R. Not filled and expired calls are excluded; open calls are the hollow last point. Before fees and slippage. The dashed line is your journal trades: scored the same way from your entry, stop and TP1, or your reported R when you logged a close; filters apply through the engine call each trade links to.</p>`
+    + sub('equity-chart-caption-sub', 'How to read this chart', `<p class="note" id="equity-chart-caption">Cumulative gross R of scored ready flag plans, 1R risked per call: TP1 = +R to TP1 as walked by the scorer, stop = ${MINUS}1R. Not filled and expired calls are excluded; open calls are the hollow last point. Before fees and slippage. The dashed line is your journal trades: scored the same way from your entry, stop and TP1, or your reported R when you logged a close; filters apply through the engine call each trade links to.</p>`)
     + filters
-    + `<h3 id="equity-filter-table-head">By filter</h3><div class="table-scroll" id="equity-filter-table-scroll">${kit.filterTableHtml(rows, {}, FILTER_DIMS, you)}</div>`;
+    + sub('equity-filter-table-sub', 'By filter', `<div class="table-scroll" id="equity-filter-table-scroll">${kit.filterTableHtml(rows, {}, FILTER_DIMS, you)}</div>`);
 }
 
 function walletBody(rows, goods, nowMs, marks = []) {
@@ -180,7 +185,7 @@ function walletBody(rows, goods, nowMs, marks = []) {
   const pnl = latest && isNum(latest.pnlUsd)
     ? `PNL ${latest.pnlUsd > 0 ? '+' : ''}${kit.usd(latest.pnlUsd)}${isNum(latest.pnlPct) ? ` · ${latest.pnlPct > 0 ? '+' : latest.pnlPct < 0 ? MINUS : ''}${Math.abs(latest.pnlPct).toFixed(2)}%` : ''} VS BASELINE ${kit.usd(latest.baselineUsd)} (MARGIN)`
     : 'PNL ' + dash + ' (NO BASELINE)';
-  const sub = `${pnl} · LAST SAMPLE ${time(last ? last.t : null)}${last && last.status !== 'available' ? ` · ${String(last.status).toUpperCase()}` : ''}`;
+  const subLine = `${pnl} · LAST SAMPLE ${time(last ? last.t : null)}${last && last.status !== 'available' ? ` · ${String(last.status).toUpperCase()}` : ''}`;
   const legend = `<div class="chart-legend" id="wallet-chart-legend">`
     + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-main" x1="0" x2="24" y1="4" y2="4"/></svg>TOTAL</span>`
     + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-margin" x1="0" x2="24" y1="4" y2="4"/></svg>MARGIN</span>`
@@ -188,11 +193,11 @@ function walletBody(rows, goods, nowMs, marks = []) {
     + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="baseline" x1="0" x2="24" y1="4" y2="4"/></svg>BASELINE</span>`
     + `<span><svg class="swatch" viewBox="0 0 24 12" aria-hidden="true"><line class="good-tick" x1="12" x2="12" y1="0" y2="12"/></svg>GOOD CALL</span>`
     + `<span><svg class="swatch" viewBox="0 0 24 12" aria-hidden="true"><line class="j-tick" x1="12" x2="12" y1="12" y2="0"/></svg>YOUR ENTRY ↑ / EXIT ↓</span></div>`;
-  return `<div class="wallet-head" id="wallet-value-row">${value}<div class="label" id="wallet-pnl">${esc(sub)}</div></div>`
+  return `<div class="wallet-head" id="wallet-value-row">${value}<div class="label" id="wallet-pnl">${esc(subLine)}</div></div>`
     + `<div class="seg-ctl seg-joined" id="wallet-range-control" role="group" aria-label="Range">${segButtons('range', WALLET_RANGES, DEFAULT_WALLET_RANGE)}</div>`
     + `<div class="chart-frame-box" id="wallet-chart-frame">${kit.walletSvg('wallet-chart-svg', rows, goods, SSR_WIDTH, DEFAULT_WALLET_RANGE, nowMs, NO_WALLET, marks)}</div>`
     + legend
-    + `<p class="note" id="wallet-chart-caption">Total = margin + holdings from the engine's account block, one sample per capture; gaps are samples where the wallet read was unavailable. PnL is measured on margin against the configured baseline. Ticks mark GOOD calls: coincidence only. Short ticks up and down are your journal entries and exits (green or red by that trade's R, grey while unknown): what you told the GPT, not a wallet read.</p>`;
+    + sub('wallet-chart-caption-sub', 'How to read this chart', `<p class="note" id="wallet-chart-caption">Total = margin + holdings from the engine's account block, one sample per capture; gaps are samples where the wallet read was unavailable. PnL is measured on margin against the configured baseline. Ticks mark GOOD calls: coincidence only. Short ticks up and down are your journal entries and exits (green or red by that trade's R, grey while unknown): what you told the GPT, not a wallet read.</p>`);
 }
 
 // ---------- journal (T2) ----------
@@ -248,8 +253,8 @@ function engineVsYouBody(ev) {
     + row('engine-vs-you-good-unlogged-row', 'GOOD not logged', String(ev.goodNotLogged))
     + row('engine-vs-you-override-row', 'WATCH / BAD taken (overrides)', `${ev.overrides.length} · ${statsText(ev.overrideStats)}`, rStatus(ev.overrideStats.n ? ev.overrideStats.cum : null))
     + row('engine-vs-you-unlinked-row', 'Trades with no engine link', String(ev.unlinked))
-    + `</dl><h3 id="engine-vs-you-overrides-head">Overrides</h3>`
-    + table('engine-vs-you-overrides-table', ['Taken', 'Symbol', 'Class', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], overrideRows, '[NO OVERRIDES YET]')
+    + `</dl>`
+    + sub('engine-vs-you-overrides-sub', `Overrides · ${ev.overrides.length}`, table('engine-vs-you-overrides-table', ['Taken', 'Symbol', 'Class', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], overrideRows, '[NO OVERRIDES YET]'))
     + `<p class="note" id="engine-vs-you-caption">Taken = a journal open whose engine link names that call's candidate; skipped = a journal skip naming it. Your R is scored from your own levels or your reported close; the engine's R is its own walk.</p>`;
 }
 
@@ -290,39 +295,42 @@ export function renderHtml(agg, data = {}) {
   const c = agg.captures;
   const phase = phaseProgress(agg);
 
-  // Tertiary: top edge.
+  // Tertiary: top edge + jump nav.
   const topStrip = `<header class="edge-strip" id="tracker-top-edge-strip"><span id="tracker-page-title">EDITTRADES / CALL TRACKER</span>`
-    + `<a class="nav-link" id="tracker-how-to-link" href="how-to.html">HOW TO USE WITH CHATGPT →</a>`
-    + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`;
+    + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
+    + jumpNav('tracker-jump-nav', [
+      ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
+      ['#zone-calls', 'Calls'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
+      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"']
+    ]);
 
   // Primary: hero.
   const heroValue = isNum(t.expectancy7d) && scored7 > 0
     ? `<div class="hero-value ${rStatus(t.expectancy7d)}" id="tile-expectancy-7d">${esc(signed(t.expectancy7d))}<span class="hero-unit">R</span></div>`
     : `<div class="hero-value hero-empty" id="tile-expectancy-7d">0.00<span class="hero-unit">R</span></div><div class="hero-empty-note" id="hero-empty-note">${emptyInline()}</div>`;
-  const hero = `<section id="performance-hero-section" data-section="performance-hero-section" class="hero">`
-    + `<div class="section-head" id="performance-hero-head"><span class="label">Expectancy · 7d · gross R per scored call</span><span class="prov-tag">PROVISIONAL</span></div>`
-    + heroValue
-    + `<div class="hero-n" id="hero-sample-size">n=${scored7} scored call${scored7 === 1 ? '' : 's'} · 7d</div>`
-    + `<p class="edge-note" id="hero-edge-note">${esc(EDGE_NOTE)}</p></section>`;
+  const hero = section('performance-hero-section', 'Expectancy · gross R per scored call',
+    `<div class="hero-stack" id="performance-hero-stack">${heroValue}`
+    + `<div class="hero-n" id="hero-sample-size">n=${scored7} scored call${scored7 === 1 ? '' : 's'} · 7d</div></div>`
+    + `<p class="edge-note" id="hero-edge-note">${esc(EDGE_NOTE)}</p>`
+    + `<p class="note" id="instrument-row-note">Scored = a ready flag plan that reached TP1 or stop. R is gross, before fees and slippage.</p>`,
+    { sm: 2, lg: 7 });
 
-  // Secondary: instruments.
+  // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
   const fillRate = t7.calls ? t7.fills / t7.calls : null;
-  const instruments = `<section id="instrument-row-section" data-section="instrument-row-section">`
-    + `<div class="section-head" id="instrument-row-head"><h2>Last 7 days</h2><span class="prov-tag">PROVISIONAL</span></div>`
-    + `<div class="instruments" id="instrument-row">`
-    + instrument('tile-win-rate-7d', 'Win rate at TP1',
+  const instruments = [
+    instrument('tile-win-rate-7d', 'Win rate at TP1',
       scored7 ? esc(pct(t7.winRate)) : emptyInline(),
-      segBar('win-rate-7d-bar', (t7.winRate || 0) * 20, 20), scored7 ? `${t7.wins} TP1 / ${t7.losses} STOP` : '')
-    + instrument('tile-fills-7d', 'Fill rate',
+      segBar('win-rate-7d-bar', (t7.winRate || 0) * 20, 20), scored7 ? `${t7.wins} TP1 / ${t7.losses} STOP` : '', { sm: 2, lg: 6 }),
+    instrument('tile-fills-7d', 'Fill rate',
       t7.calls ? esc(pct(fillRate)) : emptyInline('[NO READY PLANS YET]'),
-      inlineBar('fill-rate-7d-bar', fillRate), `${t7.fills} / ${t7.calls} READY PLANS`)
-    + instrument('tile-good-7d', 'GOOD calls', `<span class="${good7 ? '' : 'dim'}">${good7}</span>`, '', `${w7.byClass.reduce((a, g) => a + g.calls, 0)} REC CALLS`)
-    + instrument('tile-losing-streak-7d', 'Losing streak',
-      `<span class="${t.losingStreak7d >= 5 ? 'st-bad' : t.losingStreak7d ? '' : 'dim'}">${t.losingStreak7d}</span>`, '', 'MAX CONSECUTIVE STOPS')
-    + instrument('tile-avg-r-7d', 'Avg win R',
-      isNum(t7.avgWinR) ? `<span class="${rStatus(t7.avgWinR)}">${esc(rVal(t7.avgWinR))}</span>` : emptyInline(), '', 'GROSS R AT TP1')
-    + `</div><p class="note" id="instrument-row-note">Scored = a ready flag plan that reached TP1 or stop. R is gross, before fees and slippage.</p></section>`;
+      inlineBar('fill-rate-7d-bar', fillRate), `${t7.fills} / ${t7.calls} READY PLANS`, { sm: 2, lg: 6 }),
+    instrument('tile-good-7d', 'GOOD calls', `<span class="${good7 ? '' : 'dim'}">${good7}</span>`, '', `${w7.byClass.reduce((a, g) => a + g.calls, 0)} REC CALLS`),
+    instrument('tile-losing-streak-7d', 'Losing streak',
+      `<span class="${t.losingStreak7d >= 5 ? 'st-bad' : t.losingStreak7d ? '' : 'dim'}">${t.losingStreak7d}</span>`, '', 'MAX CONSECUTIVE STOPS'),
+    instrument('tile-avg-r-7d', 'Avg win R',
+      isNum(t7.avgWinR) ? `<span class="${rStatus(t7.avgWinR)}">${esc(rVal(t7.avgWinR))}</span>` : emptyInline(), '', 'GROSS R AT TP1', { sm: 2, lg: 4 })
+  ];
 
   // Testing phase.
   const scoredText = isNum(phase.scored) ? phase.scored : dash;
@@ -354,12 +362,14 @@ export function renderHtml(agg, data = {}) {
   // Tables.
   const openRows = agg.openCalls.map((r) => [time(r.calledAt), r.symbol, callLabel(r), r.timeframe || dash, r.direction || dash, levels(r), r.outcome, time(r.filledAt), num(r.netRR)]);
   const w = (k) => agg.windows[k];
-  const windowBody = (k) => `<h3>By class (recommendation calls)</h3>${statTable(`window-${k}-by-class-table`, w(k).byClass, 'Class')}`
-    + `<h3>By reason code</h3>${statTable(`window-${k}-by-reason-table`, w(k).byReason, 'Reason')}`
-    + `<h3>Ready plans by symbol</h3>${statTable(`window-${k}-by-symbol-table`, w(k).bySymbol, 'Symbol')}`
-    + `<h3>Ready plans by timeframe</h3>${statTable(`window-${k}-by-timeframe-table`, w(k).byTimeframe, 'Timeframe')}`
-    + `<h3>Plans by status</h3>${statTable(`window-${k}-by-plan-status-table`, w(k).byPlanStatus, 'Plan status')}`
-    + `<p class="mono-note">CHASE ${w(k).reasonCounts.chase} · RR_BELOW_MIN ${w(k).reasonCounts.rr_below_min} · ROOM ${w(k).reasonCounts.room}</p>`;
+  const windowBody = (k) => `<p class="mono-note" id="window-${k}-reason-counts">CHASE ${w(k).reasonCounts.chase} · RR_BELOW_MIN ${w(k).reasonCounts.rr_below_min} · ROOM ${w(k).reasonCounts.room}</p>`
+    + `<div id="window-${k}-subs">`
+    + sub(`window-${k}-by-class-sub`, 'By class (recommendation calls)', statTable(`window-${k}-by-class-table`, w(k).byClass, 'Class'), true)
+    + sub(`window-${k}-by-reason-sub`, 'By reason code', statTable(`window-${k}-by-reason-table`, w(k).byReason, 'Reason'))
+    + sub(`window-${k}-by-symbol-sub`, 'Ready plans by symbol', statTable(`window-${k}-by-symbol-table`, w(k).bySymbol, 'Symbol'))
+    + sub(`window-${k}-by-timeframe-sub`, 'Ready plans by timeframe', statTable(`window-${k}-by-timeframe-table`, w(k).byTimeframe, 'Timeframe'))
+    + sub(`window-${k}-by-plan-status-sub`, 'Plans by status', statTable(`window-${k}-by-plan-status-table`, w(k).byPlanStatus, 'Plan status'))
+    + `</div>`;
 
   const dayRows = agg.byDay.map((d) => [d.day, d.recCalls, d.good, d.watch, d.bad, d.dataUnavailable, d.ready, d.fills, d.wins, d.losses, { v: rVal(d.expectancy), cls: rStatus(d.expectancy) }]);
   const logRows = agg.dailyLog.map((r) => {
@@ -383,20 +393,50 @@ export function renderHtml(agg, data = {}) {
     + `<span id="page-generated-at">GENERATED ${esc(time(agg.generatedAt))} · LAST CLOSE ${esc(time(t.lastClosedThrough))} · ${agg.totals.outcomes} ROWS</span></footer>`;
 
   const body = [
-    hero,
-    instruments,
-    section('testing-phase-section', 'Testing phase', phaseBody),
-    section('equity-chart-section', 'Engine-call equity curve', equityBody(eqRows, nowMs, youRows)),
-    section('wallet-chart-section', 'Wallet value', walletBody(walletRows, goods, nowMs, marks)),
-    section('engine-vs-you-section', 'Engine vs you', engineVsYouBody(ev)),
-    section('journal-log-section', 'Journal log (last 50)', table('journal-log-table', ['Time', 'Kind', 'Symbol', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R', 'Engine', 'You said'], journalLogRows(journal, journalOutcomes), NO_JOURNAL)),
-    section('what-we-track-section', 'What we track and why', trackBody),
-    section('open-calls-section', 'Open calls now', table('open-calls-table', ['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status', 'Filled', 'Net R:R'], openRows, '[NO OPEN CALLS]')),
-    section('window-7d-section', 'Last 7 days by class and reason', windowBody('7d')),
-    section('window-30d-section', 'Last 30 days by class and reason', windowBody('30d')),
-    section('daily-summary-section', 'By day', table('daily-summary-table', ['Day', 'Calls', 'GOOD', 'WATCH', 'BAD', 'DATA_UNAV', 'Ready plans', 'Fills', 'TP1', 'Stop', 'Exp.'], dayRows, '[NO ROWS YET]', 1)),
-    section('daily-log-section', 'Call log (last 7 days)', table('daily-log-table', ['Called', 'Symbol', 'Call', 'Reason', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R', 'Min'], logRows, '[NO CALLS YET]')),
-    section('data-health-section', 'Data health', table('data-health-table', ['Metric', 'Value'], healthRows, '[NO ROWS YET]', 1))
+    zone({
+      id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
+      tiles: [
+        hero,
+        section('testing-phase-section', 'Testing phase', phaseBody, { sm: 2, lg: 5 }),
+        ...instruments
+      ]
+    }),
+    zone({
+      id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
+      tiles: [
+        section('equity-chart-section', 'Engine-call equity curve', equityBody(eqRows, nowMs, youRows)),
+        section('wallet-chart-section', 'Wallet value', walletBody(walletRows, goods, nowMs, marks))
+      ]
+    }),
+    zone({
+      id: 'zone-you', title: 'Engine vs you', sub: 'From your journal',
+      tiles: [
+        section('engine-vs-you-section', 'GOOD calls taken, skipped, overridden', engineVsYouBody(ev), { sm: 2, lg: 5 }),
+        section('journal-log-section', 'Journal log (last 50)', table('journal-log-table', ['Time', 'Kind', 'Symbol', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R', 'Engine', 'You said'], journalLogRows(journal, journalOutcomes), NO_JOURNAL), { sm: 2, lg: 7 })
+      ]
+    }),
+    zone({
+      id: 'zone-calls', title: 'Calls', sub: 'Open now, recent, by day',
+      tiles: [
+        section('open-calls-section', 'Open calls now', table('open-calls-table', ['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status', 'Filled', 'Net R:R'], openRows, '[NO OPEN CALLS]')),
+        section('daily-log-section', 'Call log (last 7 days)', table('daily-log-table', ['Called', 'Symbol', 'Call', 'Reason', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R', 'Min'], logRows, '[NO CALLS YET]')),
+        section('daily-summary-section', 'By day', table('daily-summary-table', ['Day', 'Calls', 'GOOD', 'WATCH', 'BAD', 'DATA_UNAV', 'Ready plans', 'Fills', 'TP1', 'Stop', 'Exp.'], dayRows, '[NO ROWS YET]', 1))
+      ]
+    }),
+    zone({
+      id: 'zone-breakdown', title: 'Breakdown', sub: 'By class, reason, symbol, timeframe',
+      tiles: [
+        section('window-7d-section', 'Last 7 days', windowBody('7d')),
+        section('window-30d-section', 'Last 30 days', windowBody('30d'))
+      ]
+    }),
+    zone({
+      id: 'zone-reference', title: 'Data', sub: 'What is tracked, capture health',
+      tiles: [
+        section('what-we-track-section', 'What we track and why', trackBody, { sm: 2, lg: 7 }),
+        section('data-health-section', 'Data health', table('data-health-table', ['Metric', 'Value'], healthRows, '[NO ROWS YET]', 1), { sm: 2, lg: 5 })
+      ]
+    })
   ].join('\n');
 
   return `<!doctype html>
