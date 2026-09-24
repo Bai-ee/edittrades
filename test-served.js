@@ -223,6 +223,19 @@ async function main() {
     assertEqual(JSON.parse(store.files.get(SERVED_MANIFEST_PATH).text).days.join(), '2026-09-24,2026-09-25', 'days');
   });
 
+  await test('weak ETag from get (W/"...") is sent to put as the strong form, so appends succeed', async () => {
+    const store = fakeBlob();
+    const get = store.get;
+    store.get = async (pathname, opts) => {
+      const res = await get(pathname, opts);
+      return res ? { ...res, blob: { ...res.blob, etag: `W/${res.blob.etag}` } } : res;
+    };
+    await quiet(() => recordServedCalls(payload(), { now: T0, env: ENV, store }));
+    const out = await quiet(() => recordServedCalls(payload({ closedThrough: '2026-09-24T10:16:00.000Z' }), { now: T0 + 60_000, env: ENV, store }));
+    assertEqual(out.recorded, 3, 'second append recorded');
+    assertEqual(lines(store.files.get('served/2026-09-24.jsonl').text).length, 6, 'six rows');
+  });
+
   await test('kill switch, missing token and unavailable data skip without a store call', async () => {
     const store = fakeBlob();
     const off = await quiet(() => recordServedCalls(payload(), { now: T0, env: { ...ENV, TRACK_SERVED_CALLS: 'false' }, store }));

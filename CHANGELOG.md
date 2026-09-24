@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-24 — Fix: Blob appends after a day's first write (served calls, journal)
+
+`get()` returns a weak ETag (`W/"..."`) and `put({ifMatch})` only matches the strong form, so every append after a day's first write failed "Precondition failed: ETag mismatch" and was swallowed. Served calls recorded only 3 rows on 2026-09-24 (the first write); journal appends could 503. `lib/blobJsonl.js` `readBlob` now strips the `W/` prefix (`strongEtag`). Regression test in `test-served.js` (20).
+
 ## 2026-09-24 — T4 P0 flag paths (branch `upgrade-signal-engine`)
 
 `docs/PLAN_FLAG_PATHS.md`. Measurement only: no engine, payload, schema, config or threshold change; MCP untouched.
