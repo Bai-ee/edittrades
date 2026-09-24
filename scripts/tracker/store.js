@@ -5,6 +5,8 @@
  *   calls/YYYY-MM-DD.jsonl   one line per symbol per capture (UTC day of closedThrough)
  *   candles/<tf>.jsonl       closed candles {symbol,t,o,h,l,c,v}, keyed by symbol+t
  *   outcomes.jsonl           one line per scored call (rewritten by score.js)
+ *   wallet.jsonl             one whitelisted wallet-value sample per capture, keyed by t
+ *                            (collect.js walletRowFromPayload; never the address or holdings)
  *   aggregates.json          derived numbers (rewritten by aggregate.js)
  *
  * Node >= 20, fs only. No network, no secrets.
@@ -171,4 +173,27 @@ export function outcomesFile(dataDir) {
 
 export function aggregatesFile(dataDir) {
   return path.join(dataDir, 'aggregates.json');
+}
+
+// ---------------------------------------------------------------- wallet
+
+export function walletFile(dataDir) {
+  return path.join(dataDir, 'wallet.jsonl');
+}
+
+/**
+ * Append one whitelisted wallet sample, skipping a `t` already stored.
+ * @returns {number} rows added (0 or 1)
+ */
+export function appendWallet(dataDir, row) {
+  if (!row || !row.t) return 0;
+  const file = walletFile(dataDir);
+  if (readJsonl(file).some((r) => r.t === row.t)) return 0;
+  appendJsonl(file, [row]);
+  return 1;
+}
+
+/** Stored wallet samples, oldest first. */
+export function readWallet(dataDir) {
+  return readJsonl(walletFile(dataDir)).sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
 }

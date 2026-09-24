@@ -18,6 +18,8 @@
  *                     same-capture plan carries levels: a counterfactual level-touch walk
  *                     (entry touched within 15 1m candles). No levels: `no_levels`.
  *
+ * Every call carries `dims` (callDims): filter dimensions copied from its capture row.
+ *
  * Outcomes: pending | not_filled | open | tp1 | stop | expired | rejected | no_levels.
  * Window: 24 h from the call close, then `expired`. Idempotent: final outcomes are kept
  * as written; only pending/open calls are re-scored, and a row's scoredAt changes only
@@ -40,6 +42,51 @@ function levelsOf(plan) {
   return { entry: plan.entry, stop: plan.stop, tp1: plan.tp1 };
 }
 
+const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+
+/**
+ * Filter dimensions copied from the capture row at call time (the page's equity-curve
+ * filters read these): the recommendation's class/reason and supports/opposes/unknowns
+ * codes, the plan status at the capture, candidate fields, and the derived top-down
+ * (`td:*`), EMA200 side and divergence state. Mark drift is `markDriftBps` on the call.
+ * @param {Object} row - capture row
+ * @returns {Object}
+ */
+export function callDims(row) {
+  const rec = row.flagRecommendation && typeof row.flagRecommendation === 'object' ? row.flagRecommendation : null;
+  const plan = row.flagTradePlan && typeof row.flagTradePlan === 'object' ? row.flagTradePlan : null;
+  const cand = rec && rec.candidate && typeof rec.candidate === 'object' ? rec.candidate : null;
+  const lists = { supports: strList(rec && rec.supports), opposes: strList(rec && rec.opposes), unknowns: strList(rec && rec.unknowns) };
+  const find = (pred) => {
+    for (const side of ['supports', 'opposes', 'unknowns']) {
+      const token = lists[side].find(pred);
+      if (token) return { side, token };
+    }
+    return null;
+  };
+  const timeframe = (plan && plan.timeframe) || (cand && cand.timeframe) || null;
+  const td = find((t) => t.startsWith('td:'));
+  const ema = (timeframe && find((t) => t.startsWith(`ema200:${timeframe}:`))) || find((t) => t.startsWith('ema200:') && !t.endsWith(':missing'));
+  const all = [...lists.supports, ...lists.opposes, ...lists.unknowns];
+  const agrees = all.includes('divergence_agrees');
+  const conflicts = all.includes('divergence_conflicts');
+  return {
+    closedThrough: row.closedThrough ?? null,
+    recClass: rec ? rec.class ?? null : null,
+    recReason: rec && rec.primaryReason ? rec.primaryReason.code ?? null : null,
+    planStatusAtCall: plan ? plan.status ?? null : null,
+    candidateTimeframe: cand ? cand.timeframe ?? null : null,
+    candidateDirection: cand ? cand.direction ?? null : null,
+    candidateState: cand ? cand.state ?? null : null,
+    topDown: td ? td.side : null,
+    topDownToken: td ? td.token : null,
+    ema200Side: ema ? ema.token.split(':')[2] ?? null : null,
+    ema200Token: ema ? ema.token : null,
+    divergence: agrees && conflicts ? 'mixed' : agrees ? 'agrees' : conflicts ? 'conflicts' : 'none',
+    ...lists
+  };
+}
+
 function baseCall(row, kind, sig) {
   return {
     callId: `${kind}|${row.symbol}|${sig}|${row.closedThrough}`,
@@ -50,7 +97,8 @@ function baseCall(row, kind, sig) {
     configVersion: row.configVersion ?? null,
     schemaVersion: row.schemaVersion ?? null,
     price: row.price ?? null,
-    markDriftBps: row.mark && isFiniteNumber(row.mark.driftBps) ? row.mark.driftBps : null
+    markDriftBps: row.mark && isFiniteNumber(row.mark.driftBps) ? row.mark.driftBps : null,
+    dims: callDims(row)
   };
 }
 
@@ -209,7 +257,8 @@ export function scoreCalls(calls, candlesBySymbol, previous = [], nowMs = Date.n
   // Pass 1: everything except conditional plans (they link to pass-1 ready calls).
   for (const call of calls) {
     const prev = prevById.get(call.callId);
-    if (prev && FINAL_OUTCOMES.has(prev.outcome)) { rows.set(call.callId, prev); continue; }
+    // Final rows are kept as written; rows scored before `dims` existed get them once.
+    if (prev && FINAL_OUTCOMES.has(prev.outcome)) { rows.set(call.callId, prev.dims ? prev : { ...prev, dims: call.dims }); continue; }
     if (call.kind === 'plan' && call.planStatus === 'conditional') continue;
     const candles = candlesBySymbol[call.symbol] || [];
 

@@ -12,12 +12,17 @@
  * wallet/balance/address is stripped at any depth, then the row is re-checked and the
  * write refused (fail closed) if any such key survived.
  *
+ * Wallet value (owner decision 2026-09-23: the value may be public) goes to a separate
+ * data/wallet.jsonl through walletRowFromPayload, an explicit whitelist: WALLET_KEYS
+ * only, numbers only, nulls unless account.status is 'available'. The address, the
+ * holdings breakdown and every other account field never reach disk.
+ *
  * Usage: node collect.js [--data ./data] [--url <scalp-context url>]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, appendCalls, appendCandles, CANDLE_TIMEFRAMES } from './store.js';
+import { parseArgs, appendCalls, appendCandles, appendWallet, CANDLE_TIMEFRAMES } from './store.js';
 
 export const DEFAULT_URL = 'https://snapshottradingview.vercel.app/api/scalp-context';
 
@@ -108,6 +113,44 @@ export function recordsFromPayload(payload, capturedAtMs = Date.now()) {
   return rows;
 }
 
+/** The only keys a wallet.jsonl row may carry, in order. */
+export const WALLET_KEYS = Object.freeze(['t', 'status', 'marginUsd', 'holdingsUsd', 'totalUsd', 'baselineUsd', 'pnlUsd', 'pnlPct']);
+
+const money = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+
+/**
+ * One whitelisted wallet-value sample from the payload's account block, or null when the
+ * payload has no valid closedThrough. Built key by key (nothing is copied wholesale):
+ * t = closedThrough, status = account.status (a short lowercase word, else 'unknown';
+ * 'absent' when there is no account block), and numbers from account.margin.usd,
+ * account.holdingsUsd and account.performance.{baselineUsd, netPnlUsd, returnPct}.
+ * Any status other than 'available' writes nulls. Throws if the key set is not WALLET_KEYS.
+ * @param {Object} payload
+ * @returns {Object|null}
+ */
+export function walletRowFromPayload(payload) {
+  const ms = Date.parse(payload && payload.closedThrough);
+  if (!Number.isFinite(ms)) return null;
+  const account = payload.account && typeof payload.account === 'object' ? payload.account : null;
+  const raw = account ? account.status : 'absent';
+  const status = typeof raw === 'string' && /^[a-z_]{1,24}$/.test(raw) ? raw : 'unknown';
+  const row = { t: new Date(ms).toISOString(), status, marginUsd: null, holdingsUsd: null, totalUsd: null, baselineUsd: null, pnlUsd: null, pnlPct: null };
+  if (status === 'available') {
+    const perf = account.performance && typeof account.performance === 'object' ? account.performance : {};
+    row.marginUsd = money(account.margin && typeof account.margin === 'object' ? account.margin.usd : null);
+    row.holdingsUsd = money(account.holdingsUsd);
+    row.totalUsd = row.marginUsd !== null && row.holdingsUsd !== null ? money(row.marginUsd + row.holdingsUsd) : null;
+    row.baselineUsd = money(perf.baselineUsd);
+    row.pnlUsd = money(perf.netPnlUsd);
+    row.pnlPct = money(perf.returnPct);
+  }
+  if (Object.keys(row).join() !== WALLET_KEYS.join()) throw new Error('refusing to write: wallet row keys are not the whitelist');
+  for (const k of WALLET_KEYS.slice(2)) {
+    if (row[k] !== null && typeof row[k] !== 'number') throw new Error('refusing to write: wallet row value is not a number');
+  }
+  return row;
+}
+
 /**
  * Closed candles per timeframe from the payload: {tf: [{symbol,t,o,h,l,c,v}]}. A candle
  * is kept only if its close (t + interval) is at or before that timeframe's closedThrough.
@@ -183,7 +226,9 @@ export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const candles = {};
   const byTf = candlesFromPayload(payload);
   for (const tf of CANDLE_TIMEFRAMES) candles[tf] = appendCandles(dataDir, tf, byTf[tf]);
-  return { symbols: rows.map((r) => r.symbol), closedThrough: payload.closedThrough ?? null, calls, candles };
+  const walletRow = walletRowFromPayload(payload);
+  const wallet = appendWallet(dataDir, walletRow);
+  return { symbols: rows.map((r) => r.symbol), closedThrough: payload.closedThrough ?? null, calls, candles, wallet, walletStatus: walletRow ? walletRow.status : null };
 }
 
 async function main() {
@@ -203,7 +248,8 @@ async function main() {
   if (!opts['no-kraken']) result.kraken1m = await backfillKraken1m(opts.data);
   console.log(`[tracker:collect] closedThrough=${result.closedThrough} symbols=${result.symbols.join(',')} `
     + `calls +${result.calls.added} (dup ${result.calls.duplicates}) `
-    + `candles 1m +${result.candles['1m']} 5m +${result.candles['5m']} 15m +${result.candles['15m']}`);
+    + `candles 1m +${result.candles['1m']} 5m +${result.candles['5m']} 15m +${result.candles['15m']} `
+    + `wallet +${result.wallet} (${result.walletStatus})`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

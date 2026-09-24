@@ -6,12 +6,15 @@
  * one static page `<out>/index.html` and `<out>/report.md` with the same numbers.
  *
  * Page design: Nothing design system (Space Grotesk + Space Mono, Doto for the one hero
- * number). No scripts, inline CSS, light (warm off-white) and dark (OLED black) via
+ * number). Inline CSS, light (warm off-white) and dark (OLED black) via
  * prefers-color-scheme, phone-width first. Three layers:
  *   primary   - 7-day expectancy in gross R per scored call (TP1 or stop), sample size under it
  *   secondary - instruments: win rate at TP1, fill rate, GOOD calls 7d, losing streak, avg win R
  *   tertiary  - capture health in Space Mono caps at the top and bottom edges
- * Then the testing-phase block, "what we track and why", and the tables. Every section
+ * Then the testing-phase block, the two charts (./charts.js: engine-call equity curve with
+ * filters, wallet value over time), "what we track and why", and the tables. The charts
+ * are inline SVG drawn server-side and redrawn by the page's one inline script from two
+ * inline JSON blocks (no dependencies, no network). Every section
  * carries a PROVISIONAL tag; the edge disclaimer appears once, under the hero. Renders
  * from an empty data dir.
  *
@@ -21,8 +24,14 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, ensureDir } from './store.js';
+import { parseArgs, ensureDir, readJsonl, readWallet, outcomesFile } from './store.js';
 import { aggregateDataDir } from './aggregate.js';
+import {
+  chartKit, chartScript, equityRows, filterValues, walletChartRows, jsonForScript,
+  FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, CHART_CSS
+} from './charts.js';
+import { PAGE_CSS } from './page-style.js';
+import { renderHowTo } from './how-to-page.js';
 
 export const PROVISIONAL = 'provisional; not evidence of an edge';
 export const EDGE_NOTE = "Not evidence of an edge. Scores the engine's calls against later closed candles.";
@@ -127,10 +136,69 @@ function instrument(id, label, valueHtml, visual = '', sub = '') {
 
 const emptyInline = (text = NO_SCORED) => `<span class="empty-inline">${esc(text)}</span>`;
 
+// ---------- charts ----------
+
+const kit = chartKit();
+const SSR_WIDTH = 640;
+
+function segButtons(dim, values, activeVal) {
+  return values.map(([v, label]) => `<button type="button" class="seg-btn${v === activeVal ? ' is-on' : ''}" data-dim="${esc(dim)}" data-val="${esc(v)}" aria-pressed="${v === activeVal}">${esc(label)}</button>`).join('');
+}
+
+function equityBody(rows, nowMs) {
+  const values = filterValues(rows);
+  const stats = kit.equityStats(rows);
+  const filters = rows.length
+    ? `<details class="filters" id="equity-filters"><summary id="equity-filters-summary"><span class="label">Filters · OR within a row, AND across rows</span><span class="label" id="equity-filters-count">NONE ACTIVE</span></summary>`
+      + FILTER_DIMS.map(([k, label]) => `<div class="filter-row" id="equity-filter-${k}-row"><span class="label">${esc(label)}</span>`
+        + `<div class="seg-ctl" role="group" aria-label="${esc(label)}">${segButtons(k, [['*', 'ALL'], ...values[k].map((v) => [v, v])], '*')}</div></div>`).join('')
+      + '</details>'
+    : '<p class="empty" id="equity-filters-empty">[FILTERS APPEAR WITH THE FIRST SCORED CALL]</p>';
+  return `<div class="chart-readout" id="equity-readout">${kit.readoutHtml(stats)}</div>`
+    + `<div class="chart-frame-box" id="equity-chart-frame">${kit.equitySvg('equity-chart-svg', rows, SSR_WIDTH, nowMs, NO_SCORED_CHART)}</div>`
+    + `<p class="note" id="equity-chart-caption">Cumulative gross R of scored ready flag plans, 1R risked per call: TP1 = +R to TP1 as walked by the scorer, stop = ${MINUS}1R. Not filled and expired calls are excluded; open calls are the hollow last point. Before fees and slippage.</p>`
+    + filters
+    + `<h3 id="equity-filter-table-head">By filter</h3><div class="table-scroll" id="equity-filter-table-scroll">${kit.filterTableHtml(rows, {}, FILTER_DIMS)}</div>`;
+}
+
+function walletBody(rows, goods, nowMs) {
+  const latest = [...rows].reverse().find((r) => isNum(r.totalUsd)) || null;
+  const last = rows[rows.length - 1] || null;
+  const pnlCls = latest && isNum(latest.pnlUsd) ? (latest.pnlUsd > 0 ? 'st-good' : latest.pnlUsd < 0 ? 'st-bad' : '') : '';
+  const value = latest
+    ? `<div class="wallet-value ${pnlCls}" id="wallet-current-value">${esc(kit.usd(latest.totalUsd))}</div>`
+    : `<div class="wallet-value dim" id="wallet-current-value">${esc(rows.length ? '[WALLET UNAVAILABLE]' : NO_WALLET)}</div>`;
+  const pnl = latest && isNum(latest.pnlUsd)
+    ? `PNL ${latest.pnlUsd > 0 ? '+' : ''}${kit.usd(latest.pnlUsd)}${isNum(latest.pnlPct) ? ` · ${latest.pnlPct > 0 ? '+' : latest.pnlPct < 0 ? MINUS : ''}${Math.abs(latest.pnlPct).toFixed(2)}%` : ''} VS BASELINE ${kit.usd(latest.baselineUsd)} (MARGIN)`
+    : 'PNL ' + dash + ' (NO BASELINE)';
+  const sub = `${pnl} · LAST SAMPLE ${time(last ? last.t : null)}${last && last.status !== 'available' ? ` · ${String(last.status).toUpperCase()}` : ''}`;
+  const legend = `<div class="chart-legend" id="wallet-chart-legend">`
+    + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-main" x1="0" x2="24" y1="4" y2="4"/></svg>TOTAL</span>`
+    + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-margin" x1="0" x2="24" y1="4" y2="4"/></svg>MARGIN</span>`
+    + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-holdings" x1="1" x2="23" y1="4" y2="4"/></svg>HOLDINGS</span>`
+    + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="baseline" x1="0" x2="24" y1="4" y2="4"/></svg>BASELINE</span>`
+    + `<span><svg class="swatch" viewBox="0 0 24 12" aria-hidden="true"><line class="good-tick" x1="12" x2="12" y1="0" y2="12"/></svg>GOOD CALL</span></div>`;
+  return `<div class="wallet-head" id="wallet-value-row">${value}<div class="label" id="wallet-pnl">${esc(sub)}</div></div>`
+    + `<div class="seg-ctl seg-joined" id="wallet-range-control" role="group" aria-label="Range">${segButtons('range', WALLET_RANGES, DEFAULT_WALLET_RANGE)}</div>`
+    + `<div class="chart-frame-box" id="wallet-chart-frame">${kit.walletSvg('wallet-chart-svg', rows, goods, SSR_WIDTH, DEFAULT_WALLET_RANGE, nowMs, NO_WALLET)}</div>`
+    + legend
+    + `<p class="note" id="wallet-chart-caption">Total = margin + holdings from the engine's account block, one sample per capture; gaps are samples where the wallet read was unavailable. PnL is measured on margin against the configured baseline. Ticks mark GOOD calls: coincidence only. Attributing a move to a call needs the trade journal (Tier 2, not built).</p>`;
+}
+
 // ---------- page ----------
 
-export function renderHtml(agg) {
+/**
+ * @param {Object} agg - computeAggregates output
+ * @param {{outcomes?: Array<Object>, wallet?: Array<Object>}} [data] - raw outcome rows and
+ *   wallet.jsonl rows for the charts (both optional; empty charts render their empty state)
+ */
+export function renderHtml(agg, data = {}) {
   const t = agg.tiles;
+  const nowMs = Date.parse(agg.generatedAt);
+  const outcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
+  const eqRows = equityRows(outcomes);
+  const walletRows = walletChartRows(data.wallet);
+  const goods = outcomes.filter((r) => r.kind === 'rec' && r.class === 'GOOD' && r.calledAt).map((r) => r.calledAt);
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
   const scored7 = t7.wins + t7.losses;
@@ -139,6 +207,7 @@ export function renderHtml(agg) {
 
   // Tertiary: top edge.
   const topStrip = `<header class="edge-strip" id="tracker-top-edge-strip"><span id="tracker-page-title">EDITTRADES / CALL TRACKER</span>`
+    + `<a class="nav-link" id="tracker-how-to-link" href="how-to.html">HOW TO USE WITH CHATGPT →</a>`
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`;
 
   // Primary: hero.
@@ -232,6 +301,8 @@ export function renderHtml(agg) {
     hero,
     instruments,
     section('testing-phase-section', 'Testing phase', phaseBody),
+    section('equity-chart-section', 'Engine-call equity curve', equityBody(eqRows, nowMs)),
+    section('wallet-chart-section', 'Wallet value', walletBody(walletRows, goods, nowMs)),
     section('what-we-track-section', 'What we track and why', trackBody),
     section('open-calls-section', 'Open calls now', table('open-calls-table', ['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status', 'Filled', 'Net R:R'], openRows, '[NO OPEN CALLS]')),
     section('window-7d-section', 'Last 7 days by class and reason', windowBody('7d')),
@@ -250,77 +321,7 @@ export function renderHtml(agg) {
 <title>EditTrades Call Tracker</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700&family=Space+Grotesk:wght@400;500&family=Space+Mono:wght@400&display=swap">
 <style>
-:root{
-  --black:#F5F5F5;--surface:#FFFFFF;--border:#E8E8E8;--border-visible:#CCCCCC;--seg-empty:#E0E0E0;
-  --text-disabled:#999999;--text-secondary:#666666;--text-primary:#1A1A1A;--text-display:#000000;
-  --success:#4A9E5C;--warning:#D4A843;--accent:#D71921;
-  --fs-sm:12px;--fs-md:24px;--fs-hero:clamp(88px,26vw,160px);
-  --grotesk:"Space Grotesk","DM Sans",system-ui,sans-serif;--mono:"Space Mono","SF Mono",ui-monospace,monospace;--doto:"Doto","Space Mono",monospace;
-  color-scheme:light}
-@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--black:#F5F5F5;--surface:#FFFFFF;--border:#E8E8E8;--border-visible:#CCCCCC;--seg-empty:#E0E0E0;--text-disabled:#999999;--text-secondary:#666666;--text-primary:#1A1A1A;--text-display:#000000;color-scheme:light}}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--black:#000000;--surface:#111111;--border:#222222;--border-visible:#333333;--seg-empty:#222222;--text-disabled:#666666;--text-secondary:#999999;--text-primary:#E8E8E8;--text-display:#FFFFFF;color-scheme:dark}}
-:root[data-theme="dark"]{--black:#000000;--surface:#111111;--border:#222222;--border-visible:#333333;--seg-empty:#222222;--text-disabled:#666666;--text-secondary:#999999;--text-primary:#E8E8E8;--text-display:#FFFFFF;color-scheme:dark}
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--black);color:var(--text-primary);font:400 var(--fs-sm)/1.5 var(--grotesk)}
-main{max-width:1100px;margin:0 auto;padding:0 16px}
-.label,.prov-tag,.edge-strip,th,dt,.inst-sub,.mono-note,.empty,.empty-inline,.progress-val,.status-word,.track-val,.hero-n{font-family:var(--mono);font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.08em}
-.label,dt,th,.inst-sub{color:var(--text-secondary)}
-.prov-tag{color:var(--text-disabled)}
-.edge-strip{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;padding:16px 0;color:var(--text-disabled)}
-#tracker-top-edge-strip{border-bottom:1px solid var(--border)}
-#tracker-bottom-edge-strip{border-top:1px solid var(--border);margin-top:64px;padding-bottom:32px}
-section{margin-top:48px}
-.section-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding-bottom:8px;border-bottom:1px solid var(--border-visible);margin-bottom:16px}
-h2{margin:0;font:500 var(--fs-md)/1.2 var(--grotesk);letter-spacing:-.01em;color:var(--text-display)}
-h3{margin:24px 0 8px;font:400 var(--fs-sm)/1.2 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
-.hero{margin-top:48px}
-.hero .section-head{border-bottom:0;padding-bottom:0;margin-bottom:0}
-.hero-empty{color:var(--text-disabled)}.hero-empty-note{margin:0 0 8px}
-.hero-value{font-family:var(--doto);font-weight:700;font-size:var(--fs-hero);line-height:1;letter-spacing:-.03em;color:var(--text-display);margin:16px 0 8px;font-variant-numeric:tabular-nums}
-.hero-unit{font-family:var(--mono);font-weight:400;font-size:var(--fs-md);letter-spacing:0;vertical-align:top;margin-left:8px;color:var(--text-secondary)}
-.hero-empty{font-size:var(--fs-md);font-family:var(--mono);font-weight:400;letter-spacing:.04em;margin:32px 0 16px}
-.hero-n{color:var(--text-primary)}
-.edge-note{margin:8px 0 0;max-width:36em;color:var(--text-secondary)}
-.instruments{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:32px 16px}
-@media (min-width:760px){.instruments{grid-template-columns:repeat(5,minmax(0,1fr))}}
-.instrument{display:flex;flex-direction:column;gap:8px;min-width:0}
-.inst-value{font:400 var(--fs-md)/1.1 var(--mono);color:var(--text-display);font-variant-numeric:tabular-nums}
-.inst-value .empty-inline{display:block;font-size:var(--fs-sm);line-height:1.5;color:var(--text-secondary)}
-.seg{display:grid;gap:2px}
-.seg i{display:block;background:var(--seg-empty)}
-.seg i.on{background:var(--text-display)}
-.seg-std i{height:8px}
-.seg-hero i{height:16px}
-.ibar{height:4px;background:var(--seg-empty)}
-.ibar i{display:block;height:100%;background:var(--text-display)}
-.st-good{color:var(--success)!important}
-.st-warn{color:var(--warning)!important}
-.st-bad{color:var(--accent)!important}
-.dim{color:var(--text-disabled)!important}
-.note{margin:16px 0 0;color:var(--text-secondary)}
-.mono-note{margin:16px 0 0;color:var(--text-secondary)}
-.empty{margin:8px 0;color:var(--text-secondary)}
-.empty-inline{color:var(--text-secondary)}
-dl{margin:0}
-dd{margin:0}
-.stat-row{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid var(--border)}
-.stat-row dd{font-family:var(--mono);text-align:right;color:var(--text-primary);letter-spacing:.04em}
-.status-word{color:var(--text-display)}
-.progress{margin-top:24px}
-.progress-head{display:flex;justify-content:space-between;gap:16px;margin-bottom:8px}
-.progress-val{color:var(--text-display)}
-.track-row{display:grid;grid-template-columns:1fr auto;gap:4px 16px;padding:12px 0;border-bottom:1px solid var(--border)}
-.track-row dt{grid-column:1}
-.track-val{grid-column:2;grid-row:1;text-align:right;color:var(--text-primary);white-space:nowrap}
-.track-why{grid-column:1 / -1;color:var(--text-primary)}
-@media (min-width:760px){.track-row{grid-template-columns:200px 1fr auto}.track-why{grid-column:2;grid-row:1}.track-val{grid-column:3}}
-.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-table{border-collapse:collapse;width:100%;font:400 var(--fs-sm)/1.4 var(--mono);font-variant-numeric:tabular-nums}
-th,td{text-align:left;padding:8px 16px 8px 0;white-space:nowrap}
-th{font-weight:400;border-bottom:1px solid var(--border-visible)}
-td{border-bottom:1px solid var(--border);color:var(--text-primary)}
-th.num,td.num{text-align:right;padding:8px 0 8px 16px}
+${PAGE_CSS}${CHART_CSS}
 </style>
 </head>
 <body>
@@ -329,6 +330,9 @@ ${topStrip}
 ${body}
 ${bottomStrip}
 </main>
+<script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows })}</script>
+<script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods })}</script>
+<script>${chartScript()}</script>
 </body>
 </html>
 `;
@@ -377,9 +381,11 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   ensureDir(outDir);
   const htmlFile = path.join(outDir, 'index.html');
   const mdFile = path.join(outDir, 'report.md');
-  writeFileSync(htmlFile, renderHtml(agg));
+  const howToFile = path.join(outDir, 'how-to.html');
+  writeFileSync(htmlFile, renderHtml(agg, { outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir) }));
   writeFileSync(mdFile, renderReport(agg));
-  return { agg, htmlFile, mdFile };
+  writeFileSync(howToFile, renderHowTo());
+  return { agg, htmlFile, mdFile, howToFile };
 }
 
 function main() {

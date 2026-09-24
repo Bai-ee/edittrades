@@ -1,8 +1,8 @@
 /**
  * Deterministic tests for scripts/tracker/ (T1 call tracker, docs/PLAN_CALL_TRACKER.md):
  * collector strip (fails closed), dedupe, candle store, vendored walkOutcome parity,
- * scorer on a synthetic day, idempotency, aggregate math, and the page from an empty
- * store. All file I/O is under os.tmpdir(); no network.
+ * scorer on a synthetic day, idempotency, aggregate math, the page from an empty
+ * store, the wallet whitelist (data/wallet.jsonl), call filter dimensions, and the charts. All file I/O is under os.tmpdir(); no network.
  *
  * Run: node test-tracker.js
  */
@@ -12,10 +12,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   isSensitiveKey, stripSensitive, findSensitiveKeys, recordsFromPayload, candlesFromPayload, ingestPayload,
-  candlesFromKraken
+  candlesFromKraken, walletRowFromPayload, WALLET_KEYS
 } from './scripts/tracker/collect.js';
-import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs } from './scripts/tracker/store.js';
-import { extractCalls, scoreCalls, scoreDataDir } from './scripts/tracker/score.js';
+import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet } from './scripts/tracker/store.js';
+import { extractCalls, scoreCalls, scoreDataDir, callDims } from './scripts/tracker/score.js';
+import { chartKit, equityRows, filterValues, driftBucket, hourBucket, FILTER_DIMS } from './scripts/tracker/charts.js';
 import { statsFor, computeAggregates } from './scripts/tracker/aggregate.js';
 import { buildPage, renderHtml, rStatus, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
@@ -53,11 +54,12 @@ function tmp() {
   return dir;
 }
 
-function allText(dir) {
+function allText(dir, skip = () => false) {
   let text = '';
   for (const name of readdirSync(dir)) {
     const p = path.join(dir, name);
-    text += statSync(p).isDirectory() ? allText(p) : readFileSync(p, 'utf8');
+    if (skip(p)) continue;
+    text += statSync(p).isDirectory() ? allText(p, skip) : readFileSync(p, 'utf8');
   }
   return text;
 }
@@ -98,7 +100,13 @@ function payloadWithSecrets() {
   const tf = (n, closedThrough) => ({ candles: Array.from({ length: n }, (_, i) => c1(i)), closedThrough });
   return {
     schemaVersion: '1.18.0', configVersion: 'CFG', generatedAt: iso(T0 + 1500), closedThrough: iso(T0), dataStatus: 'complete',
-    account: { status: 'available', address: 'SECRET_ADDR_1', margin: { usd: 999 }, holdings: [{ amount: 1 }], holdingsUsd: 7777 },
+    account: {
+      status: 'available', reason: 'REASONSENTINEL', address: 'SECRET_ADDR_1', fetchedAt: 'FETCHEDSENTINEL',
+      margin: { usd: 999, byAsset: { USDC: 31337 } },
+      holdings: [{ symbol: 'HOLDSENTINEL', amount: 1, usdValue: 4242 }], holdingsUsd: 7777,
+      unpriced: ['UNPRICEDSENTINEL'], gas: { sol: 0.654321, minSol: 0.01, sufficient: true },
+      performance: { baselineUsd: 900, netPnlUsd: 99, returnPct: 11, source: 'SOURCESENTINEL' }
+    },
     wallet: { balance: 123 },
     performance: { pnl: 42 },
     symbols: {
@@ -145,12 +153,17 @@ async function run() {
     for (const k of ['price', 'mark', 'flagTradePlan', 'entry', 'stop', 'tp1', 'class']) assert(!isSensitiveKey(k), `${k} should pass`);
   });
 
-  await test('collector: no account/wallet/balance/address key or value reaches disk', () => {
+  await test('collector: no account/wallet/balance/address key or value reaches disk (wallet.jsonl whitelisted only)', () => {
     const dir = tmp();
     ingestPayload(dir, payloadWithSecrets(), T0 + 3000);
-    const text = allText(dir);
+    const text = allText(dir, (p) => p === walletFile(dir));
     for (const needle of ['"account"', '"wallet"', '"performance"', '"margin"', '"holdings', 'allet', 'alance', 'ddress', 'SECRET_ADDR', '7777', '999']) {
-      assert(!text.includes(needle), `found ${needle} on disk`);
+      assert(!text.includes(needle), `found ${needle} outside wallet.jsonl`);
+    }
+    const everything = allText(dir);
+    for (const needle of ['SECRET_ADDR', 'ddress', '"holdings"', 'HOLDSENTINEL', '4242', 'byAsset', '31337', 'REASONSENTINEL', 'FETCHEDSENTINEL',
+      'UNPRICEDSENTINEL', 'unpriced', '"gas"', '0.654321', 'SOURCESENTINEL', 'netPnlUsd', 'returnPct', '"reason"']) {
+      assert(!everything.includes(needle), `found ${needle} anywhere on disk`);
     }
     const rows = readAllCalls(dir);
     assertEqual(rows.length, 2, 'one row per symbol');
@@ -161,6 +174,40 @@ async function run() {
     assertEqual(btc.bias, 'scalp:L1', 'bias string kept');
     assertEqual(JSON.stringify(Object.keys(btc.mark)), '["price","driftBps","status"]', 'mark slimmed');
     assertEqual(JSON.stringify(Object.keys(btc.candidateSetups[0])), '["id","tf","dir","state","breakout","invalidation","measuredRR","qual"]', 'candidate slimmed');
+  });
+
+  await test('wallet.jsonl: rows carry exactly the whitelisted keys, numbers only, deduped by t', () => {
+    const dir = tmp();
+    const a = ingestPayload(dir, payloadWithSecrets(), T0 + 3000);
+    const b = ingestPayload(dir, payloadWithSecrets(), T0 + 60_000);
+    assertEqual(a.wallet, 1, 'first capture writes a sample');
+    assertEqual(b.wallet, 0, 'same closedThrough writes none');
+    const raw = readFileSync(walletFile(dir), 'utf8').trim().split('\n');
+    assertEqual(raw.length, 1, 'one line');
+    const row = JSON.parse(raw[0]);
+    assertEqual(JSON.stringify(Object.keys(row)), JSON.stringify(WALLET_KEYS), 'exact whitelist, in order');
+    assertEqual(JSON.stringify(row), JSON.stringify({ t: iso(T0), status: 'available', marginUsd: 999, holdingsUsd: 7777, totalUsd: 8776, baselineUsd: 900, pnlUsd: 99, pnlPct: 11 }), 'values');
+    for (const k of WALLET_KEYS.slice(2)) assert(row[k] === null || typeof row[k] === 'number', `${k} numeric`);
+  });
+
+  await test('wallet row: not available -> status kept, every number null; no account -> absent', () => {
+    for (const status of ['partial', 'unavailable', 'disabled']) {
+      const p = payloadWithSecrets();
+      p.account.status = status;
+      const row = walletRowFromPayload(p);
+      assertEqual(JSON.stringify(Object.keys(row)), JSON.stringify(WALLET_KEYS), `${status} keys`);
+      assertEqual(row.status, status, 'status kept');
+      assert(WALLET_KEYS.slice(2).every((k) => row[k] === null), `${status} writes nulls`);
+    }
+    const p = payloadWithSecrets();
+    delete p.account;
+    assertEqual(walletRowFromPayload(p).status, 'absent', 'no account block');
+    p.account = { status: 'Available <script>', margin: { usd: 5 } };
+    assertEqual(walletRowFromPayload(p).status, 'unknown', 'odd status word not copied');
+    p.account = { status: 'available', margin: { usd: '5' }, holdingsUsd: 2, performance: { baselineUsd: 'x' } };
+    const r = walletRowFromPayload(p);
+    assert(r.marginUsd === null && r.totalUsd === null && r.baselineUsd === null && r.holdingsUsd === 2, 'non-numbers become null');
+    assertEqual(walletRowFromPayload({ closedThrough: 'nope' }), null, 'no valid closedThrough -> no row');
   });
 
   await test('collector: row fields match the plan list', () => {
@@ -275,6 +322,33 @@ async function run() {
     assertEqual(get('ADA', 'plan').outcome, 'pending', 'conditional never ready, window open');
   });
 
+  await test('callDims: filter dimensions copied from the capture row; final rows backfilled once', () => {
+    const r = captureRow('BTC', T0, plan(), rec('GOOD', {
+      candidate: { timeframe: '1m', direction: 'long', state: 'confirmed' },
+      supports: ['td:bull:3/4', 'divergence_agrees'], opposes: ['ema200:1m:below', 'ema200:4h:above'], unknowns: ['ema200:1w:missing']
+    }));
+    const d = callDims(r);
+    assertEqual(d.recClass, 'GOOD', 'class');
+    assertEqual(d.recReason, 'ready_flag_plan', 'reason');
+    assertEqual(d.planStatusAtCall, 'ready', 'plan status');
+    assertEqual(d.candidateState, 'confirmed', 'candidate state');
+    assertEqual(d.topDown, 'supports', 'td side');
+    assertEqual(d.topDownToken, 'td:bull:3/4', 'td token');
+    assertEqual(d.ema200Side, 'below', 'EMA200 side on the call timeframe');
+    assertEqual(d.divergence, 'agrees', 'divergence');
+    assertEqual(d.closedThrough, iso(T0), 'closedThrough');
+    assertEqual(JSON.stringify(d.unknowns), '["ema200:1w:missing"]', 'codes copied');
+    assertEqual(callDims(captureRow('BTC', T0, null, null)).divergence, 'none', 'no rec -> none');
+    const calls = extractCalls([r]);
+    assert(calls.every((c) => c.dims && c.dims.recClass === 'GOOD'), 'every call carries dims');
+    const old = scoreCalls(calls, candleSet, [], T0 + 2 * 60 * MIN).map(({ dims, ...rest }) => rest);
+    const again = scoreCalls(calls, candleSet, old, T0 + 3 * 60 * MIN);
+    const plan1 = again.find((c) => c.kind === 'plan');
+    assertEqual(plan1.outcome, 'tp1', 'final outcome kept');
+    assertEqual(plan1.dims.topDown, 'supports', 'dims backfilled');
+    assertEqual(plan1.scoredAt, old.find((c) => c.kind === 'plan').scoredAt, 'scoredAt kept');
+  });
+
   await test('scorer: 24 h window -> expired / not_filled', () => {
     const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 25 * 60 * MIN);
     assertEqual(out.find((r) => r.symbol === 'DOT').outcome, 'expired', 'unresolved after 24 h');
@@ -347,10 +421,41 @@ async function run() {
     assert(html.includes(NO_SCORED), 'empty-state text');
     assert(html.includes('n=0 scored calls'), 'sample size');
     assert(/\[(RUNNING|SCHEDULED|READY FOR REVIEW)\]/.test(html), 'phase status word');
-    assert(!/<script/i.test(html), 'no scripts');
+    const scripts = html.match(/<script\b[^>]*>/gi) || [];
+    assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'exactly one executable inline script');
+    assert(scripts.every((t) => !/\bsrc=/i.test(t)), 'no external scripts');
+    assert(!/fetch\(|XMLHttpRequest|import\(/.test(html), 'no network in the script');
+    for (const id of ['equity-chart-section', 'equity-chart-svg', 'equity-readout', 'equity-filter-table', 'wallet-chart-section', 'wallet-chart-svg', 'wallet-range-control', 'wallet-current-value', 'tracker-calls-data', 'tracker-wallet-data']) {
+      assert(html.includes(`id="${id}"`), `missing #${id}`);
+    }
+    assert(html.indexOf('id="testing-phase-section"') < html.indexOf('id="equity-chart-section"')
+      && html.indexOf('id="equity-chart-section"') < html.indexOf('id="wallet-chart-section"')
+      && html.indexOf('id="wallet-chart-section"') < html.indexOf('id="what-we-track-section"'), 'chart order');
+    assert(html.includes('[NO WALLET SAMPLES YET]'), 'wallet empty state');
+    assert(/<svg id="equity-chart-svg"[^>]*>[\s\S]*?\[NO SCORED CALLS YET\]/.test(html), 'equity empty state inside the chart frame');
+    assert(!/gradient|box-shadow|drop-shadow/i.test(html), 'no gradients or shadows');
+    assert(html.includes('.chart-svg{') && html.includes('.seg-btn{'), 'chart styles on the page');
     assert(html.includes('prefers-color-scheme: dark') && html.includes('prefers-color-scheme: light'), 'both schemes');
     const md = readFileSync(mdFile, 'utf8');
     assert(md.includes(PROVISIONAL) && md.includes('## Testing phase'), 'report labelled, phase block');
+  });
+
+  await test('page: how-to page is written beside index, linked both ways, static, no account fields', () => {
+    const dir = tmp();
+    const { htmlFile, howToFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
+    const index = readFileSync(htmlFile, 'utf8');
+    const howTo = readFileSync(howToFile, 'utf8');
+    assert(index.includes('id="tracker-how-to-link" href="how-to.html"'), 'index links to how-to');
+    assert(howTo.includes('href="index.html"'), 'how-to links back');
+    for (const cmd of ['signals', 'trades', 'forming', 'flags', 'track', 'balance', 'data check']) {
+      assert(howTo.includes(`<dt>${cmd}</dt>`), `command ${cmd}`);
+    }
+    for (const id of ['howto-session-section', 'howto-commands-section', 'howto-reading-section', 'howto-follow-ups-section', 'howto-donts-section', 'howto-tracker-section']) {
+      assert(howTo.includes(`id="${id}"`), `missing #${id}`);
+    }
+    assert(!/<script/i.test(howTo), 'no scripts');
+    assert(!/SCALP_CONTEXT_API_KEY|Bearer|walletAddress/i.test(howTo), 'no secrets or wallet fields');
+    assert(howTo.includes('prefers-color-scheme: dark') && howTo.includes('prefers-color-scheme: light'), 'both schemes');
   });
 
   await test('page: hero shows signed expectancy with status color and phase progress counts', () => {
@@ -373,6 +478,49 @@ async function run() {
     out[0].symbol = '<b>BTC</b>';
     const html = renderHtml(computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN));
     assert(!html.includes('<b>BTC</b>') && html.includes('&lt;b&gt;BTC&lt;/b&gt;'), 'escaped');
+  });
+
+  await test('charts: equity curve math, filters, open point, by-filter table', () => {
+    const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
+    const eq = equityRows(out);
+    assertEqual(eq.length, 4, 'ready plans at tp1/stop/open (BTC, ETH, SOL ready, DOT); conditional + rejected + recs excluded');
+    const kit = chartKit();
+    const s = kit.equityStats(eq);
+    assertEqual(s.n, 3, 'decided');
+    assertEqual(s.open, 1, 'open');
+    assertEqual(s.cum, 5, 'cum = 3 - 1 + 3');
+    assertEqual(Math.round(s.winRate * 100), 67, 'win rate');
+    assertEqual(s.maxLosingStreak, 1, 'streak');
+    const svg = kit.equitySvg('eq', eq, 360, T0 + 2 * 60 * MIN, 'x');
+    assert(svg.includes('class="pt-open"') && (svg.match(/class="pt"/g) || []).length === 3, 'three points + hollow open point');
+    assert(!svg.includes('NaN'), 'no NaN');
+    const eth = eq.filter((r) => r.f.symbol === 'ETH');
+    assertEqual(kit.equityStats(eth).cum, -1, 'filtered to ETH');
+    const table = kit.filterTableHtml(eq, { symbol: ['ETH', 'BTC'], dir: [] }, FILTER_DIMS);
+    assert(table.includes('Selection') && table.includes('Symbol: ETH') && table.includes('Symbol: BTC'), 'selection rows');
+    assert(filterValues(eq).symbol.join() === 'BTC,DOT,ETH,SOL', 'filter values');
+    assertEqual(driftBucket(-7), '5–10', 'drift bucket');
+    assertEqual(driftBucket(null), 'none', 'drift none');
+    assertEqual(hourBucket('2026-09-20T13:59:00Z'), '12–15', 'hour bucket');
+    assert(kit.equitySvg('eq', [], 360, T0, '[NO SCORED CALLS YET]').includes('[NO SCORED CALLS YET]'), 'empty');
+  });
+
+  await test('charts: wallet line with gaps, baseline, GOOD ticks, range; page renders the value', () => {
+    const kit = chartKit();
+    const w = (h, total, status = 'available') => ({ t: iso(T0 + h * 60 * MIN), status, marginUsd: total === null ? null : total - 10, holdingsUsd: total === null ? null : 10, totalUsd: total, baselineUsd: total === null ? null : 90, pnlUsd: total === null ? null : total - 100, pnlPct: null });
+    const ws = [w(0, 100), w(1, 101), w(2, null, 'unavailable'), w(3, 104), w(4, 103)];
+    const svg = kit.walletSvg('ws', ws, [iso(T0 + 60 * MIN)], 640, 'all', T0 + 4 * 60 * MIN, 'x');
+    assertEqual((svg.match(/class="line-main"/g) || []).length, 1, 'one total path');
+    assert(/class="line-main" d="M[^"]*M/.test(svg), 'gap splits the total path');
+    assert(svg.includes('id="ws-baseline"'), 'baseline rule');
+    assertEqual((svg.match(/class="good-tick"/g) || []).length, 1, 'GOOD tick');
+    assert(!svg.includes('NaN'), 'no NaN');
+    assert(kit.walletSvg('ws', ws, [], 640, '24h', T0 + 60 * 60 * MIN, 'x').includes('[NO WALLET SAMPLES IN RANGE]'), 'range filters samples');
+    const agg = computeAggregates([], [], {}, T0 + 4 * 60 * MIN);
+    const html = renderHtml(agg, { outcomes: [], wallet: ws });
+    assert(/id="wallet-current-value">\$103\.00</.test(html), 'current value');
+    assert(html.includes('class="wallet-value st-good"'), 'status color by sign of pnl');
+    assert(html.includes('coincidence only'), 'coincidence caption');
   });
 
   await test('parseArgs: --data default ./data, --out default ./docs', () => {
