@@ -512,7 +512,12 @@ function shadowBody(summary, rows) {
 export const NO_VB_SHADOW = '[NO V-B SHADOW ENTRIES YET]';
 export const VB_SHADOW_MIN_N = 20;
 export const VB_SHADOW_TOO_FEW = 'TOO FEW CALLS';
-export const VB_SHADOW_NOTE = 'Shadow mode: gross minRR lowered to 2.5 (T6 completion plan D-variant, docs/OWNER_DECISIONS_2026-09-24.md), computed by the engine itself with real ATR and retest-hold - not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. Cannot backfill: only accrues from calls captured after this shipped. Revisit 2026-10-07, n >= 20 scored plans each side (this vs V1c live) - see docs/OWNER_DECISIONS_2026-09-24.md.';
+// Cannot backfill: flagTradePlan.shadow only exists on rows captured after the engine
+// deploy that ships it (Step A + B2) goes live. Edit this line to "Accruing since
+// <ISO deploy time>" once that deploy completes - same pattern as PHASE_START/
+// RESTART_NOTE above.
+export const VB_SHADOW_ACCRUAL_NOTE = 'Not yet accruing - pending the engine deploy that ships flagTradePlan.shadow (Step A + B2), held by the Vercel daily deployment cap; ETA ~2026-09-25 12:30 CDT.';
+export const VB_SHADOW_NOTE = `Shadow mode: gross minRR lowered to 2.5 (T6 completion plan D-variant, docs/OWNER_DECISIONS_2026-09-24.md), computed by the engine itself with real ATR and retest-hold - not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. ${VB_SHADOW_ACCRUAL_NOTE} Revisit 2026-10-07, n >= 20 scored plans each side (this vs V1c live) - see docs/OWNER_DECISIONS_2026-09-24.md.`;
 
 export const EMPTY_VB_SHADOW_SUMMARY = {
   generatedAt: null, n: 0, resolvedN: 0, open: 0, expired: 0, winRate: null, grossExpectancyR: null, netExpectancyR: null, netExpectancyR_dirCost: null
