@@ -255,32 +255,39 @@ dataset it is currently non-binding. Worth re-checking on the 60-day set once it
 
 ### Variant comparison (15 days, BTC+SOL+ETH, all closes, post-Step-A)
 
-| Variant | Change | n | netExp R | 0.14% sens | 0.34% sens | ready/hr | conditional/hr | GOOD/hr | payload avg B |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| V-A (=V0) | baseline | 17 | **+0.842** | +0.938 | +0.617 | 0.261 | 0.133 | 0.047 | 25,985 |
-| V1c | net gate 2.0 (shipped) | 17 | **+0.842** | +0.938 | +0.617 | 0.261 | 0.133 | 0.047 | 25,985 |
-| V-D | retest tolerance 0.2 ATR | 17 | **+0.842** | +0.938 | +0.617 | 0.275 | 0.119 | 0.047 | 25,985 |
-| **V-C (=V2)** | **+15m/1h flag timeframes** | **25** | **+0.532** | +0.610 | +0.349 | **1.053** | **1.675** | **0.069** | 27,494 |
-| V-B (research) | gross minRR 2.5 **[owner rule change]** | 18 | **+1.102** | +1.199 | +0.876 | 0.281 | 0.128 | 0.050 | 25,980 |
+`dir-cost` = D-cost's answered column (`docs/OWNER_DECISIONS_2026-09-24.md`): positions
+are funded from USDC/USDT, so a long pays the 0.34% swap-in/out rate and a short pays
+0.14%, per call (`netR_sensDir`, `scripts/replay-rules.js`), not a flat sensitivity band.
 
-V-A/V1c/V-D are identical or near-identical (V-D differs by one candidate's timing only,
-same outcome) - confirms the net gate is redundant post-A3 on this data, and that
-widening retest tolerance to 0.2 ATR changes essentially nothing here. **V-C (+15m/1h)
-is the only variant that meaningfully moves the frequency needle** - 4x the ready/hr,
-12x the conditional/hr, 47% more GOOD calls (25 vs 17, 1.67/day vs 1.13/day) - at a real
-cost: net expectancy drops from +0.84R to +0.53R and the OOS second half turns negative
-(-0.17R, same pattern as Phase 0). **V-B (lower gross floor, needs an explicit owner
-rule change)** has the best net expectancy of any variant tried (+1.10R, and the only
-one besides V-C/V-A-family that stays comfortably positive at the 0.34% sensitivity),
-plus slightly more volume than baseline, but is a hard-rule change (lowers `minRR`
-below 3) that cannot ship without explicit sign-off.
+| Variant | Change | n | netExp R | 0.14% sens | 0.34% sens | **dir-cost (D-cost)** | ready/hr | conditional/hr | conditional/day | GOOD/hr | payload avg B |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| V-A (=V0) | baseline | 17 | +0.842 | +0.938 | +0.617 | +0.758 | 0.261 | 0.133 | 3.19 | 0.047 | 25,985 |
+| V1c | net gate 2.0 (shipped) | 17 | +0.842 | +0.938 | +0.617 | +0.758 | 0.261 | 0.133 | 3.19 | 0.047 | 25,985 |
+| V-D | retest tolerance 0.2 ATR | 17 | +0.842 | +0.938 | +0.617 | +0.758 | 0.275 | 0.119 | 2.86 | 0.047 | 25,985 |
+| **V-C (=V2)** | **+15m/1h flag timeframes** | **25** | +0.532 | +0.610 | +0.349 | +0.444 | **1.053** | **1.675** | **40.2** | **0.069** | 27,494 |
+| **V-B (research)** | **gross minRR 2.5 [owner rule change]** | 18 | **+1.102** | +1.199 | +0.876 | **+1.010** | 0.281 | 0.128 | 3.07 | 0.050 | 25,980 |
+
+D-variant's stated floor (≥3 conditional/day combined) is already cleared by **every**
+variant tried, including baseline - V-C's +15m/1h widening was never needed to reach it.
+That leaves a straight best-expectancy pick under the answered dir-cost column: **V-B
+(+1.010R dir-cost) > V-A/V1c/V-D (+0.758R) > V-C (+0.444R)**. V-B ranks highest on
+every cost column tried (0.14%/0.34%/dir-cost), not just gross. **V-B is not yet
+shippable on this ranking alone** - it lowers the shipped 3R gross floor, a hard rule
+the completion plan does not change without a separate, explicit owner sign-off (see
+`docs/OWNER_DECISIONS_2026-09-24.md` D-variant note). V-C is not recommended: it is the
+weakest variant on every cost column and the only one with a negative OOS second half,
+and the frequency floor it exists to clear is already met without it.
 
 No variant passes the phase-0 OOS rule (net > 0 in both halves) - every variant's second
-half is +0.21R except V-C's, which is negative. n=17-25 is still thin.
+half is +0.21R except V-C's, which is negative. n=17-18 (25 for V-C) is still thin.
 
-### Owner decisions needed (B2)
+### Owner decisions (B2)
 
-Written into `docs/OWNER_DECISIONS_2026-09-24.md`: **D-cost** (which round-trip cost
-assumption to plan around - 0.14%/0.20%/0.34%) and **D-variant** (a frequency floor,
-then best expectancy above it). Both are the owner's call, not decided here - see that
-doc.
+Written into `docs/OWNER_DECISIONS_2026-09-24.md`:
+- **D-cost — answered.** Direction-dependent: long 0.34%, short 0.14% (USDC/USDT-funded
+  positions), fallback 0.20% for an unresolved direction. Applied as the `dir-cost`
+  column above and in `scripts/replay-rules.js`'s `netR_sensDir`.
+- **D-variant — floor answered** (≥3 conditional/day combined; GOOD/hr reported, no
+  GOOD floor yet), **variant pick still open**: the floor is cleared by all variants, so
+  the mechanical best-expectancy answer is V-B, but V-B's gross-floor rule change needs
+  its own explicit sign-off before it can ship - see the doc for the open question.

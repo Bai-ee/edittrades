@@ -183,6 +183,21 @@ async function run() {
     assert(scored.netR_sens034 < scored.netR, 'a higher assumed cost (0.34%, D3 USDC-funded estimate) must never look better than the shipped 0.20% cost');
   });
 
+  await test('walkPlan: netR_sensDir charges a long 0.34% and a short 0.14% (owner D-cost decision, USDC/USDT-funded positions)', () => {
+    let longCandles = flat(NOW, 10, 100);
+    longCandles = withCandle(longCandles, 2, { high: 103, low: 100, close: 103 });
+    const long = walkPlan({ candles1m: longCandles, closedThroughIso: new Date(NOW).toISOString(), direction: 'long', entry: 100, stop: 99, target: 103 });
+    assert(long.netR_sensDir < long.netR_sens034 + 0.0001 && long.netR_sensDir > long.netR_sens034 - 0.0001, 'a long is charged the 0.34% USDC-funded rate');
+
+    let shortCandles = flat(NOW, 10, 100);
+    shortCandles = withCandle(shortCandles, 2, { high: 100, low: 97, close: 97 });
+    const short = walkPlan({ candles1m: shortCandles, closedThroughIso: new Date(NOW).toISOString(), direction: 'short', entry: 100, stop: 101, target: 97 });
+    assert(short.netR_sensDir < short.netR_sens014 + 0.0001 && short.netR_sensDir > short.netR_sens014 - 0.0001, 'a short is charged the 0.14% rate (no USDC swap needed to enter)');
+
+    const unknown = walkPlan({ candles1m: longCandles, closedThroughIso: new Date(NOW).toISOString(), direction: 'flat', entry: 100, stop: 99, target: 103 });
+    assertClose(unknown.netR_sensDir, unknown.netR, 0.0001, 'an unrecognized direction falls back to the shipped 0.20% cost, same as netR');
+  });
+
   console.log('\n3) stats, OOS split, structure/ATR-floor plan construction\n');
 
   function call({ outcome, grossR, netR, stopDistancePct = 1, firstReadyAt, timeToTP1Candles = null, holdCandles = null }) {

@@ -86,9 +86,17 @@ const STRUCTURE_TF = '15m';
  * research recorded 2026-09-24): 0.14% is the collateral-matches-position, sub-1h-hold
  * estimate; 0.34% is the USDC-funded-long estimate (an extra swap in and out). Both
  * information only - the shipped cost stays 0.20% (`risk.feeBps`/`slippageBps`).
+ *
+ * `netR_sensDir` (T6 completion plan B2, D-cost decision 2026-09-24): the owner funds
+ * every position from USDC/USDT, so a long pays the extra swap in and out (0.34%) and a
+ * short does not (0.14%) - direction-dependent cost, not a flat sensitivity band. Falls
+ * back to the shipped 0.20% for a direction that is neither 'long' nor 'short'.
  */
 const SENSITIVITY_ROUND_TRIP_PCT_LOW = 0.0014;
 const SENSITIVITY_ROUND_TRIP_PCT_HIGH = 0.0034;
+const DIR_COST_PCT_LONG = 0.0034;
+const DIR_COST_PCT_SHORT = 0.0014;
+const DIR_COST_PCT_FALLBACK = 0.0020;
 
 const WIDE_FLAG_TFS = ['1m', '3m', '5m', '15m', '1h'];
 
@@ -136,6 +144,7 @@ export function walkPlan({ candles1m, closedThroughIso, direction, entry, stop, 
     netR: grossR === null ? null : round(netR(entry, stop, grossR), 4),
     netR_sens014: grossR === null ? null : round(grossR - costRAtPct(entry, stop, SENSITIVITY_ROUND_TRIP_PCT_LOW), 4),
     netR_sens034: grossR === null ? null : round(grossR - costRAtPct(entry, stop, SENSITIVITY_ROUND_TRIP_PCT_HIGH), 4),
+    netR_sensDir: grossR === null ? null : round(grossR - costRAtPct(entry, stop, direction === 'long' ? DIR_COST_PCT_LONG : direction === 'short' ? DIR_COST_PCT_SHORT : DIR_COST_PCT_FALLBACK), 4),
     holdCandles: isFiniteNumber(walked.holdCandles) ? walked.holdCandles : null,
     timeToTP1Candles: isFiniteNumber(walked.timeToTP1Candles) ? walked.timeToTP1Candles : null
   };
@@ -356,6 +365,7 @@ export function statsFor(calls) {
   const netSum = calls.reduce((s, c) => s + (c.netR ?? 0), 0);
   const sens014Sum = calls.reduce((s, c) => s + (c.netR_sens014 ?? 0), 0);
   const sens034Sum = calls.reduce((s, c) => s + (c.netR_sens034 ?? 0), 0);
+  const sensDirSum = calls.reduce((s, c) => s + (c.netR_sensDir ?? 0), 0);
   return {
     n,
     resolvedN: resolved.length,
@@ -365,6 +375,7 @@ export function statsFor(calls) {
     netExpectancyR: n ? round(netSum / n, 4) : null,
     netExpectancyR_sens014pct: n ? round(sens014Sum / n, 4) : null,
     netExpectancyR_sens034pct: n ? round(sens034Sum / n, 4) : null,
+    netExpectancyR_sensDirPct: n ? round(sensDirSum / n, 4) : null,
     maxLosingStreak: maxLosingStreak(calls),
     medianStopPct: median(calls.map((c) => c.stopDistancePct).filter(isFiniteNumber)),
     medianMinutesToTP1: median(wins.map((c) => c.timeToTP1Candles).filter(isFiniteNumber)),
@@ -590,7 +601,7 @@ function printReport(result) {
     }
   }
   const o = m.overall;
-  console.log(`  GOOD calls: n=${o.n} resolved=${o.resolvedN} winRate=${o.winRate === null ? '-' : `${o.winRate}%`} grossExp=${o.grossExpectancyR ?? '-'}R netExp=${o.netExpectancyR ?? '-'}R (0.14% sens ${o.netExpectancyR_sens014pct ?? '-'}R, 0.34% sens ${o.netExpectancyR_sens034pct ?? '-'}R) maxLosingStreak=${o.maxLosingStreak} medianStop=${o.medianStopPct ?? '-'}%`);
+  console.log(`  GOOD calls: n=${o.n} resolved=${o.resolvedN} winRate=${o.winRate === null ? '-' : `${o.winRate}%`} grossExp=${o.grossExpectancyR ?? '-'}R netExp=${o.netExpectancyR ?? '-'}R (0.14% sens ${o.netExpectancyR_sens014pct ?? '-'}R, 0.34% sens ${o.netExpectancyR_sens034pct ?? '-'}R, dir-cost[long 0.34%/short 0.14%] ${o.netExpectancyR_sensDirPct ?? '-'}R) maxLosingStreak=${o.maxLosingStreak} medianStop=${o.medianStopPct ?? '-'}%`);
   console.log(`  coverage: ${m.coverage.goodPerDay ?? '-'}/day, ${m.coverage.daysWithGoodSharePct ?? '-'}% of ${m.coverage.totalDays} days had >=1 GOOD`);
   console.log(`  OOS halves (boundary ${m.oos.boundaryIso}): first n=${m.oos.first.n} netExp=${m.oos.first.netExpectancyR ?? '-'}R | second n=${m.oos.second.n} netExp=${m.oos.second.netExpectancyR ?? '-'}R -> ${m.oosPasses ? 'PASSES' : 'does not pass'} the phase 0 OOS rule`);
   for (const [name, table] of [['symbol', m.bySymbol], ['timeframe', m.byTimeframe], ['direction', m.byDirection]]) {
