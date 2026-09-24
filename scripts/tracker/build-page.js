@@ -388,13 +388,15 @@ export function renderHtml(agg, data = {}) {
   const next = nextRunMs(nowMs);
   const firstRunMs = act.firstRun ? Date.parse(act.firstRun) : null;
   const runMs = act.runTimes48h.map((iso) => Date.parse(iso));
-  let runs24h = 0;
+  // Heartbeat marks slots with at least one run; the counter counts runs (manual runs can share a slot).
+  const runs24h = runMs.filter((ms) => ms >= nowMs - HEARTBEAT_SLOTS * SLOT_MS).length;
+  let slotsHit = 0;
   const beats = Array.from({ length: HEARTBEAT_SLOTS }, (_, i) => {
     const from = nowMs - (HEARTBEAT_SLOTS - i) * SLOT_MS;
     const to = from + SLOT_MS;
     if (firstRunMs === null || to <= firstRunMs) return '<i class="pre"></i>';
     const hit = runMs.some((ms) => ms >= from && ms < to);
-    if (hit) runs24h++;
+    if (hit) slotsHit++;
     return hit ? '<i class="on"></i>' : '<i class="miss"></i>';
   }).join('');
   const expectedSlots = firstRunMs === null ? 0 : Math.min(HEARTBEAT_SLOTS, Math.ceil((nowMs - Math.max(firstRunMs, nowMs - HEARTBEAT_SLOTS * SLOT_MS)) / SLOT_MS));
@@ -407,7 +409,7 @@ export function renderHtml(agg, data = {}) {
     + `<div class="status-fact" id="system-next-run-fact"><dt>Next run</dt><dd id="system-next-run">${esc(next ? `in ${Math.max(1, Math.ceil((next - nowMs) / 60_000))} min` : dash)}</dd><dd class="fact-sub">${esc(SCHEDULE_TEXT.replace('Every 30 min at ', '').toUpperCase())}</dd></div>`
     + `<div class="status-fact" id="system-runs-fact"><dt>Runs · 24 h</dt><dd id="system-runs-24h">${runs24h} / ${expectedSlots || dash}</dd><dd class="fact-sub">${act.runs} since ${esc(act.firstRun ? act.firstRun.slice(0, 10) : dash)}</dd></div>`
     + `</dl>`
-    + `<div class="heartbeat-wrap" id="system-heartbeat-wrap"><div class="heartbeat" id="system-heartbeat" style="grid-template-columns:repeat(${HEARTBEAT_SLOTS},1fr)" role="img" aria-label="${runs24h} of ${expectedSlots} half-hour slots in the last 24 hours had a run">${beats}</div>`
+    + `<div class="heartbeat-wrap" id="system-heartbeat-wrap"><div class="heartbeat" id="system-heartbeat" style="grid-template-columns:repeat(${HEARTBEAT_SLOTS},1fr)" role="img" aria-label="${slotsHit} of ${expectedSlots} half-hour slots in the last 24 hours had a run">${beats}</div>`
     + `<div class="heartbeat-axis" id="system-heartbeat-axis"><span>24 H AGO</span><span class="heartbeat-key"><i class="on"></i>RUN <i class="miss"></i>MISSED</span><span>BUILT ${esc(time(agg.generatedAt).slice(11))}</span></div></div>`;
   const statusTile = tile({
     id: 'system-status-section', as: 'div', cls: 'tile-status', sm: 2, lg: 12,
