@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-24 — System map + changelog page (branch `upgrade-signal-engine`)
+
+`docs/ARCHITECTURE_MAP.json` (every lib/services/api/config/scripts/tracker file, by pipeline stage) drives a generated tracker page `changelog.html` (`scripts/tracker/changelog-page.js`, `build-changelog.js`, `npm run tracker:changelog`); new suite `test:archmap` keeps the map, CHANGELOG schema entries and test names in step with the code. No engine, payload, schema, config or MCP change.
+
 ## 2026-09-24 — T6 completion plan Step B2: D-cost/D-variant answered, V-B engine-side shadow (branch `upgrade-signal-engine`)
 
 `docs/OWNER_DECISIONS_2026-09-24.md`. Owner decisions: **D-cost** - net-R plans around a

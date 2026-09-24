@@ -47,6 +47,7 @@ jobs:
           node scripts/vb-shadow.js --data data
           node scripts/aggregate.js --data data
           node scripts/build-page.js --data data --out docs
+          node scripts/build-changelog.js --data data --out docs
       - name: Find new GOOD calls and capture their charts
         env:
           SCALP_CONTEXT_API_KEY: ${{ secrets.SCALP_CONTEXT_API_KEY }}

@@ -74,7 +74,7 @@ export function renderHowTo() {
     + `<a class="nav-link" id="howto-back-link" href="index.html">← Call tracker</a></header>`
     + jumpNav('howto-jump-nav', [
       ['#howto-session-section', 'Session'], ['#howto-commands-section', 'Commands'], ['#howto-reading-section', 'Reading'],
-      ['#howto-ask-zone', 'Asking'], ['#howto-tracker-section', 'Tracker'], ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"']
+      ['#howto-ask-zone', 'Asking'], ['#howto-tracker-section', 'Tracker'], ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
     ]);
 
   const intro = zone({

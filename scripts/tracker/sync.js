@@ -2,8 +2,10 @@
 /**
  * Copy the tracker into a local checkout of the tracker repo (default
  * ../edittrades-tracker): scripts/tracker/*.js (not this file) -> <target>/scripts/,
- * repo-template/* (README, package.json, .gitignore, workflows) -> <target>/, and
- * build an empty-state docs/index.html there if none exists yet. Never copies .env*.
+ * repo-template/* (README, package.json, .gitignore, workflows) -> <target>/, the engine's
+ * docs/ARCHITECTURE_MAP.json, docs/ARCHITECTURE_MAP.verify.json and CHANGELOG.md ->
+ * <target>/data/engine/ (read by build-changelog.js), and build an empty-state
+ * docs/index.html there if none exists yet. Never copies .env*.
  *
  * Usage: node scripts/tracker/sync.js [--target ../edittrades-tracker]
  */
@@ -40,10 +42,17 @@ function main() {
   const copied = [];
   copyTree(path.join(here, 'repo-template'), target, copied);
 
+  const engineRoot = path.join(here, '..', '..');
+  const engineDir = path.join(target, 'data', 'engine');
+  ensureDir(engineDir);
+  const engineFiles = [['docs', 'ARCHITECTURE_MAP.json'], ['docs', 'ARCHITECTURE_MAP.verify.json'], ['', 'CHANGELOG.md']]
+    .filter(([dir, name]) => existsSync(path.join(engineRoot, dir, name)));
+  for (const [dir, name] of engineFiles) copyFileSync(path.join(engineRoot, dir, name), path.join(engineDir, name));
+
   const page = path.join(target, 'docs', 'index.html');
   if (!existsSync(page)) buildPage(path.join(target, 'data'), path.join(target, 'docs'));
 
-  console.log(`[tracker:sync] ${target}: scripts/${scripts.join(', scripts/')}; template ${copied.length} file(s); page ${existsSync(page) ? 'present' : 'missing'}`);
+  console.log(`[tracker:sync] ${target}: scripts/${scripts.join(', scripts/')}; template ${copied.length} file(s); data/engine ${engineFiles.map(([, n]) => n).join(', ') || 'none'}; page ${existsSync(page) ? 'present' : 'missing'}`);
 }
 
 try { main(); } catch (err) {

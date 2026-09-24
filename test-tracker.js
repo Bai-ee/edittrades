@@ -47,6 +47,12 @@ import {
 import {
   vbShadowOutcomesFile, vbShadowSummaryFile, computeVbShadowRows, vbShadowSummary, vbShadowDataDir
 } from './scripts/tracker/vb-shadow.js';
+import { writeFileSync } from 'node:fs';
+import {
+  renderChangelogPage, parseChangelog, renderMarkdown, renderInline, isNew, groupFields,
+  NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS
+} from './scripts/tracker/changelog-page.js';
+import { buildChangelog, latestVersions } from './scripts/tracker/build-changelog.js';
 
 let passed = 0;
 let failed = 0;
@@ -1918,6 +1924,138 @@ async function run() {
     assertEqual(parseArgs([]).data, './data', 'data default');
     assertEqual(parseArgs([]).out, './docs', 'out default');
     assertEqual(parseArgs(['--data', '/x', '--out', '/y']).out, '/y', 'out');
+  });
+
+  // ---- system map + changelog page (changelog-page.js, build-changelog.js) ----
+  const MAP_FIXTURE = {
+    version: '9.9.9', updatedAt: '2026-09-19',
+    stages: [
+      { id: 'market-data', title: 'Market data', purpose: 'Candles in.', modules: [
+        { path: 'services/marketData.js', name: 'marketData', role: 'Fetches candles.', publishes: ['price'], consumes: ['Kraken OHLC'], tests: ['test:scalp'], since: '2025-11-26', schemaSince: null },
+        { path: 'lib/pythMark.js', name: 'pythMark', role: 'Reads the mark.', publishes: ['mark'], consumes: ['price'], tests: ['test:mark'], since: '2026-09-15', schemaSince: '1.16.0' }
+      ] },
+      { id: 'delivery', title: 'Delivery', purpose: 'Serves it.', modules: [
+        { path: 'services/scalpContext.js', name: 'scalpContext', role: 'Builds the payload.', publishes: ['schemaVersion', 'symbols'], consumes: ['price', 'mark'], tests: ['test:scalp'], since: '2026-09-21', schemaSince: '1.0.0' }
+      ] },
+      { id: 'legacy', title: 'Off the live path', purpose: 'Old code.', offPath: true, modules: [
+        { path: 'lib/levels.js', name: 'levels', role: 'Old levels.', publishes: [], consumes: [], tests: [], since: '2025-11-26', schemaSince: null }
+      ] }
+    ],
+    flows: [{ from: 'marketData', to: 'scalpContext', label: 'candles' }],
+    outputs: [{ name: 'REST payload', where: 'REST', fields: ['schemaVersion', 'price', 'mark', 'mystery'] }]
+  };
+  const CHANGELOG_FIXTURE = [
+    '# Changelog', '',
+    '## 2026-09-18 — Older entry', '', 'Body of the older one.', '',
+    '## 2026-09-20 — Newer entry with `code` (branch `x`)', '',
+    'Schema 1.22.0 → **1.23.0**, configVersion 2026.09.24-2 → 2026.09.24-3.', '',
+    '- **bold** item', '  continued line', '- second [docs](https://example.com/a?b=1&c=2)', '',
+    '### Sub heading', '', '```', '<raw> & code', '```', '',
+    '## Previous Updates', '', 'No date here.'
+  ].join('\n');
+  const NOW = Date.parse('2026-09-20T12:00:00Z');
+
+  await test('changelog page: isNew is true within NEW_DAYS of since, false outside or on bad input', () => {
+    assertEqual(NEW_DAYS, 14, 'NEW window is 14 days');
+    assert(isNew('2026-09-20', NOW), 'same day is new');
+    assert(isNew('2026-09-07', NOW), '13.5 days old is new');
+    assert(!isNew('2026-09-06', NOW), '14.5 days old is not new');
+    assert(!isNew('2025-11-26', NOW), 'old module is not new');
+    assert(!isNew('soon', NOW) && !isNew(null, NOW), 'bad date is not new');
+    assert(!isNew('2026-10-20', NOW), 'far-future since is not new');
+  });
+
+  await test('changelog page: markdown subset renders headings, lists, bold, code, links and escapes the rest', () => {
+    const html = renderMarkdown('# Head\n\nPara **bold** and `a<b>` and [x](https://e.com/?q=1&r=2).\n\n- one\n  two\n- [bad](javascript:alert(1))\n\n1. first\n2. second\n\n<script>x</script>');
+    assert(html.includes('<h4 class="md-h">Head</h4>'), 'heading');
+    assert(html.includes('<strong>bold</strong>'), 'bold');
+    assert(html.includes('<code>a&lt;b&gt;</code>'), 'code is escaped');
+    assert(html.includes('<a class="nav-link" href="https://e.com/?q=1&amp;r=2">x</a>'), 'safe link rendered with escaped href');
+    assert(html.includes('<li>one two</li>'), 'indented continuation joins the list item');
+    assert(!html.includes('javascript:'), 'javascript: link dropped to its label');
+    assert(html.includes('<ol><li>first</li><li>second</li></ol>'), 'ordered list');
+    assert(html.includes('&lt;script&gt;') && !html.includes('<script>'), 'raw HTML escaped');
+    assertEqual(renderInline('**`x`**'), '<strong><code>x</code></strong>', 'code inside bold');
+  });
+
+  await test('changelog page: parseChangelog orders newest first and reads schema/config deltas', () => {
+    const e = parseChangelog(CHANGELOG_FIXTURE);
+    assertEqual(e.length, 3, 'three entries');
+    assertEqual(e.map((x) => x.date).join(','), '2026-09-20,2026-09-18,', 'newest first, undated last');
+    assertEqual(e[0].title, 'Newer entry with `code` (branch `x`)', 'title strips date and dash');
+    assertEqual(JSON.stringify(e[0].schema), JSON.stringify({ from: '1.22.0', to: '1.23.0' }), 'schema delta through bold');
+    assertEqual(JSON.stringify(e[0].config), JSON.stringify({ from: '2026.09.24-2', to: '2026.09.24-3' }), 'config delta');
+    assertEqual(e[1].schema, null, 'no delta when none stated');
+    assertEqual(e[2].title, 'Previous Updates', 'undated heading keeps its title');
+    assertEqual(parseChangelog('').length, 0, 'empty changelog');
+  });
+
+  await test('changelog page: renders the pipeline, modules, NEW tags, outputs and consistency strip from a map fixture', () => {
+    const html = renderChangelogPage({
+      map: MAP_FIXTURE, changelog: CHANGELOG_FIXTURE, nowMs: NOW,
+      verify: { checkedAt: '2026-09-20T10:00:00.000Z', files: 89, ok: true },
+      versions: { schemaVersion: '1.23.0', configVersion: '2026.09.24-4', capturedAt: '2026-09-20T11:50:00.000Z' }
+    });
+    assertEqual((html.match(/class="pipe-stage"/g) || []).length, 2, 'off-path stage is not in the pipeline');
+    assertEqual((html.match(/class="pipe-arrow"/g) || []).length, 1, 'one arrow between two stages');
+    assert(html.includes('id="pipeline-stage-delivery-branch"') && html.includes('<span>MCP</span>'), 'delivery branches to REST / MCP / journal');
+    assert(html.includes('01 · Market data') && html.includes('2 modules · 1 new'), 'stage label + module count + new count');
+    assertEqual((html.match(/class="new-tag"/g) || []).length, 2, 'NEW on pythMark and scalpContext only');
+    assert(html.includes('id="pipeline-stage-market-data-marketdata" data-new="false"'), 'old module has no NEW');
+    assert(html.includes('id="pipeline-stage-market-data-pythmark-publishes"') && html.includes('<li class="chip in">price</li>'), 'publishes/consumes chips');
+    assert(html.includes('tests test:mark'), 'tests listed');
+    assert(html.includes('id="map-offpath-legacy-tile"') && html.includes('Old levels.'), 'off-path modules in their own tile');
+    assert(html.includes('id="map-output-rest-payload-tile"'), 'output tile');
+    assert(html.includes('id="map-output-rest-payload-tile-delivery"') && html.includes('id="map-output-rest-payload-tile-other"'), 'fields grouped by publishing stage, unknown -> Other');
+    assert(html.includes('id="map-version-schema">1.23.0<') && html.includes('2026.09.24-4'), 'current versions shown');
+    assert(html.includes('Map <b>9.9.9</b>') && html.includes('Updated <b>2026-09-19</b>') && html.includes('Last changelog <b>2026-09-20</b>'), 'consistency strip');
+    assert(html.includes('2026-09-20 OK</b> · 89 files'), 'verify stamp');
+    assert(html.includes('Schema 1.22.0 → 1.23.0'), 'changelog delta chip');
+    assert(html.indexOf('Newer entry') < html.indexOf('Older entry'), 'timeline newest first');
+    assert(html.includes('&lt;raw&gt; &amp; code'), 'fenced code escaped');
+    assert(!/<script/i.test(html), 'no scripts on the page');
+    assert(html.includes('prefers-color-scheme: dark'), 'both color schemes');
+    assert(html.includes('href="index.html"') && html.includes('href="how-to.html"'), 'nav to the other pages');
+  });
+
+  await test('changelog page: groupFields assigns each field to the first publishing stage', () => {
+    const g = groupFields(['price', 'symbols', 'nope'], MAP_FIXTURE.stages);
+    assertEqual(JSON.stringify(g), JSON.stringify([['Market data', ['price']], ['Delivery', ['symbols']], ['Other', ['nope']]]), 'grouping');
+  });
+
+  await test('changelog page: empty map / changelog / verify / capture render bracketed empty states', () => {
+    const html = renderChangelogPage({ map: null, changelog: '', nowMs: NOW });
+    for (const s of [NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE]) assert(html.includes(s), `shows ${s}`);
+    assert(!html.includes('class="pipe-stage"'), 'no stages');
+    const bad = renderChangelogPage({ map: { stages: [] }, changelog: CHANGELOG_FIXTURE, nowMs: NOW });
+    assert(bad.includes(NO_MAP), 'a map without stages counts as empty');
+  });
+
+  await test('build-changelog: reads data/engine + newest capture row, writes docs/changelog.html; empty data dir still builds', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const outDir = path.join(dir, 'docs');
+    const empty = buildChangelog(dataDir, outDir, NOW);
+    assert(readFileSync(empty.file, 'utf8').includes(NO_MAP), 'empty data dir -> empty-state page');
+    assertEqual(JSON.stringify(latestVersions(dataDir)), JSON.stringify({ schemaVersion: null, configVersion: null, capturedAt: null }), 'no calls -> null versions');
+    writeJson(path.join(dataDir, 'engine', 'ARCHITECTURE_MAP.json'), MAP_FIXTURE);
+    writeJson(path.join(dataDir, 'engine', 'ARCHITECTURE_MAP.verify.json'), { checkedAt: '2026-09-20T10:00:00.000Z', files: 3, ok: false });
+    writeFileSync(path.join(dataDir, 'engine', 'CHANGELOG.md'), CHANGELOG_FIXTURE);
+    writeJsonl(path.join(dataDir, 'calls', '2026-09-19.jsonl'), [{ capturedAt: 'a', schemaVersion: '1.22.0', configVersion: 'c1' }]);
+    writeJsonl(path.join(dataDir, 'calls', '2026-09-20.jsonl'), [{ capturedAt: 'b', schemaVersion: '1.23.0', configVersion: 'c2' }, { capturedAt: 'c', schemaVersion: '1.23.0', configVersion: 'c3' }]);
+    assertEqual(latestVersions(dataDir).configVersion, 'c3', 'newest row of the newest day');
+    const html = readFileSync(buildChangelog(dataDir, outDir, NOW).file, 'utf8');
+    assert(html.includes('Map <b>9.9.9</b>') && html.includes('id="map-version-config">c3<'), 'map + versions read');
+    assert(html.includes('FAILED'), 'a failed verify run is shown, not hidden');
+  });
+
+  await test('changelog page: the real engine map renders every module and both site pages link to it', () => {
+    const map = JSON.parse(readFileSync('docs/ARCHITECTURE_MAP.json', 'utf8'));
+    const html = renderChangelogPage({ map, changelog: readFileSync('CHANGELOG.md', 'utf8'), nowMs: NOW });
+    for (const m of map.stages.flatMap((s) => s.modules)) assert(html.includes(`>${m.path.replace(/&/g, '&amp;')} · since`), `module ${m.path} rendered`);
+    const dir = tmp();
+    buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), NOW);
+    for (const f of ['index.html', 'how-to.html']) assert(readFileSync(path.join(dir, 'docs', f), 'utf8').includes('href="changelog.html"'), `${f} links to the system map`);
   });
 
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });

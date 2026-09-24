@@ -1,0 +1,212 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-09-24",
+  "stages": [
+    {
+      "id": "market-data",
+      "title": "Market data",
+      "purpose": "Pulls closed candles, the Pyth mark and the wallet balance, and checks the data is fresh.",
+      "modules": [
+        { "path": "services/marketData.js", "name": "marketData", "role": "Fetches closed BTC/ETH/SOL candles from Kraken (Bitfinex as fallback) for every timeframe and hands them to the indicator step.", "publishes": ["price", "source", "closedThrough"], "consumes": ["Kraken OHLC", "Bitfinex candles"], "tests": ["test:scalp", "test:replay"], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/pythMark.js", "name": "pythMark", "role": "Reads the live Pyth price the perps venue fills and liquidates on, so you can see how far it sits from the candle close.", "publishes": ["mark"], "consumes": ["Pyth Hermes", "price"], "tests": ["test:mark"], "since": "2026-09-23", "schemaSince": "1.16.0" },
+        { "path": "services/walletTracker.js", "name": "walletTracker", "role": "Reads your trading wallet's stablecoin margin and holdings (read-only, no keys) so sizing and P&L use your real capital.", "publishes": ["account"], "consumes": ["Solana RPC (public address)", "price"], "tests": ["test:wallet"], "since": "2026-09-21", "schemaSince": "1.1.0" },
+        { "path": "lib/freshness.js", "name": "freshness", "role": "Decides whether the newest candle is recent enough to trade on; stale data can never produce a ready plan.", "publishes": ["freshness gate (internal)"], "consumes": ["closedThrough"], "tests": ["test:freshness"], "since": "2026-09-23", "schemaSince": "1.15.0" }
+      ]
+    },
+    {
+      "id": "indicators-geometry",
+      "title": "Indicators & geometry",
+      "purpose": "Turns candles into EMAs, Stoch RSI, ATR, swings, zones, diagonals and channels.",
+      "modules": [
+        { "path": "services/indicators.js", "name": "indicators", "role": "Computes EMA21/EMA200, Stoch RSI and trend per timeframe and hands them to every later step.", "publishes": ["timeframes"], "consumes": ["candles"], "tests": ["test:scalp", "test:geometry"], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/candleFeatures.js", "name": "candleFeatures", "role": "Describes each candle (body, wicks, direction) for the indicator step.", "publishes": ["candle features (internal)"], "consumes": ["candles"], "tests": ["test:geometry"], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/structure.js", "name": "structure", "role": "Finds swing highs and lows and session levels, the plain structure you would mark by hand.", "publishes": ["structure"], "consumes": ["candles"], "tests": ["test:scalp"], "since": "2026-09-21", "schemaSince": "1.0.0" },
+        { "path": "lib/advancedIndicators.js", "name": "advancedIndicators", "role": "Supplies the shared ATR (and VWAP/Bollinger helpers) that stops and geometry are measured in.", "publishes": ["ATR (internal)"], "consumes": ["candles"], "tests": ["test:geometry"], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/geometry.js", "name": "geometry", "role": "Draws the chart for the engine: pivots, horizontal zones, diagonals, channels and room to the next level, the same way for longs and shorts.", "publishes": ["geometryContext"], "consumes": ["candles", "timeframes"], "tests": ["test:geometry"], "since": "2026-09-22", "schemaSince": "1.7.0" }
+      ]
+    },
+    {
+      "id": "pattern-detection",
+      "title": "Pattern detection",
+      "purpose": "Finds momentum flags and coils, tracks their lifecycle and labels each one.",
+      "modules": [
+        { "path": "lib/patternDetector.js", "name": "patternDetector", "role": "Spots continuation flags (impulse, tight pullback, EMA21 hold, break) on 1m/3m/5m and says what state each one is in.", "publishes": ["candidateSetups"], "consumes": ["timeframes", "candles"], "tests": ["test:pattern"], "since": "2026-09-22", "schemaSince": "1.5.0" },
+        { "path": "lib/patternLifecycle.js", "name": "patternLifecycle", "role": "Snaps each flag's breakout and kill levels to real zones, merges bull/bear pairs into coils, and says when to look at a chart first.", "publishes": ["decisionTrace"], "consumes": ["candidateSetups", "geometryContext"], "tests": ["test:pattern", "test:scalp"], "since": "2026-09-22", "schemaSince": "1.9.0" },
+        { "path": "lib/candidateQualifier.js", "name": "candidateQualifier", "role": "Labels each flag watch / wait / don't / actionable from room, conflict, exhaustion and the 4h lean, without changing the flag.", "publishes": ["candidateSetups[].qual"], "consumes": ["candidateSetups", "geometryContext", "biasMatrix"], "tests": ["test:pattern"], "since": "2026-09-23", "schemaSince": "1.12.0" }
+      ]
+    },
+    {
+      "id": "bias-topdown",
+      "title": "Bias & top-down",
+      "purpose": "Says which way each higher timeframe leans and whether a setup trades with or against it.",
+      "modules": [
+        { "path": "lib/biasMatrix.js", "name": "biasMatrix", "role": "Scores each timeframe's lean and marks every flag and strategy as with or against the higher timeframes, plus its room to the next zone.", "publishes": ["biasMatrix", "alignment", "decisionInputs"], "consumes": ["timeframes", "geometryContext", "candidateSetups"], "tests": ["test:bias"], "since": "2026-09-22", "schemaSince": "1.10.0" },
+        { "path": "lib/topDown.js", "name": "topDown", "role": "Rolls the weekly, daily, 4h and 1h leans into one sentiment with a conviction score, higher timeframes weighted most.", "publishes": ["topDown"], "consumes": ["timeframes", "1D candles"], "tests": ["test:topdown"], "since": "2026-09-23", "schemaSince": "1.11.0" }
+      ]
+    },
+    {
+      "id": "trade-plan",
+      "title": "Trade plan",
+      "purpose": "Turns one confirmed flag into exact entry, stop, targets and R:R, or a reason not to trade.",
+      "modules": [
+        { "path": "lib/flagTradePlan.js", "name": "flagTradePlan", "role": "Builds the one trade you can act on: entry, stop, TP1/TP2, gross and net R:R after fees, and ready / conditional / rejected with a reason; also runs the V-B shadow variant.", "publishes": ["flagTradePlan", "flagTradePlan.shadow"], "consumes": ["candidateSetups", "geometryContext", "freshness gate (internal)", "config"], "tests": ["test:flagplan"], "since": "2026-09-23", "schemaSince": "1.15.0" },
+        { "path": "lib/riskEngine.js", "name": "riskEngine", "role": "Works out dollar loss at the stop, position size and the highest safe leverage for each setup against your margin.", "publishes": ["candidateSetups[].risk", "strategies[].risk"], "consumes": ["account", "candidateSetups", "strategies"], "tests": ["test:risk"], "since": "2026-09-22", "schemaSince": "1.4.0" },
+        { "path": "services/strategy.js", "name": "strategy", "role": "The older strategy engine (4h trend, 1h scalp, swing, micro-scalp): its own entries and stops, scalp stops capped at 3%.", "publishes": ["strategies", "bestSignal"], "consumes": ["timeframes", "config"], "tests": ["test:sltp", "test:scalp"], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/breakoutEntry.js", "name": "breakoutEntry", "role": "A shadow breakout-close entry for runner flags; currently unwired from the payload and never a trade input.", "publishes": ["breakoutEntry"], "consumes": ["candidateSetups", "config"], "tests": ["test:breakout"], "since": "2026-09-24", "schemaSince": "1.20.0" },
+        { "path": "config/engine.json", "name": "engine.json", "role": "The rulebook: every threshold (3R gross, 2.0 net, 3% scalp stop, fees, timeframes) in one file with a configVersion.", "publishes": ["configVersion"], "consumes": [], "tests": ["test:config"], "since": "2026-09-22", "schemaSince": "1.2.0" },
+        { "path": "config/engine.js", "name": "engine.js", "role": "Loads the rulebook once and hands the same frozen settings to every module, plus the config snapshot in the payload.", "publishes": ["config"], "consumes": ["configVersion"], "tests": ["test:config"], "since": "2026-09-22", "schemaSince": "1.2.0" }
+      ]
+    },
+    {
+      "id": "recommendation",
+      "title": "Recommendation",
+      "purpose": "Grades the plan GOOD / WATCH / BAD with reasons and a measured-history outlook.",
+      "modules": [
+        { "path": "lib/flagRecommendation.js", "name": "flagRecommendation", "role": "Gives the call its class (GOOD, WATCH, BAD or DATA_UNAVAILABLE) with what supports it, what argues against it and what would change it.", "publishes": ["flagRecommendation"], "consumes": ["flagTradePlan", "model", "topDown", "dataStatus"], "tests": ["test:flagrec", "test:flagrec:fixtures"], "since": "2026-09-23", "schemaSince": "1.15.0" },
+        { "path": "lib/modelEvidence.js", "name": "modelEvidence", "role": "Collects the 21/200 evidence (EMA map, channels, divergence) the recommendation reads; shown in full with include=model.", "publishes": ["model"], "consumes": ["timeframes", "geometryContext", "candidateSetups"], "tests": ["test:evidence"], "since": "2026-09-23", "schemaSince": "1.15.0" },
+        { "path": "lib/pathOutlook.js", "name": "pathOutlook", "role": "Says what usually happens next for the live flag (retest, runner, false break...) from measured history with a sample size; info only.", "publishes": ["pathOutlook"], "consumes": ["candidateSetups", "timeframes"], "tests": ["test:outlook"], "since": "2026-09-24", "schemaSince": "1.19.0" }
+      ]
+    },
+    {
+      "id": "delivery",
+      "title": "Delivery",
+      "purpose": "Packs everything into one payload and serves it over REST and MCP; records served calls and your journal.",
+      "modules": [
+        { "path": "services/scalpContext.js", "name": "scalpContext", "role": "Runs every step above for BTC/ETH/SOL and assembles the one payload both REST and MCP serve, never throwing on bad data.", "publishes": ["schemaVersion", "generatedAt", "sessionTimezone", "dataStatus", "warnings", "symbols"], "consumes": ["price", "mark", "account", "timeframes", "structure", "geometryContext", "candidateSetups", "biasMatrix", "topDown", "flagTradePlan", "strategies", "flagRecommendation", "model", "pathOutlook"], "tests": ["test:scalp"], "since": "2026-09-21", "schemaSince": "1.0.0" },
+        { "path": "api/scalp-context.js", "name": "scalp-context (REST)", "role": "The GPT Action endpoint: checks the bearer key, returns the payload or a chart image, and records what was served.", "publishes": ["REST payload"], "consumes": ["symbols", "SCALP_CONTEXT_API_KEY"], "tests": ["test:scalp", "test:served"], "since": "2026-09-21", "schemaSince": "1.0.0" },
+        { "path": "services/editTradesMcp.js", "name": "editTradesMcp", "role": "Registers the single read-only MCP tool get_scalp_context; no trading tool can ever be reached from here.", "publishes": ["get_scalp_context"], "consumes": ["symbols"], "tests": ["test:mcp"], "since": "2026-09-21", "schemaSince": "1.1.0" },
+        { "path": "lib/mcpHttp.js", "name": "mcpHttp", "role": "Carries MCP requests over HTTP inside the REST function (Vercel's 12-function cap) without sharing its auth.", "publishes": ["POST /api/mcp"], "consumes": ["get_scalp_context"], "tests": ["test:mcp"], "since": "2026-09-21", "schemaSince": "1.1.0" },
+        { "path": "lib/chartRender.js", "name": "chartRender", "role": "Draws the confirmation chart PNG (candles, EMAs, zones, flag levels) the GPT asks for before a GO IN.", "publishes": ["chart PNG"], "consumes": ["timeframes", "geometryContext", "candidateSetups"], "tests": ["test:chart"], "since": "2026-09-22", "schemaSince": "1.8.0" },
+        { "path": "lib/servedCalls.js", "name": "servedCalls", "role": "Saves every call the GPT was actually served so the tracker can score it like a scheduled capture.", "publishes": ["served/YYYY-MM-DD.jsonl"], "consumes": ["symbols"], "tests": ["test:served"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "api/journal.js", "name": "journal (REST)", "role": "Stores the trades you tell the GPT about (log / journal) and returns the latest ones; never executes anything.", "publishes": ["journal/YYYY-MM-DD.jsonl"], "consumes": ["JOURNAL_API_KEY"], "tests": ["test:journal"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "lib/journalSchema.js", "name": "journalSchema", "role": "Checks each journal line and keeps only the allowed fields, so no wallet or key detail is ever stored.", "publishes": ["journal record"], "consumes": ["journal request"], "tests": ["test:journal"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "lib/blobJsonl.js", "name": "blobJsonl", "role": "Appends journal and served-call lines to Vercel Blob safely when two writes race.", "publishes": ["Blob day files"], "consumes": ["journal record", "served/YYYY-MM-DD.jsonl"], "tests": ["test:journal", "test:served"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "api/health.js", "name": "health", "role": "A ping that says the deployment is up; no market data.", "publishes": ["GET /api/health"], "consumes": [], "tests": [], "since": "2025-11-27", "schemaSince": null },
+        { "path": "openapi/scalp-context.yaml", "name": "scalp-context.yaml", "role": "The field-by-field contract of the payload the GPT Action reads.", "publishes": ["OpenAPI schema"], "consumes": ["REST payload"], "tests": ["test:scalp"], "since": "2026-09-21", "schemaSince": "1.0.0" }
+      ]
+    },
+    {
+      "id": "tracker",
+      "title": "Tracker",
+      "purpose": "Captures calls every 10 minutes, scores them on later candles and publishes this site.",
+      "modules": [
+        { "path": "scripts/tracker/collect.js", "name": "collect", "role": "Pulls the payload, served calls and your journal into the tracker store, stripping every wallet field first.", "publishes": ["data/calls", "data/candles", "data/wallet.jsonl", "data/journal"], "consumes": ["REST payload", "served/YYYY-MM-DD.jsonl", "journal/YYYY-MM-DD.jsonl"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/records.js", "name": "records", "role": "Defines the one row shape a captured call is stored in, shared with the engine's served-call recorder.", "publishes": ["capturedAt", "symbol", "bias"], "consumes": ["symbols"], "tests": ["test:tracker", "test:served"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/store.js", "name": "store", "role": "Reads and writes the tracker's append-only files.", "publishes": ["data/*.jsonl"], "consumes": [], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/score.js", "name": "score", "role": "Walks each call forward on stored 1m candles and records TP1, stop, not filled or expired.", "publishes": ["outcomes.jsonl", "journal-outcomes.jsonl"], "consumes": ["data/calls", "data/candles"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/walk-outcome.js", "name": "walk-outcome", "role": "The exact candle-walk the engine's replay uses, copied so the tracker scores the same way.", "publishes": ["walkOutcome"], "consumes": ["data/candles"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/aggregate.js", "name": "aggregate", "role": "Turns scored calls into win rate, expectancy (gross and net) and per-class checks.", "publishes": ["aggregates.json"], "consumes": ["outcomes.jsonl"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/costs.js", "name": "costs", "role": "Applies fees and slippage (long 0.34%, short 0.14%) to turn gross R into net R.", "publishes": ["netR"], "consumes": ["outcomes.jsonl"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.20.0" },
+        { "path": "scripts/tracker/paths.js", "name": "paths", "role": "Labels how every flag actually played out after it tightened.", "publishes": ["paths.jsonl"], "consumes": ["data/calls", "data/candles"], "tests": ["test:tracker", "test:paths"], "since": "2026-09-24", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/flag-paths.js", "name": "flag-paths", "role": "The path labeller (retest go, runner, false break, fail first, chop) shared by the tracker and the engine's outlook.", "publishes": ["labelPath", "featuresAt"], "consumes": ["candles"], "tests": ["test:paths"], "since": "2026-09-24", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/calibration.js", "name": "calibration", "role": "Checks whether the path outlook's predictions came true.", "publishes": ["calibration.json"], "consumes": ["paths.jsonl", "pathOutlook"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.20.0" },
+        { "path": "scripts/tracker/shadow.js", "name": "shadow", "role": "Scores the breakout-close entry against the retest entry, never traded.", "publishes": ["shadow-outcomes.jsonl", "shadow.json"], "consumes": ["paths.jsonl", "data/candles"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.20.0" },
+        { "path": "scripts/tracker/breakout-entry.js", "name": "breakout-entry", "role": "Builds and walks the shadow breakout-close entry for the shadow scorer.", "publishes": ["shadowEntryFromBreakout", "walkShadow"], "consumes": ["candles"], "tests": ["test:breakout"], "since": "2026-09-24", "schemaSince": "1.20.0" },
+        { "path": "scripts/tracker/vb-shadow.js", "name": "vb-shadow", "role": "Scores what the V-B variant (gross minRR 2.5) would have called, never traded.", "publishes": ["vb-shadow-outcomes.jsonl", "vb-shadow.json"], "consumes": ["flagTradePlan.shadow", "data/candles"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.23.0" },
+        { "path": "scripts/tracker/alerts.js", "name": "alerts", "role": "Opens a GitHub issue (which emails you) for each new GOOD call, with its chart.", "publishes": ["alerts.jsonl"], "consumes": ["data/calls", "chart PNG"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/charts.js", "name": "charts", "role": "Draws the equity curve and wallet chart on the tracker page.", "publishes": ["equity chart", "wallet chart"], "consumes": ["outcomes.jsonl", "data/wallet.jsonl"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/build-page.js", "name": "build-page", "role": "Builds the call tracker page and report from the scored data.", "publishes": ["index.html", "report.md"], "consumes": ["aggregates.json", "outcomes.jsonl"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/how-to-page.js", "name": "how-to-page", "role": "Builds the static how-to-use-with-ChatGPT page.", "publishes": ["how-to.html"], "consumes": [], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/changelog-page.js", "name": "changelog-page", "role": "Draws this system map and changelog from the architecture map and CHANGELOG.", "publishes": ["changelog.html"], "consumes": ["ARCHITECTURE_MAP.json", "CHANGELOG.md"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.23.0" },
+        { "path": "scripts/tracker/build-changelog.js", "name": "build-changelog", "role": "Reads the synced map, changelog and latest capture versions and writes the system map page.", "publishes": ["docs/changelog.html"], "consumes": ["data/engine", "data/calls"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.23.0" },
+        { "path": "scripts/tracker/page-style.js", "name": "page-style", "role": "The shared look of every tracker page (Nothing style, light and dark).", "publishes": ["PAGE_CSS"], "consumes": [], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/bento.js", "name": "bento", "role": "The shared tile and section building blocks of every tracker page.", "publishes": ["tile", "zone", "jumpNav"], "consumes": [], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
+        { "path": "scripts/tracker/sync.js", "name": "sync", "role": "Copies the tracker scripts, workflow and engine map/changelog into the tracker repo.", "publishes": ["data/engine"], "consumes": ["ARCHITECTURE_MAP.json", "CHANGELOG.md"], "tests": [], "since": "2026-09-23", "schemaSince": "1.18.0" }
+      ]
+    },
+    {
+      "id": "gpt",
+      "title": "GPT",
+      "purpose": "Tells the Custom GPT how to read the payload and answer you.",
+      "modules": [
+        { "path": "docs/GPT_INSTRUCTIONS.md", "name": "GPT instructions", "role": "The GPT's rulebook: commands, answer format, GO IN threshold, and that the engine owns every level.", "publishes": ["GPT answer"], "consumes": ["REST payload", "get_scalp_context"], "tests": ["check:gpt"], "since": "2026-09-22", "schemaSince": "1.10.0" },
+        { "path": "docs/GPT_PLAYBOOK_ADDITIONS_2026-09-24.md", "name": "GPT playbook", "role": "The longer field-by-field playbook the instructions point to, kept out of the size-limited box.", "publishes": ["GPT answer"], "consumes": ["REST payload"], "tests": [], "since": "2026-09-24", "schemaSince": "1.22.0" },
+        { "path": "scripts/check-gpt-instructions.js", "name": "check-gpt-instructions", "role": "Fails if the instructions grow past the GPT's size limit.", "publishes": [], "consumes": ["docs/GPT_INSTRUCTIONS.md"], "tests": ["check:gpt"], "since": "2026-09-22", "schemaSince": "1.10.0" }
+      ]
+    },
+    {
+      "id": "legacy",
+      "title": "Off the live path",
+      "purpose": "Nov-Dec 2025 dashboard, scanner, AI agent and trading code; nothing here feeds the live call.",
+      "offPath": true,
+      "modules": [
+        { "path": "api/analyze.js", "name": "analyze", "role": "Old dashboard endpoint: 4h strategy analysis for one symbol.", "publishes": [], "consumes": ["candles"], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "api/analyze-compact.js", "name": "analyze-compact", "role": "Old trimmed strategy analysis for an LLM.", "publishes": [], "consumes": ["candles"], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "api/analyze-full.js", "name": "analyze-full", "role": "Old full strategy object with every strategy, including no-trade ones.", "publishes": [], "consumes": ["candles"], "tests": [], "since": "2025-11-30", "schemaSince": null },
+        { "path": "api/indicators.js", "name": "indicators (API)", "role": "Old per-symbol indicator endpoint.", "publishes": [], "consumes": ["candles"], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "api/scan.js", "name": "scan", "role": "Old market scanner endpoint.", "publishes": [], "consumes": ["candles"], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "api/agent-review.js", "name": "agent-review", "role": "Old AI reasoning agent that sent market JSON to ChatGPT.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-27", "schemaSince": null },
+        { "path": "api/review-trade.js", "name": "review-trade", "role": "Old post-trade review against its signal.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-29", "schemaSince": null },
+        { "path": "api/parse-trade-image.js", "name": "parse-trade-image", "role": "Old screenshot-to-trade parser.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-29", "schemaSince": null },
+        { "path": "api/execute-trade.js", "name": "execute-trade", "role": "Trade execution endpoint; off unless explicitly enabled, never reachable from MCP or the GPT.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-03", "schemaSince": null },
+        { "path": "lib/signalEngine.js", "name": "signalEngine", "role": "Old confluence signal engine; not used by the live call.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-07", "schemaSince": null },
+        { "path": "lib/advancedChartAnalysis.js", "name": "advancedChartAnalysis", "role": "Old market structure, volume profile and fair value gap analysis.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-06", "schemaSince": null },
+        { "path": "lib/chartAnalysis.js", "name": "chartAnalysis", "role": "Old candlestick pattern names; its output does not reach the live decision.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "lib/confluenceScoring.js", "name": "confluenceScoring", "role": "Old multi-factor confidence score.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/dataValidation.js", "name": "dataValidation", "role": "Old clean-up of the advanced chart analysis output.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-06", "schemaSince": null },
+        { "path": "lib/levels.js", "name": "levels", "role": "Old support and resistance finder, replaced by geometry.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/momentumAlignment.js", "name": "momentumAlignment", "role": "Old RSI / Stoch RSI alignment check.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "lib/tradeReadiness.js", "name": "tradeReadiness", "role": "Old 0-100 readiness meter.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-07", "schemaSince": null },
+        { "path": "lib/volumeAnalysis.js", "name": "volumeAnalysis", "role": "Old volume trend check.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "lib/types.ts", "name": "types", "role": "Old type definitions for the dashboard export.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-06", "schemaSince": null },
+        { "path": "services/strategy-refactored.js", "name": "strategy-refactored", "role": "An unused rewrite of the strategy engine.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-30", "schemaSince": null },
+        { "path": "services/scanner.js", "name": "scanner", "role": "Old all-coins opportunity scanner.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "services/binance.js", "name": "binance", "role": "Old Binance candle source.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "services/coingecko.js", "name": "coingecko", "role": "Old CoinGecko candle fallback.", "publishes": [], "consumes": [], "tests": [], "since": "2025-11-26", "schemaSince": null },
+        { "path": "services/dflow.js", "name": "dflow", "role": "Old prediction-market data reader.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-02", "schemaSince": null },
+        { "path": "services/tradeExecution.js", "name": "tradeExecution", "role": "Places swaps or perps from a signal; only behind the disabled execute-trade gate.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-03", "schemaSince": null },
+        { "path": "services/walletManager.js", "name": "walletManager", "role": "Signing wallet for the execution path; never used by the live call.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-03", "schemaSince": null },
+        { "path": "services/positionManager.js", "name": "positionManager", "role": "Old in-memory position tracker for executed perps.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "services/perpsProvider.js", "name": "perpsProvider", "role": "Picks Drift or Mango for perps execution.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "services/driftPerps.js", "name": "driftPerps", "role": "Drift perps execution client.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "services/mangoPerps.js", "name": "mangoPerps", "role": "Mango perps execution client.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "services/jupiterPerps.js", "name": "jupiterPerps", "role": "Jupiter perps execution client.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "services/jup-perps-wrapper.cjs", "name": "jup-perps-wrapper", "role": "Loader shim for the Jupiter perps client.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-05", "schemaSince": null },
+        { "path": "services/jupiterSwap.js", "name": "jupiterSwap", "role": "Jupiter spot swap client for the execution path.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-03", "schemaSince": null },
+        { "path": "services/tokenMapping.js", "name": "tokenMapping", "role": "Maps symbols to Solana token addresses for swaps.", "publishes": [], "consumes": [], "tests": [], "since": "2025-12-03", "schemaSince": null }
+      ]
+    }
+  ],
+  "flows": [
+    { "from": "marketData", "to": "indicators", "label": "closed candles" },
+    { "from": "indicators", "to": "geometry", "label": "EMAs, ATR" },
+    { "from": "geometry", "to": "patternDetector", "label": "zones" },
+    { "from": "patternDetector", "to": "patternLifecycle", "label": "candidateSetups" },
+    { "from": "patternLifecycle", "to": "biasMatrix", "label": "snapped candidates" },
+    { "from": "biasMatrix", "to": "candidateQualifier", "label": "4h lean" },
+    { "from": "freshness", "to": "flagTradePlan", "label": "freshness gate" },
+    { "from": "candidateQualifier", "to": "flagTradePlan", "label": "qualified flags" },
+    { "from": "walletTracker", "to": "riskEngine", "label": "margin" },
+    { "from": "flagTradePlan", "to": "flagRecommendation", "label": "plan" },
+    { "from": "modelEvidence", "to": "flagRecommendation", "label": "21/200 evidence" },
+    { "from": "flagRecommendation", "to": "scalpContext", "label": "class + reasons" },
+    { "from": "pathOutlook", "to": "scalpContext", "label": "outlook" },
+    { "from": "scalpContext", "to": "scalp-context (REST)", "label": "payload" },
+    { "from": "scalpContext", "to": "editTradesMcp", "label": "payload" },
+    { "from": "scalp-context (REST)", "to": "servedCalls", "label": "served calls" },
+    { "from": "journal (REST)", "to": "blobJsonl", "label": "journal lines" },
+    { "from": "scalp-context (REST)", "to": "collect", "label": "every 10 min" },
+    { "from": "collect", "to": "score", "label": "captures + candles" },
+    { "from": "score", "to": "aggregate", "label": "outcomes" },
+    { "from": "aggregate", "to": "build-page", "label": "numbers" },
+    { "from": "scalp-context (REST)", "to": "GPT instructions", "label": "Action call" },
+    { "from": "editTradesMcp", "to": "GPT instructions", "label": "MCP call" }
+  ],
+  "outputs": [
+    {
+      "name": "REST payload",
+      "where": "REST",
+      "fields": ["schemaVersion", "configVersion", "config", "generatedAt", "closedThrough", "sessionTimezone", "dataStatus", "account", "warnings", "price", "mark", "source", "structure", "timeframes", "geometryContext", "candidateSetups", "decisionTrace", "strategies", "bestSignal", "flagTradePlan", "flagRecommendation", "pathOutlook", "model", "biasMatrix", "alignment", "decisionInputs", "topDown"]
+    },
+    {
+      "name": "MCP get_scalp_context",
+      "where": "MCP",
+      "fields": ["schemaVersion", "configVersion", "config", "generatedAt", "closedThrough", "dataStatus", "account", "warnings", "price", "mark", "timeframes", "geometryContext", "candidateSetups", "decisionTrace", "strategies", "bestSignal", "flagTradePlan", "flagRecommendation", "pathOutlook", "model", "biasMatrix", "alignment", "decisionInputs", "topDown"]
+    },
+    {
+      "name": "Tracker records",
+      "where": "tracker",
+      "fields": ["capturedAt", "closedThrough", "schemaVersion", "configVersion", "dataStatus", "symbol", "price", "mark", "flagTradePlan", "flagRecommendation", "candidateSetups", "bias", "pathOutlook", "breakoutEntry", "outcomes.jsonl", "aggregates.json", "paths.jsonl", "calibration.json", "shadow.json", "vb-shadow.json", "alerts.jsonl"]
+    }
+  ]
+}

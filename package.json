@@ -46,6 +46,8 @@
     "tracker:vb-shadow": "node scripts/tracker/vb-shadow.js",
     "tracker:page": "node scripts/tracker/build-page.js",
     "tracker:sync": "node scripts/tracker/sync.js",
+    "tracker:changelog": "node scripts/tracker/build-changelog.js",
+    "test:archmap": "node test-architecture-map.js",
     "test:journal": "node test-journal.js",
     "test:served": "node test-served.js",
     "test:paths": "node test-flag-paths.js",
