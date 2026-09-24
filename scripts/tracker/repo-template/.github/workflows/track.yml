@@ -13,6 +13,9 @@ on:
       deploy:
         description: 'Redeploy the page: auto (only near :07/:37), true, or false'
         default: 'auto'
+      test_alert:
+        description: 'Also open a test alert issue (checks the email path)'
+        default: 'false'
 
 permissions:
   contents: write
@@ -43,7 +46,12 @@ jobs:
       - name: Alert new GOOD calls (GitHub issue, emailed to the owner)
         env:
           GH_TOKEN: ${{ github.token }}
+          TEST_ALERT: ${{ github.event.inputs.test_alert || 'false' }}
         run: |
+          if [ "$TEST_ALERT" = "true" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Test alert · GOOD-call email check" \
+              --body "Test of the GOOD-call email path, opened by the tracker bot. Safe to close. cc @$GITHUB_REPOSITORY_OWNER" || echo "test issue failed"
+          fi
           node scripts/alerts.js --data data --file "$RUNNER_TEMP/alerts.json"
           jq -c '.[]' "$RUNNER_TEMP/alerts.json" | while read -r a; do
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$(jq -r .title <<<"$a")" --body "$(jq -r .body <<<"$a")" \
