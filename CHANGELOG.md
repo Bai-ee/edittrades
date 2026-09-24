@@ -29,9 +29,14 @@ study (`docs/GOOD_QUALITY_REPLAY.md`). Schema 1.20.0 → **1.21.0** (additive), 
   `stop_inside_costs`, the real BTC-incident fixture, long/short mirrored);
   `test:flagrec`/`test:flagrec:fixtures`/`test:tracker` unchanged in count, assertions
   updated. Full gate (every `test:*` + `check:gpt` + `git diff --check`) passes.
-- **Deploy:** `npx vercel --prod --yes`, verified per
-  `docs/EDITTRADES_MCP_CONNECTOR.md` → "Verify after any redeploy"; tracker synced and
-  pushed, `track` workflow triggered once.
+- **Deploy: blocked, not yet live.** `npx vercel --prod --yes` failed:
+  `Error: Resource is limited - try again in 24 hours (more than 100, code:
+  "api-deployments-free-per-day")` - Vercel Hobby's daily deployment cap, not a code
+  issue. Code is committed and pushed; production still runs the pre-phase-1 config
+  (net gate off) until a deploy succeeds. Tracker sync/restart intentionally held back
+  until then - restarting the testing window before the rule is actually live would be
+  misleading. Retry `npx vercel --prod --yes` after the cap resets, then run "Verify
+  after any redeploy" and the tracker sync/push/trigger steps below.
 
 ## 2026-09-24 — T6 phase 0: fee-aware net gate + rule-variant replay (branch `upgrade-signal-engine`)
 

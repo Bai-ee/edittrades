@@ -4,8 +4,11 @@ Last updated: 2026-09-24
 Status: plan approved by owner. Phases run in order.
 - **Phase 0 done** (2026-09-24, no deploy): `docs/GOOD_QUALITY_REPLAY.md`. Recommended
   V1c (net gate 2.0); V1b as the volume-weighted alternative.
-- **Phase 1 shipped** (2026-09-24, owner decision D1: variant V1c): `flagPlan.minNetRR`
-  null → 2.0, `flag.timeframes` unchanged. Deployed and verified - see
+- **Phase 1 code shipped, deploy pending** (2026-09-24, owner decision D1: variant
+  V1c): `flagPlan.minNetRR` null → 2.0, `flag.timeframes` unchanged. Committed and
+  pushed; `npx vercel --prod --yes` hit Vercel Hobby's daily deployment cap
+  (`api-deployments-free-per-day`) - production still runs the pre-phase-1 config.
+  Retry the deploy, then verify and restart the tracker window per
   `docs/EDITTRADES_MCP_CONNECTOR.md`'s history table and "Verify after any redeploy".
 - Phases 2–4 next, back to back; each is deployed and verified before the next.
 - Phase 5 is conditional (≥ 7 days after Phase 1, i.e. from 2026-10-01).
