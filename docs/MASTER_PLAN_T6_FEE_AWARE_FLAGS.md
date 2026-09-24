@@ -100,7 +100,7 @@ A third lever, stop and target taken from higher-timeframe structure, is tested 
 | --- | --- | --- |
 | D1 | Rule variant to ship | **Owner picks after Phase 0.** |
 | D2 | Testing-window restart when Phase 1 ships | Approved: we're on day 2 and the only GOOD was invalid. |
-| D3 | Venue cost realism | Out of scope for now. Keep 0.20% until real fills or the venue schedule justify a change. The owner may state the venue fee; record it, don't apply it. |
+| D3 | Venue cost realism | Keep 0.20% (no config change). Recorded 2026-09-24 from https://docs.jup.ag/user-docs/trade/perps/fees: open/close fee 0.06% each; price impact linear part negligible at small size (≈ $0.0008 per $10k SOL), plus an additive part only when open-interest imbalance exceeds a threshold (SOL cap 0.50%); borrow ≈ 0.024%/h at the doc's example utilization; swap fee 0.10% (non-stable) / 0.02% (stable) per swap when collateral differs from the position asset. Estimated round trip: ≈ 0.12–0.14% when collateral matches the position and holds are under 1 h; ≈ 0.32–0.34% when a long is funded with USDC (swap in and out); more under OI imbalance. So 0.20% sits mid-range and is not conservative for USDC-funded longs. Phase 0 reports a 0.14% and a 0.34% sensitivity column (information only). |
 | D4 | Reversal scouts, divergence setups, breakout-close entry | Scout / watch / shadow only, never GO IN, until a replay is net-positive at n ≥ 100 in both out-of-sample halves AND the owner approves. |
 
 ## 4. Phases
@@ -141,7 +141,7 @@ A third lever, stop and target taken from higher-timeframe structure, is tested 
 - **net expectancy R**, gross expectancy R
 - max losing streak, median stop %, median minutes to resolution
 - share of days with ≥ 1 GOOD
-- a 0.14% cost sensitivity column (information only)
+- 0.14% and 0.34% cost sensitivity columns (information only; see D3)
 
 **Out-of-sample rule:** report days 1–10 and 11–15 separately (60-day: first 40 / last 20). A variant **passes** only if net expectancy > 0 in BOTH halves and n ≥ 20 scored GOOD calls.
 
