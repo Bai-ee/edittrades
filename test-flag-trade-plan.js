@@ -358,39 +358,41 @@ async function run() {
   });
 
   await test('owner decision 1a: gross R:R of exactly 3 passes even though net R:R after fees is below 3 (long + short mirror)', () => {
-    // entry 1000, stop 985/1015 (risk 15, T6 completion plan C1: wide enough that the
-    // 34bps long dir-cost still clears the 2.0 net floor), target 1045/955 (reward 45,
-    // gross RR 3.0 exactly).
+    // entry 1000, stop 985/1015 (risk 15), target 1045/955 (reward 45, gross RR 3.0
+    // exactly). D-variant revised: minNetRR ships null by default, so a thin net R:R
+    // never rejects on its own - only the gross floor gates here.
     for (const cand of [longCandidate({ invalidation: 985, measuredTarget: 1045 }), shortCandidate({ invalidation: 1015, measuredTarget: 955 })]) {
       const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
       assertEqual(plan.status, 'ready', `${cand.direction}: status (gross floor met)`);
       assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
       assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR`);
-      assert(plan.netRR < ENGINE_CONFIG.flagPlan.minRR, `${cand.direction}: netRR ${plan.netRR} is below the floor but never rejects`);
+      assert(plan.netRR < 3, `${cand.direction}: netRR ${plan.netRR} is below gross R:R but the off-by-default net gate never rejects it`);
     }
   });
 
   await test('T6 completion plan C1: dir-cost is a real gate difference, not just a reported number - a long can fail net_rr_below_min where the mirrored short still readies', () => {
     // Same gross geometry as the two tests above, but risk narrowed back to 10 (reward
-    // 30, gross RR 3.0): the long's 34bps dir-cost now pushes net R:R under the 2.0
-    // floor (1.985), while the short's cheaper 14bps still clears it (2.509) - dir-cost
-    // is direction-dependent at the GATE, not only in reporting.
-    const longPlan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1030 }), candles: levelCandles('long', 'retest') }));
+    // 30, gross RR 3.0): the long's 34bps dir-cost now pushes net R:R under a 2.0
+    // override floor (1.985), while the short's cheaper 14bps still clears it (2.509) -
+    // dir-cost is direction-dependent at the GATE, not only in reporting. minNetRR ships
+    // null by default (D-variant revised), so this test overrides it on to reach the gate.
+    const cfg = withMinNetRR(2.0);
+    const longPlan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1030 }), candles: levelCandles('long', 'retest') }), cfg);
     assertEqual(longPlan.status, 'rejected', 'long: the 34bps dir-cost now fails the net gate on this fixture');
     assertEqual(longPlan.reasonCode, 'net_rr_below_min', 'long: reasonCode (costR stays well under 0.5)');
-    assert(longPlan.netRR < ENGINE_CONFIG.flagPlan.minNetRR, `long netRR ${longPlan.netRR} must be below the 2.0 floor`);
+    assert(longPlan.netRR < 2.0, `long netRR ${longPlan.netRR} must be below the 2.0 override floor`);
 
-    const shortPlan = buildFlagTradePlan(baseParams({ candidate: shortCandidate({ measuredTarget: 970 }), candles: levelCandles('short', 'retest') }));
+    const shortPlan = buildFlagTradePlan(baseParams({ candidate: shortCandidate({ measuredTarget: 970 }), candles: levelCandles('short', 'retest') }), cfg);
     assertEqual(shortPlan.status, 'ready', 'short: the same gross geometry still readies - only the direction-dependent cost differs');
-    assert(shortPlan.netRR >= ENGINE_CONFIG.flagPlan.minNetRR, `short netRR ${shortPlan.netRR} must clear the 2.0 floor`);
+    assert(shortPlan.netRR >= 2.0, `short netRR ${shortPlan.netRR} must clear the 2.0 override floor`);
   });
 
-  await test('rejected/rr_below_min: gross R:R 2.9 is below the floor (long + short mirror)', () => {
-    for (const cand of [longCandidate({ measuredTarget: 1029 }), shortCandidate({ measuredTarget: 971 })]) {
+  await test('rejected/rr_below_min: gross R:R 2.4 is below the 2.5 floor (long + short mirror)', () => {
+    for (const cand of [longCandidate({ measuredTarget: 1024 }), shortCandidate({ measuredTarget: 976 })]) {
       const plan = buildFlagTradePlan(baseParams({ candidate: cand }));
       assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, 'rr_below_min', `${cand.direction}: reasonCode`);
-      assertEqual(plan.grossRR, 2.9, `${cand.direction}: grossRR published on the rejection`);
+      assertEqual(plan.grossRR, 2.4, `${cand.direction}: grossRR published on the rejection`);
       assert(typeof plan.netRR === 'number', `${cand.direction}: netRR still published as information`);
     }
   });
@@ -410,12 +412,14 @@ async function run() {
     return { ...ENGINE_CONFIG, flagPlan: { ...ENGINE_CONFIG.flagPlan, minNetRR } };
   }
 
-  await test('shipped default (2.0): a gross-passing plan whose round-trip cost alone eats over half its risk is rejected stop_inside_costs (long + short mirror), levels kept', () => {
+  await test('net gate override (2.0): a gross-passing plan whose round-trip cost alone eats over half its risk is rejected stop_inside_costs (long + short mirror), levels kept', () => {
     // T6 completion plan C1: risk scaled to each direction's own dir-cost amount (34bps
     // long / 14bps short of entry) so costR/netRR land on the SAME clean numbers the
     // flat-cost fixture used - risk = cost/2 always yields costR=2.0, netRR=1/3.
+    // D-variant revised: minNetRR ships null, so stop_inside_costs only fires under an
+    // explicit override here (this reasonCode is research-only in production now).
     for (const cand of [longCandidate({ invalidation: 998.3, measuredTarget: 1005.1 }), shortCandidate({ invalidation: 1000.7, measuredTarget: 997.9 })]) {
-      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') })); // no cfg arg: the shipped default
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(2.0));
       assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, 'stop_inside_costs', `${cand.direction}: reasonCode (costR >= 0.5)`);
       assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR still published`);
@@ -427,17 +431,19 @@ async function run() {
     }
   });
 
-  await test('the real BTC 0.066%-stop incident (section 1a) is now rejected stop_inside_costs, not ready', () => {
+  await test('net gate override: the real BTC 0.066%-stop incident (section 1a) is rejected stop_inside_costs, not ready', () => {
     // entry 83,409.4 / stop 83,464.3 / tp1 83,228 - the one GOOD call the whole T6 plan is about.
     // T6 completion plan C1: this incident is a short, so its dir-cost (14bps) is
     // CHEAPER than the flat 20bps this test originally assumed - netR is healthier
     // (0.38 vs the old 0.07), but costR (2.13) is still far over the 0.5 threshold, so
-    // the incident is still caught, still stop_inside_costs, not ready.
+    // the incident is still caught, still stop_inside_costs, under a net gate override.
+    // D-variant revised: minNetRR ships null in production, so this reasonCode is
+    // research-only now; the override reaches the same code path direct.
     const cand = {
       candidateId: 'BTC:1m:short:incident', timeframe: '1m', type: 'flag', direction: 'short', state: 'confirmed',
       confidence: 80, chaseRisk: false, breakoutLevel: 83409.4, invalidation: 83464.3, measuredTarget: 83228
     };
-    const plan = buildFlagTradePlan(baseParams({ candidate: cand }));
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand }), withMinNetRR(2.0));
     assertClose(plan.grossRR, 3.30, 0.01, 'grossRR matches the incident (3.30)');
     assertClose(plan.netRR, 0.376, 0.001, 'netRR at the short (14bps) dir-cost');
     assertClose(plan.costR, 2.127, 0.001, 'costR at the short (14bps) dir-cost - still far over the 0.5 threshold');
@@ -488,7 +494,7 @@ async function run() {
   });
 
   await test('net gate never overrides the gross gate: a gross-failing plan stays rr_below_min even with a lenient net override', () => {
-    const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1029 }) }), withMinNetRR(5));
+    const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1024 }) }), withMinNetRR(5));
     assertEqual(plan.status, 'rejected', 'status');
     assertEqual(plan.reasonCode, 'rr_below_min', 'the gross gate runs first and short-circuits');
   });
@@ -657,13 +663,13 @@ async function run() {
   });
 
   // -------------------------------------------------------------------------
-  // Section 1b: shadowVariants (T6 completion plan D-variant, owner-approved
-  // 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md) - V-B (gross minRR 2.5) computed
-  // shadow-only, real ATR/retest-hold, never the live plan.
+  // Section 1b: shadowVariants (T6 completion plan D-variant, revised 2026-09-24,
+  // docs/OWNER_DECISIONS_2026-09-24.md) - v3 (gross minRR 3.0, the former live rule)
+  // computed shadow-only, real ATR/retest-hold, never the live plan.
   // -------------------------------------------------------------------------
-  console.log('\n1b) shadowVariants (T6 completion plan D-variant)\n');
+  console.log('\n1b) shadowVariants (T6 completion plan D-variant, revised)\n');
 
-  const VB_VARIANT = [{ id: 'vB', minRR: 2.5 }];
+  const V3_VARIANT = [{ id: 'v3', minRR: 3.0 }];
 
   await test('shadowVariants omitted: no shadow key at all (backward compatible)', () => {
     const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate(), price: 1003, candles: levelCandles('long', 'retest') }));
@@ -672,67 +678,66 @@ async function run() {
 
   await test('shadow variant with an identical outcome to the live plan publishes nothing (long + short)', () => {
     for (const candidateFn of [longCandidate, shortCandidate]) {
-      const cand = candidateFn(); // grossRR 4.0 - ready under both minRR 3.0 (live) and 2.5 (shadow)
+      const cand = candidateFn(); // grossRR 4.0 - ready under both minRR 2.5 (live) and 3.0 (shadow)
       const plan = buildFlagTradePlan(baseParams({
         candidate: cand, price: cand.direction === 'long' ? 1003 : 997,
-        candles: levelCandles(cand.direction, 'retest'), shadowVariants: VB_VARIANT
+        candles: levelCandles(cand.direction, 'retest'), shadowVariants: V3_VARIANT
       }));
       assertEqual(plan.status, 'ready', `${cand.direction}: live plan is ready`);
-      assertEqual(plan.shadow, undefined, `${cand.direction}: V-B agrees with the live plan (also ready, same candidate) - nothing published`);
+      assertEqual(plan.shadow, undefined, `${cand.direction}: v3 agrees with the live plan (also ready, same candidate) - nothing published`);
     }
   });
 
-  await test('shadow variant that differs (rejected rr_below_min live, ready under V-B) publishes shadow.vB, full retest-hold semantics (long + short)', () => {
+  await test('shadow variant that differs (ready live at the 2.5 floor, rejected rr_below_min under the stricter v3) publishes shadow.v3, full retest-hold semantics (long + short)', () => {
     for (const dir of ['long', 'short']) {
-      // T6 completion plan C1: risk widened to 15 (from the default 10) so netRR clears
-      // the 2.0 floor under the 34bps long dir-cost too (a risk=10 fixture at grossRR
-      // 2.9 now fails net_rr_below_min for a long - see the dedicated C1 test above).
+      // T6 completion plan C1: risk widened to 15 (from the default 10) so netRR stays
+      // healthy under the 34bps long dir-cost too - net gate is off by default
+      // (D-variant revised), but a wide stop keeps this fixture representative.
       const cand = dir === 'long' ? longCandidate({ invalidation: 985, measuredTarget: 1043.5 }) : shortCandidate({ invalidation: 1015, measuredTarget: 956.5 }); // grossRR 2.9
       const plan = buildFlagTradePlan(baseParams({
         candidate: cand, price: dir === 'long' ? 1003 : 997,
-        candles: levelCandles(dir, 'retest'), shadowVariants: VB_VARIANT
+        candles: levelCandles(dir, 'retest'), shadowVariants: V3_VARIANT
       }));
-      assertEqual(plan.status, 'rejected', `${dir}: live plan rejected (grossRR 2.9 < shipped minRR 3.0)`);
-      assertEqual(plan.reasonCode, 'rr_below_min', `${dir}: live reasonCode`);
-      assert(plan.shadow && plan.shadow.vB, `${dir}: shadow.vB is published (V-B's outcome differs from live)`);
-      const vb = plan.shadow.vB;
-      assertEqual(vb.status, 'ready', `${dir}: V-B clears its own 2.5 gross floor, the unchanged 2.0 net floor, and the same retest-hold candles as the live plan`);
-      assertEqual(vb.reasonCode, null, `${dir}: reasonCode`);
-      assertEqual(vb.candidateId, cand.candidateId, `${dir}: same candidate as the live (rejected) plan`);
-      assertEqual(vb.entry, 1000, `${dir}: entry matches the candidate's own breakoutLevel, unmoved`);
-      assertEqual(vb.stop, cand.invalidation, `${dir}: stop unmoved`);
-      assertEqual(vb.grossRR, 2.9, `${dir}: grossRR`);
-      assert(typeof vb.netRR === 'number' && vb.netRR >= 2.0, `${dir}: netRR clears the unchanged 2.0 net floor`);
-      assert(typeof vb.planId === 'string' && vb.planId.includes(cand.candidateId), `${dir}: shadow planId follows the live planId's own format`);
+      assertEqual(plan.status, 'ready', `${dir}: live plan ready (grossRR 2.9 >= shipped minRR 2.5)`);
+      assertEqual(plan.reasonCode, null, `${dir}: live reasonCode`);
+      assert(plan.shadow && plan.shadow.v3, `${dir}: shadow.v3 is published (v3's outcome differs from live)`);
+      const v3 = plan.shadow.v3;
+      assertEqual(v3.status, 'rejected', `${dir}: v3's stricter 3.0 gross floor rejects this candidate`);
+      assertEqual(v3.reasonCode, 'rr_below_min', `${dir}: reasonCode`);
+      assertEqual(v3.candidateId, cand.candidateId, `${dir}: same candidate as the live (ready) plan`);
+      assertEqual(v3.entry, 1000, `${dir}: entry matches the candidate's own breakoutLevel, unmoved`);
+      assertEqual(v3.stop, cand.invalidation, `${dir}: stop unmoved`);
+      assertEqual(v3.grossRR, 2.9, `${dir}: grossRR`);
+      assert(typeof v3.planId === 'string' && v3.planId.includes(cand.candidateId), `${dir}: shadow planId follows the live planId's own format`);
     }
   });
 
   await test('shadow variant that itself stays rejected (grossRR below both floors) publishes nothing', () => {
-    const cand = longCandidate({ measuredTarget: 1015 }); // grossRR 1.5 - below V-B's 2.5 floor too
-    const plan = buildFlagTradePlan(baseParams({ candidate: cand, shadowVariants: VB_VARIANT }));
+    const cand = longCandidate({ measuredTarget: 1015 }); // grossRR 1.5 - below v3's 3.0 floor too
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand, shadowVariants: V3_VARIANT }));
     assertEqual(plan.status, 'rejected', 'live plan rejected');
     assertEqual(plan.reasonCode, 'rr_below_min', 'live reasonCode');
-    assertEqual(plan.shadow, undefined, 'V-B also rejects rr_below_min on the same candidate - identical outcome, nothing published');
+    assertEqual(plan.shadow, undefined, 'v3 also rejects rr_below_min on the same candidate - identical outcome, nothing published');
   });
 
   await test('an unknown/malformed variant entry (no id, no minRR) is skipped without throwing', () => {
-    const cand = longCandidate({ measuredTarget: 1029 });
+    const cand = longCandidate({ measuredTarget: 1029 }); // grossRR 2.9 - ready live (>=2.5), rejected under v3 (<3.0)
     const plan = buildFlagTradePlan(baseParams({
       candidate: cand, price: 1003, candles: levelCandles('long', 'retest'),
-      shadowVariants: [{ id: 'broken' }, { minRR: 2.5 }, null, { id: 'vB', minRR: 2.5 }]
+      shadowVariants: [{ id: 'broken' }, { minRR: 3.0 }, null, { id: 'v3', minRR: 3.0 }]
     }));
-    assertEqual(JSON.stringify(Object.keys(plan.shadow || {})), JSON.stringify(['vB']), 'only the one well-formed variant is evaluated and (since it differs) published');
+    assertEqual(JSON.stringify(Object.keys(plan.shadow || {})), JSON.stringify(['v3']), 'only the one well-formed variant is evaluated and (since it differs) published');
   });
 
   await test('pure and deterministic: calling twice with the same input yields a deep-equal shadow object', () => {
     const params = baseParams({
       candidate: longCandidate({ measuredTarget: 1029 }), price: 1003,
-      candles: levelCandles('long', 'retest'), shadowVariants: VB_VARIANT
+      candles: levelCandles('long', 'retest'), shadowVariants: V3_VARIANT
     });
     const a = buildFlagTradePlan(params);
     const b = buildFlagTradePlan(baseParams({
       candidate: longCandidate({ measuredTarget: 1029 }), price: 1003,
-      candles: levelCandles('long', 'retest'), shadowVariants: VB_VARIANT
+      candles: levelCandles('long', 'retest'), shadowVariants: V3_VARIANT
     }));
     assertEqual(JSON.stringify(a.shadow), JSON.stringify(b.shadow), 'identical inputs produce a byte-identical shadow object');
   });

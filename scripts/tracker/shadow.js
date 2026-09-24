@@ -55,7 +55,7 @@ import { costR } from './costs.js';
 // flagPlan.minRR, scalp.maxStopDistancePct, risk.feeBps, risk.slippageBps. Kept in step by
 // test-tracker.js's own parity assertion against config/engine.json.
 export const SHADOW_CFG = Object.freeze({
-  minRR: 3.0,
+  minRR: 2.5,
   maxStopPct: 3.0,
   feeBps: 5,
   slippageBps: 5

@@ -312,16 +312,16 @@ async function run() {
     }
   });
 
-  // owner: item 1a (3R is gross price R to TP1).
-  await test('valid geometry with gross < 3R -> BAD rr_below_min, reason first, remedy named (long + short)', () => {
+  // owner: item 1a (2.5R is gross price R to TP1, D-variant revised 2026-09-24).
+  await test('valid geometry with gross < 2.5R floor -> BAD rr_below_min, reason first, remedy named (long + short)', () => {
     for (const dir of DIRS) {
-      const p = plan(dir, { status: 'rejected', reasonCode: 'rr_below_min', tp1: mir(dir, 1025), grossRR: 2.5, netRR: 1.9 });
+      const p = plan(dir, { status: 'rejected', reasonCode: 'rr_below_min', tp1: mir(dir, 1025), grossRR: 2.4, netRR: 1.9 });
       const { compact } = check(dir, { dir, p }, {
         class: 'BAD',
         primary: 'rr_below_min',
         supports: [`td:${withSent(dir)}:4/4`],
         unknowns: ['ema200:1w:missing'],
-        change: 'a flag whose measured move is >= 3R gross to TP1 (now 2.5R)'
+        change: 'a flag whose measured move is >= 2.5R gross to TP1 (now 2.4R)'
       });
       assertEqual(compact.opposes[0], 'rr_below_min', `${dir}: disqualifying reason first`);
     }

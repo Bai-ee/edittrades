@@ -102,7 +102,7 @@
         { "path": "scripts/tracker/calibration.js", "name": "calibration", "role": "Checks whether the path outlook's predictions came true.", "publishes": ["calibration.json"], "consumes": ["paths.jsonl", "pathOutlook"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.20.0" },
         { "path": "scripts/tracker/shadow.js", "name": "shadow", "role": "Scores the breakout-close entry against the retest entry, never traded.", "publishes": ["shadow-outcomes.jsonl", "shadow.json"], "consumes": ["paths.jsonl", "data/candles"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.20.0" },
         { "path": "scripts/tracker/breakout-entry.js", "name": "breakout-entry", "role": "Builds and walks the shadow breakout-close entry for the shadow scorer.", "publishes": ["shadowEntryFromBreakout", "walkShadow"], "consumes": ["candles"], "tests": ["test:breakout"], "since": "2026-09-24", "schemaSince": "1.20.0" },
-        { "path": "scripts/tracker/vb-shadow.js", "name": "vb-shadow", "role": "Scores what the V-B variant (gross minRR 2.5) would have called, never traded.", "publishes": ["vb-shadow-outcomes.jsonl", "vb-shadow.json"], "consumes": ["flagTradePlan.shadow", "data/candles"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.23.0" },
+        { "path": "scripts/tracker/v3-shadow.js", "name": "v3-shadow", "role": "Scores what the stricter v3 variant (gross minRR 3.0, the former live rule) would have called, never traded.", "publishes": ["v3-shadow-outcomes.jsonl", "v3-shadow.json"], "consumes": ["flagTradePlan.shadow", "data/candles"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.23.0" },
         { "path": "scripts/tracker/alerts.js", "name": "alerts", "role": "Opens a GitHub issue (which emails you) for each new GOOD call, with its chart.", "publishes": ["alerts.jsonl"], "consumes": ["data/calls", "chart PNG"], "tests": ["test:tracker"], "since": "2026-09-24", "schemaSince": "1.18.0" },
         { "path": "scripts/tracker/charts.js", "name": "charts", "role": "Draws the equity curve and wallet chart on the tracker page.", "publishes": ["equity chart", "wallet chart"], "consumes": ["outcomes.jsonl", "data/wallet.jsonl"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
         { "path": "scripts/tracker/build-page.js", "name": "build-page", "role": "Builds the call tracker page and report from the scored data.", "publishes": ["index.html", "report.md"], "consumes": ["aggregates.json", "outcomes.jsonl"], "tests": ["test:tracker"], "since": "2026-09-23", "schemaSince": "1.18.0" },
@@ -206,7 +206,7 @@
     {
       "name": "Tracker records",
       "where": "tracker",
-      "fields": ["capturedAt", "closedThrough", "schemaVersion", "configVersion", "dataStatus", "symbol", "price", "mark", "flagTradePlan", "flagRecommendation", "candidateSetups", "bias", "pathOutlook", "breakoutEntry", "outcomes.jsonl", "aggregates.json", "paths.jsonl", "calibration.json", "shadow.json", "vb-shadow.json", "alerts.jsonl"]
+      "fields": ["capturedAt", "closedThrough", "schemaVersion", "configVersion", "dataStatus", "symbol", "price", "mark", "flagTradePlan", "flagRecommendation", "candidateSetups", "bias", "pathOutlook", "breakoutEntry", "outcomes.jsonl", "aggregates.json", "paths.jsonl", "calibration.json", "shadow.json", "v3-shadow.json", "alerts.jsonl"]
     }
   ]
 }

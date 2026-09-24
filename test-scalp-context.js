@@ -1812,7 +1812,7 @@ async function main() {
     });
 
     await test('T6 completion plan D-variant: FLAG_PLAN_SHADOW_VARIANTS is exactly the one owner-approved V-B variant', () => {
-      assertEqual(JSON.stringify(FLAG_PLAN_SHADOW_VARIANTS), JSON.stringify([{ id: 'vB', minRR: 2.5 }]), 'shadow variant list');
+      assertEqual(JSON.stringify(FLAG_PLAN_SHADOW_VARIANTS), JSON.stringify([{ id: 'v3', minRR: 3.0 }]), 'shadow variant list ("D-variant revised" 2026-09-24: v3, the former live rule, is now the shadow)');
     });
 
     await test('T6 completion plan D-variant: flagTradePlan.shadow is stripped from the default payload (include-less too), kept only under include=model', () => {

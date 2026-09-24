@@ -123,14 +123,15 @@ function topDown(over = {}) {
   };
 }
 
-function rec({ plan = readyPlan(), ev = evidence(), td = topDown(), dataStatus = 'complete' } = {}) {
+function rec({ plan = readyPlan(), ev = evidence(), td = topDown(), dataStatus = 'complete', planCfg } = {}) {
   return buildFlagRecommendation({
     symbol: 'BTC',
     asOf: AS_OF,
     dataStatus,
     flagTradePlan: plan,
     evidence: ev,
-    topDown: td
+    topDown: td,
+    ...(planCfg ? { planCfg } : {})
   });
 }
 
@@ -143,7 +144,7 @@ async function run() {
     assertEqual(r.readiness, 'ready', 'readiness');
     assert(hasCode(r.supports, 'ready_flag_plan'), 'ready plan support');
     assert(hasCode(r.supports, 'rr_ok'), 'gross RR support');
-    assert(/Gross R:R to TP1 is 4, meeting the 3R floor/.test(r.supports.find((x) => x.code === 'rr_ok').text), 'rr_ok cites grossRR and the floor');
+    assert(/Gross R:R to TP1 is 4, meeting the 2\.5R floor/.test(r.supports.find((x) => x.code === 'rr_ok').text), 'rr_ok cites grossRR and the floor');
     assert(!hasCode(r.opposes, 'net_rr_low'), 'net 3.2 >= 3: no fee warning');
     assert(hasCode(r.supports, 'top_down_context'), 'top-down support');
     assert(hasCode(r.supports, 'divergence_agrees'), 'divergence support');
@@ -204,11 +205,11 @@ async function run() {
 
   await test('BAD: rejected rr_below_min cites grossRR and the floor (long + short mirror)', () => {
     for (const direction of ['long', 'short']) {
-      const r = rec({ plan: readyPlan({ direction, status: 'rejected', reasonCode: 'rr_below_min', grossRR: 2.9, netRR: 2.1 }) });
+      const r = rec({ plan: readyPlan({ direction, status: 'rejected', reasonCode: 'rr_below_min', grossRR: 2.4, netRR: 2.1 }) });
       assertEqual(r.class, 'BAD', `${direction}: class`);
       assert(hasCode(r.opposes, 'rr_below_min'), `${direction}: rr rejection`);
       assertEqual(r.primaryReason.code, 'rr_below_min', `${direction}: primary reason`);
-      assert(/gross R:R to TP1 is 2\.9, below the 3R floor/.test(r.primaryReason.text), `${direction}: text cites grossRR and floor, got ${r.primaryReason.text}`);
+      assert(/gross R:R to TP1 is 2\.4, below the 2\.5R floor/.test(r.primaryReason.text), `${direction}: text cites grossRR and floor, got ${r.primaryReason.text}`);
     }
   });
 
@@ -236,18 +237,25 @@ async function run() {
     }
   });
 
-  await test('owner decision 1a + T6 phase 1: gross >= floor but net < floor is never BAD; fees_heavy warns (long + short mirror, ready + conditional)', () => {
+  await test('D-variant revised: gross >= floor but net < 1.0R is never BAD; net_rr_low warns (long + short mirror, ready + conditional)', () => {
     for (const direction of ['long', 'short']) {
       const ready = rec({ plan: readyPlan({ direction, grossRR: 3.16, netRR: 0.023 }), td: topDown({ sentiment: direction === 'short' ? 'bear' : 'bull' }) });
       assertEqual(ready.class, 'GOOD', `${direction}: ready plan with gross 3.16 stays GOOD`);
       assert(hasCode(ready.supports, 'rr_ok'), `${direction}: rr_ok support`);
-      const warn = ready.opposes.find((x) => x.code === 'fees_heavy');
-      assert(warn && /Net R:R after fees is 0\.023; fees eat the edge/.test(warn.text), `${direction}: fees_heavy text, got ${warn && warn.text}`);
+      const warn = ready.opposes.find((x) => x.code === 'net_rr_low');
+      assert(warn && /Net R:R after fees is 0\.023; thin after fees/.test(warn.text), `${direction}: net_rr_low text, got ${warn && warn.text}`);
 
       const cond = rec({ plan: readyPlan({ direction, status: 'conditional', reasonCode: 'awaiting_retest', grossRR: 3.16, netRR: 0.023 }) });
       assertEqual(cond.class, 'WATCH', `${direction}: conditional stays WATCH`);
-      assert(hasCode(cond.opposes, 'fees_heavy'), `${direction}: conditional also warns`);
+      assert(hasCode(cond.opposes, 'net_rr_low'), `${direction}: conditional also warns`);
     }
+  });
+
+  await test('net gate override: gross >= floor but net < minNetRR is never BAD; fees_heavy warns (long mirror)', () => {
+    const ready = rec({ plan: readyPlan({ grossRR: 3.16, netRR: 1.5 }), planCfg: { minRR: 2.5, minNetRR: 2.0 } });
+    assertEqual(ready.class, 'GOOD', 'ready plan with gross 3.16 stays GOOD under a net override');
+    const warn = ready.opposes.find((x) => x.code === 'fees_heavy');
+    assert(warn && /Net R:R after fees is 1\.5; fees eat the edge/.test(warn.text), `fees_heavy text, got ${warn && warn.text}`);
   });
 
   await test('DATA_UNAVAILABLE: stale required plan data does not become bearish or bullish evidence', () => {
@@ -335,18 +343,21 @@ async function run() {
     assertEqual(noPlan(freshness(), 'unavailable').class, 'DATA_UNAVAILABLE', 'unavailable -> DATA_UNAVAILABLE');
   });
 
-  await test('review fix 9 + T6 phase 1: the gross floor is read from flagPlan.minRR, the net floor from flagPlan.minNetRR, only', () => {
+  await test('review fix 9 + D-variant revised: the gross floor is read from flagPlan.minRR, the net floor from flagPlan.minNetRR (or the fixed 1.0R floor when off), never model cfg', () => {
     const plan = readyPlan({ netRR: 3.2 });
-    // planCfg fully replaces the default here (no minNetRR key -> undefined -> falls back to minRR for the net-floor text, same as the pre-phase-1 informational read).
+    // planCfg fully replaces the default here; no minNetRR key -> undefined -> net gate
+    // off -> the fixed 1.0R net_rr_low floor applies, not flagPlan.minRR (the old
+    // fallback-to-minRR net floor was removed by D-variant revised).
     const strict = buildFlagRecommendation({ symbol: 'BTC', asOf: AS_OF, dataStatus: 'complete', flagTradePlan: plan, evidence: evidence(), topDown: topDown(), planCfg: { minRR: 4 } });
-    assertEqual(strict.class, 'GOOD', 'a 4R floor never turns net 3.2 into BAD');
-    assert(hasCode(strict.opposes, 'fees_heavy'), 'net below the (fallback) 4R floor is warned');
+    assertEqual(strict.class, 'GOOD', 'a 4R gross floor never turns net 3.2 into BAD');
+    assert(!hasCode(strict.opposes, 'fees_heavy'), 'net gate off: no fees_heavy, the old minRR-fallback floor is gone');
+    assert(hasCode(strict.supports, 'net_rr_ok'), 'net 3.2 clears the fixed 1.0R net_rr_low floor');
     assert(/meeting the 4R floor/.test(strict.supports.find((x) => x.code === 'rr_ok').text), 'rr_ok cites flagPlan.minRR');
-    // Default planCfg (real ENGINE_CONFIG.flagPlan, minNetRR 2.0): net 3.2 clears it -> net_rr_ok, not fees_heavy.
+    // Default planCfg (real ENGINE_CONFIG.flagPlan, minNetRR null): net gate stays off regardless of a stray model.minRR.
     const loose = buildFlagRecommendation({ symbol: 'BTC', asOf: AS_OF, dataStatus: 'complete', flagTradePlan: plan, evidence: evidence(), topDown: topDown(), cfg: { minRR: 10, decisionWeights: {} } });
     assertEqual(loose.class, 'GOOD', 'a stray model.minRR is ignored');
     assert(!hasCode(loose.opposes, 'fees_heavy'), 'model.minRR does not set the net floor');
-    assert(hasCode(loose.supports, 'net_rr_ok'), 'net 3.2 clears the shipped 2.0 net floor');
+    assert(hasCode(loose.supports, 'net_rr_ok'), 'net 3.2 clears the fixed 1.0R net_rr_low floor');
   });
 
   await test('review nit 13: an explicit 0 weight is honoured (?? not ||)', () => {

@@ -29,14 +29,18 @@ import { fetchPythMarks, buildMark, markTraceToken, compactMark } from '../lib/p
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 
-// T6 completion plan D-variant (owner-approved 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md):
-// V-B (gross minRR 2.5) computed shadow-only alongside the live flag trade plan - never
-// gates class/recommendation, never ships as the live plan. Published on
-// `flagTradePlan.shadow.vB` (filterSymbol strips it unless `include=model`) and captured
-// unconditionally in every served-call record (lib/servedCalls.js records the pre-filter
-// payload) for the tracker's vb-shadow scoring. Remove this constant and the
-// shadowVariants arg once the revisit (2026-10-07, n>=20 each) is decided either way.
-export const FLAG_PLAN_SHADOW_VARIANTS = [{ id: 'vB', minRR: 2.5 }];
+// T6 completion plan D-variant REVISED (owner decision 2026-09-24, supersedes the
+// original D-variant, docs/OWNER_DECISIONS_2026-09-24.md): the live gross floor is now
+// 2.5 (flagPlan.minRR), net gate off (flagPlan.minNetRR null) - the system leans toward
+// producing GOOD calls so the strategy can be tracked and tweaked. The former live rule
+// (gross minRR 3.0) is now the shadow comparator instead - the vB variant (2.5, formerly
+// shadow) is retired now that it IS live; v3 (3.0, formerly live) takes its place as the
+// shadow, computed alongside the live flag trade plan - never gates class/recommendation,
+// never ships as the live plan. Published on `flagTradePlan.shadow.v3` (filterSymbol
+// strips it unless `include=model`) and captured unconditionally in every served-call
+// record (lib/servedCalls.js records the pre-filter payload) for the tracker's
+// v3-shadow scoring ("3R shadow (former live rule)" tile).
+export const FLAG_PLAN_SHADOW_VARIANTS = [{ id: 'v3', minRR: 3.0 }];
 
 // Published candles per timeframe (payload only; the engine computes on the full closed
 // window). 1m/3m/5m went 30 -> 24 on 2026-09-23 to keep the default payload under 80 KB;

@@ -35,7 +35,7 @@ import { aggregateDataDir } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
 import { shadowOutcomesFile, shadowSummaryFile } from './shadow.js';
-import { vbShadowOutcomesFile, vbShadowSummaryFile } from './vb-shadow.js';
+import { v3ShadowOutcomesFile, v3ShadowSummaryFile } from './v3-shadow.js';
 import { PATHS } from './flag-paths.js';
 import {
   chartKit, chartScript, callVia, equityRows, journalEquityRows, setupEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
@@ -50,17 +50,16 @@ export const EDGE_NOTE = "Not evidence of an edge. Scores the engine's calls aga
 export const NO_SCORED = '[NO SCORED CALLS YET]';
 
 // Active testing phase (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md Phase 1). Edit here when the phase changes.
-export const PHASE_NAME = 'Phase 5 forward record (net-gated rules)';
+// PHASE_START deliberately NOT moved for "D-variant revised" (owner decision
+// 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md) - the window continues, it does not
+// restart; the rule-change note lives in the dynamic configBoundary marker instead
+// (aggregate.js's configBoundary, rendered by configBoundaryNote below), not a
+// manually-maintained restart note.
+export const PHASE_NAME = 'Phase 5 forward record (2.5R gross, net gate off)';
 export const PHASE_START = '2026-09-24';
 export const PHASE_DAYS = 14;
 export const PHASE_TARGET_PLANS = 30;
 const PHASE_START_MS = Date.parse(`${PHASE_START}T00:00:00Z`);
-
-// T6 phase 1 window restart (owner decision D1, variant V1c, config 2026.09.24-3): edit
-// alongside PHASE_NAME/PHASE_START on the next restart, or drop once the next phase
-// makes it stale. Aggregates keep every earlier call - phaseStartMs only moves the
-// testing-phase target window forward, nothing is deleted (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md).
-export const RESTART_NOTE = 'Window restarted 2026-09-24: GOOD now requires net R:R ≥ 2.0 after fees (flagPlan.minNetRR) and flags stay on 1m/3m/5m (unchanged). Earlier calls kept for reference.';
 
 // Tracker schedule. Must match the cron in repo-template/.github/workflows/track.yml.
 export const SCHEDULE_MINUTES = [7, 17, 27, 37, 47, 57];
@@ -518,32 +517,32 @@ function shadowBody(summary, rows) {
       table('breakout-shadow-list-table', ['Time', 'Symbol', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], shadowListRows(rows), NO_SHADOW));
 }
 
-// ---------- V-B shadow (T6 completion plan D-variant, owner-approved 2026-09-24; shadow mode, never traded) ----------
+// ---------- 3R shadow, former live rule (T6 completion plan "D-variant revised", owner decision 2026-09-24; shadow mode, never traded) ----------
 
-export const NO_VB_SHADOW = '[NO V-B SHADOW ENTRIES YET]';
-export const VB_SHADOW_MIN_N = 20;
-export const VB_SHADOW_TOO_FEW = 'TOO FEW CALLS';
-// Cannot backfill: flagTradePlan.shadow only exists on rows captured after the engine
-// deploy that ships it (Step A + B2) goes live. Edit this line again if the deploy
-// timeline changes - same pattern as PHASE_START/RESTART_NOTE above.
-export const VB_SHADOW_ACCRUAL_NOTE = 'Accruing since the Step A + B2 engine deploy (2026-09-24, schema 1.23.0 confirmed live) - nothing captured before that carries a shadow field.';
-export const VB_SHADOW_NOTE = `Shadow mode: gross minRR lowered to 2.5 (T6 completion plan D-variant, docs/OWNER_DECISIONS_2026-09-24.md), computed by the engine itself with real ATR and retest-hold - not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. ${VB_SHADOW_ACCRUAL_NOTE} Revisit 2026-10-07, n >= 20 scored plans each side (this vs V1c live) - see docs/OWNER_DECISIONS_2026-09-24.md.`;
+export const NO_V3_SHADOW = '[NO 3R SHADOW ENTRIES YET]';
+export const V3_SHADOW_MIN_N = 20;
+export const V3_SHADOW_TOO_FEW = 'TOO FEW CALLS';
+// Cannot backfill: flagTradePlan.shadow.v3 only exists on rows captured after this
+// deploy goes live. Edit this line again if the deploy timeline changes - same
+// pattern as PHASE_START above.
+export const V3_SHADOW_ACCRUAL_NOTE = 'Accruing since this deploy (D-variant revised, 2026-09-24) - nothing captured before that carries a v3 shadow field.';
+export const V3_SHADOW_NOTE = `Shadow mode: the former live rule (gross minRR 3.0, net gate on at 2.0) kept as a comparator now that the live rule is gross minRR 2.5, net gate off (owner decision "D-variant revised", docs/OWNER_DECISIONS_2026-09-24.md - lean toward producing GOOD calls so the strategy can be tracked and tweaked) - computed by the engine itself with real ATR and retest-hold, not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. ${V3_SHADOW_ACCRUAL_NOTE}`;
 
-export const EMPTY_VB_SHADOW_SUMMARY = {
+export const EMPTY_V3_SHADOW_SUMMARY = {
   generatedAt: null, n: 0, resolvedN: 0, open: 0, expired: 0, winRate: null, grossExpectancyR: null, netExpectancyR: null, netExpectancyR_dirCost: null
 };
 
-function vbShadowSummaryBody(summary) {
-  const row = summary.n < VB_SHADOW_MIN_N
-    ? ['V-B (minRR 2.5)', summary.n, { v: VB_SHADOW_TOO_FEW, cls: 'dim' }, dash, dash, dash]
-    : ['V-B (minRR 2.5)', summary.n, pct(summary.winRate),
+function v3ShadowSummaryBody(summary) {
+  const row = summary.n < V3_SHADOW_MIN_N
+    ? ['3R (minRR 3.0, former live)', summary.n, { v: V3_SHADOW_TOO_FEW, cls: 'dim' }, dash, dash, dash]
+    : ['3R (minRR 3.0, former live)', summary.n, pct(summary.winRate),
       { v: rVal(summary.grossExpectancyR), cls: rStatus(summary.grossExpectancyR) },
       { v: rVal(summary.netExpectancyR), cls: rStatus(summary.netExpectancyR) },
       { v: rVal(summary.netExpectancyR_dirCost), cls: rStatus(summary.netExpectancyR_dirCost) }];
-  return table('vb-shadow-summary-table', ['Variant', 'N', 'Win rate', 'Exp. (gross R)', 'Net exp. (flat 0.20%)', 'Net exp. (dir-cost)'], [row], NO_VB_SHADOW, 1);
+  return table('v3-shadow-summary-table', ['Variant', 'N', 'Win rate', 'Exp. (gross R)', 'Net exp. (flat 0.20%)', 'Net exp. (dir-cost)'], [row], NO_V3_SHADOW, 1);
 }
 
-function vbShadowListRows(rows) {
+function v3ShadowListRows(rows) {
   return [...rows]
     .filter((r) => r && r.outcome)
     .sort((a, b) => Date.parse(b.readyAt || 0) - Date.parse(a.readyAt || 0))
@@ -552,11 +551,11 @@ function vbShadowListRows(rows) {
       { v: r.outcome, cls: outcomeStatus(r.outcome) }, { v: rVal(r.r), cls: rStatus(r.r) }]);
 }
 
-function vbShadowBody(summary, rows) {
-  if (!summary.n) return `<p class="empty" id="vb-shadow-empty">${esc(NO_VB_SHADOW)}</p>`;
-  return vbShadowSummaryBody(summary)
-    + sub('vb-shadow-list-sub', 'Last 20 V-B shadow entries',
-      table('vb-shadow-list-table', ['Ready at', 'Symbol', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], vbShadowListRows(rows), NO_VB_SHADOW));
+function v3ShadowBody(summary, rows) {
+  if (!summary.n) return `<p class="empty" id="v3-shadow-empty">${esc(NO_V3_SHADOW)}</p>`;
+  return v3ShadowSummaryBody(summary)
+    + sub('v3-shadow-list-sub', 'Last 20 3R shadow entries',
+      table('v3-shadow-list-table', ['Ready at', 'Symbol', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], v3ShadowListRows(rows), NO_V3_SHADOW));
 }
 
 // ---------- page ----------
@@ -583,8 +582,8 @@ export function renderHtml(agg, data = {}) {
   const calibration = data.calibration && typeof data.calibration === 'object' ? data.calibration : EMPTY_CALIBRATION;
   const shadowRows = Array.isArray(data.shadowOutcomes) ? data.shadowOutcomes : [];
   const shadowSum = data.shadowSummary && typeof data.shadowSummary === 'object' ? data.shadowSummary : EMPTY_SHADOW_SUMMARY;
-  const vbShadowRows = Array.isArray(data.vbShadowOutcomes) ? data.vbShadowOutcomes : [];
-  const vbShadowSum = data.vbShadowSummary && typeof data.vbShadowSummary === 'object' ? data.vbShadowSummary : EMPTY_VB_SHADOW_SUMMARY;
+  const v3ShadowRows = Array.isArray(data.v3ShadowOutcomes) ? data.v3ShadowOutcomes : [];
+  const v3ShadowSum = data.v3ShadowSummary && typeof data.v3ShadowSummary === 'object' ? data.v3ShadowSummary : EMPTY_V3_SHADOW_SUMMARY;
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
   const scored7 = t7.wins + t7.losses;
@@ -626,8 +625,8 @@ export function renderHtml(agg, data = {}) {
   // Breakout entry shadow (T4 P4): breakout-close entry scored but never traded, vs retest. Shadow mode only.
   const breakoutShadowSection = section('breakout-shadow-section', 'Breakout entry (shadow, not traded)', shadowBody(shadowSum, shadowRows), { sm: 2, lg: 12, foot: SHADOW_NOTE });
 
-  // V-B shadow (T6 completion plan D-variant): gross minRR 2.5, computed by the engine itself. Shadow mode only.
-  const vbShadowSection = section('vb-shadow-section', 'V-B shadow · gross minRR 2.5 (not traded)', vbShadowBody(vbShadowSum, vbShadowRows), { sm: 2, lg: 12, foot: VB_SHADOW_NOTE });
+  // 3R shadow, former live rule (T6 completion plan "D-variant revised"): gross minRR 3.0, computed by the engine itself. Shadow mode only.
+  const v3ShadowSection = section('v3-shadow-section', '3R shadow (former live rule) · gross minRR 3.0 (not traded)', v3ShadowBody(v3ShadowSum, v3ShadowRows), { sm: 2, lg: 12, foot: V3_SHADOW_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -707,7 +706,6 @@ export function renderHtml(agg, data = {}) {
     + `<div class="stat-row"><dt>Then</dt><dd>ONE CALIBRATION PASS WITH YOU</dd></div>`
     + `</dl>`
     + `<p class="mono-note" id="testing-phase-frozen">FROZEN DURING THE WINDOW: NO THRESHOLD TUNING. ALL LABELS PROVISIONAL.</p>`
-    + `<p class="mono-note" id="testing-phase-restart-note">${esc(RESTART_NOTE)}</p>`
     + configBoundaryNote(agg.configBoundary);
 
   // Activity, last 24 h.
@@ -781,7 +779,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, vbShadowSection, ...instruments]
+      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -902,7 +900,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
     journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir)),
     paths: readJsonl(pathsFile(dataDir)), calibration: readJson(calibrationFile(dataDir), null),
     shadowOutcomes: readJsonl(shadowOutcomesFile(dataDir)), shadowSummary: readJson(shadowSummaryFile(dataDir), null),
-    vbShadowOutcomes: readJsonl(vbShadowOutcomesFile(dataDir)), vbShadowSummary: readJson(vbShadowSummaryFile(dataDir), null)
+    v3ShadowOutcomes: readJsonl(v3ShadowOutcomesFile(dataDir)), v3ShadowSummary: readJson(v3ShadowSummaryFile(dataDir), null)
   }));
   writeFileSync(mdFile, renderReport(agg));
   writeFileSync(howToFile, renderHowTo());

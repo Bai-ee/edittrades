@@ -199,8 +199,9 @@ async function run() {
     assertEqual(ENGINE_CONFIG.scalp.maxStopDistancePct, 3.0, 'a threshold was mutated at runtime');
   });
 
-  await test('documented defaults: the flag-plan net gate ships on at 2.0 (T6 phase 1, owner decision D1, variant V1c)', () => {
-    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, 2.0, 'flagPlan.minNetRR drifted from the shipped V1c floor');
+  await test('documented defaults: net gate off, gross floor 2.5 (owner decision "D-variant revised", 2026-09-24, supersedes D-variant)', () => {
+    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, null, 'flagPlan.minNetRR drifted from the shipped "D-variant revised" default (off)');
+    assertEqual(ENGINE_CONFIG.flagPlan.minRR, 2.5, 'flagPlan.minRR drifted from the shipped "D-variant revised" gross floor');
   });
 
   await test('setConfigOverride (T6 phase 0): deep-merges onto the base config, leaves siblings untouched, restores on null', () => {
@@ -208,7 +209,7 @@ async function run() {
     try {
       setConfigOverride({ flagPlan: { minNetRR: 1.5 } });
       assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, 1.5, 'override did not apply');
-      assertEqual(ENGINE_CONFIG.flagPlan.minRR, 3.0, 'deep-merge dropped an untouched sibling key');
+      assertEqual(ENGINE_CONFIG.flagPlan.minRR, 2.5, 'deep-merge dropped an untouched sibling key');
       assertEqual(ENGINE_CONFIG.scalp.maxStopDistancePct, 3.0, 'an unrelated config block was disturbed');
       assert(Object.isFrozen(ENGINE_CONFIG), 'overridden config is not frozen');
       assert(Object.isFrozen(ENGINE_CONFIG.flagPlan), 'overridden nested block is not frozen');
@@ -234,7 +235,7 @@ async function run() {
     threw = false;
     try { setConfigOverride({ thresholds: {}, flagPlan: { minNetRR: 1.5 } }); } catch { threw = true; }
     assert(threw, 'a mixed override with thresholds still throws (all or nothing)');
-    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, 2.0, 'flagPlan was never touched by the refused call');
+    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, null, 'flagPlan was never touched by the refused call');
   });
 
   await test('setConfigOverride: an array override replaces the base array outright (no element merge)', () => {
@@ -269,16 +270,16 @@ async function run() {
       configVersion: 'TEST'
     };
     try {
-      const shipped = buildFlagTradePlan(params); // no cfg arg: uses the module's own default ENGINE_CONFIG (net gate on, 2.0)
-      assertEqual(shipped.grossRR, 3, 'sanity: gross RR 3 meets the floor');
+      const shipped = buildFlagTradePlan(params); // no cfg arg: uses the module's own default ENGINE_CONFIG (net gate off, D-variant revised)
+      assertEqual(shipped.grossRR, 3, 'sanity: gross RR 3 meets the 2.5 floor');
       assertClose(shipped.netRR, 0.333, 0.001, 'sanity: thin net RR, published on every plan');
-      assertEqual(shipped.status, 'rejected', 'the shipped default net gate must already reject this thin-net-RR plan');
-      assertEqual(shipped.reasonCode, 'stop_inside_costs', 'reasonCode');
+      assert(shipped.status !== 'rejected' || shipped.reasonCode !== 'stop_inside_costs', 'the shipped default (net gate off) must not reject on net R:R alone');
 
-      setConfigOverride({ flagPlan: { minNetRR: null } });
+      setConfigOverride({ flagPlan: { minNetRR: 2.0 } });
       const overridden = buildFlagTradePlan(params); // same call, no cfg arg: override now live, no import in lib/flagTradePlan.js changed
       assertEqual(overridden.grossRR, shipped.grossRR, 'gross RR unaffected by the override');
-      assert(overridden.status !== 'rejected' || overridden.reasonCode !== 'stop_inside_costs', 'the live override (net gate off) was not seen by lib/flagTradePlan.js\'s own default cfg param');
+      assertEqual(overridden.status, 'rejected', 'the live override (net gate back on at 2.0) was seen by lib/flagTradePlan.js\'s own default cfg param');
+      assertEqual(overridden.reasonCode, 'stop_inside_costs', 'reasonCode');
     } finally {
       setConfigOverride(null);
     }

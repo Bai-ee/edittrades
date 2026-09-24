@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-09-24 — D-variant revised: minRR 2.5 live, net gate off, 3R shadow (branch `upgrade-signal-engine`)
+
+Owner decision, supersedes D-variant (`docs/OWNER_DECISIONS_2026-09-24.md`): lean toward
+producing GOOD calls so the strategy can be tracked and tweaked. Config-only; schema
+unchanged at 1.24.0, configVersion 2026.09.24-4 → **2026.09.24-5**.
+
+- `config/engine.json`: `flagPlan.minRR` 3.0 → **2.5** (the sign-off Step B2 deferred to
+  2026-10-07 is granted directly). `flagPlan.minNetRR` 2.0 → **null** (net gate off);
+  `netRR`/`costR` stay published on every plan.
+- `lib/flagRecommendation.js`: with the net gate off, a thin net R:R no longer rejects
+  (`fees_heavy`/BAD) - it's a non-blocking `net_rr_low` warning ("thin after fees") at a
+  fixed 1.0R floor, independent of `minRR`/`minNetRR`. The net gate still rejects
+  (`fees_heavy`) when `minNetRR` is explicitly set via override (research only now).
+- `services/scalpContext.js`: shadow variants flip from V-B (`{id:'vB', minRR:2.5}`) to
+  **v3** (`{id:'v3', minRR:3.0}`) - the former live rule is now the shadow comparator.
+  `scripts/tracker/vb-shadow.js` renamed to `v3-shadow.js` (full symbol/file rename, same
+  mechanism); `build-page.js`'s tile relabeled "3R shadow (former live rule)".
+  `scripts/tracker/shadow.js`'s `SHADOW_CFG.minRR` (a hand-mirrored copy of
+  `config/engine.json`, parity-tested) also moves 3.0 → 2.5.
+- Tracking window continues unbroken from 2026-09-23 (`PHASE_START` unchanged, restart
+  note removed); `aggregate.js`'s `configBoundary` (Step C) now carries this transition
+  automatically, splitting before/after stats on the page.
+- `docs/GPT_INSTRUCTIONS.md`: `flagTradePlan=trade authority` line drops the net R:R
+  number, adds `net_rr_low(netRR<1.0)→non-blocking,say "thin after fees"`. 7987/7990 units.
+
+Tests: `test:flagrec` 23 → 24 (net-gate-override case for `fees_heavy` added alongside
+the revised default-off `net_rr_low` case); `test:flagplan`/`test:tracker`/
+`test:flagrec:fixtures`/`test:config`/`test:archmap` fixtures updated for the new
+thresholds and the vb→v3 rename, counts unchanged. 27 suites, all green; `check:gpt` OK
+(7987/7990); `git diff --check` clean; payload bytes unaffected (values only, no shape
+change). Details: `docs/OWNER_DECISIONS_2026-09-24.md` ("D-variant revised").
+
 ## 2026-09-24 — T6 completion plan Step C: SETUP tier, dir-cost, config-boundary marker (branch `upgrade-signal-engine`)
 
 Owner-approved after Step A + B2 deployed live at schema 1.23.0. Not deployed - stops for the gate. Schema 1.23.0 → **1.24.0**, configVersion 2026.09.24-3 → **2026.09.24-4**.
