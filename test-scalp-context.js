@@ -44,7 +44,8 @@ import {
   buildConfigSnapshot,
   filterFailedCandidateSetups,
   slimFailedCandidates,
-  INCLUDE_TOKENS
+  INCLUDE_TOKENS,
+  FLAG_PLAN_SHADOW_VARIANTS
 } from './services/scalpContext.js';
 import { loadHistoryDir, makeReplayFetch } from './scripts/replay.js';
 
@@ -1445,9 +1446,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.18.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.23.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.22.0', 'schemaVersion must be bumped to 1.22.0');
+    assertEqual(case6Result.schemaVersion, '1.23.0', 'schemaVersion must be bumped to 1.23.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1808,6 +1809,40 @@ async function main() {
       assert('model' in only.symbols[HEALTHY_A], 'include=model keeps model');
       assert(!('timeframes' in only.symbols[HEALTHY_A]), 'include=model drops non-core sections');
       assert(INCLUDE_TOKENS.includes('model'), 'model is a known include token');
+    });
+
+    await test('T6 completion plan D-variant: FLAG_PLAN_SHADOW_VARIANTS is exactly the one owner-approved V-B variant', () => {
+      assertEqual(JSON.stringify(FLAG_PLAN_SHADOW_VARIANTS), JSON.stringify([{ id: 'vB', minRR: 2.5 }]), 'shadow variant list');
+    });
+
+    await test('T6 completion plan D-variant: flagTradePlan.shadow is stripped from the default payload (include-less too), kept only under include=model', () => {
+      const shadowPlan = {
+        status: 'rejected', reasonCode: 'rr_below_min', candidateId: 'BTC:1m:long:x',
+        entry: 1000, stop: 990, tp1: 1029, grossRR: 2.9, netRR: 2.7,
+        shadow: { vB: { status: 'ready', reasonCode: null, candidateId: 'BTC:1m:long:x', entry: 1000, stop: 990, tp1: 1029, grossRR: 2.9, netRR: 2.25, planId: 'BTC:1m:long:x|iso|CFG' } }
+      };
+      const payload = { warnings: [], symbols: { BTC: { price: 1000, flagTradePlan: shadowPlan } } };
+
+      const noInclude = filterPayload(payload, {});
+      assert(!('shadow' in noInclude.symbols.BTC.flagTradePlan), 'no include at all still strips shadow - "the default payload" means every ordinary call');
+      assertEqual(noInclude.symbols.BTC.flagTradePlan.status, 'rejected', 'every other flagTradePlan field is untouched');
+      assertEqual(noInclude.symbols.BTC.flagTradePlan.grossRR, 2.9, 'grossRR untouched');
+
+      const otherInclude = filterPayload(payload, { include: ['candidates'] });
+      assert(!('shadow' in otherInclude.symbols.BTC.flagTradePlan), 'a non-model include still strips shadow');
+
+      const modelInclude = filterPayload(payload, { include: ['model'] });
+      assert('shadow' in modelInclude.symbols.BTC.flagTradePlan, 'include=model keeps shadow');
+      assertEqual(JSON.stringify(modelInclude.symbols.BTC.flagTradePlan.shadow), JSON.stringify(shadowPlan.shadow), 'shadow object itself is untouched under include=model');
+    });
+
+    await test('T6 completion plan D-variant: a flagTradePlan with no shadow field passes through unchanged either way', () => {
+      const plainPlan = { status: 'ready', reasonCode: null, candidateId: 'BTC:1m:long:y', entry: 1000, stop: 990, tp1: 1040 };
+      const payload = { warnings: [], symbols: { BTC: { price: 1000, flagTradePlan: plainPlan } } };
+      const noInclude = filterPayload(payload, {});
+      const modelInclude = filterPayload(payload, { include: ['model'] });
+      assertEqual(JSON.stringify(noInclude.symbols.BTC.flagTradePlan), JSON.stringify(plainPlan), 'no shadow key to strip - plan passes through byte-identical');
+      assertEqual(JSON.stringify(modelInclude.symbols.BTC.flagTradePlan), JSON.stringify(plainPlan), 'same under include=model');
     });
 
     await test('review fix 6a: default flagRecommendation is codes + one-line text; the full record is model.recommendation only', async () => {

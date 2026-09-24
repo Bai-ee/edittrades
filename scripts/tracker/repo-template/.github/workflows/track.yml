@@ -44,6 +44,7 @@ jobs:
           node scripts/paths.js --data data
           node scripts/calibration.js --data data
           node scripts/shadow.js --data data
+          node scripts/vb-shadow.js --data data
           node scripts/aggregate.js --data data
           node scripts/build-page.js --data data --out docs
       - name: Find new GOOD calls and capture their charts

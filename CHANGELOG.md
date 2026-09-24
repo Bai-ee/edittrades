@@ -1,5 +1,49 @@
 # Changelog
 
+## 2026-09-24 — T6 completion plan Step B2: D-cost/D-variant answered, V-B engine-side shadow (branch `upgrade-signal-engine`)
+
+`docs/OWNER_DECISIONS_2026-09-24.md`. Owner decisions: **D-cost** - net-R plans around a
+direction-dependent cost (positions funded from USDC/USDT): a long pays the 0.34%
+round-trip swap-in/out rate, a short pays 0.14% (fallback 0.20% for an unresolved
+direction). **D-variant** - stay on V1c live; run V-B (gross minRR 2.5) as a shadow
+instead of shipping it. Revisit 2026-10-07, n >= 20 scored plans each side; if V-B still
+beats V1c on net expectancy out of sample, the owner signs the gross minRR 2.5 rule
+change then.
+
+- **`lib/flagTradePlan.js`**: `buildFlagTradePlan` takes an optional `shadowVariants`
+  list (`[{id, minRR}]`). Each variant re-attempts the same candidate pool with
+  `flagPlan.minRR` overridden - same ATR, same candles, same retest-hold rule as the
+  live plan, no approximation - and publishes `shadow.<id>` only when that variant's
+  selected outcome (status/reasonCode/candidateId) differs from the live plan.
+- **`services/scalpContext.js`**: wires `shadowVariants: [{id:'vB', minRR:2.5}]` into
+  the live call. `flagTradePlan.shadow` is stripped from every response (including the
+  include-less default) unless `include=model` is explicitly requested; always captured
+  in the served-call record (pre-filter payload), unconditionally. Schema 1.22.0 →
+  **1.23.0** (additive - new optional `shadow` property on `FlagTradePlan`).
+- **`scripts/replay-rules.js`**: `netR_sensDir` / `netExpectancyR_sensDirPct` - the
+  same direction-dependent cost applied to the offline replay research, alongside the
+  existing 0.14%/0.34% flat sensitivity columns. `docs/GOOD_QUALITY_REPLAY.md`'s Step B
+  variant table gets the `dir-cost` column, recomputed from the existing
+  `var/replay-rules/*.calls.jsonl` raw output (no re-sweep needed).
+- **`scripts/tracker/vb-shadow.js`** (new): shadow-mode scoring for `flagTradePlan.shadow.vB`
+  - one row per candidateId, keyed off the first captured `ready` close, walked via the
+  existing `walkShadow` (breakout-entry.js), same dir-cost model as replay-rules.js.
+  Never traded, never feeds any gate. **`build-page.js`**: new "V-B shadow · gross minRR
+  2.5 (not traded)" tile beside the breakout-entry shadow tile, same table pattern (n <
+  20 reads TOO FEW CALLS). **`track.yml`** (repo-template): new `node scripts/vb-shadow.js`
+  pipeline step, between shadow.js and aggregate.js. Cannot backfill - only accrues from
+  calls captured after this ships.
+
+No production behavior changed for the live plan (V1c stays shipped as-is); no MCP
+import surface change (`wantsModel` already existed for `sym.model`); no new library.
+Tests: `test:flagplan` 53 → 59, `test:scalp` 117 → 120, `test:tracker` 85 → 93 (all new,
+covering the shadow-variant diff logic, the payload gate, the dir-cost math, and the
+tracker script end to end); `test:config`/`test:geometry`/`test:pattern` schemaVersion
+assertions updated to 1.23.0, counts unchanged. Full gate green (`check:gpt` OK,
+`git diff --check` clean). Not yet synced to the deployed tracker repo or deployed -
+`docs/PLAN_T6_COMPLETION_V2.md` Step B's code is complete; sync/push/deploy is a
+separate, explicit step.
+
 ## 2026-09-24 — Owner decision 4b: `room_at_entry` scoped to the candidate's own geometry timeframe (branch `upgrade-signal-engine`)
 
 `docs/OWNER_DECISIONS_2026-09-24.md`. Answers the A7 open item from the Step A gate

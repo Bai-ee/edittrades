@@ -28,7 +28,8 @@ import { statsFor, computeAggregates, classCheck, aggregateDataDir } from './scr
 import { FEE_BPS, SLIPPAGE_BPS, costR, netR } from './scripts/tracker/costs.js';
 import {
   buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED,
-  NO_CALIBRATION, CALIBRATION_MIN_N, EMPTY_CALIBRATION, NO_SHADOW, SHADOW_TOO_FEW, PHASE_NAME, RESTART_NOTE
+  NO_CALIBRATION, CALIBRATION_MIN_N, EMPTY_CALIBRATION, NO_SHADOW, SHADOW_TOO_FEW, PHASE_NAME, RESTART_NOTE,
+  NO_VB_SHADOW, VB_SHADOW_TOO_FEW
 } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
@@ -43,6 +44,9 @@ import {
 import {
   SHADOW_CFG, shadowOutcomesFile, shadowSummaryFile, breakoutCloseAt, chaseTagFor, computeShadowRows, shadowDataDir, shadowSummary
 } from './scripts/tracker/shadow.js';
+import {
+  vbShadowOutcomesFile, vbShadowSummaryFile, computeVbShadowRows, vbShadowSummary, vbShadowDataDir
+} from './scripts/tracker/vb-shadow.js';
 
 let passed = 0;
 let failed = 0;
@@ -266,6 +270,27 @@ async function run() {
     assertEqual(eth.pathOutlook, null, 'absent pathOutlook -> null (ETH symbol carries none)');
     assertEqual(eth.breakoutEntry, null, 'absent breakoutEntry -> null');
     assertEqual(findSensitiveKeys([btc, eth]).length, 0, 'no sensitive keys survive anywhere in the rows');
+  });
+
+  // ---------------------------------------------------------------- T6 completion plan D-variant (flagTradePlan.shadow)
+
+  await test('records.js: flagTradePlan.shadow (V-B) is copied through whole - not sliced like pathOutlook/breakoutEntry - and still passes the sensitive-key strip', () => {
+    const p = payloadWithSecrets();
+    p.symbols.BTC.flagTradePlan = plan({
+      status: 'rejected', reasonCode: 'rr_below_min', grossRR: 2.9,
+      shadow: { vB: { candidateId: 'x', status: 'ready', reasonCode: null, entry: 100, stop: 99, tp1: 108.7, grossRR: 2.9, netRR: 2.25, planId: 'x|y|z' } }
+    });
+    const [btc] = recordsFromPayload(p, T0);
+    assert(btc.flagTradePlan.shadow && btc.flagTradePlan.shadow.vB, 'shadow.vB survives the whole-object copy');
+    assertEqual(btc.flagTradePlan.shadow.vB.status, 'ready', 'nested value copied intact');
+    assertEqual(btc.flagTradePlan.shadow.vB.grossRR, 2.9, 'nested numeric value copied intact');
+    assertEqual(findSensitiveKeys(btc).length, 0, 'no sensitive keys inside a well-formed shadow object');
+
+    const leaky = payloadWithSecrets();
+    leaky.symbols.BTC.flagTradePlan = plan({ shadow: { vB: { walletAddress: 'SECRET_LEAK', status: 'ready' } } });
+    const [leakyBtc] = recordsFromPayload(leaky, T0);
+    assert(!('walletAddress' in leakyBtc.flagTradePlan.shadow.vB), 'a sensitive key nested inside shadow is stripped, same as anywhere else in the row (deep strip, not a shallow copy)');
+    assertEqual(findSensitiveKeys(leakyBtc).length, 0, 'nothing sensitive survives inside shadow');
   });
 
   await test('collector: strip fails closed (findSensitiveKeys sees any survivor; strip is deep)', () => {
@@ -1705,16 +1730,135 @@ async function run() {
     assertEqual(readJsonl(shadowOutcomesFile(dir)).length, first.rows.length, 'stored rows match');
   });
 
+  // ---------------------------------------------------------------- T6 completion plan D-variant (vb-shadow.js)
+
+  function vbCaptureRow(symbol, ms, shadowVb) {
+    return candCaptureRow(symbol, ms, [], null, { flagTradePlan: shadowVb ? { status: 'rejected', reasonCode: 'rr_below_min', shadow: { vB: shadowVb } } : null });
+  }
+
+  function vbFields(over = {}) {
+    return { candidateId: 'BTC:1m:long:vb1', status: 'ready', reasonCode: null, timeframe: '1m', direction: 'long', entry: 100, stop: 99, tp1: 103, grossRR: 2.9, netRR: 2.25, planId: 'BTC:1m:long:vb1|x|y', ...over };
+  }
+
+  await test('computeVbShadowRows: dedupes to the FIRST ready close per candidateId, ignores non-ready/absent shadow.vB rows', () => {
+    const rows = [
+      vbCaptureRow('BTC', T0, null), // no plan at all
+      vbCaptureRow('BTC', T0 + MIN, vbFields({ status: 'conditional', reasonCode: 'awaiting_retest' })), // shadow present, not ready yet
+      vbCaptureRow('BTC', T0 + 2 * MIN, vbFields()), // first ready
+      vbCaptureRow('BTC', T0 + 3 * MIN, vbFields()) // still ready later - must not create a second row
+    ];
+    const candles1m = tfRows(T0, MIN, [{ o: 100, h: 100.2, l: 99.9, c: 100.1 }, { o: 100.1, h: 100.3, l: 100, c: 100.2 }, { o: 100.2, h: 103.2, l: 100.1, c: 103.1 }]);
+    const out = computeVbShadowRows(rows, { BTC: candles1m });
+    assertEqual(out.length, 1, 'one row for the one candidateId');
+    assertEqual(out[0].readyAt, iso(T0 + 2 * MIN), 'keyed off the FIRST ready close, not a later one');
+  });
+
+  await test('computeVbShadowRows: net R at the shipped flat 0.20% cost and the owner-answered per-direction cost (long 0.34%, short 0.14%)', () => {
+    const longCandles = tfRows(T0, MIN, [{ o: 100, h: 100.2, l: 99.9, c: 100.1 }, { o: 100.1, h: 103.2, l: 100, c: 103.1 }]);
+    const longRow = vbCaptureRow('BTC', T0, vbFields({ entry: 100, stop: 99, tp1: 103 }));
+    const [longOut] = computeVbShadowRows([longRow], { BTC: longCandles });
+    assertEqual(longOut.outcome, 'tp1', 'long resolves to tp1');
+    assertEqual(longOut.r, 3, 'gross R');
+    assertEqual(longOut.netR, 2.8, 'flat 0.20% cost: 3 - 0.2');
+    assertEqual(longOut.netRDirCost, 2.66, 'a long pays the 0.34% dir-cost rate: 3 - 0.34');
+
+    const shortCandles = tfRows(T0, MIN, [{ o: 100, h: 100.1, l: 99.8, c: 99.9 }, { o: 99.9, h: 100, l: 96.9, c: 97 }]);
+    const shortRow = vbCaptureRow('ETH', T0, vbFields({ candidateId: 'ETH:1m:short:vb1', direction: 'short', entry: 100, stop: 101, tp1: 97 }));
+    const [shortOut] = computeVbShadowRows([shortRow], { ETH: shortCandles });
+    assertEqual(shortOut.outcome, 'tp1', 'short resolves to tp1');
+    assertEqual(shortOut.netR, 2.8, 'flat 0.20% cost, same formula regardless of direction');
+    assertEqual(shortOut.netRDirCost, 2.86, 'a short pays the cheaper 0.14% dir-cost rate: 3 - 0.14');
+  });
+
+  await test('computeVbShadowRows: idempotent - a resolved row is kept byte-for-byte on a later run, an open one is re-walked', () => {
+    const candles1m = tfRows(T0, MIN, [{ o: 100, h: 100.2, l: 99.9, c: 100.1 }, { o: 100.1, h: 103.2, l: 100, c: 103.1 }]);
+    const row = vbCaptureRow('BTC', T0, vbFields());
+    const first = computeVbShadowRows([row], { BTC: candles1m }, [], T0 + 5 * MIN);
+    assertEqual(first[0].outcome, 'tp1', 'resolved on the first run');
+    const again = computeVbShadowRows([row], { BTC: [] }, first, T0 + 60 * MIN); // no candles this time - would be wrong if re-walked
+    assertEqual(JSON.stringify(again), JSON.stringify(first), 'resolved row kept exactly as written, never re-walked');
+  });
+
+  await test('vbShadowSummary: n/resolvedN/winRate/grossExp/netExp/netExp-dirCost over a hand-built mix', () => {
+    const rows = [
+      { outcome: 'tp1', r: 3, netR: 2.8, netRDirCost: 2.66 },
+      { outcome: 'stop', r: -1, netR: -1.2, netRDirCost: -1.34 },
+      { outcome: 'open', r: null, netR: null, netRDirCost: null }
+    ];
+    const s = vbShadowSummary(rows);
+    assertEqual(s.n, 3, 'n counts every row, including open');
+    assertEqual(s.resolvedN, 2, 'resolvedN is tp1+stop only');
+    assertEqual(s.open, 1, 'open counted separately');
+    assertEqual(s.winRate, 0.5, 'winRate over resolved only (fraction 0-1, matching build-page.js\'s pct())');
+    assertEqual(s.grossExpectancyR, 1, '(3 + -1) / 2');
+    assertEqual(s.netExpectancyR, 0.8, '(2.8 + -1.2) / 2');
+    assertEqual(s.netExpectancyR_dirCost, 0.66, '(2.66 + -1.34) / 2');
+  });
+
+  await test('vb-shadow.js: vbShadowDataDir end to end through the store, stable on rerun', () => {
+    const dir = tmp();
+    const candles1m = tfRows(T0, MIN, [
+      { o: 100, h: 100.2, l: 99.9, c: 100.1 },
+      { o: 100.1, h: 103.2, l: 100, c: 103.1 } // target touch
+    ]);
+    appendCandles(dir, '1m', toStoreCandles('BTC', candles1m));
+    appendCalls(dir, [vbCaptureRow('BTC', T0, vbFields())]);
+    const first = vbShadowDataDir(dir, T0 + 60 * MIN);
+    assert(existsSync(vbShadowOutcomesFile(dir)) && existsSync(vbShadowSummaryFile(dir)), 'both files written');
+    assertEqual(first.rows.length, 1, 'one row for the one candidateId');
+    assertEqual(first.rows[0].outcome, 'tp1', 'walked through the store to tp1');
+    assertEqual(first.summary.n, 1, 'summary counts the one row');
+    assertEqual(first.summary.resolvedN, 1, 'resolved');
+    const again = vbShadowDataDir(dir, T0 + 120 * MIN);
+    assertEqual(JSON.stringify(again.rows), JSON.stringify(first.rows), 'rerun stable once resolved');
+    assertEqual(readJsonl(vbShadowOutcomesFile(dir)).length, first.rows.length, 'stored rows match');
+  });
+
   await test('page: breakout-shadow tile renders with ids and the empty state from an empty data dir', () => {
     const dir = tmp();
     const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
     const html = readFileSync(htmlFile, 'utf8');
-    for (const id of ['breakout-shadow-section', 'breakout-shadow-empty']) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    for (const id of ['breakout-shadow-section', 'breakout-shadow-empty', 'vb-shadow-section', 'vb-shadow-empty']) assert(html.includes(`id="${id}"`), `missing #${id}`);
     assert(html.includes(NO_SHADOW), 'empty state text');
-    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'one provisional tag per section (shadow tile included)');
+    assert(html.includes(NO_VB_SHADOW), 'V-B shadow empty state text');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'one provisional tag per section (shadow tiles included)');
     assert(html.indexOf('id="path-calibration-section"') < html.indexOf('id="breakout-shadow-section"'), 'placed next to path calibration in the performance zone');
+    assert(html.indexOf('id="breakout-shadow-section"') < html.indexOf('id="vb-shadow-section"'), 'V-B shadow placed right after breakout-entry shadow');
     const scripts = html.match(/<script\b[^>]*>/gi) || [];
     assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'still exactly one executable inline script');
+  });
+
+  await test('page: vb-shadow tile shows TOO FEW CALLS under n=20 and lists last entries', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const summary = { generatedAt: iso(T0), n: 5, resolvedN: 5, open: 0, expired: 0, winRate: 0.4, grossExpectancyR: 0.2, netExpectancyR: 0, netExpectancyR_dirCost: -0.1 };
+    writeJson(vbShadowSummaryFile(dataDir), summary);
+    const rows = [{
+      candidateId: 'BTC:1m:long:vb1', symbol: 'BTC', timeframe: '1m', direction: 'long', readyAt: iso(T0),
+      entry: 100, stop: 99, tp1: 103, grossRR: 2.9, netRR: 2.25, outcome: 'tp1', r: 2.9, netR: 2.7, netRDirCost: 2.56,
+      resolvedAt: iso(T0 + 10 * MIN), computedAt: iso(T0)
+    }];
+    writeJsonl(vbShadowOutcomesFile(dataDir), rows);
+    const { htmlFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="vb-shadow-summary-table"'), 'summary table renders');
+    assert(html.includes(VB_SHADOW_TOO_FEW), 'n=5 < 20 -> too few calls shown');
+    assert(html.includes('id="vb-shadow-list-table"'), 'last-entries list renders');
+    assert(html.includes('>BTC<'), 'row shows symbol');
+    assert(html.includes('>tp1<'), 'row shows outcome');
+    assert(html.includes('Net exp. (dir-cost)'), 'summary table carries the dir-cost column');
+  });
+
+  await test('page: vb-shadow tile shows numeric win rate once a stat reaches n=VB_SHADOW_MIN_N', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const summary = { generatedAt: iso(T0), n: 20, resolvedN: 20, open: 0, expired: 0, winRate: 0.55, grossExpectancyR: 0.3, netExpectancyR: 0.15, netExpectancyR_dirCost: 0.05 };
+    writeJson(vbShadowSummaryFile(dataDir), summary);
+    const { htmlFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('55%'), 'win rate shown numerically at n=20, not TOO FEW CALLS');
+    assert(!html.includes(VB_SHADOW_TOO_FEW), 'nothing in this fixture is below the threshold');
+    assert(html.includes('+0.05R'), 'net exp. (dir-cost) shown numerically once n=VB_SHADOW_MIN_N');
   });
 
   function shadowLegStats(n, wins, losses, open, winRate, expectancy, maxLosingStreak, netExpectancy = null) {

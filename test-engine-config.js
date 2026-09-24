@@ -349,7 +349,7 @@ async function run() {
       fetchCandles: fakeFetch,
       fetchAccount: fakeAccount
     });
-    assertEqual(payload.schemaVersion, '1.22.0', 'schemaVersion was not bumped');
+    assertEqual(payload.schemaVersion, '1.23.0', 'schemaVersion was not bumped');
     assertEqual(payload.configVersion, CONFIG_VERSION, 'payload configVersion does not match the loader');
     assertEqual(typeof payload.configVersion, 'string', 'configVersion is not a string in the payload');
   });

@@ -35,6 +35,7 @@ import { aggregateDataDir } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
 import { shadowOutcomesFile, shadowSummaryFile } from './shadow.js';
+import { vbShadowOutcomesFile, vbShadowSummaryFile } from './vb-shadow.js';
 import { PATHS } from './flag-paths.js';
 import {
   chartKit, chartScript, callVia, equityRows, journalEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
@@ -506,6 +507,43 @@ function shadowBody(summary, rows) {
       table('breakout-shadow-list-table', ['Time', 'Symbol', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], shadowListRows(rows), NO_SHADOW));
 }
 
+// ---------- V-B shadow (T6 completion plan D-variant, owner-approved 2026-09-24; shadow mode, never traded) ----------
+
+export const NO_VB_SHADOW = '[NO V-B SHADOW ENTRIES YET]';
+export const VB_SHADOW_MIN_N = 20;
+export const VB_SHADOW_TOO_FEW = 'TOO FEW CALLS';
+export const VB_SHADOW_NOTE = 'Shadow mode: gross minRR lowered to 2.5 (T6 completion plan D-variant, docs/OWNER_DECISIONS_2026-09-24.md), computed by the engine itself with real ATR and retest-hold - not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. Cannot backfill: only accrues from calls captured after this shipped. Revisit 2026-10-07, n >= 20 scored plans each side (this vs V1c live) - see docs/OWNER_DECISIONS_2026-09-24.md.';
+
+export const EMPTY_VB_SHADOW_SUMMARY = {
+  generatedAt: null, n: 0, resolvedN: 0, open: 0, expired: 0, winRate: null, grossExpectancyR: null, netExpectancyR: null, netExpectancyR_dirCost: null
+};
+
+function vbShadowSummaryBody(summary) {
+  const row = summary.n < VB_SHADOW_MIN_N
+    ? ['V-B (minRR 2.5)', summary.n, { v: VB_SHADOW_TOO_FEW, cls: 'dim' }, dash, dash, dash]
+    : ['V-B (minRR 2.5)', summary.n, pct(summary.winRate),
+      { v: rVal(summary.grossExpectancyR), cls: rStatus(summary.grossExpectancyR) },
+      { v: rVal(summary.netExpectancyR), cls: rStatus(summary.netExpectancyR) },
+      { v: rVal(summary.netExpectancyR_dirCost), cls: rStatus(summary.netExpectancyR_dirCost) }];
+  return table('vb-shadow-summary-table', ['Variant', 'N', 'Win rate', 'Exp. (gross R)', 'Net exp. (flat 0.20%)', 'Net exp. (dir-cost)'], [row], NO_VB_SHADOW, 1);
+}
+
+function vbShadowListRows(rows) {
+  return [...rows]
+    .filter((r) => r && r.outcome)
+    .sort((a, b) => Date.parse(b.readyAt || 0) - Date.parse(a.readyAt || 0))
+    .slice(0, 20)
+    .map((r) => [time(r.readyAt), r.symbol, r.timeframe, r.direction, levels(r),
+      { v: r.outcome, cls: outcomeStatus(r.outcome) }, { v: rVal(r.r), cls: rStatus(r.r) }]);
+}
+
+function vbShadowBody(summary, rows) {
+  if (!summary.n) return `<p class="empty" id="vb-shadow-empty">${esc(NO_VB_SHADOW)}</p>`;
+  return vbShadowSummaryBody(summary)
+    + sub('vb-shadow-list-sub', 'Last 20 V-B shadow entries',
+      table('vb-shadow-list-table', ['Ready at', 'Symbol', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], vbShadowListRows(rows), NO_VB_SHADOW));
+}
+
 // ---------- page ----------
 
 /**
@@ -529,6 +567,8 @@ export function renderHtml(agg, data = {}) {
   const calibration = data.calibration && typeof data.calibration === 'object' ? data.calibration : EMPTY_CALIBRATION;
   const shadowRows = Array.isArray(data.shadowOutcomes) ? data.shadowOutcomes : [];
   const shadowSum = data.shadowSummary && typeof data.shadowSummary === 'object' ? data.shadowSummary : EMPTY_SHADOW_SUMMARY;
+  const vbShadowRows = Array.isArray(data.vbShadowOutcomes) ? data.vbShadowOutcomes : [];
+  const vbShadowSum = data.vbShadowSummary && typeof data.vbShadowSummary === 'object' ? data.vbShadowSummary : EMPTY_VB_SHADOW_SUMMARY;
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
   const scored7 = t7.wins + t7.losses;
@@ -569,6 +609,9 @@ export function renderHtml(agg, data = {}) {
 
   // Breakout entry shadow (T4 P4): breakout-close entry scored but never traded, vs retest. Shadow mode only.
   const breakoutShadowSection = section('breakout-shadow-section', 'Breakout entry (shadow, not traded)', shadowBody(shadowSum, shadowRows), { sm: 2, lg: 12, foot: SHADOW_NOTE });
+
+  // V-B shadow (T6 completion plan D-variant): gross minRR 2.5, computed by the engine itself. Shadow mode only.
+  const vbShadowSection = section('vb-shadow-section', 'V-B shadow · gross minRR 2.5 (not traded)', vbShadowBody(vbShadowSum, vbShadowRows), { sm: 2, lg: 12, foot: VB_SHADOW_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -715,7 +758,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, ...instruments]
+      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, vbShadowSection, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -835,7 +878,8 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
     outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir),
     journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir)),
     paths: readJsonl(pathsFile(dataDir)), calibration: readJson(calibrationFile(dataDir), null),
-    shadowOutcomes: readJsonl(shadowOutcomesFile(dataDir)), shadowSummary: readJson(shadowSummaryFile(dataDir), null)
+    shadowOutcomes: readJsonl(shadowOutcomesFile(dataDir)), shadowSummary: readJson(shadowSummaryFile(dataDir), null),
+    vbShadowOutcomes: readJsonl(vbShadowOutcomesFile(dataDir)), vbShadowSummary: readJson(vbShadowSummaryFile(dataDir), null)
   }));
   writeFileSync(mdFile, renderReport(agg));
   writeFileSync(howToFile, renderHowTo());

@@ -29,6 +29,15 @@ import { fetchPythMarks, buildMark, markTraceToken, compactMark } from '../lib/p
 export const SYMBOLS = ['BTC', 'SOL', 'ETH'];
 export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 
+// T6 completion plan D-variant (owner-approved 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md):
+// V-B (gross minRR 2.5) computed shadow-only alongside the live flag trade plan - never
+// gates class/recommendation, never ships as the live plan. Published on
+// `flagTradePlan.shadow.vB` (filterSymbol strips it unless `include=model`) and captured
+// unconditionally in every served-call record (lib/servedCalls.js records the pre-filter
+// payload) for the tracker's vb-shadow scoring. Remove this constant and the
+// shadowVariants arg once the revisit (2026-10-07, n>=20 each) is decided either way.
+export const FLAG_PLAN_SHADOW_VARIANTS = [{ id: 'vB', minRR: 2.5 }];
+
 // Published candles per timeframe (payload only; the engine computes on the full closed
 // window). 1m/3m/5m went 30 -> 24 on 2026-09-23 to keep the default payload under 80 KB;
 // F1 (flag detection coverage) took them 24 -> 20 the same day for the same reason - the
@@ -901,6 +910,18 @@ function filterSymbol(sym, tokens, compactMode) {
     } else if (key === SYMBOL_SECTION_KEYS.model) {
       if (tokens && !tokens.has('model')) continue;
       out.model = value;
+    } else if (key === 'flagTradePlan') {
+      // T6 completion plan D-variant: flagTradePlan.shadow (research-only, V-B) is
+      // stripped from every response unless `model` is explicitly requested - unlike
+      // every other section here, this holds even when tokens is null (no narrowing at
+      // all), since "the default payload" means every ordinary call, include-less or not.
+      const wantShadow = tokens instanceof Set && tokens.has('model');
+      if (value && typeof value === 'object' && value.shadow && !wantShadow) {
+        const { shadow, ...rest } = value;
+        out.flagTradePlan = rest;
+      } else {
+        out.flagTradePlan = value;
+      }
     } else if (key === 'mark') {
       // P1: mark is a core identity field beside `price`; compact keeps the three
       // fields a stop check needs.
@@ -1557,7 +1578,8 @@ export async function buildScalpContext(options = {}) {
         geometryTimeframes: ENGINE_CONFIG.geometry.timeframes,
         now: safeNow,
         symbol,
-        configVersion: CONFIG_VERSION
+        configVersion: CONFIG_VERSION,
+        shadowVariants: FLAG_PLAN_SHADOW_VARIANTS
       });
     } catch (err) {
       console.warn(`[ScalpContext] ${symbol}: flag trade plan failed - ${err.message}`);
@@ -1728,7 +1750,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.22.0',
+    schemaVersion: '1.23.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

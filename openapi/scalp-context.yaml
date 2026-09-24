@@ -945,6 +945,22 @@ components:
         stopDistancePct:
           description: abs(entry - stop) / entry * 100. Required <= config.scalp.maxStopDistancePct for ready/conditional.
           type: [number, "null"]
+        shadow:
+          description: >-
+            Schema 1.23.0 (T6 completion plan D-variant, owner-approved 2026-09-24,
+            research only - never the live plan, never traded). Keyed by variant id;
+            currently only vB (flagPlan.minRR overridden to 2.5, every other config
+            value including flagPlan.minNetRR unchanged). Each value has the same
+            candidateId/planId/timeframe/direction/status/reasonCode/entryType/
+            entryCondition/entry/stop/tp1/tp2/grossRR/netRR/costR/stopDistancePct shape
+            as this object, computed with the same ATR and retest-hold rule as the live
+            plan - not an approximation. Present only when that variant's outcome
+            (status, reasonCode, or candidateId) differs from the live plan above;
+            absent when it agrees, and absent from the default response even when
+            present internally - visible only with include=model. Revisit
+            2026-10-07 (n >= 20 scored plans each, docs/OWNER_DECISIONS_2026-09-24.md).
+          type: object
+          additionalProperties: true
       required:
         - candidateId
         - planId

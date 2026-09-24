@@ -115,7 +115,7 @@ function levelCandles(direction, kind) {
 }
 
 /** buildFlagTradePlan's fixed context, one confirmed candidate, no geometry, price at entry. */
-function baseParams({ candidate, price = 1000, atr = 5, geometryContext = {}, now = NOW, closedThrough = FRESH_1M, geometryClosedThrough = FRESH_15M, candles = null }) {
+function baseParams({ candidate, price = 1000, atr = 5, geometryContext = {}, now = NOW, closedThrough = FRESH_1M, geometryClosedThrough = FRESH_15M, candles = null, shadowVariants = undefined }) {
   return {
     candidateSetups: [candidate],
     geometryContext,
@@ -128,7 +128,8 @@ function baseParams({ candidate, price = 1000, atr = 5, geometryContext = {}, no
     intervalMsByTf: INTERVAL_MS,
     geometryTimeframes: ['15m'],
     now,
-    configVersion: 'TEST-CFG-1'
+    configVersion: 'TEST-CFG-1',
+    shadowVariants
   };
 }
 
@@ -591,6 +592,84 @@ async function run() {
     params.candidateSetups = [b, a]; // order in the input must not matter
     const plan = buildFlagTradePlan(params);
     assertEqual(plan.candidateId, a.candidateId, 'the lexicographically-earlier candidateId wins deterministically');
+  });
+
+  // -------------------------------------------------------------------------
+  // Section 1b: shadowVariants (T6 completion plan D-variant, owner-approved
+  // 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md) - V-B (gross minRR 2.5) computed
+  // shadow-only, real ATR/retest-hold, never the live plan.
+  // -------------------------------------------------------------------------
+  console.log('\n1b) shadowVariants (T6 completion plan D-variant)\n');
+
+  const VB_VARIANT = [{ id: 'vB', minRR: 2.5 }];
+
+  await test('shadowVariants omitted: no shadow key at all (backward compatible)', () => {
+    const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate(), price: 1003, candles: levelCandles('long', 'retest') }));
+    assertEqual(plan.shadow, undefined, 'no shadowVariants arg means no shadow field, same shape as before this feature');
+  });
+
+  await test('shadow variant with an identical outcome to the live plan publishes nothing (long + short)', () => {
+    for (const candidateFn of [longCandidate, shortCandidate]) {
+      const cand = candidateFn(); // grossRR 4.0 - ready under both minRR 3.0 (live) and 2.5 (shadow)
+      const plan = buildFlagTradePlan(baseParams({
+        candidate: cand, price: cand.direction === 'long' ? 1003 : 997,
+        candles: levelCandles(cand.direction, 'retest'), shadowVariants: VB_VARIANT
+      }));
+      assertEqual(plan.status, 'ready', `${cand.direction}: live plan is ready`);
+      assertEqual(plan.shadow, undefined, `${cand.direction}: V-B agrees with the live plan (also ready, same candidate) - nothing published`);
+    }
+  });
+
+  await test('shadow variant that differs (rejected rr_below_min live, ready under V-B) publishes shadow.vB, full retest-hold semantics (long + short)', () => {
+    for (const dir of ['long', 'short']) {
+      const cand = dir === 'long' ? longCandidate({ measuredTarget: 1029 }) : shortCandidate({ measuredTarget: 971 }); // grossRR 2.9
+      const plan = buildFlagTradePlan(baseParams({
+        candidate: cand, price: dir === 'long' ? 1003 : 997,
+        candles: levelCandles(dir, 'retest'), shadowVariants: VB_VARIANT
+      }));
+      assertEqual(plan.status, 'rejected', `${dir}: live plan rejected (grossRR 2.9 < shipped minRR 3.0)`);
+      assertEqual(plan.reasonCode, 'rr_below_min', `${dir}: live reasonCode`);
+      assert(plan.shadow && plan.shadow.vB, `${dir}: shadow.vB is published (V-B's outcome differs from live)`);
+      const vb = plan.shadow.vB;
+      assertEqual(vb.status, 'ready', `${dir}: V-B clears its own 2.5 gross floor, the unchanged 2.0 net floor, and the same retest-hold candles as the live plan`);
+      assertEqual(vb.reasonCode, null, `${dir}: reasonCode`);
+      assertEqual(vb.candidateId, cand.candidateId, `${dir}: same candidate as the live (rejected) plan`);
+      assertEqual(vb.entry, 1000, `${dir}: entry matches the candidate's own breakoutLevel, unmoved`);
+      assertEqual(vb.stop, cand.invalidation, `${dir}: stop unmoved`);
+      assertEqual(vb.grossRR, 2.9, `${dir}: grossRR`);
+      assert(typeof vb.netRR === 'number' && vb.netRR >= 2.0, `${dir}: netRR clears the unchanged 2.0 net floor`);
+      assert(typeof vb.planId === 'string' && vb.planId.includes(cand.candidateId), `${dir}: shadow planId follows the live planId's own format`);
+    }
+  });
+
+  await test('shadow variant that itself stays rejected (grossRR below both floors) publishes nothing', () => {
+    const cand = longCandidate({ measuredTarget: 1015 }); // grossRR 1.5 - below V-B's 2.5 floor too
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand, shadowVariants: VB_VARIANT }));
+    assertEqual(plan.status, 'rejected', 'live plan rejected');
+    assertEqual(plan.reasonCode, 'rr_below_min', 'live reasonCode');
+    assertEqual(plan.shadow, undefined, 'V-B also rejects rr_below_min on the same candidate - identical outcome, nothing published');
+  });
+
+  await test('an unknown/malformed variant entry (no id, no minRR) is skipped without throwing', () => {
+    const cand = longCandidate({ measuredTarget: 1029 });
+    const plan = buildFlagTradePlan(baseParams({
+      candidate: cand, price: 1003, candles: levelCandles('long', 'retest'),
+      shadowVariants: [{ id: 'broken' }, { minRR: 2.5 }, null, { id: 'vB', minRR: 2.5 }]
+    }));
+    assertEqual(JSON.stringify(Object.keys(plan.shadow || {})), JSON.stringify(['vB']), 'only the one well-formed variant is evaluated and (since it differs) published');
+  });
+
+  await test('pure and deterministic: calling twice with the same input yields a deep-equal shadow object', () => {
+    const params = baseParams({
+      candidate: longCandidate({ measuredTarget: 1029 }), price: 1003,
+      candles: levelCandles('long', 'retest'), shadowVariants: VB_VARIANT
+    });
+    const a = buildFlagTradePlan(params);
+    const b = buildFlagTradePlan(baseParams({
+      candidate: longCandidate({ measuredTarget: 1029 }), price: 1003,
+      candles: levelCandles('long', 'retest'), shadowVariants: VB_VARIANT
+    }));
+    assertEqual(JSON.stringify(a.shadow), JSON.stringify(b.shadow), 'identical inputs produce a byte-identical shadow object');
   });
 
   // -------------------------------------------------------------------------
