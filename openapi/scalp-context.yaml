@@ -103,11 +103,9 @@ paths:
     post:
       operationId: postJournal
       description: >-
-        Record one line of the user's trade journal (the "log" command): a trade they took,
-        closed, adjusted or skipped, or a note, in their own words. Never executes or places
-        anything. Send only what the user said; never invent numbers. Fill engineRef from the
-        latest getScalpContext payload (flagTradePlan.candidateId/planId, flagRecommendation.class
-        and primaryReason.code) when the trade matches it. Resending the same id is safe.
+        Record one journal line (the "log" command): a trade the user took, closed, adjusted
+        or skipped, or a note, in their words. Never executes anything; never invent numbers.
+        Fill engineRef from the latest getScalpContext payload when it matches. Same id is safe.
       security:
         - bearerAuth: []
       requestBody:
@@ -921,7 +919,8 @@ components:
         grossRR:
           description: >-
             Schema 1.17.0. Gross price reward:risk to tp1, abs(tp1 - entry) / abs(entry - stop),
-            3 decimals. The plan gate - required >= flagPlan.minRR (3.0) for
+            3 decimals. The plan gate - required >= flagPlan.minRR (2.5 as of
+            "D-variant revised", docs/OWNER_DECISIONS_2026-09-24.md; was 3.0) for
             ready/conditional, else rejected rr_below_min.
           type: [number, "null"]
         netRR:
@@ -931,10 +930,11 @@ components:
             config.risk.costBpsByDirection[direction] when the plan's own direction is
             known (positions funded from USDC/USDT, so a long pays more), else the
             flat config.risk.feeBps/slippageBps fallback. Information only against
-            flagPlan.minRR (published even on a plan rejected for a different reason);
-            since 1.21.0 also the T6 phase 1 gate - below flagPlan.minNetRR (when set)
-            the plan is rejected net_rr_below_min or stop_inside_costs and the
-            recommendation reflects it as BAD, not a non-blocking oppose.
+            flagPlan.minRR (published even on a plan rejected for a different reason).
+            flagPlan.minNetRR is null (off) as of "D-variant revised"
+            (docs/OWNER_DECISIONS_2026-09-24.md) - net R:R never gates ready/conditional
+            in production; net_rr_below_min/stop_inside_costs (added 1.21.0, T6 phase 1)
+            stay in the reasonCode enum for a research override that sets minNetRR.
           type: [number, "null"]
         costR:
           description: >-
@@ -954,18 +954,20 @@ components:
           type: [number, "null"]
         shadow:
           description: >-
-            Schema 1.23.0 (T6 completion plan D-variant, owner-approved 2026-09-24,
-            research only - never the live plan, never traded). Keyed by variant id;
-            currently only vB (flagPlan.minRR overridden to 2.5, every other config
-            value including flagPlan.minNetRR unchanged). Each value has the same
+            Schema 1.23.0 (T6 completion plan D-variant, owner-approved 2026-09-24;
+            revised 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md - research only,
+            never the live plan, never traded). Keyed by variant id; currently only v3
+            (flagPlan.minRR overridden to 3.0, the former live rule, kept as a
+            comparator now that the live rule is 2.5 with the net gate off - every
+            other config value including flagPlan.minNetRR unchanged from the live
+            default). Each value has the same
             candidateId/planId/timeframe/direction/status/reasonCode/entryType/
             entryCondition/entry/stop/tp1/tp2/grossRR/netRR/costR/stopDistancePct shape
             as this object, computed with the same ATR and retest-hold rule as the live
             plan - not an approximation. Present only when that variant's outcome
             (status, reasonCode, or candidateId) differs from the live plan above;
             absent when it agrees, and absent from the default response even when
-            present internally - visible only with include=model. Revisit
-            2026-10-07 (n >= 20 scored plans each, docs/OWNER_DECISIONS_2026-09-24.md).
+            present internally - visible only with include=model.
           type: object
           additionalProperties: true
       required:
@@ -1016,14 +1018,15 @@ components:
         the full record with per-reason text, refs and factorStates is
         model.recommendation (include=model). Schema 1.17.0: BAD on rr_below_min
         (gross R:R); a ready/conditional plan carries supports rr_ok (grossRR meets
-        flagPlan.minRR). Schema 1.21.0 (T6 phase 1, owner decision D1): BAD also on
-        net_rr_below_min / stop_inside_costs (net R:R below flagPlan.minNetRR, when
-        set - the same hard-rejection mapping as rr_below_min); a ready/conditional
-        plan additionally carries the support net_rr_ok (netRR meets the net floor,
-        flagPlan.minNetRR else flagPlan.minRR) or, only when the net floor is off and
-        netRR still falls short, the non-blocking oppose fees_heavy (replaces
-        net_rr_low) - with the gate on (the shipped default), a plan that reached
-        ready/conditional already cleared it, so fees_heavy cannot fire there.
+        flagPlan.minRR, 2.5 as of "D-variant revised" - was 3.0). Schema 1.21.0 (T6
+        phase 1, owner decision D1): BAD also on net_rr_below_min / stop_inside_costs
+        (net R:R below flagPlan.minNetRR - a research override only; flagPlan.minNetRR
+        is null (off) in production as of "D-variant revised",
+        docs/OWNER_DECISIONS_2026-09-24.md, so this branch cannot fire on the shipped
+        default). With the net gate off (the shipped default), a ready/conditional
+        plan instead carries net_rr_ok (netRR >= 1.0, a fixed floor unrelated to
+        flagPlan.minRR/minNetRR) or the non-blocking oppose net_rr_low (netRR < 1.0,
+        "thin after fees") - informational only, never BAD, never gates the class.
         Schema 1.18.0 (recommendation completeness): every record except
         market_data_unavailable also cites context codes, placed as support/oppose
         for the plan's or named candidate's direction, or as unknown with no
