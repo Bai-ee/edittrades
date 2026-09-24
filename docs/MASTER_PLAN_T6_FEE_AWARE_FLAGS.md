@@ -117,7 +117,7 @@ A third lever, stop and target taken from higher-timeframe structure, is tested 
 **Data:**
 - `test/fixtures/history/deep-2026-09-24/` (15 days, BTC/ETH/SOL; 3m derived).
 - Check that each variant's timeframes reach `replay.minComputeCandles` at the start: warm up by starting later if 15m/1h is short.
-- Use `deep60-2026-09-24/` if its `manifest.json` exists.
+- Use `deep60-2026-09-24/` only when complete: `manifest.json` `files` contains `SOL_1m.json` **and** `ETH_1m.json` (the manifest is rewritten after each symbol, so its mere existence does not mean complete).
 
 **Runner:** `scripts/replay-rules.js` (`npm run replay:rules`, tests `test:rules`).
 - Deep-merge each variant's config into `ENGINE_CONFIG` through a new override hook in `config/engine.js` (default off).
@@ -236,7 +236,7 @@ A third lever, stop and target taken from higher-timeframe structure, is tested 
 
 ### Phase 4 — 60-day recalibration (analysis + config; deploy only if tables change)
 
-- When `deep60-2026-09-24/manifest.json` exists: re-run `replay-rules` (the shipped variant vs V0, 60-day out-of-sample halves), `replay-paths`, `replay-early-entry` and `replay-breakout-entry`.
+- When `deep60-2026-09-24` is complete (manifest `files` has `BTC_1m.json`, `SOL_1m.json`, `ETH_1m.json`): re-run `replay-rules` (the shipped variant vs V0, 60-day out-of-sample halves), `replay-paths`, `replay-early-entry` and `replay-breakout-entry`.
 - Rebuild the table with `npm run paths:table`, including the new flag timeframes. Bump configVersion only if it changes.
 - Update the base-rate docs.
 - Re-check the T5 positive combo and the V7 verdict.
