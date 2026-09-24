@@ -2,7 +2,9 @@
  * Deterministic tests for scripts/tracker/ (T1 call tracker, docs/PLAN_CALL_TRACKER.md):
  * collector strip (fails closed), dedupe, candle store, vendored walkOutcome parity,
  * scorer on a synthetic day, idempotency, aggregate math, the page from an empty
- * store, the wallet whitelist (data/wallet.jsonl), call filter dimensions, and the charts. All file I/O is under os.tmpdir(); no network.
+ * store, the wallet whitelist (data/wallet.jsonl), call filter dimensions, the charts, and the
+ * T2 journal (pull via an injected fetch, scoring, "your trades" line, wallet ticks, Engine vs
+ * you, journal log). All file I/O is under os.tmpdir(); no network.
  *
  * Run: node test-tracker.js
  */
@@ -12,13 +14,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   isSensitiveKey, stripSensitive, findSensitiveKeys, recordsFromPayload, candlesFromPayload, ingestPayload,
-  candlesFromKraken, walletRowFromPayload, WALLET_KEYS
+  candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines
 } from './scripts/tracker/collect.js';
-import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet } from './scripts/tracker/store.js';
-import { extractCalls, scoreCalls, scoreDataDir, callDims } from './scripts/tracker/score.js';
-import { chartKit, equityRows, filterValues, driftBucket, hourBucket, FILTER_DIMS } from './scripts/tracker/charts.js';
+import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet, readJournal, appendJournal, journalOutcomesFile } from './scripts/tracker/store.js';
+import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit } from './scripts/tracker/score.js';
+import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, FILTER_DIMS } from './scripts/tracker/charts.js';
 import { statsFor, computeAggregates } from './scripts/tracker/aggregate.js';
-import { buildPage, renderHtml, rStatus, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
+import { buildPage, renderHtml, rStatus, engineVsYou, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
 
@@ -521,6 +523,154 @@ async function run() {
     assert(/id="wallet-current-value">\$103\.00</.test(html), 'current value');
     assert(html.includes('class="wallet-value st-good"'), 'status color by sign of pnl');
     assert(html.includes('coincidence only'), 'coincidence caption');
+  });
+
+  // ---------------------------------------------------------------- journal (T2)
+
+  const jrec = (id, kind, ms, over = {}) => ({
+    id, schemaVersion: 'journal-1', receivedAt: iso(ms + 5000), saidAt: iso(ms), kind, symbol: 'BTC', direction: null,
+    entry: null, stop: null, tp1: null, sizeUsd: null, leverage: null, exitPrice: null, resultR: null, resultUsd: null,
+    engineRef: null, text: `${kind} ${id}`, ...over
+  });
+
+  await test('journal pull: manifest + day files via fetch (cache-busted), deduped by id, sensitive keys stripped', async () => {
+    const dir = tmp();
+    const base = 'https://store1.public.blob.vercel-storage.com';
+    const files = {
+      [`${base}/journal/manifest.json`]: JSON.stringify({ schemaVersion: 'journal-manifest-1', baseUrl: base, days: ['2026-09-20', '2026-09-21', 'bad'] }),
+      [`${base}/journal/2026-09-20.jsonl`]: [JSON.stringify(jrec('j1', 'open', T0)), '{torn', JSON.stringify({ ...jrec('j2', 'note', T0 + MIN), walletAddress: 'SECRET_ADDR_J' })].join('\n'),
+      [`${base}/journal/2026-09-21.jsonl`]: JSON.stringify(jrec('j3', 'close', T0 + 24 * 60 * MIN)) + '\n'
+    };
+    const urls = [];
+    const fakeFetch = async (url) => {
+      urls.push(url);
+      const key = url.split('?')[0];
+      return files[key] === undefined ? { ok: false, status: 404, text: async () => '' } : { ok: true, status: 200, text: async () => files[key] };
+    };
+    const r1 = await pullJournal(dir, base, fakeFetch, 123);
+    assertEqual(r1.added, 3, 'added');
+    assertEqual(r1.days, 2, 'valid days only');
+    assert(urls.every((u) => u.endsWith('?t=123')), 'cache-busted');
+    const r2 = await pullJournal(dir, base, fakeFetch, 124);
+    assertEqual(r2.added, 0, 'dedupe');
+    assertEqual(r2.duplicates, 3, 'duplicates');
+    assertEqual(readJournal(dir).map((r) => r.id).join(), 'j1,j2,j3', 'stored, oldest first');
+    assert(existsSync(path.join(dir, 'journal', '2026-09-21.jsonl')), 'day file by receivedAt');
+    assert(!allText(dir).includes('SECRET_ADDR_J'), 'sensitive key stripped');
+    const none = await pullJournal(tmp(), 'https://empty.public.blob.vercel-storage.com', fakeFetch);
+    assertEqual(none.added, 0, 'no manifest -> nothing');
+    assertEqual(journalRecordsFromLines([{ id: 'x' }, null, [1]]).length, 0, 'records need id + receivedAt');
+  });
+
+  await test('journal base: explicit > JOURNAL_BLOB_BASE > store id from the token (token itself never used)', () => {
+    assertEqual(blobBaseFromToken('vercel_blob_rw_AbCd123_secretpart'), 'https://abcd123.public.blob.vercel-storage.com', 'derived');
+    assertEqual(blobBaseFromToken('nope'), null, 'bad token');
+    assertEqual(resolveJournalBase({ 'journal-base': 'https://x.example/' }, {}), 'https://x.example', 'explicit');
+    assertEqual(resolveJournalBase({}, { JOURNAL_BLOB_BASE: 'https://y.example' }), 'https://y.example', 'env');
+    assert(!resolveJournalBase({}, { BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_S1_secretpart' }).includes('secretpart'), 'no secret in URL');
+    assertEqual(resolveJournalBase({}, {}), null, 'unset');
+  });
+
+  // BTC rises 1/min from 100: long 100/99/103 hits TP1 on the 3rd candle.
+  const jCandles = { BTC: candles(T0, 200, (i) => ({ h: 100 + i + 0.5, l: 100 + i - 0.5 })) };
+  const cid = 'BTC:1m:long:2026-09-19T23:40:00.000Z';
+  const engineOutcomes = [
+    { callId: 'rec|g1', kind: 'rec', class: 'GOOD', candidateId: cid, calledAt: iso(T0), outcome: 'tp1', r: 3, dims: { recClass: 'GOOD', recReason: 'ready_flag_plan', candidateTimeframe: '1m', topDown: 'supports' } },
+    { callId: 'rec|g2', kind: 'rec', class: 'GOOD', candidateId: 'ETH:skip', calledAt: iso(T0), outcome: 'stop', r: -1, dims: { recClass: 'GOOD' } },
+    { callId: 'rec|g3', kind: 'rec', class: 'GOOD', candidateId: 'SOL:quiet', calledAt: iso(T0), outcome: 'tp1', r: 2, dims: { recClass: 'GOOD' } }
+  ];
+  const journalSet = [
+    jrec('o1', 'open', T0, { direction: 'long', entry: 100, stop: 99, tp1: 103, engineRef: { candidateId: cid, planId: 'p', recClass: 'GOOD', reasonCode: 'ready_flag_plan' } }),
+    jrec('o2', 'open', T0 + 10 * MIN, { symbol: 'ETH', direction: 'short', entry: 50, stop: 51, tp1: 47, engineRef: { candidateId: 'ETH:watch', planId: null, recClass: 'WATCH', reasonCode: 'rr_below_min' } }),
+    jrec('c2', 'close', T0 + 30 * MIN, { symbol: 'ETH', exitPrice: 49 }),
+    jrec('o3', 'open', T0 + 40 * MIN, { symbol: 'SOL', direction: 'long' }),
+    jrec('c3', 'close', T0 + 50 * MIN, { symbol: 'SOL', resultR: -0.5 }),
+    jrec('s1', 'skip', T0 + 5 * MIN, { symbol: 'ETH', engineRef: { candidateId: 'ETH:skip', planId: null, recClass: 'GOOD', reasonCode: null } }),
+    jrec('n1', 'note', T0 + 6 * MIN, { text: '<b>x</b>' })
+  ];
+
+  await test('journal score: open walked like a ready plan; close overrides with resultR or exitPrice; dims from the linked call', () => {
+    const rows = scoreJournal(journalSet, jCandles, engineOutcomes, [], T0 + 3 * 60 * MIN);
+    assertEqual(rows.length, 3, 'one row per open');
+    const [a, b, c] = rows;
+    assertEqual(a.outcome, 'tp1', 'walked to TP1');
+    assertEqual(a.r, 3, 'R to TP1');
+    assertEqual(a.mode, 'ready_prefilled', 'mode');
+    assertEqual(a.dims.topDown, 'supports', 'dims copied from the linked engine call');
+    assertEqual(a.linkedCallId, 'rec|g1', 'link');
+    assertEqual(b.outcome, 'closed', 'ETH closed');
+    assertEqual(b.r, 1, 'short R from exitPrice (50-49)/1');
+    assertEqual(b.mode, 'reported_exit_price', 'mode');
+    assertEqual(b.dims.recClass, 'WATCH', 'minimal dims from engineRef');
+    assertEqual(c.outcome, 'closed', 'SOL closed without levels');
+    assertEqual(c.r, -0.5, 'reported resultR');
+    assertEqual(rFromExit('long', 100, 99, 101.5), 1.5, 'rFromExit long');
+    const again = scoreJournal(journalSet, jCandles, engineOutcomes, rows, T0 + 4 * 60 * MIN);
+    assertEqual(again[0].scoredAt, rows[0].scoredAt, 'scoredAt stable when unchanged');
+    const noClose = scoreJournal([journalSet[3]], jCandles, [], [], T0);
+    assertEqual(noClose[0].outcome, 'no_levels', 'no levels, no close');
+  });
+
+  await test('journal chart rows, wallet marks (up/down, colored by R), your-trades line, Engine vs you', () => {
+    const rows = scoreJournal(journalSet, jCandles, engineOutcomes, [], T0 + 3 * 60 * MIN);
+    const you = journalEquityRows(rows);
+    assertEqual(you.length, 3, 'three scored trades');
+    assertEqual(you.map((r) => r.o).join(), 'tp1,closed,closed', 'outcomes');
+    assertEqual(you[0].f.class, 'GOOD', 'filter dims');
+    const kit = chartKit();
+    const st = kit.equityStats(you);
+    assertEqual(st.cum, 3.5, 'cum 3 + 1 - 0.5');
+    assertEqual(st.wins, 2, 'wins = R > 0');
+    const eq = [{ t: iso(T0), at: iso(T0 + MIN), o: 'tp1', r: 2, f: you[0].f }];
+    const svg = kit.equitySvg('eq', eq, 640, T0 + 60 * MIN, 'x', you);
+    assert(svg.includes('id="eq-you-line"') && svg.includes('class="line-main'), 'both lines');
+    assert(!svg.includes('NaN'), 'no NaN');
+    assert(kit.equitySvg('eq', [], 640, T0, 'x', you).includes('eq-you-line'), 'your line alone still draws');
+    assert(kit.filterTableHtml(eq, {}, FILTER_DIMS, you).includes('Your trades'), 'filter table row');
+    const marks = walletMarks(journalSet, rows);
+    assertEqual(marks.map((m) => m.k).join(), 'open,open,close,open,close', 'opens and closes only');
+    assertEqual(marks[0].r, 3, 'open colored by its trade R');
+    assertEqual(marks[4].r, -0.5, 'close colored by reported R');
+    const w = (h, total) => ({ t: iso(T0 + h * 60 * MIN), status: 'available', marginUsd: total, holdingsUsd: 0, totalUsd: total, baselineUsd: null, pnlUsd: null, pnlPct: null });
+    const wsvg = kit.walletSvg('ws', [w(0, 100), w(1, 101)], [], 640, 'all', T0 + 60 * MIN, 'x', marks);
+    assert(/class="j-tick j-open pos"/.test(wsvg), 'open tick up, green');
+    assert(/class="j-tick j-close neg"/.test(wsvg), 'close tick down, red');
+    const ev = engineVsYou(engineOutcomes, journalSet, rows);
+    assertEqual(ev.goodCalls, 3, 'GOOD calls');
+    assertEqual(ev.goodTaken, 1, 'taken');
+    assertEqual(ev.goodSkipped, 1, 'skipped');
+    assertEqual(ev.goodNotLogged, 1, 'not logged');
+    assertEqual(ev.overrides.length, 1, 'WATCH taken');
+    assertEqual(ev.skippedEngineStats.cum, -1, "skipped GOOD: the engine's own result");
+    assertEqual(ev.unlinked, 1, 'SOL open had no engine link');
+  });
+
+  await test('page: journal sections render populated and empty (bracketed empty states), text escaped', () => {
+    const agg = computeAggregates([], [], {}, T0 + 3 * 60 * MIN);
+    const empty = renderHtml(agg, { outcomes: [], wallet: [] });
+    assert(empty.includes('id="engine-vs-you-section"') && empty.includes('id="journal-log-section"'), 'sections');
+    assert(empty.includes('id="engine-vs-you-empty">[NO JOURNAL RECORDS YET]'), 'engine vs you empty');
+    assert(empty.includes('id="journal-log-table-empty">[NO JOURNAL RECORDS YET]'), 'log empty');
+    assert(empty.includes('YOUR TRADES [NO JOURNAL TRADES YET]'), 'your-trades readout empty');
+    const rows = scoreJournal(journalSet, jCandles, engineOutcomes, [], T0 + 3 * 60 * MIN);
+    const html = renderHtml(agg, { outcomes: engineOutcomes, wallet: [], journal: journalSet, journalOutcomes: rows });
+    assert(html.includes('id="journal-log-table"') && html.includes('id="engine-vs-you-overrides-table"'), 'tables');
+    assert(!html.includes('<b>x</b>') && html.includes('&lt;b&gt;x&lt;/b&gt;'), 'journal text escaped');
+    assert(html.includes('"you":[{'), 'your-trades rows in the page data');
+    assert(html.includes('"marks":[{'), 'marks in the page data');
+    assertEqual((html.match(/class="prov-tag">PROVISIONAL</g) || []).length, (html.match(/<section /g) || []).length, 'one provisional tag per section');
+  });
+
+  await test('scoreJournalDataDir + buildPage end to end from the store', () => {
+    const dir = tmp();
+    appendJournal(dir, journalSet);
+    const rows = scoreJournalDataDir(dir, T0 + 3 * 60 * MIN);
+    assertEqual(rows.length, 3, 'scored');
+    assertEqual(readJsonl(journalOutcomesFile(dir)).length, 3, 'written');
+    const out = path.join(dir, 'site');
+    buildPage(dir, out, T0 + 3 * 60 * MIN);
+    const html = readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert(html.includes('id="journal-log-table"'), 'journal log on the built page');
   });
 
   await test('parseArgs: --data default ./data, --out default ./docs', () => {

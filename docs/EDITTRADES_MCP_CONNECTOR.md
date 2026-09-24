@@ -38,6 +38,7 @@ ChatGPT uses it to decide TAKE / WAIT / PASS independently from the engine recom
 | `lib/pythMark.js` | Read-only Pyth mark (P1): one Hermes request per build, Bearer `PYTH_API_KEY`, never throws; `symbols.<SYM>.mark` beside `price` |
 | `openapi/scalp-context.yaml` | REST Action schema for the Custom GPT (source of truth for field-level detail) |
 | `CHATGPT_ACTION_SETUP.md` | REST Action setup |
+| `api/journal.js`, `lib/journalSchema.js` | T2 trade journal: `POST`/`GET /api/journal`, bearer `JOURNAL_API_KEY` (or the Action's `SCALP_CONTEXT_API_KEY`), Vercel Blob append (`journal/YYYY-MM-DD.jsonl` + `journal/manifest.json`). REST only, never an MCP tool; imports only `crypto`, `@vercel/blob` and the pure schema |
 
 Tests:
 
@@ -62,9 +63,12 @@ Tests:
 | `npm run test:ledger` | `test-paper-ledger.js` (`scripts/paper-ledger.js`; append-only forward-paper ledger, work package 3) | 12 |
 | `npm run test:evidence` | `test-model-evidence.js` (`lib/modelEvidence.js`; EMA map, channels, divergence) | 8 |
 | `npm run test:mark` | `test-pyth-mark.js` (`lib/pythMark.js`; mock Hermes: expo/conf, one request, no key → no request, failures → unavailable, drift sign, stale; `dataStatus` untouched) | 12 |
-| `npm run test:tracker` | `test-tracker.js` (`scripts/tracker/`, T1 call tracker: collector strips account/wallet/balance/address keys before disk, dedupe, candle store, vendored `walkOutcome` parity, scorer synthetic day, idempotency, aggregates, page from an empty store; dev only, never on the request path) | 17 |
+| `npm run test:tracker` | `test-tracker.js` (`scripts/tracker/`, T1 call tracker: collector strips account/wallet/balance/address keys before disk, dedupe, candle store, vendored `walkOutcome` parity, scorer synthetic day, idempotency, aggregates, page from an empty store, charts; T2 journal pull/score/your-trades line/wallet ticks/Engine vs you; dev only, never on the request path) | 31 |
+| `npm run test:journal` | `test-journal.js` (T2: `lib/journalSchema.js` validation, `api/journal.js` auth 401, method 405, body cap 413/400, rate limit 429, idempotency on `id`, ETag retry, GET newest-first/limit; journal imports nothing that signs or executes; MCP neither imports the journal nor registers a journal tool; Blob put/get injected, no network) | 16 |
 
-The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all twenty before a deploy (`test:tracker` covers the out-of-band call tracker, not the request path).
+The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all twenty-one before a deploy (`test:tracker` covers the out-of-band call tracker, not the request path).
+
+Counts re-run 2026-09-24 (T2): `test:pattern` 33, `test:flagplan` 43, `test:flagrec` 18, `test:flagrec:fixtures` 16, all others as listed.
 
 Replay (Phase 10, dev only, never on the request path): `npm run replay -- --capture BTC,SOL,ETH --out test/fixtures/history/<date>/ [--backfill-1m 360]` saves a live pull; `npm run replay -- --history <dir> --symbols BTC --out btc.jsonl` runs `buildScalpContext()` once per closed candle with no lookahead; `npm run replay:metrics -- btc.jsonl` prints candidate counts, visual-gate rate by code, lifetime and label precision/recall; `npm run replay:outcomes -- btc.jsonl <historyDir>` (trading-model quick pass Q4; signal-reliability minimum plan work package 3 added exact-`flagTradePlan` scoring alongside the existing strategy/`FLAG_MEASURED` rows, plus a rejection-reason breakdown) walks the same JSONL forward on 1m candles and scores every valid strategy signal, confirmed flag candidate, and selected flag trade plan: fill rate, win rate, average win R, expectancy, max losing streak, median time to TP1. Details: master plan, Phase 10; `docs/PLAN_TRADING_MODEL_QUICK_PASS.md` Q4.
 
@@ -84,6 +88,12 @@ Forward-paper ledger (signal-reliability minimum plan work package 3, dev only, 
 | Wrong method | 405 JSON-RPC `-32000` | 405 |
 | OPTIONS | 200, CORS `*` | n/a |
 | Handler failure | 500 JSON-RPC `-32603`, `data.requestId`, no stack text | 500 |
+
+Trade journal (T2, REST only, not part of MCP):
+
+| Path | Auth | Methods | Behavior |
+| --- | --- | --- | --- |
+| `/api/journal` | Bearer `JOURNAL_API_KEY` or `SCALP_CONTEXT_API_KEY` | `POST`, `GET` (others 405) | `POST` validates one record (`text` required, `kind` open/close/adjust/skip/note, numbers optional, optional `engineRef`), stamps `id`/`receivedAt`/`schemaVersion`, appends to Blob `journal/YYYY-MM-DD.jsonl` (ETag-guarded read-modify-write) and keeps `journal/manifest.json` (`baseUrl`, `days[]`); 201, or 200 `duplicate:true` for an `id` already stored today/yesterday; 400 invalid, 401, 413 over 4 KB, 429 over 10/min per key (in-memory, best effort per warm instance), 503 store unavailable. `GET ?limit=` (default 10, max 50) returns records newest first. Actions `postJournal`/`getJournal` in `openapi/scalp-context.yaml`, same bearer scheme as the context Action (`bearerAuth`); the journal also accepts `SCALP_CONTEXT_API_KEY` because a ChatGPT Action carries one bearer for all operations |
 
 Fresh `McpServer` + transport per request, torn down on `res.close`. `sessionIdGenerator: undefined` = stateless mode, required on serverless.
 
@@ -178,6 +188,7 @@ Optional `chart: "BTC:1m"` tool arg / `?chart=BTC:1m` query returns exactly one 
 - Env var names not spelled in MCP sources; `test:mcp` greps for leaks.
 - MCP has no network auth. A private GPT/plugin listing is UI privacy, not authentication.
 - Trade execution stays behind `TRADE_EXECUTION_ENABLED` + `TRADE_EXECUTION_API_KEY`, separate from market-context auth. Never register an execution tool in MCP.
+- The trade journal (`api/journal.js`) is a separate REST write path with its own key; it records text only, imports nothing that can sign or execute, and is not reachable from MCP (`test:journal` asserts both).
 
 ## Environment (Vercel production)
 
@@ -188,6 +199,8 @@ Optional `chart: "BTC:1m"` tool arg / `?chart=BTC:1m` query returns exactly one 
 | `SOLANA_RPC_URL` | Read-only RPC |
 | `ACCOUNT_BASELINE_USD` | Starting stablecoin margin for P&L |
 | `PYTH_API_KEY` | Hermes Bearer for `mark` (P1); missing → `mark.status: unavailable` |
+| `JOURNAL_API_KEY` | Journal REST Bearer (T2); missing → every journal request 401 |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob store `edittrades-journal` (public access) for the journal; missing → journal 503 |
 
 Missing wallet vars → `account.status: disabled`, market data unaffected. Missing `PYTH_API_KEY` → every `mark.status: unavailable`, no Hermes request, market data unaffected.
 

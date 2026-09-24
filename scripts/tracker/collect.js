@@ -17,12 +17,20 @@
  * only, numbers only, nulls unless account.status is 'available'. The address, the
  * holdings breakdown and every other account field never reach disk.
  *
- * Usage: node collect.js [--data ./data] [--url <scalp-context url>]
+ * Trade journal (T2, docs/PLAN_TRADE_JOURNAL.md): pullJournal fetches the journal API's
+ * public Blob files with plain HTTP - journal/manifest.json ({baseUrl, days[]}), then
+ * each journal/YYYY-MM-DD.jsonl - into data/journal/ (dedupe by id). The store's base
+ * URL comes from --journal-base, else JOURNAL_BLOB_BASE, else the store id inside
+ * BLOB_READ_WRITE_TOKEN (the token itself is never sent, logged or written). Records
+ * carry no account fields, but each one still goes through the same sensitive-key strip
+ * and fail-closed re-check as the call rows. A failed pull warns; it never fails the run.
+ *
+ * Usage: node collect.js [--data ./data] [--url <scalp-context url>] [--journal-base <url>] [--no-journal]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, appendCalls, appendCandles, appendWallet, CANDLE_TIMEFRAMES } from './store.js';
+import { parseArgs, appendCalls, appendCandles, appendWallet, appendJournal, CANDLE_TIMEFRAMES } from './store.js';
 
 export const DEFAULT_URL = 'https://snapshottradingview.vercel.app/api/scalp-context';
 
@@ -219,6 +227,77 @@ export async function backfillKraken1m(dataDir, symbols = Object.keys(KRAKEN_PAI
   return added;
 }
 
+// ---------------------------------------------------------------- journal (T2)
+
+/**
+ * Public Blob base URL (https://<storeid>.public.blob.vercel-storage.com) from a Blob
+ * read-write token (`vercel_blob_rw_<storeId>_<secret>`), or null. Only the store id is used.
+ */
+export function blobBaseFromToken(token) {
+  const m = typeof token === 'string' ? token.match(/^vercel_blob_rw_([A-Za-z0-9]+)_/) : null;
+  return m ? `https://${m[1].toLowerCase()}.public.blob.vercel-storage.com` : null;
+}
+
+/** Journal base URL: explicit option, JOURNAL_BLOB_BASE, else derived from BLOB_READ_WRITE_TOKEN. */
+export function resolveJournalBase(opts = {}, env = process.env) {
+  const explicit = typeof opts['journal-base'] === 'string' ? opts['journal-base'] : env.JOURNAL_BLOB_BASE;
+  const base = explicit || blobBaseFromToken(env.BLOB_READ_WRITE_TOKEN);
+  return base ? String(base).replace(/\/+$/, '') : null;
+}
+
+/**
+ * Journal records made safe to store: plain objects with an id and receivedAt, sensitive
+ * keys stripped at any depth; throws (nothing written) if any survives the strip.
+ */
+export function journalRecordsFromLines(rows) {
+  const out = [];
+  for (const r of rows || []) {
+    if (!r || typeof r !== 'object' || Array.isArray(r) || typeof r.id !== 'string' || !Number.isFinite(Date.parse(r.receivedAt))) continue;
+    const clean = stripSensitive(r);
+    if (findSensitiveKeys(clean).length) throw new Error('refusing to write: sensitive keys survived strip in a journal record');
+    out.push(clean);
+  }
+  return out;
+}
+
+function parseLines(text) {
+  const rows = [];
+  for (const line of String(text || '').split('\n')) {
+    if (!line.trim()) continue;
+    try { rows.push(JSON.parse(line)); } catch { /* torn line skipped */ }
+  }
+  return rows;
+}
+
+/**
+ * Pull the journal day files listed in the manifest into data/journal/.
+ * @param {string} dataDir
+ * @param {string} base - public Blob base URL
+ * @param {Function} [fetchImpl=fetch]
+ * @param {number} [nowMs=Date.now()] - cache-buster
+ * @returns {Promise<{days:number, added:number, duplicates:number}>}
+ */
+export async function pullJournal(dataDir, base, fetchImpl = fetch, nowMs = Date.now()) {
+  const get = async (url) => {
+    const res = await fetchImpl(`${url}?t=${nowMs}`, { headers: { Accept: '*/*' }, signal: AbortSignal.timeout(20_000) });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`journal HTTP ${res.status}`);
+    return res.text();
+  };
+  const manifestText = await get(`${base}/journal/manifest.json`);
+  if (manifestText === null) return { days: 0, added: 0, duplicates: 0 };
+  const manifest = JSON.parse(manifestText);
+  const days = Array.isArray(manifest.days) ? manifest.days.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
+  const fileBase = typeof manifest.baseUrl === 'string' && /^https:\/\/[a-z0-9.-]+$/i.test(manifest.baseUrl) ? manifest.baseUrl : base;
+  const rows = [];
+  for (const day of days) {
+    const text = await get(`${fileBase}/journal/${day}.jsonl`);
+    if (text !== null) rows.push(...parseLines(text));
+  }
+  const result = appendJournal(dataDir, journalRecordsFromLines(rows));
+  return { days: days.length, ...result };
+}
+
 /** Write one payload's calls and candles into `dataDir`. */
 export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const rows = recordsFromPayload(payload, capturedAtMs);
@@ -246,10 +325,21 @@ async function main() {
 
   const result = ingestPayload(opts.data, payload);
   if (!opts['no-kraken']) result.kraken1m = await backfillKraken1m(opts.data);
+  let journal = 'off';
+  const journalBase = opts['no-journal'] ? null : resolveJournalBase(opts);
+  if (journalBase) {
+    try {
+      const j = await pullJournal(opts.data, journalBase);
+      journal = `+${j.added} (dup ${j.duplicates}, ${j.days} day file(s))`;
+    } catch (err) {
+      journal = 'failed';
+      console.warn(`[tracker:collect] journal pull failed: ${err.message}`);
+    }
+  }
   console.log(`[tracker:collect] closedThrough=${result.closedThrough} symbols=${result.symbols.join(',')} `
     + `calls +${result.calls.added} (dup ${result.calls.duplicates}) `
     + `candles 1m +${result.candles['1m']} 5m +${result.candles['5m']} 15m +${result.candles['15m']} `
-    + `wallet +${result.wallet} (${result.walletStatus})`);
+    + `wallet +${result.wallet} (${result.walletStatus}) journal ${journal}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

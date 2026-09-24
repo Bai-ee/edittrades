@@ -14,7 +14,11 @@
  * Then the testing-phase block, the two charts (./charts.js: engine-call equity curve with
  * filters, wallet value over time), "what we track and why", and the tables. The charts
  * are inline SVG drawn server-side and redrawn by the page's one inline script from two
- * inline JSON blocks (no dependencies, no network). Every section
+ * inline JSON blocks (no dependencies, no network). Trade journal (T2): the equity chart
+ * adds a dashed "your trades" line under the same filters, the wallet chart adds entry /
+ * exit ticks, and two sections follow the charts: "Engine vs you" (GOOD calls taken,
+ * skipped, not logged; WATCH/BAD taken as overrides, with outcomes) and the journal log.
+ * Every section
  * carries a PROVISIONAL tag; the edge disclaimer appears once, under the hero. Renders
  * from an empty data dir.
  *
@@ -24,11 +28,11 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, ensureDir, readJsonl, readWallet, outcomesFile } from './store.js';
+import { parseArgs, ensureDir, readJsonl, readWallet, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
 import { aggregateDataDir } from './aggregate.js';
 import {
-  chartKit, chartScript, equityRows, filterValues, walletChartRows, jsonForScript,
-  FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, CHART_CSS
+  chartKit, chartScript, equityRows, journalEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
+  FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, NO_JOURNAL, NO_JOURNAL_TRADES, CHART_CSS
 } from './charts.js';
 import { PAGE_CSS } from './page-style.js';
 import { renderHowTo } from './how-to-page.js';
@@ -145,23 +149,28 @@ function segButtons(dim, values, activeVal) {
   return values.map(([v, label]) => `<button type="button" class="seg-btn${v === activeVal ? ' is-on' : ''}" data-dim="${esc(dim)}" data-val="${esc(v)}" aria-pressed="${v === activeVal}">${esc(label)}</button>`).join('');
 }
 
-function equityBody(rows, nowMs) {
-  const values = filterValues(rows);
+function equityBody(rows, nowMs, you = []) {
+  const values = filterValues([...rows, ...you]);
   const stats = kit.equityStats(rows);
-  const filters = rows.length
+  const legend = `<div class="chart-legend" id="equity-chart-legend">`
+    + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-main" x1="0" x2="24" y1="4" y2="4"/></svg>ENGINE CALLS</span>`
+    + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-you" x1="0" x2="24" y1="4" y2="4"/></svg>YOUR TRADES</span></div>`;
+  const filters = rows.length || you.length
     ? `<details class="filters" id="equity-filters"><summary id="equity-filters-summary"><span class="label">Filters · OR within a row, AND across rows</span><span class="label" id="equity-filters-count">NONE ACTIVE</span></summary>`
       + FILTER_DIMS.map(([k, label]) => `<div class="filter-row" id="equity-filter-${k}-row"><span class="label">${esc(label)}</span>`
         + `<div class="seg-ctl" role="group" aria-label="${esc(label)}">${segButtons(k, [['*', 'ALL'], ...values[k].map((v) => [v, v])], '*')}</div></div>`).join('')
       + '</details>'
     : '<p class="empty" id="equity-filters-empty">[FILTERS APPEAR WITH THE FIRST SCORED CALL]</p>';
   return `<div class="chart-readout" id="equity-readout">${kit.readoutHtml(stats)}</div>`
-    + `<div class="chart-frame-box" id="equity-chart-frame">${kit.equitySvg('equity-chart-svg', rows, SSR_WIDTH, nowMs, NO_SCORED_CHART)}</div>`
-    + `<p class="note" id="equity-chart-caption">Cumulative gross R of scored ready flag plans, 1R risked per call: TP1 = +R to TP1 as walked by the scorer, stop = ${MINUS}1R. Not filled and expired calls are excluded; open calls are the hollow last point. Before fees and slippage.</p>`
+    + `<div class="chart-readout" id="equity-you-readout">${kit.youReadoutHtml(kit.equityStats(you), NO_JOURNAL_TRADES)}</div>`
+    + `<div class="chart-frame-box" id="equity-chart-frame">${kit.equitySvg('equity-chart-svg', rows, SSR_WIDTH, nowMs, NO_SCORED_CHART, you)}</div>`
+    + legend
+    + `<p class="note" id="equity-chart-caption">Cumulative gross R of scored ready flag plans, 1R risked per call: TP1 = +R to TP1 as walked by the scorer, stop = ${MINUS}1R. Not filled and expired calls are excluded; open calls are the hollow last point. Before fees and slippage. The dashed line is your journal trades: scored the same way from your entry, stop and TP1, or your reported R when you logged a close; filters apply through the engine call each trade links to.</p>`
     + filters
-    + `<h3 id="equity-filter-table-head">By filter</h3><div class="table-scroll" id="equity-filter-table-scroll">${kit.filterTableHtml(rows, {}, FILTER_DIMS)}</div>`;
+    + `<h3 id="equity-filter-table-head">By filter</h3><div class="table-scroll" id="equity-filter-table-scroll">${kit.filterTableHtml(rows, {}, FILTER_DIMS, you)}</div>`;
 }
 
-function walletBody(rows, goods, nowMs) {
+function walletBody(rows, goods, nowMs, marks = []) {
   const latest = [...rows].reverse().find((r) => isNum(r.totalUsd)) || null;
   const last = rows[rows.length - 1] || null;
   const pnlCls = latest && isNum(latest.pnlUsd) ? (latest.pnlUsd > 0 ? 'st-good' : latest.pnlUsd < 0 ? 'st-bad' : '') : '';
@@ -177,12 +186,83 @@ function walletBody(rows, goods, nowMs) {
     + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-margin" x1="0" x2="24" y1="4" y2="4"/></svg>MARGIN</span>`
     + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-holdings" x1="1" x2="23" y1="4" y2="4"/></svg>HOLDINGS</span>`
     + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="baseline" x1="0" x2="24" y1="4" y2="4"/></svg>BASELINE</span>`
-    + `<span><svg class="swatch" viewBox="0 0 24 12" aria-hidden="true"><line class="good-tick" x1="12" x2="12" y1="0" y2="12"/></svg>GOOD CALL</span></div>`;
+    + `<span><svg class="swatch" viewBox="0 0 24 12" aria-hidden="true"><line class="good-tick" x1="12" x2="12" y1="0" y2="12"/></svg>GOOD CALL</span>`
+    + `<span><svg class="swatch" viewBox="0 0 24 12" aria-hidden="true"><line class="j-tick" x1="12" x2="12" y1="12" y2="0"/></svg>YOUR ENTRY ↑ / EXIT ↓</span></div>`;
   return `<div class="wallet-head" id="wallet-value-row">${value}<div class="label" id="wallet-pnl">${esc(sub)}</div></div>`
     + `<div class="seg-ctl seg-joined" id="wallet-range-control" role="group" aria-label="Range">${segButtons('range', WALLET_RANGES, DEFAULT_WALLET_RANGE)}</div>`
-    + `<div class="chart-frame-box" id="wallet-chart-frame">${kit.walletSvg('wallet-chart-svg', rows, goods, SSR_WIDTH, DEFAULT_WALLET_RANGE, nowMs, NO_WALLET)}</div>`
+    + `<div class="chart-frame-box" id="wallet-chart-frame">${kit.walletSvg('wallet-chart-svg', rows, goods, SSR_WIDTH, DEFAULT_WALLET_RANGE, nowMs, NO_WALLET, marks)}</div>`
     + legend
-    + `<p class="note" id="wallet-chart-caption">Total = margin + holdings from the engine's account block, one sample per capture; gaps are samples where the wallet read was unavailable. PnL is measured on margin against the configured baseline. Ticks mark GOOD calls: coincidence only. Attributing a move to a call needs the trade journal (Tier 2, not built).</p>`;
+    + `<p class="note" id="wallet-chart-caption">Total = margin + holdings from the engine's account block, one sample per capture; gaps are samples where the wallet read was unavailable. PnL is measured on margin against the configured baseline. Ticks mark GOOD calls: coincidence only. Short ticks up and down are your journal entries and exits (green or red by that trade's R, grey while unknown): what you told the GPT, not a wallet read.</p>`;
+}
+
+// ---------- journal (T2) ----------
+
+const recOf = (r) => (r.engineRef && typeof r.engineRef === 'object' ? r.engineRef : {});
+const tradeTime = (r) => r.saidAt || r.receivedAt;
+
+/**
+ * Engine vs you: GOOD calls (distinct candidateId) taken / skipped / not logged, with your
+ * result on the taken ones and the engine's own result on the skipped ones; WATCH/BAD
+ * calls taken (overrides) with their outcomes; trades with no engine link.
+ */
+export function engineVsYou(outcomes, journal, journalOutcomes) {
+  const goods = new Map();
+  for (const o of outcomes) if (o.kind === 'rec' && o.class === 'GOOD' && o.candidateId && !goods.has(o.candidateId)) goods.set(o.candidateId, o);
+  const opens = journal.filter((r) => r.kind === 'open');
+  const taken = new Set(opens.map((r) => recOf(r).candidateId).filter(Boolean));
+  const skipped = new Set(journal.filter((r) => r.kind === 'skip').map((r) => recOf(r).candidateId).filter(Boolean));
+  const goodIds = [...goods.keys()];
+  const goodTaken = goodIds.filter((id) => taken.has(id));
+  const goodSkipped = goodIds.filter((id) => !taken.has(id) && skipped.has(id));
+  const toRows = (list) => list.map((o) => ({ o: o.outcome, r: o.outcome === 'stop' ? -1 : isNum(o.r) ? o.r : null, t: o.calledAt, at: o.resolvedAt }));
+  const yourGood = journalOutcomes.filter((o) => o.recClass === 'GOOD' || (o.dims && o.dims.recClass === 'GOOD'));
+  const overrides = journalOutcomes.filter((o) => ['WATCH', 'BAD'].includes(o.recClass || (o.dims && o.dims.recClass)));
+  return {
+    records: journal.length,
+    goodCalls: goodIds.length,
+    goodTaken: goodTaken.length,
+    goodSkipped: goodSkipped.length,
+    goodNotLogged: goodIds.length - goodTaken.length - goodSkipped.length,
+    yourGoodStats: kit.equityStats(toRows(yourGood)),
+    skippedEngineStats: kit.equityStats(toRows(goodSkipped.map((id) => goods.get(id)))),
+    overrides,
+    overrideStats: kit.equityStats(toRows(overrides)),
+    unlinked: opens.filter((r) => !recOf(r).candidateId).length
+  };
+}
+
+const statsText = (s) => (s.n ? `N=${s.n} · WIN ${pct(s.winRate)} · CUM ${rVal(s.cum)}` : `N=0${s.open ? ` · ${s.open} OPEN` : ''}`);
+
+function engineVsYouBody(ev) {
+  if (!ev.records) return `<p class="empty" id="engine-vs-you-empty">${esc(NO_JOURNAL)}</p><p class="note" id="engine-vs-you-note">Tell the GPT "log took BTC long 84600 stop 84390 tp 85100", "log closed BTC +1.2R" or "log skipped SOL"; the next tracker run pulls it here.</p>`;
+  const row = (id, label, value, cls = '') => `<div class="stat-row" id="${id}"><dt>${esc(label)}</dt><dd${cls ? ` class="${cls}"` : ''}>${esc(value)}</dd></div>`;
+  const overrideRows = ev.overrides.map((o) => {
+    const rv = o.outcome === 'stop' ? -1 : o.r;
+    return [time(o.calledAt), o.symbol || dash, o.recClass || (o.dims && o.dims.recClass) || dash, o.direction || dash, levels(o),
+      { v: o.outcome, cls: outcomeStatus(o.outcome) }, { v: rVal(rv), cls: rStatus(rv) }];
+  });
+  return `<dl class="stat-rows" id="engine-vs-you-rows">`
+    + row('engine-vs-you-good-row', 'GOOD calls (engine)', String(ev.goodCalls))
+    + row('engine-vs-you-good-taken-row', 'GOOD taken · your result', `${ev.goodTaken} · ${statsText(ev.yourGoodStats)}`, rStatus(ev.yourGoodStats.n ? ev.yourGoodStats.cum : null))
+    + row('engine-vs-you-good-skipped-row', 'GOOD skipped · engine result', `${ev.goodSkipped} · ${statsText(ev.skippedEngineStats)}`, rStatus(ev.skippedEngineStats.n ? ev.skippedEngineStats.cum : null))
+    + row('engine-vs-you-good-unlogged-row', 'GOOD not logged', String(ev.goodNotLogged))
+    + row('engine-vs-you-override-row', 'WATCH / BAD taken (overrides)', `${ev.overrides.length} · ${statsText(ev.overrideStats)}`, rStatus(ev.overrideStats.n ? ev.overrideStats.cum : null))
+    + row('engine-vs-you-unlinked-row', 'Trades with no engine link', String(ev.unlinked))
+    + `</dl><h3 id="engine-vs-you-overrides-head">Overrides</h3>`
+    + table('engine-vs-you-overrides-table', ['Taken', 'Symbol', 'Class', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], overrideRows, '[NO OVERRIDES YET]')
+    + `<p class="note" id="engine-vs-you-caption">Taken = a journal open whose engine link names that call's candidate; skipped = a journal skip naming it. Your R is scored from your own levels or your reported close; the engine's R is its own walk.</p>`;
+}
+
+function journalLogRows(journal, journalOutcomes) {
+  const byId = new Map(journalOutcomes.map((o) => [o.journalId, o]));
+  return [...journal].sort((a, b) => Date.parse(tradeTime(b)) - Date.parse(tradeTime(a))).slice(0, 50).map((r) => {
+    const o = byId.get(r.id);
+    const rv = r.kind === 'close' && isNum(r.resultR) ? r.resultR : o ? (o.outcome === 'stop' ? -1 : o.r) : null;
+    const text = String(r.text || '');
+    return [time(tradeTime(r)), r.kind || dash, r.symbol || dash, r.direction || dash, r.entry === null || r.entry === undefined ? dash : levels(r),
+      o ? { v: o.outcome, cls: outcomeStatus(o.outcome) } : dash, { v: rVal(rv), cls: rStatus(rv) }, recOf(r).recClass || dash,
+      text.length > 80 ? `${text.slice(0, 79)}…` : text];
+  });
 }
 
 // ---------- page ----------
@@ -198,6 +278,11 @@ export function renderHtml(agg, data = {}) {
   const outcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
   const eqRows = equityRows(outcomes);
   const walletRows = walletChartRows(data.wallet);
+  const journal = Array.isArray(data.journal) ? data.journal : [];
+  const journalOutcomes = Array.isArray(data.journalOutcomes) ? data.journalOutcomes : [];
+  const youRows = journalEquityRows(journalOutcomes);
+  const marks = walletMarks(journal, journalOutcomes);
+  const ev = engineVsYou(outcomes, journal, journalOutcomes);
   const goods = outcomes.filter((r) => r.kind === 'rec' && r.class === 'GOOD' && r.calledAt).map((r) => r.calledAt);
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
@@ -301,8 +386,10 @@ export function renderHtml(agg, data = {}) {
     hero,
     instruments,
     section('testing-phase-section', 'Testing phase', phaseBody),
-    section('equity-chart-section', 'Engine-call equity curve', equityBody(eqRows, nowMs)),
-    section('wallet-chart-section', 'Wallet value', walletBody(walletRows, goods, nowMs)),
+    section('equity-chart-section', 'Engine-call equity curve', equityBody(eqRows, nowMs, youRows)),
+    section('wallet-chart-section', 'Wallet value', walletBody(walletRows, goods, nowMs, marks)),
+    section('engine-vs-you-section', 'Engine vs you', engineVsYouBody(ev)),
+    section('journal-log-section', 'Journal log (last 50)', table('journal-log-table', ['Time', 'Kind', 'Symbol', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R', 'Engine', 'You said'], journalLogRows(journal, journalOutcomes), NO_JOURNAL)),
     section('what-we-track-section', 'What we track and why', trackBody),
     section('open-calls-section', 'Open calls now', table('open-calls-table', ['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status', 'Filled', 'Net R:R'], openRows, '[NO OPEN CALLS]')),
     section('window-7d-section', 'Last 7 days by class and reason', windowBody('7d')),
@@ -330,8 +417,8 @@ ${topStrip}
 ${body}
 ${bottomStrip}
 </main>
-<script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows })}</script>
-<script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods })}</script>
+<script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows })}</script>
+<script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods, marks })}</script>
 <script>${chartScript()}</script>
 </body>
 </html>
@@ -382,7 +469,10 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const htmlFile = path.join(outDir, 'index.html');
   const mdFile = path.join(outDir, 'report.md');
   const howToFile = path.join(outDir, 'how-to.html');
-  writeFileSync(htmlFile, renderHtml(agg, { outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir) }));
+  writeFileSync(htmlFile, renderHtml(agg, {
+    outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir),
+    journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir))
+  }));
   writeFileSync(mdFile, renderReport(agg));
   writeFileSync(howToFile, renderHowTo());
   return { agg, htmlFile, mdFile, howToFile };

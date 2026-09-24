@@ -8,6 +8,9 @@
  *   wallet.jsonl             one whitelisted wallet-value sample per capture, keyed by t
  *                            (collect.js walletRowFromPayload; never the address or holdings)
  *   aggregates.json          derived numbers (rewritten by aggregate.js)
+ *   journal/YYYY-MM-DD.jsonl the owner's trade journal (T2), pulled from the journal API's
+ *                            Blob store by collect.js, one record per id (UTC day of receivedAt)
+ *   journal-outcomes.jsonl   one line per scored journal `open` record (rewritten by score.js)
  *
  * Node >= 20, fs only. No network, no secrets.
  */
@@ -196,4 +199,50 @@ export function appendWallet(dataDir, row) {
 /** Stored wallet samples, oldest first. */
 export function readWallet(dataDir) {
   return readJsonl(walletFile(dataDir)).sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+}
+
+// ---------------------------------------------------------------- journal (T2)
+
+export function journalDir(dataDir) {
+  return path.join(dataDir, 'journal');
+}
+
+export function journalOutcomesFile(dataDir) {
+  return path.join(dataDir, 'journal-outcomes.jsonl');
+}
+
+/** Every stored journal record, oldest first by receivedAt. */
+export function readJournal(dataDir) {
+  const dir = journalDir(dataDir);
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort();
+  const rows = [];
+  for (const f of files) rows.push(...readJsonl(path.join(dir, f)));
+  return rows.sort((a, b) => (Date.parse(a.receivedAt) || 0) - (Date.parse(b.receivedAt) || 0));
+}
+
+/**
+ * Append journal records into data/journal/<UTC day of receivedAt>.jsonl, skipping any
+ * id already stored in any day file.
+ * @returns {{added:number, duplicates:number}}
+ */
+export function appendJournal(dataDir, records) {
+  const seen = new Set(readJournal(dataDir).map((r) => r.id));
+  const byFile = new Map();
+  let duplicates = 0;
+  for (const r of records) {
+    const ms = Date.parse(r && r.receivedAt);
+    if (!r || typeof r.id !== 'string' || !Number.isFinite(ms)) continue;
+    if (seen.has(r.id)) { duplicates++; continue; }
+    seen.add(r.id);
+    const file = path.join(journalDir(dataDir), `${new Date(ms).toISOString().slice(0, 10)}.jsonl`);
+    if (!byFile.has(file)) byFile.set(file, []);
+    byFile.get(file).push(r);
+  }
+  let added = 0;
+  for (const [file, rows] of byFile) {
+    appendJsonl(file, rows);
+    added += rows.length;
+  }
+  return { added, duplicates };
 }

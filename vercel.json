@@ -40,10 +40,6 @@
       "dest": "/api/agent-review.js"
     },
     {
-      "src": "/api/crypto-news",
-      "dest": "/api/crypto-news.js"
-    },
-    {
       "src": "/api/parse-trade-image",
       "dest": "/api/parse-trade-image.js"
     },
@@ -58,6 +54,10 @@
     {
       "src": "/api/scalp-context/?",
       "dest": "/api/scalp-context.js"
+    },
+    {
+      "src": "/api/journal/?",
+      "dest": "/api/journal.js"
     },
     {
       "src": "/api/mcp/?",

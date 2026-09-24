@@ -24,6 +24,7 @@ jobs:
       - name: Collect, score, aggregate, build page
         env:
           SCALP_CONTEXT_API_KEY: ${{ secrets.SCALP_CONTEXT_API_KEY }}
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: |
           node scripts/collect.js --data data
           node scripts/score.js --data data

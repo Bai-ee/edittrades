@@ -39,7 +39,8 @@
     "tracker:collect": "node scripts/tracker/collect.js",
     "tracker:score": "node scripts/tracker/score.js",
     "tracker:page": "node scripts/tracker/build-page.js",
-    "tracker:sync": "node scripts/tracker/sync.js"
+    "tracker:sync": "node scripts/tracker/sync.js",
+    "test:journal": "node test-journal.js"
   },
   "keywords": [
     "trading",
@@ -58,6 +59,7 @@
     "@solana/kit": "^5.0.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.87.0",
+    "@vercel/blob": "^2.8.0",
     "axios": "^1.6.2",
     "bip39": "^3.1.0",
     "bs58": "^5.0.0",

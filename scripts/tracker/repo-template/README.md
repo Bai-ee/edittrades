@@ -43,4 +43,11 @@ Every script takes `--data <dir>` (default `./data`); `build-page` also takes `-
 
 ## Secrets
 
-The only secret is the repo Actions secret `SCALP_CONTEXT_API_KEY`, read from the environment by `collect`. It is never logged or written to disk, and nothing in this repo holds a key.
+Two repo Actions secrets, read from the environment by `collect`, never logged or written to disk; nothing in this repo holds a key:
+
+- `SCALP_CONTEXT_API_KEY` - the bearer for `GET /api/scalp-context`.
+- `BLOB_READ_WRITE_TOKEN` - only the store id inside it is used, to find the trade journal's public Blob files (`journal/manifest.json`, then `journal/YYYY-MM-DD.jsonl`). The token itself is never sent anywhere. `JOURNAL_BLOB_BASE` (the public base URL) or `--journal-base <url>` replaces it; `--no-journal` skips the pull.
+
+## Trade journal
+
+What you tell the GPT (`log took BTC long 84600 stop 84390 tp 85100`, `log closed BTC +1.2R`, `log skipped SOL`) is stored by the engine's `POST /api/journal` and pulled here into `data/journal/YYYY-MM-DD.jsonl` on every run (deduped by id). `score` scores each `open` like a ready plan (filled at your entry, stop vs TP1, 24 h), or takes your reported R / exit price when you logged a matching `close`; results go to `data/journal-outcomes.jsonl`. The page shows them as the dashed "your trades" line on the equity chart (same filters), entry/exit ticks on the wallet chart, an "Engine vs you" block and a journal log.

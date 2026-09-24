@@ -25,12 +25,20 @@
  * as written; only pending/open calls are re-scored, and a row's scoredAt changes only
  * when its content does.
  *
+ * Journal (T2): each journal `open` record with entry/stop/tp1 and a direction is scored
+ * like a ready plan (filled at entry at its time, walked for stop vs TP1 over 24 h). A
+ * later `close` record for the same symbol (the first one not already used by an earlier
+ * open) overrides the walk: its reported `resultR`, else R from its `exitPrice`, outcome
+ * `closed`. `dims` are copied from the engine call named by engineRef.candidateId when it
+ * is in the outcomes store; else a minimal set from engineRef. Written to
+ * data/journal-outcomes.jsonl, fully recomputed each run (scoredAt kept when unchanged).
+ *
  * Usage: node score.js [--data ./data] [--now <iso>]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile } from './store.js';
+import { parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
 import { walkOutcome, isFiniteNumber, FILL_WINDOW_CANDLES } from './walk-outcome.js';
 
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -299,6 +307,108 @@ export function scoreCalls(calls, candlesBySymbol, previous = [], nowMs = Date.n
   return calls.map((c) => rows.get(c.callId)).filter(Boolean);
 }
 
+// ---------------------------------------------------------------- journal (T2)
+
+const tradeTime = (r) => r.saidAt || r.receivedAt;
+
+/** Signed R of an exit against entry/stop, or null. */
+export function rFromExit(direction, entry, stop, exit) {
+  if (![entry, stop, exit].every(isFiniteNumber) || entry === stop) return null;
+  const risk = Math.abs(entry - stop);
+  const move = direction === 'short' ? entry - exit : exit - entry;
+  return Math.round((move / risk) * 10000) / 10000;
+}
+
+/** dims for a journal trade: the linked engine call's, else a minimal set from engineRef. */
+function journalDims(record, outcomes) {
+  const ref = record.engineRef && typeof record.engineRef === 'object' ? record.engineRef : null;
+  const id = ref && ref.candidateId;
+  if (id) {
+    const tMs = Date.parse(tradeTime(record));
+    const linked = outcomes
+      .filter((o) => o && o.candidateId === id && o.dims)
+      .sort((a, b) => Math.abs(Date.parse(a.calledAt) - tMs) - Math.abs(Date.parse(b.calledAt) - tMs))[0];
+    if (linked) return { dims: linked.dims, linkedCallId: linked.callId };
+  }
+  return {
+    dims: {
+      recClass: ref ? ref.recClass ?? null : null,
+      recReason: ref ? ref.reasonCode ?? null : null,
+      planStatusAtCall: null, candidateTimeframe: null, candidateDirection: record.direction ?? null, candidateState: null,
+      topDown: null, topDownToken: null, ema200Side: null, ema200Token: null, divergence: 'none', supports: [], opposes: [], unknowns: []
+    },
+    linkedCallId: null
+  };
+}
+
+/**
+ * Score journal `open` records.
+ * @param {Array<Object>} records - journal records (any order)
+ * @param {Object<string, Array<Object>>} candlesBySymbol - 1m candles, ascending
+ * @param {Array<Object>} [outcomes=[]] - engine outcomes (for dims via engineRef.candidateId)
+ * @param {Array<Object>} [previous=[]] - existing journal-outcomes rows (scoredAt kept when unchanged)
+ * @param {number} [nowMs=Date.now()]
+ * @returns {Array<Object>}
+ */
+export function scoreJournal(records, candlesBySymbol, outcomes = [], previous = [], nowMs = Date.now()) {
+  const sorted = [...(records || [])].filter((r) => r && r.id && Number.isFinite(Date.parse(tradeTime(r))))
+    .sort((a, b) => Date.parse(tradeTime(a)) - Date.parse(tradeTime(b)));
+  const usedCloses = new Set();
+  const prevById = new Map(previous.map((r) => [r.callId, r]));
+  const nowIso = new Date(nowMs).toISOString();
+  const rows = [];
+  for (const rec of sorted) {
+    if (rec.kind !== 'open') continue;
+    const openMs = Date.parse(tradeTime(rec));
+    const close = sorted.find((c) => c.kind === 'close' && !usedCloses.has(c.id) && c.symbol && c.symbol === rec.symbol
+      && Date.parse(tradeTime(c)) > openMs);
+    if (close) usedCloses.add(close.id);
+    const call = {
+      callId: `journal|${rec.id}`,
+      kind: 'journal',
+      journalId: rec.id,
+      symbol: rec.symbol ?? null,
+      calledAt: new Date(openMs).toISOString(),
+      direction: rec.direction ?? null,
+      entry: isFiniteNumber(rec.entry) ? rec.entry : null,
+      stop: isFiniteNumber(rec.stop) ? rec.stop : null,
+      tp1: isFiniteNumber(rec.tp1) ? rec.tp1 : null,
+      sizeUsd: isFiniteNumber(rec.sizeUsd) ? rec.sizeUsd : null,
+      recClass: rec.engineRef && rec.engineRef.recClass ? rec.engineRef.recClass : null,
+      candidateId: rec.engineRef && rec.engineRef.candidateId ? rec.engineRef.candidateId : null,
+      closeId: close ? close.id : null,
+      ...journalDims(rec, outcomes)
+    };
+    let result;
+    let mode;
+    const reported = close ? (isFiniteNumber(close.resultR) ? close.resultR : rFromExit(call.direction, call.entry, call.stop, close.exitPrice)) : null;
+    if (close && reported !== null) {
+      const closeMs = Date.parse(tradeTime(close));
+      result = { outcome: 'closed', r: reported, filledAt: call.calledAt, resolvedAt: new Date(closeMs).toISOString(), minutesToResolution: Math.round((closeMs - openMs) / MINUTE) };
+      mode = isFiniteNumber(close.resultR) ? 'reported_result_r' : 'reported_exit_price';
+    } else if (call.entry !== null && call.stop !== null && call.tp1 !== null && (call.direction === 'long' || call.direction === 'short')) {
+      result = walkCall(call, candlesBySymbol[call.symbol] || [], nowMs, true);
+      mode = 'ready_prefilled';
+    } else {
+      result = { outcome: 'no_levels', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null };
+      mode = 'not_walked';
+    }
+    const row = { ...call, ...result, mode, rUnits: 'gross_R_before_fees_slippage' };
+    const prev = prevById.get(row.callId);
+    row.scoredAt = prev && stableJson(prev) === stableJson(row) ? prev.scoredAt : nowIso;
+    rows.push(row);
+  }
+  return rows;
+}
+
+/** Score the journal in `dataDir` against its 1m candles and engine outcomes; write journal-outcomes.jsonl. */
+export function scoreJournalDataDir(dataDir, nowMs = Date.now()) {
+  const rows = scoreJournal(readJournal(dataDir), readCandles(dataDir, '1m'), readJsonl(outcomesFile(dataDir)),
+    readJsonl(journalOutcomesFile(dataDir)), nowMs);
+  writeJsonl(journalOutcomesFile(dataDir), rows);
+  return rows;
+}
+
 /** Read calls + candles + previous outcomes from `dataDir`, write outcomes.jsonl. */
 export function scoreDataDir(dataDir, nowMs = Date.now()) {
   const calls = extractCalls(readAllCalls(dataDir));
@@ -316,6 +426,8 @@ function main() {
   const counts = {};
   for (const r of rows) counts[r.outcome] = (counts[r.outcome] || 0) + 1;
   console.log(`[tracker:score] ${rows.length} call(s) -> ${outcomesFile(opts.data)} ${JSON.stringify(counts)}`);
+  const journal = scoreJournalDataDir(opts.data, nowMs);
+  console.log(`[tracker:score] ${journal.length} journal trade(s) -> ${journalOutcomesFile(opts.data)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

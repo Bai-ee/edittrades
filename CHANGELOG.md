@@ -127,6 +127,18 @@ Plan: `docs/PLAN_CALL_TRACKER.md`. No engine, payload, MCP, or Vercel change; sc
 - Tracker repo `Bai-ee/edittrades-tracker` (private): `collect.yml` every 10 min, `score.yml` hourly.
 - **Charts (2026-09-23):** page gains an engine-call equity curve (cumulative gross R of scored ready plans, 11 client-side filters, by-filter table) and a wallet value chart from a new whitelisted `data/wallet.jsonl` (`t, status, marginUsd, holdingsUsd, totalUsd, baselineUsd, pnlUsd, pnlPct` only); scored calls carry `dims`; `scripts/tracker/charts.js`; `test:tracker` 25.
 
+## 2026-09-24 — T2: trade journal (branch `upgrade-signal-engine`)
+
+Plan: `docs/PLAN_TRADE_JOURNAL.md` (the deferred 8c). No payload, schema, config or MCP change. Not deployed.
+
+- **`api/journal.js`** (new function; function count stays 12): `POST /api/journal` records one line the user told the GPT, `GET /api/journal?limit=` returns the last N (default 10, max 50) newest first. Bearer `JOURNAL_API_KEY`; 405 for other methods; 4 KB body cap (413); invalid JSON/record 400; 10 requests/min per key in memory (best effort on serverless); idempotent on `id` (same id in today's or yesterday's file → 200 `duplicate:true`). Storage: Vercel Blob (`@vercel/blob`, public store `edittrades-journal`), `journal/YYYY-MM-DD.jsonl` appended by ETag-guarded read-modify-write, plus `journal/manifest.json` (`baseUrl`, `days[]`) so the tracker fetches with plain HTTP. Imports only `crypto`, `@vercel/blob`, `lib/journalSchema.js`; never an MCP tool.
+- **`lib/journalSchema.js`** (pure): `text` required; `kind` open/close/adjust/skip/note (default note); symbol, direction, entry/stop/tp1/sizeUsd/leverage/exitPrice (> 0), resultR/resultUsd optional; optional `engineRef` {candidateId, planId, recClass, reasonCode}; stored record built from an explicit key list.
+- **Retired `api/crypto-news.js`** and its `vercel.json` route (unused; local `server.js` keeps its own inline route).
+- **`openapi/scalp-context.yaml`**: `postJournal` / `getJournal` under `/api/journal`, second bearer scheme `journalKey`. The GPT Action needs a re-import.
+- **`docs/GPT_INSTRUCTIONS.md`**: COMMANDS `log <text>` and `journal`; 7976 → 7982 units, funded by whitespace/wording only (no rule removed; FORMAT/TRACK FORMAT/NO TRADE LINE untouched). Test sheet prompts 12-13.
+- **Tracker**: `collect.js` pulls the journal (manifest + day files, cache-busted; base URL from `--journal-base`, `JOURNAL_BLOB_BASE`, or the store id in `BLOB_READ_WRITE_TOKEN`) into `data/journal/` (dedupe by id, sensitive-key strip); `score.js` scores each `open` like a ready plan or takes a matching `close`'s reported R / exit price, `dims` from the linked engine call → `data/journal-outcomes.jsonl`; page: dashed "your trades" line on the equity chart under the same filters, entry/exit ticks on the wallet chart, "Engine vs you" block, journal log. Workflow passes `BLOB_READ_WRITE_TOKEN`.
+- Tests: new `npm run test:journal` (16); `test:tracker` 25 → 31; `test:mcp` unchanged (52).
+
 ## 2025-11-27
 
 ### 📊 Professional Trading Indicators - VWAP, ATR, Bollinger, MA Stack

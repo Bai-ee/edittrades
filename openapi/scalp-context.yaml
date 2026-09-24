@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: EditTrades Scalp Context
   version: 1.0.0
-  description: Read-only endpoint that returns the latest closed-candle BTC, SOL and ETH market context for scalp trading decisions.
+  description: Read-only endpoint that returns the latest closed-candle BTC, SOL and ETH market context for scalp trading decisions, plus the user's append-only trade journal (/api/journal, its own bearer key; records what the user said, never executes).
 servers:
   # Replace with your production domain if different.
   - url: https://snapshottradingview.vercel.app
@@ -99,12 +99,232 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/journal:
+    post:
+      operationId: postJournal
+      description: >-
+        Record one line of the user's trade journal (the "log" command): a trade they took,
+        closed, adjusted or skipped, or a note, in their own words. Never executes or places
+        anything. Send only what the user said; never invent numbers. Fill engineRef from the
+        latest getScalpContext payload (flagTradePlan.candidateId/planId, flagRecommendation.class
+        and primaryReason.code) when the trade matches it. Resending the same id is safe.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JournalEntryInput"
+      responses:
+        "201":
+          description: Recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalPostResult"
+        "200":
+          description: Already recorded (same id); nothing written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalPostResult"
+        "400":
+          description: Invalid record (details lists each problem).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid journal bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: Body larger than 4 KB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: More than 10 journal requests in a minute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Journal store unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: getJournal
+      description: >-
+        Return the user's most recent journal records, newest first (the "journal" command).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: How many records to return. Default 10, max 50.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        "200":
+          description: Recent journal records, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JournalList"
+        "401":
+          description: Missing or invalid journal bearer token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: More than 10 journal requests in a minute.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Journal store unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
   schemas:
+    JournalEngineRef:
+      type: object
+      description: The engine call this trade came from, copied from the latest payload. Omit when none matches.
+      properties:
+        candidateId:
+          type: [string, "null"]
+        planId:
+          type: [string, "null"]
+        recClass:
+          type: [string, "null"]
+          enum: [GOOD, WATCH, BAD, DATA_UNAVAILABLE, null]
+        reasonCode:
+          type: [string, "null"]
+    JournalEntryInput:
+      type: object
+      required:
+        - text
+      properties:
+        id:
+          type: string
+          description: Optional client id (8-64 of A-Z a-z 0-9 _ -); resending the same id records nothing new.
+        kind:
+          type: string
+          enum: [open, close, adjust, skip, note]
+          description: open = took a trade; close = exited; adjust = moved stop/target/size; skip = passed on a call; note = anything else (default).
+        symbol:
+          type: [string, "null"]
+          description: BTC, ETH, SOL or another ticker.
+        direction:
+          type: [string, "null"]
+          enum: [long, short, null]
+        entry:
+          type: [number, "null"]
+        stop:
+          type: [number, "null"]
+        tp1:
+          type: [number, "null"]
+        sizeUsd:
+          type: [number, "null"]
+        leverage:
+          type: [number, "null"]
+        exitPrice:
+          type: [number, "null"]
+        resultR:
+          type: [number, "null"]
+          description: Result in R as the user stated it (close records).
+        resultUsd:
+          type: [number, "null"]
+        engineRef:
+          $ref: "#/components/schemas/JournalEngineRef"
+        saidAt:
+          type: [string, "null"]
+          format: date-time
+        text:
+          type: string
+          maxLength: 1000
+          description: What the user said, verbatim. Required.
+    JournalRecord:
+      type: object
+      description: A stored journal line (the input fields plus server-stamped id, receivedAt, schemaVersion).
+      properties:
+        id:
+          type: string
+        schemaVersion:
+          type: string
+        receivedAt:
+          type: string
+          format: date-time
+        saidAt:
+          type: [string, "null"]
+        kind:
+          type: string
+          enum: [open, close, adjust, skip, note]
+        symbol:
+          type: [string, "null"]
+        direction:
+          type: [string, "null"]
+        entry:
+          type: [number, "null"]
+        stop:
+          type: [number, "null"]
+        tp1:
+          type: [number, "null"]
+        sizeUsd:
+          type: [number, "null"]
+        leverage:
+          type: [number, "null"]
+        exitPrice:
+          type: [number, "null"]
+        resultR:
+          type: [number, "null"]
+        resultUsd:
+          type: [number, "null"]
+        engineRef:
+          $ref: "#/components/schemas/JournalEngineRef"
+        text:
+          type: string
+    JournalPostResult:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        id:
+          type: string
+        duplicate:
+          type: boolean
+        record:
+          $ref: "#/components/schemas/JournalRecord"
+    JournalList:
+      type: object
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/JournalRecord"
+        count:
+          type: integer
+        limit:
+          type: integer
     Error:
       type: object
       properties:
