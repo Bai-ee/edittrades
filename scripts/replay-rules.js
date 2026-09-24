@@ -40,6 +40,14 @@
  *     to the source flag's own pole height projected from the new entry when no zone is
  *     ahead of the fallback distance.
  *
+ * T6 completion plan B1 (docs/PLAN_T6_COMPLETION_V2.md, `buildFrequencyMetrics`):
+ * frequency/visibility columns for config-gate variants - ready-plan and gross>=3
+ * awaiting_retest conditional-plan closes per hour (raw, not deduped by candidateId -
+ * "how often would the owner's chat literally see this status"), plus GOOD/hour, beside
+ * the existing deduped GOOD-call scoring. New variants V-B (gross minRR 2.5, owner rule
+ * change) and V-D (retest tolerance 0.2 ATR); V-A and V-C reuse V0 and V2 (identical
+ * config, no need to duplicate).
+ *
  * Scoring (every variant, one convention): a plan/trial's first "ready" close per
  * `(symbol, candidateId)` is walked with `scripts/tracker/walk-outcome.js`'s own
  * `walkOutcome`, `prefilled: true` - the same `ready_prefilled` convention
@@ -95,7 +103,12 @@ export const VARIANTS = {
   V4: { label: 'research only: V3a + gross minRR 2.5 (owner decision needed to ship)', gate: 'config', override: { flag: { timeframes: WIDE_FLAG_TFS }, flagPlan: { minRR: 2.5, minNetRR: 1.5 } } },
   V5: { label: 'research: 1m-5m trigger, stop/target from 15m/1h structure, gross>=3 + net gate 1.5, horizon swing', gate: 'structure', override: { flagPlan: { minNetRR: 1.5 } }, horizon: 'swing' },
   V6: { label: 'V1b + ATR floor: stop >= 0.5x ATR(15m), target fixed 3x stop', gate: 'atrFloor', override: { flagPlan: { minNetRR: 1.5 } } },
-  V7: { label: 'research: FAILED_FLAG_REVERSAL scout from invalidation_close failures, net gate 1.5', gate: 'scout', override: { flagPlan: { minNetRR: 1.5 } } }
+  V7: { label: 'research: FAILED_FLAG_REVERSAL scout from invalidation_close failures, net gate 1.5', gate: 'scout', override: { flagPlan: { minNetRR: 1.5 } } },
+  // T6 completion plan Step B (docs/PLAN_T6_COMPLETION_V2.md "B1"): frequency-focused
+  // variants. V-A is V0 and V-C is V2 by config (both already exist above) - reuse
+  // those ids directly rather than duplicating an identical override under a new name.
+  'V-B': { label: 'research, owner rule change: gross minRR 2.5 (lowers the shipped 3R floor - needs an explicit owner decision to ship)', gate: 'config', override: { flagPlan: { minRR: 2.5 } } },
+  'V-D': { label: 'retest tolerance 0.2 ATR (entryToleranceAtr, default 0.1)', gate: 'config', override: { flagPlan: { entryToleranceAtr: 0.2 } } }
 };
 
 // ---------------------------------------------------------------------------
@@ -132,12 +145,26 @@ export function walkPlan({ candles1m, closedThroughIso, direction, entry, stop, 
 // gate: config - score the production-selected flagTradePlan as-is
 // ---------------------------------------------------------------------------
 
-function makeConfigCollector({ symbol, candles1m, sink }) {
+/**
+ * T6 completion plan B1 (docs/PLAN_T6_COMPLETION_V2.md): raw per-close visibility
+ * counts, not deduped by candidateId - "how often would a GPT chat literally see this
+ * status if it checked at a random moment", complementary to the deduped
+ * first-ready GOOD-call count `sink` already tracks. `readyCloses` mirrors GOOD
+ * exactly (every close a plan reads `ready`, including a plan that stays ready across
+ * many consecutive closes); `conditionalAwaitingRetestCloses` is the near-miss signal
+ * the owner asked to see - a plan that already cleared the gross floor and is only
+ * waiting on the retest-hold candle.
+ */
+function makeConfigCollector({ symbol, candles1m, sink, freq = null }) {
   const seen = new Set();
   return {
     onPayload: null,
     onLine(line) {
       const plan = line.flagTradePlan;
+      if (freq && plan) {
+        if (plan.status === 'ready') freq.readyCloses++;
+        else if (plan.status === 'conditional' && plan.reasonCode === 'awaiting_retest' && isFiniteNumber(plan.grossRR) && plan.grossRR >= 3) freq.conditionalCloses++;
+      }
       if (!plan || plan.status !== 'ready' || !plan.candidateId || seen.has(plan.candidateId)) return;
       seen.add(plan.candidateId);
       const walked = walkPlan({ candles1m, closedThroughIso: line.closedThrough, direction: plan.direction, entry: plan.entry, stop: plan.stop, target: plan.tp1 });
@@ -382,6 +409,47 @@ function coverageStats(calls, spanFromMs, spanToMs) {
   };
 }
 
+/**
+ * T6 completion plan B1: ready/conditional/GOOD "visibility" rates per hour - how often
+ * the owner's chat would literally see each status, not deduped by candidateId (that's
+ * `coverageStats`'s `goodPerDay`, a distinct-opportunities count). config-gate variants
+ * only (`freqBySymbol` empty for structure/atrFloor/scout - those don't share a
+ * flagTradePlan status to sample).
+ */
+export function buildFrequencyMetrics(freqBySymbol, goodCalls, { spanFromMs, spanToMs }) {
+  const totalHours = (spanToMs - spanFromMs) / 3600000;
+  const perHour = (n) => (totalHours > 0 ? round(n / totalHours, 4) : null);
+  const bySymbol = {};
+  let readyTotal = 0;
+  let conditionalTotal = 0;
+  for (const [symbol, f] of Object.entries(freqBySymbol)) {
+    readyTotal += f.readyCloses;
+    conditionalTotal += f.conditionalCloses;
+    bySymbol[symbol] = {
+      readyPlansPerHour: perHour(f.readyCloses),
+      conditionalPlansPerHour: perHour(f.conditionalCloses),
+      readyCloses: f.readyCloses,
+      conditionalCloses: f.conditionalCloses
+    };
+  }
+  const goodByHourKey = new Map();
+  for (const c of goodCalls) {
+    const h = c.firstReadyAt.slice(0, 13); // YYYY-MM-DDTHH
+    goodByHourKey.set(h, (goodByHourKey.get(h) || 0) + 1);
+  }
+  return {
+    totalHours: round(totalHours, 2),
+    combined: {
+      readyPlansPerHour: perHour(readyTotal),
+      conditionalPlansPerHour: perHour(conditionalTotal),
+      goodPerHour: perHour(goodCalls.length),
+      hoursWithAtLeastOneGood: goodByHourKey.size,
+      hoursWithAtLeastOneGoodSharePct: totalHours > 0 ? round((goodByHourKey.size / Math.round(totalHours)) * 100, 2) : null
+    },
+    bySymbol
+  };
+}
+
 export function buildVariantMetrics(goodCalls, { spanFromMs, spanToMs }) {
   const halves = splitHalves(goodCalls, spanFromMs, spanToMs);
   return {
@@ -429,12 +497,15 @@ export async function runVariant({ variantId, historyDir, symbols, step = 1, fro
     let totalMs = 0;
     let totalCloses = 0;
     const firstEligibleBySymbol = {};
+    const freqBySymbol = {}; // T6 completion plan B1: raw ready/conditional close counts, config-gate variants only
     const cfg = ENGINE_CONFIG; // read once, post-override (live binding; stable for this whole run)
 
     for (const symbol of symbols) {
       const candles1m = history[symbol]['1m'];
+      const freq = variant.gate === 'config' ? { readyCloses: 0, conditionalCloses: 0 } : null;
+      if (freq) freqBySymbol[symbol] = freq;
       const collector = variant.gate === 'config'
-        ? makeConfigCollector({ symbol, candles1m, sink: goodCalls })
+        ? makeConfigCollector({ symbol, candles1m, sink: goodCalls, freq })
         : variant.gate === 'scout'
           ? makeScoutCollector({ symbol, candles1m, historyByTf: history[symbol], cfg, sink: goodCalls })
           : makeStructureCollector({ symbol, candles1m, historyByTf: history[symbol], cfg, mode: variant.gate, sink: goodCalls });
@@ -459,6 +530,7 @@ export async function runVariant({ variantId, historyDir, symbols, step = 1, fro
 
     const span = readSpan(historyDir, symbols);
     const metrics = span ? buildVariantMetrics(goodCalls, { spanFromMs: span.fromMs, spanToMs: span.toMs }) : null;
+    const frequency = span ? buildFrequencyMetrics(freqBySymbol, goodCalls, { spanFromMs: span.fromMs, spanToMs: span.toMs }) : null;
 
     return {
       variantId, label: variant.label, gate: variant.gate, horizon: variant.horizon || 'scalp',
@@ -468,6 +540,7 @@ export async function runVariant({ variantId, historyDir, symbols, step = 1, fro
       payloadBytesSample: { avg: payloadBytesCount ? Math.round(payloadBytesSum / payloadBytesCount) : null, n: payloadBytesCount },
       firstEligibleBySymbol,
       metrics,
+      frequency,
       goodCalls
     };
   } finally {
@@ -509,6 +582,13 @@ function printReport(result) {
   console.log(`  build: ${result.buildMs.totalCloses} closes in ${result.buildMs.totalMs} ms (${result.buildMs.msPerClose} ms/close)`);
   if (result.payloadBytesSample.n) console.log(`  payload bytes (sampled n=${result.payloadBytesSample.n}): avg ${result.payloadBytesSample.avg} B`);
   if (!m) { console.log('  no manifest.json span found - metrics skipped'); return; }
+  if (result.frequency) {
+    const f = result.frequency.combined;
+    console.log(`  frequency (B1, ${result.frequency.totalHours}h span): ready=${f.readyPlansPerHour ?? '-'}/hr conditional(gross>=3,awaiting_retest)=${f.conditionalPlansPerHour ?? '-'}/hr GOOD=${f.goodPerHour ?? '-'}/hr, ${f.hoursWithAtLeastOneGoodSharePct ?? '-'}% of hours had >=1 GOOD`);
+    for (const [symbol, s] of Object.entries(result.frequency.bySymbol)) {
+      console.log(`    ${symbol}: ready=${s.readyPlansPerHour ?? '-'}/hr (n=${s.readyCloses}) conditional=${s.conditionalPlansPerHour ?? '-'}/hr (n=${s.conditionalCloses})`);
+    }
+  }
   const o = m.overall;
   console.log(`  GOOD calls: n=${o.n} resolved=${o.resolvedN} winRate=${o.winRate === null ? '-' : `${o.winRate}%`} grossExp=${o.grossExpectancyR ?? '-'}R netExp=${o.netExpectancyR ?? '-'}R (0.14% sens ${o.netExpectancyR_sens014pct ?? '-'}R, 0.34% sens ${o.netExpectancyR_sens034pct ?? '-'}R) maxLosingStreak=${o.maxLosingStreak} medianStop=${o.medianStopPct ?? '-'}%`);
   console.log(`  coverage: ${m.coverage.goodPerDay ?? '-'}/day, ${m.coverage.daysWithGoodSharePct ?? '-'}% of ${m.coverage.totalDays} days had >=1 GOOD`);
@@ -545,4 +625,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   });
 }
 
-export default { VARIANTS, runVariant, parseArgs, statsFor, buildVariantMetrics, splitHalves, passesOOSRule };
+export default { VARIANTS, runVariant, parseArgs, statsFor, buildVariantMetrics, buildFrequencyMetrics, splitHalves, passesOOSRule };

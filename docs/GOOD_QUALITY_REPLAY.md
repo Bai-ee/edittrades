@@ -218,3 +218,69 @@ than earned from real structure).
   cap.
 - Short-side weakness (every net-gated variant) is based on n=5–16 per variant — a lean,
   not a rule.
+
+## Step B — frequency study (T6 completion plan, `docs/PLAN_T6_COMPLETION_V2.md` "B1")
+
+Owner goal: "Opportunities visible more than once a day, GOOD calls as often as the
+rules honestly allow." Re-run on the same 15-day/3-symbol set, **after** Step A's fixes
+(the correctness fixes in particular - see the headline finding below), with two new
+frequency columns per `scripts/replay-rules.js`'s `buildFrequencyMetrics`:
+- **ready/hr, conditional/hr** - raw per-close counts (not deduped by candidateId): how
+  often the owner's chat would literally see `flagTradePlan.status = ready`, or
+  `conditional`/`awaiting_retest` with gross R:R already ≥ 3 (a near-miss, waiting only
+  on the retest candle). A candidate that stays `ready` for many consecutive closes
+  counts once per close here, unlike the GOOD-call table above (first-ready only).
+- **GOOD/hr** - the same deduped first-ready count as everywhere else in this doc,
+  expressed per hour instead of per day.
+
+### Headline finding: Step A's A3 fix (retest-hold vs. the stop) already fixed most of
+### what the net gate was for
+
+V0 (baseline, gross-only gate, no net gate) re-run after Step A now scores **n=17,
+netExp +0.84R** - not the −2.31R this same variant scored in Phase 0. The lowest
+`plannedNetRR` among all 17 calls is **2.062** - every single one already clears the
+2.0 floor V1c enforces. V0's and V1c's raw output files are now **byte-for-byte
+identical** (confirmed via `md5sum` and a line diff): the net gate rejects nothing on
+this dataset anymore, because A3 (a retest candle that wicks through the stop no longer
+counts as a hold) already eliminates the thin/wicked-stop false-ready plans that used to
+manufacture GOOD calls with sub-1 net R:R. The original BTC 0.066% incident section 1a
+is built on is exactly this failure mode - A3 fixes it at the source, not just at the
+gate.
+
+This does not mean the net gate is wrong to have shipped (it is a correct, cheap
+backstop - if a future market regime ever produces a thin-stop ready plan again, A3
+alone might not catch every case A2/net-gate style rejection would), but on **this**
+dataset it is currently non-binding. Worth re-checking on the 60-day set once it exists
+(Phase 4) rather than assumed to generalize from 15 days.
+
+### Variant comparison (15 days, BTC+SOL+ETH, all closes, post-Step-A)
+
+| Variant | Change | n | netExp R | 0.14% sens | 0.34% sens | ready/hr | conditional/hr | GOOD/hr | payload avg B |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| V-A (=V0) | baseline | 17 | **+0.842** | +0.938 | +0.617 | 0.261 | 0.133 | 0.047 | 25,985 |
+| V1c | net gate 2.0 (shipped) | 17 | **+0.842** | +0.938 | +0.617 | 0.261 | 0.133 | 0.047 | 25,985 |
+| V-D | retest tolerance 0.2 ATR | 17 | **+0.842** | +0.938 | +0.617 | 0.275 | 0.119 | 0.047 | 25,985 |
+| **V-C (=V2)** | **+15m/1h flag timeframes** | **25** | **+0.532** | +0.610 | +0.349 | **1.053** | **1.675** | **0.069** | 27,494 |
+| V-B (research) | gross minRR 2.5 **[owner rule change]** | 18 | **+1.102** | +1.199 | +0.876 | 0.281 | 0.128 | 0.050 | 25,980 |
+
+V-A/V1c/V-D are identical or near-identical (V-D differs by one candidate's timing only,
+same outcome) - confirms the net gate is redundant post-A3 on this data, and that
+widening retest tolerance to 0.2 ATR changes essentially nothing here. **V-C (+15m/1h)
+is the only variant that meaningfully moves the frequency needle** - 4x the ready/hr,
+12x the conditional/hr, 47% more GOOD calls (25 vs 17, 1.67/day vs 1.13/day) - at a real
+cost: net expectancy drops from +0.84R to +0.53R and the OOS second half turns negative
+(-0.17R, same pattern as Phase 0). **V-B (lower gross floor, needs an explicit owner
+rule change)** has the best net expectancy of any variant tried (+1.10R, and the only
+one besides V-C/V-A-family that stays comfortably positive at the 0.34% sensitivity),
+plus slightly more volume than baseline, but is a hard-rule change (lowers `minRR`
+below 3) that cannot ship without explicit sign-off.
+
+No variant passes the phase-0 OOS rule (net > 0 in both halves) - every variant's second
+half is +0.21R except V-C's, which is negative. n=17-25 is still thin.
+
+### Owner decisions needed (B2)
+
+Written into `docs/OWNER_DECISIONS_2026-09-24.md`: **D-cost** (which round-trip cost
+assumption to plan around - 0.14%/0.20%/0.34%) and **D-variant** (a frequency floor,
+then best expectancy above it). Both are the owner's call, not decided here - see that
+doc.

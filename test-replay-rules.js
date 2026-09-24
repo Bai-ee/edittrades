@@ -19,6 +19,7 @@ import {
   splitHalves,
   passesOOSRule,
   buildVariantMetrics,
+  buildFrequencyMetrics,
   nearestStructureStop,
   buildStructurePlan,
   buildAtrFloorPlan,
@@ -114,11 +115,16 @@ async function run() {
     }
   });
 
-  await test('VARIANTS: V4 is the only variant that lowers gross minRR, and it stays >= 2.5', () => {
+  await test('VARIANTS: only V4 and V-B (both explicitly research/owner-rule-change) lower gross minRR, and both stay >= 2.5', () => {
+    const RESEARCH_LOWERS_MINRR = { V4: 2.5, 'V-B': 2.5 };
     for (const [id, v] of Object.entries(VARIANTS)) {
       const minRR = v.override && v.override.flagPlan && v.override.flagPlan.minRR;
-      if (id === 'V4') assertEqual(minRR, 2.5, 'V4 minRR');
-      else assert(minRR === undefined || minRR === null, `${id}: gross minRR must not be lowered (hard rule)`);
+      if (id in RESEARCH_LOWERS_MINRR) {
+        assertEqual(minRR, RESEARCH_LOWERS_MINRR[id], `${id} minRR`);
+        assert(v.label.includes('research') || v.label.includes('owner rule change'), `${id}: label must flag it as a rule change, not a silent lowering`);
+      } else {
+        assert(minRR === undefined || minRR === null, `${id}: gross minRR must not be lowered (hard rule)`);
+      }
     }
   });
 
@@ -238,6 +244,28 @@ async function run() {
     assertEqual(m.coverage.totalDays, 5, 'totalDays');
     assertClose(m.coverage.goodPerDay, 0.2, 0.001, 'goodPerDay');
     assertEqual(m.coverage.daysWithGoodCount, 1, 'daysWithGoodCount');
+  });
+
+  await test('T6 completion plan B1: buildFrequencyMetrics divides raw ready/conditional closes by span hours, per symbol and combined', () => {
+    const spanFromMs = Date.parse('2026-09-01T00:00:00.000Z');
+    const spanToMs = Date.parse('2026-09-01T10:00:00.000Z'); // 10 hours
+    const freqBySymbol = {
+      BTC: { readyCloses: 20, conditionalCloses: 5 },
+      SOL: { readyCloses: 10, conditionalCloses: 15 }
+    };
+    const goodCalls = [
+      call({ outcome: 'win', grossR: 1, netR: 1, firstReadyAt: '2026-09-01T01:15:00.000Z' }),
+      call({ outcome: 'win', grossR: 1, netR: 1, firstReadyAt: '2026-09-01T01:45:00.000Z' }), // same hour as the previous
+      call({ outcome: 'loss', grossR: -1, netR: -1, firstReadyAt: '2026-09-01T05:00:00.000Z' })
+    ];
+    const f = buildFrequencyMetrics(freqBySymbol, goodCalls, { spanFromMs, spanToMs });
+    assertEqual(f.totalHours, 10, 'totalHours');
+    assertClose(f.combined.readyPlansPerHour, 3.0, 0.001, 'combined ready/hour (30 raw closes / 10h)');
+    assertClose(f.combined.conditionalPlansPerHour, 2.0, 0.001, 'combined conditional/hour (20 raw closes / 10h)');
+    assertClose(f.combined.goodPerHour, 0.3, 0.001, 'combined GOOD/hour (3 deduped calls / 10h)');
+    assertEqual(f.combined.hoursWithAtLeastOneGood, 2, 'two distinct hour buckets had a GOOD (01:xx and 05:xx)');
+    assertClose(f.bySymbol.BTC.readyPlansPerHour, 2.0, 0.001, 'BTC ready/hour');
+    assertClose(f.bySymbol.SOL.conditionalPlansPerHour, 1.5, 0.001, 'SOL conditional/hour');
   });
 
   function geo(tf, { support = [], resistance = [], atr = null } = {}) {
