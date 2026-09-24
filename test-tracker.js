@@ -17,11 +17,12 @@ import {
   candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines,
   pullServed, servedRowsFromLines, servedKey
 } from './scripts/tracker/collect.js';
+import { runAlerts, findNewGood, alertKey, alertsFile, ALERT_MAX_AGE_MIN } from './scripts/tracker/alerts.js';
 import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet, readJournal, appendJournal, journalOutcomesFile, appendCalls } from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
 import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
 import { statsFor, computeAggregates, classCheck } from './scripts/tracker/aggregate.js';
-import { buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
+import { buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
 
@@ -462,6 +463,36 @@ async function run() {
     assert(howTo.includes('prefers-color-scheme: dark') && howTo.includes('prefers-color-scheme: light'), 'both schemes');
   });
 
+  await test('alerts: new GOOD call alerts once per symbol+candidate, fresh only, owner mentioned', () => {
+    const dir = tmp();
+    const data = path.join(dir, 'data');
+    const now = Date.parse('2026-09-24T06:10:00Z');
+    const row = (symbol, cls, at, candidateId, extra = {}) => ({
+      capturedAt: at, closedThrough: at.replace(/:\d\d\.\d{3}Z$/, ':00.000Z'), symbol, price: 100, source: 'cron',
+      flagRecommendation: { class: cls, candidateId, primaryReason: { code: 'ok', text: 'aligned 21/200' } },
+      flagTradePlan: cls === 'GOOD' ? { status: 'ready', direction: 'long', timeframe: '5m', entry: 100, stop: 99, tp1: 103, tp2: 105, grossRR: 3, netRR: 2.8, candidateId } : null,
+      ...extra
+    });
+    appendCalls(data, [
+      row('BTC', 'GOOD', '2026-09-24T06:07:05.000Z', 'BTC:5m:long:a'),
+      row('ETH', 'WATCH', '2026-09-24T06:07:05.000Z', 'ETH:5m:long:b'),
+      row('SOL', 'GOOD', '2026-09-24T03:00:05.000Z', 'SOL:5m:long:old')
+    ]);
+    const first = runAlerts(data, { nowMs: now, mention: 'owner-x' });
+    assertEqual(first.length, 1, 'one fresh GOOD');
+    assert(first[0].title.includes('BTC LONG 5m') && first[0].title.includes('entry 100') && first[0].title.includes('TP1 103'), 'title levels');
+    assert(first[0].body.includes('@owner-x') && first[0].body.includes('aligned 21/200'), 'mention + reason');
+    assertEqual(readJsonl(alertsFile(data)).length, 1, 'recorded');
+    appendCalls(data, [row('BTC', 'GOOD', '2026-09-24T06:08:05.000Z', 'BTC:5m:long:a')]);
+    assertEqual(runAlerts(data, { nowMs: now + 60_000 }).length, 0, 'same candidate not re-alerted');
+    appendCalls(data, [row('BTC', 'GOOD', '2026-09-24T06:09:05.000Z', 'BTC:5m:long:c', { source: 'served' })]);
+    const second = runAlerts(data, { nowMs: now + 120_000 });
+    assertEqual(second.length, 1, 'new candidate alerts');
+    assert(second[0].body.includes('seen via chat'), 'served labelled chat');
+    assertEqual(findNewGood([row('SOL', 'GOOD', new Date(now - (ALERT_MAX_AGE_MIN + 1) * 60_000).toISOString(), 'x')], [], now).length, 0, 'stale ignored');
+    assertEqual(alertKey({ symbol: 'BTC', closedThrough: 't', flagRecommendation: {} }), 'BTC|t', 'key falls back to close');
+  });
+
   await test('status: LIVE / DELAYED / STALLED bands, next run on the schedule, cron in sync', () => {
     const at = Date.parse('2026-09-24T02:00:00Z');
     assertEqual(systemStatus(null, at).word, 'WAITING', 'no captures');
@@ -469,7 +500,11 @@ async function run() {
     assertEqual(systemStatus('2026-09-24T00:50:00Z', at).word, 'DELAYED', '70 min');
     assertEqual(systemStatus('2026-09-23T23:00:00Z', at).word, 'STALLED', '3 h');
     assertEqual(new Date(nextRunMs(at)).toISOString(), '2026-09-24T02:07:00.000Z', 'next :07');
-    assertEqual(new Date(nextRunMs(Date.parse('2026-09-24T02:07:00Z'))).toISOString(), '2026-09-24T02:37:00.000Z', 'strictly after');
+    assertEqual(new Date(nextRunMs(Date.parse('2026-09-24T02:07:00Z'))).toISOString(), '2026-09-24T02:17:00.000Z', 'strictly after');
+    assertEqual(new Date(nextRunMs(Date.parse('2026-09-24T02:58:00Z'))).toISOString(), '2026-09-24T03:07:00.000Z', 'wraps the hour');
+    assertEqual(expectedRuns(Date.parse('2026-09-24T05:00:00Z'), Date.parse('2026-09-24T06:00:00Z')), 2, '30-min cadence before the switch');
+    assertEqual(expectedRuns(Date.parse('2026-09-24T06:00:00Z'), Date.parse('2026-09-24T07:00:00Z')), 6, '10-min cadence after');
+    assertEqual(expectedRuns(Date.parse('2026-09-24T05:30:00Z'), Date.parse('2026-09-24T06:30:00Z')), 4, 'mixed span');
     const yml = readFileSync('scripts/tracker/repo-template/.github/workflows/track.yml', 'utf8');
     assert(yml.includes(`cron: '${SCHEDULE_MINUTES.join(',')} * * * *'`), 'page schedule matches workflow cron');
   });

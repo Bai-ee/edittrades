@@ -52,8 +52,18 @@ export const PHASE_TARGET_PLANS = 30;
 const PHASE_START_MS = Date.parse(`${PHASE_START}T00:00:00Z`);
 
 // Tracker schedule. Must match the cron in repo-template/.github/workflows/track.yml.
-export const SCHEDULE_MINUTES = [7, 37];
-export const SCHEDULE_TEXT = 'Every 30 min at :07 and :37 UTC';
+export const SCHEDULE_MINUTES = [7, 17, 27, 37, 47, 57];
+export const SCHEDULE_TEXT = 'Captures every 10 min, page every 30 min';
+// Capture cadence moved from 30 to 10 min here; expected-run counts use the right one per span.
+export const CADENCE_10_SINCE = '2026-09-24T06:00:00Z';
+const CADENCE_10_SINCE_MS = Date.parse(CADENCE_10_SINCE);
+
+/** Runs the schedule expects in [fromMs, toMs): 30-min cadence before CADENCE_10_SINCE, 10-min after. */
+export function expectedRuns(fromMs, toMs) {
+  if (!(toMs > fromMs)) return 0;
+  const split = Math.min(Math.max(CADENCE_10_SINCE_MS, fromMs), toMs);
+  return Math.ceil((split - fromMs) / (30 * 60_000)) + Math.ceil((toMs - split) / (10 * 60_000));
+}
 // Status bands by minutes since the last capture (GitHub can start a scheduled job a few minutes late).
 export const LIVE_MAX_MIN = 45;
 export const DELAYED_MAX_MIN = 90;
@@ -444,14 +454,15 @@ export function renderHtml(agg, data = {}) {
     return hit ? '<i class="on"></i>' : '<i class="miss"></i>';
   }).join('');
   const expectedSlots = firstRunMs === null ? 0 : Math.min(HEARTBEAT_SLOTS, Math.ceil((nowMs - Math.max(firstRunMs, nowMs - HEARTBEAT_SLOTS * SLOT_MS)) / SLOT_MS));
+  const expected24h = firstRunMs === null ? 0 : expectedRuns(Math.max(firstRunMs, nowMs - HEARTBEAT_SLOTS * SLOT_MS), nowMs);
   const statusBody = `<div class="status-hero" id="system-status-hero">`
     + `<span class="status-dot ${status.cls}${status.word === 'LIVE' ? ' is-live' : ''}" id="system-status-dot" aria-hidden="true"></span>`
     + `<span class="status-big ${status.cls}" id="system-status-word">${esc(status.word)}</span>`
-    + `<span class="status-desc" id="system-status-desc">Automated · no manual step. ${esc(SCHEDULE_TEXT)} on GitHub Actions: pull the engine, score calls, rebuild this page.</span></div>`
+    + `<span class="status-desc" id="system-status-desc">Automated · no manual step. ${esc(SCHEDULE_TEXT)} on GitHub Actions: pull the engine, score calls, email new GOOD calls, rebuild this page.</span></div>`
     + `<dl class="status-facts" id="system-status-facts">`
     + `<div class="status-fact" id="system-last-run-fact"><dt>Last run</dt><dd id="system-last-run-age">${esc(status.mins === null ? 'none yet' : `${status.mins} min ago`)}</dd><dd class="fact-sub" id="system-last-run-time">${esc(time(t.lastCapture))}</dd></div>`
-    + `<div class="status-fact" id="system-next-run-fact"><dt>Next run</dt><dd id="system-next-run">${esc(next ? `in ${Math.max(1, Math.ceil((next - nowMs) / 60_000))} min` : dash)}</dd><dd class="fact-sub">${esc(SCHEDULE_TEXT.replace('Every 30 min at ', '').toUpperCase())}</dd></div>`
-    + `<div class="status-fact" id="system-runs-fact"><dt>Runs · 24 h</dt><dd id="system-runs-24h">${runs24h} / ${expectedSlots || dash}</dd><dd class="fact-sub">${act.runs} since ${esc(act.firstRun ? act.firstRun.slice(0, 10) : dash)}</dd></div>`
+    + `<div class="status-fact" id="system-next-run-fact"><dt>Next run</dt><dd id="system-next-run">${esc(next ? `in ${Math.max(1, Math.ceil((next - nowMs) / 60_000))} min` : dash)}</dd><dd class="fact-sub">EVERY 10 MIN · :07 :17 … :57 UTC</dd></div>`
+    + `<div class="status-fact" id="system-runs-fact"><dt>Runs · 24 h</dt><dd id="system-runs-24h">${runs24h} / ${expected24h || dash}</dd><dd class="fact-sub">${act.runs} since ${esc(act.firstRun ? act.firstRun.slice(0, 10) : dash)}</dd></div>`
     + `</dl>`
     + `<div class="heartbeat-wrap" id="system-heartbeat-wrap"><div class="heartbeat" id="system-heartbeat" style="grid-template-columns:repeat(${HEARTBEAT_SLOTS},1fr)" role="img" aria-label="${slotsHit} of ${expectedSlots} half-hour slots in the last 24 hours had a run">${beats}</div>`
     + `<div class="heartbeat-axis" id="system-heartbeat-axis"><span>24 H AGO</span><span class="heartbeat-key"><i class="on"></i>RUN <i class="miss"></i>MISSED</span><span>BUILT ${esc(time(agg.generatedAt).slice(11))}</span></div></div>`;

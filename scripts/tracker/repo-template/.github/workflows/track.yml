@@ -1,12 +1,22 @@
 name: track
 
+# Captures every 10 min (dispatched by the keeper workflow; this schedule is a best-effort
+# backup). The page redeploys only on the :07 / :37 runs: other commits carry
+# "[skip deploy]", which vercel.json's ignoreCommand skips, keeping Vercel Hobby under
+# its daily deployment cap.
+
 on:
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: '7,17,27,37,47,57 * * * *'
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Redeploy the page: auto (only near :07/:37), true, or false'
+        default: 'auto'
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: tracker
@@ -30,13 +40,31 @@ jobs:
           node scripts/score.js --data data
           node scripts/aggregate.js --data data
           node scripts/build-page.js --data data --out docs
+      - name: Alert new GOOD calls (GitHub issue, emailed to the owner)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/alerts.js --data data --file "$RUNNER_TEMP/alerts.json"
+          jq -c '.[]' "$RUNNER_TEMP/alerts.json" | while read -r a; do
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$(jq -r .title <<<"$a")" --body "$(jq -r .body <<<"$a")" \
+              || echo "issue create failed for $(jq -r .key <<<"$a")"
+          done
       - name: Commit data and page
+        env:
+          DEPLOY_INPUT: ${{ github.event.inputs.deploy || 'auto' }}
         run: |
           git config user.name "edittrades-tracker[bot]"
           git config user.email "edittrades-tracker@users.noreply.github.com"
           git add data docs
           if git diff --cached --quiet; then echo "nothing changed"; exit 0; fi
-          git commit -q -m "track: $(date -u +%Y-%m-%dT%H:%MZ)"
+          m=$((10#$(date -u +%M) % 30))
+          deploy="$DEPLOY_INPUT"
+          if [ "$deploy" = "auto" ]; then
+            if [ "$m" -ge 5 ] && [ "$m" -lt 15 ]; then deploy=true; else deploy=false; fi
+          fi
+          msg="track: $(date -u +%Y-%m-%dT%H:%MZ)"
+          [ "$deploy" = "true" ] || msg="$msg [skip deploy]"
+          git commit -q -m "$msg"
           for i in 1 2 3 4 5; do
             git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0
             sleep $((i * 5))

@@ -1,7 +1,7 @@
 name: keeper
 
 # GitHub's own schedule for `track` proved unreliable (no scheduled run fired for hours).
-# The keeper is a long-running job that dispatches `track` at :07 and :37 UTC, then
+# The keeper is a long-running job that dispatches `track` every 10 min (:07, :17 … :57 UTC), then
 # dispatches the next keeper before its time runs out. GITHUB_TOKEN may trigger
 # workflow_dispatch, so the chain continues without a personal token.
 # Runs only while the repo is public (unlimited Actions minutes); on a private repo it
@@ -28,7 +28,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Dispatch track at :07 and :37 for ~5h40m, then hand off
+      - name: Dispatch track every 10 min for ~5h40m, then hand off
         run: |
           if [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" != "false" ]; then
             echo "repo is private (or visibility unknown): keeper stays off to save Actions minutes"; exit 0
@@ -36,9 +36,8 @@ jobs:
           end=$(( $(date +%s) + 340 * 60 ))
           while :; do
             m=$((10#$(date -u +%M))); s=$((10#$(date -u +%S)))
-            if [ "$m" -lt 7 ]; then wait=$(( (7 - m) * 60 - s ))
-            elif [ "$m" -lt 37 ]; then wait=$(( (37 - m) * 60 - s ))
-            else wait=$(( (67 - m) * 60 - s )); fi
+            r=$(( m % 10 ))
+            if [ "$r" -lt 7 ]; then wait=$(( (7 - r) * 60 - s )); else wait=$(( (17 - r) * 60 - s )); fi
             [ $(( $(date +%s) + wait )) -ge "$end" ] && break
             sleep "$wait"
             gh workflow run track.yml --repo "$GITHUB_REPOSITORY" --ref main && echo "dispatched track $(date -u +%H:%MZ)" || echo "track dispatch failed $(date -u +%H:%MZ)"
