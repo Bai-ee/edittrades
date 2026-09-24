@@ -1,191 +1,271 @@
-# T6 — Fee-aware flag trades, state model, failed-flag reversals
+# T6 — Fee-aware GOOD calls, higher-timeframe flags, state model, failed-flag reversals
 
 Last updated: 2026-09-24
-Status: plan, approved by owner for implementation in a separate thread. Phase order is fixed; one phase is merged and deployed before the next starts.
+Status: plan approved by owner. Phases run in order.
+- **Hard stop after Phase 0:** the owner picks the rule variant.
+- Phases 1–4 then run back to back; each is deployed and verified before the next.
+- Phase 5 is conditional (≥ 7 days after Phase 1).
+
+Supersedes `docs/PLAN_GOOD_QUALITY.md` (its Steps A/B/C are Phases 0/1/5 here).
 Branch: `upgrade-signal-engine`. Tracker repo: `../edittrades-tracker`.
-Inputs:
-- this thread's findings (T4 `docs/PLAN_FLAG_PATHS.md`, `docs/FLAG_PATHS_BASE_RATES.md`, `docs/BREAKOUT_ENTRY_SHADOW.md`; T5 `docs/PLAN_DIVERGENCE_OPPORTUNITIES.md`, `docs/DIVERGENCE_OPPORTUNITIES_BASE_RATES.md`)
-- the owner's workflow review `EditTrades_Opportunity_Workflow_Refinement.docx` (summarised below)
+Inputs: T4 (`docs/PLAN_FLAG_PATHS.md`, `docs/FLAG_PATHS_BASE_RATES.md`, `docs/BREAKOUT_ENTRY_SHADOW.md`), T5 (`docs/PLAN_DIVERGENCE_OPPORTUNITIES.md`, `docs/DIVERGENCE_OPPORTUNITIES_BASE_RATES.md`), and the owner's `EditTrades_Opportunity_Workflow_Refinement.docx` (summarised in 1c).
 
 ## 1. Problems
 
-### 1a. Fees make "ready" trades unwinnable (highest priority)
+### 1a. GOOD calls can't pay their costs (priority 1)
 
-Live evidence, from the tracker's only ready-plan fill in 7 days:
+Tracker evidence, 2026-09-24: 207 captures, 46 flag plans with levels, 1 GOOD in about 12 h.
 
-| | Value |
-| --- | --- |
-| Trade | BTC 1m short, 2026-09-24 11:57Z |
-| entry / stop / tp1 | 83,409.4 / 83,464.3 / 83,228 |
-| Stop distance | **0.066%** |
-| grossRR / netRR | 3.30 / **0.07** |
-| Result | stop: −1R gross, **−4.0R net** |
+| Flag timeframe | Plans | Median stop % | Gross ≥ 3R | Net ≥ 1 |
+| --- | --- | --- | --- | --- |
+| 1m | 22 | 0.16 | 1 | 0 |
+| 3m | 15 | 0.29 | 0 | 1 |
+| 5m | 9 | 0.37 | 0 | 1 |
 
-The engine knew the trade was net 0.07 but called it ready, because the gate is gross R:R only (owner decision 1a). Replays say the same: on 1m–5m flags the retest entry is −0.32R net per trade, the breakout-close entry −0.65R, the early entry −0.65R (T4 P4, T5 P0).
+The one GOOD, a BTC 1m short:
+- entry 83,409.4 / stop 83,464.3 / tp1 83,228
+- stop **0.066%** from entry
+- gross RR 3.30, net RR **0.07**
+- result: −1R gross, **−4.0R net**
 
-The fee math. With round-trip cost `c` (config: 2 × (5 fee + 5 slippage bps) = **0.20%** of entry), stop distance `s` (% of entry) and gross target `G × s`:
+It was `ready` because the gate is gross-only (`lib/flagTradePlan.js` ~L250–260, owner decision 1a). GOOD = a ready plan (`lib/flagRecommendation.js` `finish('GOOD','ready_flag_plan',…)`). Replays agree: on 1m–5m flags the retest entry is −0.32R net per trade, the breakout-close entry −0.65R and the early entry −0.65R (T4 P4, T5 P0).
+
+The fee math. Round-trip cost `c` = 2 × (5 fee + 5 slippage bps) = **0.20%** of price (`config/engine.json` `risk`, `netRiskReward`). With stop `s` (% of price) and gross target `G·s`:
 - cost in R = `c / s`
 - netRR = `(G·s − c) / (s + c)`
-- minimum stop for a required net `N` at gross `G`: `s_min = c·(1 + N) / (G − N)`
+- minimum stop for net `N` at gross `G`: `s_min = c·(1 + N) / (G − N)`
 
-| Required net (at gross 3) | Min stop at c = 0.20% | Min stop at c = 0.14% |
-| --- | --- | --- |
-| netRR ≥ 1.5 | 0.33% | 0.23% |
-| netRR ≥ 2.0 | **0.60%** | 0.42% |
-| netRR ≥ 2.5 | 1.40% | 0.98% |
+At G = 3 and c = 0.20%: net ≥ 1.5 needs **0.33%**; net ≥ 2 needs **0.60%**; net ≥ 2.5 needs 1.40%. Size and leverage don't change fees in R, since both scale with notional.
 
-- Position size and leverage do **not** change fees in R: both scale with notional. "Bigger bags" don't help. Only a wider structural stop with a proportionally wider target, or a lower cost per trade, help.
-- Most 1m flags have stops of 0.05–0.3%, so as scalps they are un-tradeable at this cost. They are still good **triggers**.
+The fix has two levers:
+- a net gate
+- flags on timeframes whose stops are naturally wide: **15m/1h detection**. `flag.timeframes` is `['1m','3m','5m']`, although `model.flagTimeframes` already lists 15m/1h/4h.
 
-### 1b. Flags should also serve longer plays
+A third lever, stop and target taken from higher-timeframe structure, is tested as an alternative.
 
-A 1m–5m flag is a good entry *trigger*. For the trade to survive fees, its risk and target can come from higher-timeframe (5m/15m/1h) structure: a "trigger on the lower timeframe, risk on the higher timeframe" swing variant.
+### 1b. Workflow gaps (owner docx)
 
-### 1c. Workflow gaps (owner docx)
-
-- **State clarity:** keep four layers separate at all times: CONTEXT → PATTERN → TRIGGER → TRADE. A confirmed pattern is not an approved trade, and a failed long is not an automatic short.
-- **Missing bridge:** a failed tracked flag should open a structured opposite-side **FAILED_FLAG_REVERSAL** scout (failed reclaim of the broken level, then its own room / R:R / net gates), not just "long damaged".
+- **State clarity:** keep four layers separate: CONTEXT → PATTERN → TRIGGER → TRADE. A confirmed pattern is not an approved trade, and a failed long is not an automatic short.
+- **Missing bridge:** a failed tracked flag should open a structured opposite-side **FAILED_FLAG_REVERSAL** scout. It requires a failed reclaim of the broken level, then its own room, R:R and net gates.
 - **Live protocol:**
-  - persistent tracking of one setup (one trigger, one thesis-null, a finite window)
+  - one tracked setup with one trigger, one thesis-null and a finite window
   - updates answer STATUS / FORMING / DELTA / TRIGGER-NULL / REVERSAL SCOUT / NEXT CHECK
   - WARNING (lower-timeframe damage) vs NULL (execution-timeframe invalidation)
   - every level tagged with its timeframe
-  - MISSED / NO CHASE state
-  - auto-expire stale triggers
-  - reset the tracker when the user's direction changes
+  - MISSED / NO CHASE
+  - stale triggers expire automatically
+  - a direction change resets the tracker
 
-### 1d. Carried over
+### 1c. Carried over
 
-- 60-day history (S2) is capturing in `test/fixtures/history/deep60-2026-09-24/` (resumable; see `scripts/replay.js`). Re-run the T4/T5 measurements on it and rebuild the `pathOutlook` table.
-- T5: no early-entry OPPORTUNITY tier (net-negative). The one net-positive combo (divergence agrees, not at a level, with the trend, retest entry, n=149) must be re-checked on 60 days.
-- Owner wants to see divergence setups before the mentor. Ship them as **watch-only alerts** (no entry).
+- **60-day history:** `test/fixtures/history/deep60-2026-09-24/` is being captured (resumable). Phase 4 re-runs every measurement on it and rebuilds the `pathOutlook` table.
+- **T5:** no early-entry OPPORTUNITY tier (net-negative). One net-positive combo (divergence agrees, not at a level, with the trend, retest entry, n=149) must be re-checked on 60 days.
+- **Divergence alerts:** the owner wants to see divergence setups early. Ship them as **watch-only alerts** (no entry).
 
-## 2. Constraints (hard; see also CLAUDE.md)
+## 2. Hard rules (all phases; see also CLAUDE.md)
 
-- **Serverless and MCP:**
-  - No new `api/` file (12/12 Vercel functions).
-  - MCP stays one read-only tool; `services/editTradesMcp.js` and `lib/mcpHttp.js` import only `services/scalpContext.js`.
-- **Risk rules:**
-  - Never lower `flagPlan.minRR` (gross 3).
-  - Scalp stops stay ≤ 3% from entry (`scalp.maxStopDistancePct`); a swing variant also respects 3%.
-  - The net gate is **added**, never replacing the gross gate.
-- **Security and data:**
+- **Stops and targets:**
+  - Scalp stop guard ≤ 3% from entry mid; never raise it.
+  - Gross `flagPlan.minRR` 3 is not lowered in any shipped variant. V4 below is research-only and needs an explicit owner decision.
+  - The net gate is added, never a replacement.
+- **Costs:** do not lower `feeBps`/`slippageBps` to manufacture calls. Cost realism is a separate decision based on real fills (journal) or the venue's fee schedule. Phase 0 may show a 0.14% sensitivity column for information only.
+- **Serverless, MCP, security:**
+  - No new `api/` file (12/12 functions).
+  - MCP stays one read-only tool, with no execution imports.
+  - REST auth unchanged (401/401/405/200).
+  - No secrets in code, logs or payload.
   - No new dependencies.
-  - Never log or return keys, RPC URLs or wallet addresses.
-  - Wallet status never changes `dataStatus`.
-- **Deploy and repo:**
-  - Deploy per CLAUDE.md: all `test:*` suites + `npm run check:gpt`, `git diff --check`, commit, push, `npx vercel --prod --yes`, then "Verify after any redeploy" in `docs/EDITTRADES_MCP_CONNECTOR.md`, `npm run tracker:sync`, push the tracker repo, `gh workflow run track -R Bai-ee/edittrades-tracker`.
-  - `.vercelignore` must keep excluding `test/fixtures/history/`.
+- **Code shape:**
+  - Long and short go through one path, with mirrored tests.
+  - Payload and schema changes are additive minor bumps.
+  - `openapi/scalp-context.yaml` stays in step.
+  - `configVersion` is bumped for any config change.
+- **Replay:**
+  - No lookahead: production `buildScalpContext()` per close via `scripts/replay.js` primitives; never re-implement detectors.
+  - Config variants use an in-process override hook (default off, covered by `test:config`).
+  - Raw outputs go to gitignored paths.
+  - `.vercelignore` keeps excluding `test/fixtures/history/`.
+- **GPT instructions:** ≤ 7,990 units (`npm run check:gpt`; currently 7,984). Fund new rules by moving logic into engine-written fields and cutting redundant rules.
+- **Repo and deploy:**
   - `public/index.html` untouched.
-- **GPT instructions:** 7,984 / 7,990 units. Every new GPT behaviour must be funded by moving logic into engine-written fields (the GPT prints them) and cutting rules those fields make redundant.
-- **Testing window:** Phase 1 changes a gate, so the tracker testing window restarts. Set the tracker's phase start to the Phase 1 deploy time and say so on the page.
+  - Read-only git uses `--no-optional-locks` (other sessions commit on this branch).
+  - Test gate before any deploy: every `test:*` script in `package.json` + `npm run check:gpt` + `git diff --check`.
+  - Deploy: commit, push, `npx vercel --prod --yes`, then `docs/EDITTRADES_MCP_CONNECTOR.md` "Verify after any redeploy" (401/401/405/200, schema/config, MCP tools/list = 1, build time).
+  - Then `npm run tracker:sync`, push `../edittrades-tracker` with a normal commit so the page deploys, trigger `gh workflow run track -R Bai-ee/edittrades-tracker` once, and verify from git.
+  - Never loop-poll https://edittrades-tracker.vercel.app (bot protection); at most one browser load.
 
-## 3. Owner decisions (defaults; proceed on these unless the owner overrides)
+## 3. Owner decisions
 
-| # | Decision | Default |
+| # | Decision | Status |
 | --- | --- | --- |
-| D1 | True round-trip cost | The code has no venue fee constants (checked 2026-09-24); the engine uses only `config/engine.json` `risk` (5 fee + 5 slippage bps per side = 0.20% round trip). Ask the owner for the venue's actual open/close fee and typical slippage; keep 0.20% (conservative) until answered. Phase 0 reports results at both 0.20% and 0.14%. |
-| D2 | Net gate | `flagPlan.minNetRR` = value chosen in Phase 0 (expected 2.0, i.e. ≈ 0.6% min stop at 0.20% cost). Supersedes owner decision 1a (gross-only); record in `docs/OWNER_DECISIONS_2026-09-23.md` or a new decisions doc. |
-| D3 | Swing variant | Yes, if Phase 0 shows it is net-positive. |
-| D4 | Reversal scout | Scout-only (never GO IN) until Phase 0/4 replay shows it is net-positive. |
-| D5 | Divergence setups | Watch-only alerts, no entry. |
+| D1 | Rule variant to ship | **Owner picks after Phase 0.** |
+| D2 | Testing-window restart when Phase 1 ships | Approved: we're on day 2 and the only GOOD was invalid. |
+| D3 | Venue cost realism | Out of scope for now. Keep 0.20% until real fills or the venue schedule justify a change. The owner may state the venue fee; record it, don't apply it. |
+| D4 | Reversal scouts, divergence setups, breakout-close entry | Scout / watch / shadow only, never GO IN, until a replay is net-positive at n ≥ 100 in both out-of-sample halves AND the owner approves. |
 
 ## 4. Phases
 
-### Phase 0 — Measure fee-aware stop/target rules (replay only; no live change)
+### Phase 0 — Replay study of rule variants (research; no deploy) → STOP for D1
 
-`scripts/replay-stops.js` (`npm run replay:stops`) uses the labelled rows plus history (`scripts/replay-paths.js` output, `test/fixtures/history/deep-2026-09-24/`, and deep60 when complete). Simulate each variant on the same flags: fill at the retest-hold (as `flagTradePlan`), 24 h walk on 1m, gross and **net** R (`netRiskReward` / `scripts/tracker/costs.js`).
+**Data:**
+- `test/fixtures/history/deep-2026-09-24/` (15 days, BTC/ETH/SOL; 3m derived).
+- Check that each variant's timeframes reach `replay.minComputeCandles` at the start: warm up by starting later if 15m/1h is short.
+- Use `deep60-2026-09-24/` if its `manifest.json` exists.
 
-| Variant | Stop | Target |
-| --- | --- | --- |
-| V0 current | flag invalidation | TP1 capped at nearest level |
-| V1 net gate | as V0, but skip trades with netRR < N (N ∈ 1.5, 2, 2.5) | as V0 |
-| V2 structure stop | beyond the nearest 5m / 15m swing or zone on the stop side (+ buffer) | next 15m / 1h level or measured move of that structure, needs gross ≥ 3 |
-| V3 ATR floor | max(invalidation distance, k × ATR of 15m) (k ∈ 0.5, 1) | 3 × stop |
-| V4 failed-flag reversal | FAILED_FLAG_REVERSAL: broken level fails to reclaim within N candles (N ∈ 1–3); stop beyond the reclaim extreme | next opposing zone |
+**Runner:** `scripts/replay-rules.js` (`npm run replay:rules`, tests `test:rules`).
+- Deep-merge each variant's config into `ENGINE_CONFIG` through a new override hook in `config/engine.js` (default off).
+- Step every 5 minutes of the 1m clock unless compute allows 1.
+- Per close, per symbol: collect `flagTradePlan` + `flagRecommendation`; dedupe per symbol + candidateId (first `ready`).
+- Score each GOOD with the tracker walk (`scripts/tracker/walk-outcome.js`, production fill rules, TP1 vs stop, 24 h).
+- Gross and **net** R: cost = entry × 0.20%; net R = (move − cost) / (risk + cost); stop = −1 net; same as `scripts/tracker/costs.js`.
 
-Report n, trades/day, win rate, gross / net expectancy, max losing streak, by timeframe and symbol, and per variant parameter. Choose the rule that maximises net expectancy with at least 1 trade/day across the 3 symbols; if none is net-positive, say so.
+**Net gate as shippable code:** `flagPlan.minNetRR` (null = off).
+- After the gross gate, `netRR < minNetRR` → `status: 'rejected'`, `reasonCode: 'net_rr_below_min'` (levels kept).
+- With the default off, production is unchanged: all existing suites pass unchanged.
 
-Deliverable: `docs/FEE_AWARE_STOPS_RESULTS.md` with the chosen `minNetRR`, the stop-anchoring rule, the swing-variant verdict and the reversal verdict. Also D1's cost finding.
+**Variants:**
 
-Gate: tests pass; nothing under `api/`, `lib/`, `services/` or `config/` changes.
+| id | Change |
+| --- | --- |
+| V0 | baseline |
+| V1a / b / c | net gate 1.0 / 1.5 / 2.0 |
+| V2 | `flag.timeframes` + 15m, 1h (gates unchanged) |
+| V3a / b | V2 + net gate 1.5 / 2.0 |
+| V4 (research only) | V3a with gross minRR 2.5, only if V3 leaves too few calls; shipping it needs an explicit owner decision |
+| V5 | 1m–5m trigger, stop beyond the nearest 15m structure / zone (+ buffer), target next 15m/1h level or measured move, gross ≥ 3 + net gate 1.5 (horizon `swing`) |
+| V6 | V1b + ATR floor: stop ≥ 0.5 × ATR(15m), target 3 × stop |
+| V7 (scout research) | FAILED_FLAG_REVERSAL: broken level fails to reclaim within N ∈ {1, 2, 3} candles; stop beyond the reclaim extreme; target the next opposing zone; net gate 1.5 |
 
-### Phase 1 — Fee-aware trade plans (engine; deploy)
+**Metrics** (overall, per symbol, per flag timeframe, long vs short):
+- GOOD calls/day, fill rate, win rate at TP1
+- **net expectancy R**, gross expectancy R
+- max losing streak, median stop %, median minutes to resolution
+- share of days with ≥ 1 GOOD
+- a 0.14% cost sensitivity column (information only)
 
-- `lib/flagTradePlan.js`:
-  - Publish `costR` (round-trip cost in R).
-  - Add the net gate: new `reasonCode` values `net_rr_below_min` and `stop_inside_costs` (cost ≥ 0.5R).
-  - Add `horizon: 'scalp' | 'swing'`. If the scalp variant fails the net gate or room, attempt the Phase 0-chosen swing variant (higher-timeframe structure stop and target). `ready` only if gross ≥ 3, net ≥ `minNetRR`, stop ≤ 3%, and room passes.
-  - Keep the entry trigger on the flag's own timeframe; tag every level with its timeframe.
-- `config/engine.json`: `flagPlan.minNetRR`, swing-variant parameters, cost values per D1. Bump configVersion and schemaVersion (additive fields).
-- `lib/flagRecommendation.js`: GOOD still requires a ready plan. Add support/oppose tokens `net_rr_ok` / `fees_heavy`. No other class change.
-- Replay parity: the Phase 0 script reproduces the new plan on replay.
-- Tracker: restart the phase (testing window) at deploy; net-first display (net already exists); split ready plans by `horizon`.
-- Tests: plan gate cases (the BTC 0.066% short → rejected `stop_inside_costs`; a swing variant that passes), fixtures updated, payload byte caps (raise minimally if needed, ≤ 80,500 B, with a comment).
-- Docs: CHANGELOG, connector schema map, openapi, decisions doc.
+**Out-of-sample rule:** report days 1–10 and 11–15 separately (60-day: first 40 / last 20). A variant **passes** only if net expectancy > 0 in BOTH halves and n ≥ 20 scored GOOD calls.
 
-### Phase 2 — State model, tracking, reversal scouts (engine + tracker; deploy)
+**Output:** `docs/GOOD_QUALITY_REPLAY.md`:
+- method and span
+- the variants × metrics table, the out-of-sample table, the per-timeframe table
+- payload size and build time for V2/V3 (15m/1h detection) vs V0
+- **one recommended variant** with reasons, and the V7 verdict
 
-**New engine output**, compact and engine-written so the GPT prints it rather than reasoning it out:
+**Stop:** commit (no deploy) and report. **Wait for the owner's pick (D1).**
+
+### Phase 1 — Ship the chosen variant + restart the window (engine + tracker; deploy)
+
+- **Config:** `flagPlan.minNetRR`, `flag.timeframes` per the chosen variant, V5/V6 parameters if chosen; configVersion bump.
+- **`lib/flagTradePlan.js`:**
+  - net gate on
+  - publish `costR`
+  - reason codes `net_rr_below_min` and `stop_inside_costs` (cost ≥ 0.5R)
+  - `horizon: 'scalp' | 'swing'` if V5 is chosen
+  - every level tagged with its timeframe
+- **`lib/flagRecommendation.js`:**
+  - net rejections follow the existing rejection mapping
+  - `changeConditions` names the net requirement
+  - support / oppose tokens `net_rr_ok` / `fees_heavy`
+  - GOOD still requires a ready plan
+- **If 15m/1h flags ship:** check `lib/patternDetector.js` per-timeframe assumptions, `patternLifecycle.geometryTimeframeFor`, `lib/pathOutlook.js` backoff for unseen timeframes (must fall back, never throw), `candidateQualifier`, `lib/breakoutEntry.js`, tracker alerts / charts (15m/1h already accepted), payload size (compact must still trim; raise caps minimally, ≤ 80,500 B, with a comment) and build time (p50 of 20 builds, well under the 10 s Hobby limit).
+- **Schema + openapi:** additive minor bump (a new reasonCode value counts).
+- **GPT (minimal now; full rewrite in Phase 3):** the flag timeframe list, plus one clause "GOOD requires net R:R ≥ X after costs", within budget.
+- **Tracker window restart:**
+  - `scripts/tracker/build-page.js`: `PHASE_NAME` → "Phase 5 forward record (net-gated rules)", `PHASE_START` → the deploy date (UTC), keep 14 days / 30 plans.
+  - Note id `testing-phase-restart-note`: "Window restarted <date>: GOOD now requires net R:R ≥ X and flags on <timeframes>. Earlier calls kept for reference."
+  - Aggregates `phase` uses `phaseStartMs`; nothing deleted.
+  - Ready plans split by `horizon`.
+- **Tests:**
+  - the BTC 0.066% short → rejected (`stop_inside_costs` / `net_rr_below_min`)
+  - a passing plan
+  - long and short mirrored
+  - fixtures updated
+  - the page shows the restart note
+- **Deploy and verify** per section 2.
+- **Docs:** CHANGELOG, connector schema map and test counts, openapi, DOCUMENTATION_INDEX, decisions doc (net gate supersedes decision 1a), this plan's status.
+
+### Phase 2 — State model, tracking, reversal scouts, divergence alerts (engine + tracker; deploy)
+
+**Engine** (the engine writes the text; the GPT prints it):
 
 - `symbols.<SYM>.state = {context, setup, trigger, trade, label}`:
   - `context`: with/counter-trend vs 4h; room open / blocked to the nearest 15m/1h zone, with timeframe-tagged levels
   - `setup`: leading candidate id, timeframe, direction, pattern state
-  - `trigger`: exactly ONE condition string, timeframe-tagged
-  - `trade`: GO IN / HOLD-WAIT / DON'T, with plan `reasonCode`
+  - `trigger`: exactly one condition string, timeframe-tagged
+  - `trade`: GO IN / HOLD-WAIT / DON'T, with the plan `reasonCode`
   - `label`: TRACKING | WARNING | FAILED | REVERSAL_SCOUT | REVERSAL_TRIGGERING | READY | MISSED | EXPIRED
-- `lib/reversalScout.js` builds `symbols.<SYM>.reversalScouts[]` from candidates that failed within `failedTtlCandles` (`failReason` acceptance / invalidation_close; the detector already keeps failed candidates visible), with the docx fields:
+- `lib/reversalScout.js` builds `symbols.<SYM>.reversalScouts[]` from candidates that failed within `failedTtlCandles` (`failReason` acceptance / invalidation_close):
   - `sourceCandidateId`, `failureReason`, `direction` (opposite), `state` (scouting / triggering / confirmed / rejected / expired)
   - `brokenLevel`, `reclaimWindow`, `entryCondition`, `invalidation`
   - `nearestTarget` (a real zone, never an EMA)
   - `grossRR`, `netRR`, `reasonCode`
-  - Scout-only per D4.
+  - Scout-only (D4); rules per the V7 verdict.
 - **MISSED:** price reached the next zone without a valid trigger. The label says NO CHASE.
-- **Tracking without state storage:** REST `GET /api/scalp-context?track=<candidateId>` (parsed after auth, like `chart`) adds `tracked = {id, status: alive | weakening | confirmed | failed | expired, delta (what changed over the last N closed execution-timeframe candles, one line), trigger, thesisNull, reversalScout, nextCheck, expiresAt}`. The GPT keeps the candidate id from the previous reply.
-- A direction change by the user resets the tracked id (GPT rule, Phase 3).
+- **Tracking:** REST `GET /api/scalp-context?track=<candidateId>` (parsed after auth, like `chart`) adds `tracked = {id, status: alive | weakening | confirmed | failed | expired, delta (one line: what changed over the last N closed execution-timeframe candles), trigger, thesisNull, reversalScout, nextCheck, expiresAt}`. Stateless: the GPT carries the id from its previous reply. MCP args unchanged.
 
 **Tracker:**
-- Score reversal scouts as their own class: realised path, and net R on the scout's own levels.
-- Watch-only divergence alerts in `scripts/tracker/alerts.js`: fresh divergence agreeing with a forming flag near a support/resistance zone. Text names the setup, trigger and thesis-null, and never gives an entry.
+- Reversal scouts scored as their own class: realised path, net R on the scout's own levels.
+- Watch-only divergence alerts in `scripts/tracker/alerts.js`: fresh divergence agreeing with a forming flag near a support/resistance zone. The text names the setup, trigger and thesis-null, and never gives an entry.
 
 **Tests:**
-- state labels on the docx BTC sequence: rejected breakout 84,866.5 → WARNING → FAILED on acceptance below → REVERSAL_SCOUT → MISSED once price is in the 83.93k support
-- reversal scout gates
-- `track` param: 401 / 405 unchanged, unknown id → `tracked: null`
+- the docx BTC sequence: rejected breakout at 84,866.5 → WARNING → FAILED on acceptance below → REVERSAL_SCOUT → MISSED in the ~83.93k support
+- scout gates
+- `track`: auth unchanged, unknown id → `tracked: null`
 - byte caps
 
-### Phase 3 — GPT instructions rewrite (docs only; owner pastes into a new GPT)
+### Phase 3 — GPT instructions rewrite (docs; owner pastes into the new GPT)
 
-Rewrite `docs/GPT_INSTRUCTIONS.md` around the four layers. The GPT prints `state`, `tracked`, `pathOutlook` SCENARIO and `reversalScouts` verbatim.
+- Rewrite `docs/GPT_INSTRUCTIONS.md` around CONTEXT / PATTERN / TRIGGER / TRADE. Print `state`, `tracked`, `pathOutlook` SCENARIO and `reversalScouts` verbatim.
+- Formats:
+  - default update: STATUS / FORMING / DELTA / TRIGGER / THESIS NULL / REVERSAL SCOUT / NEXT CHECK
+  - TRACK mode and REVERSAL TRACK mode per the docx
+  - MISSED / NO CHASE; WARNING vs NULL
+  - timeframe-tag every level
+  - reset on direction change
+  - never invent percentages; `breakoutEntry` is never mentioned
+- Budget: fund it by deleting rules the engine now answers, until `npm run check:gpt` is OK.
+- Test sheet: the docx BTC scenarios, a fee-rejected plan, a swing-horizon ready plan (if V5 ships), a 15m/1h flag (if V2/V3 ships), a MISSED case.
+- Hand the owner a short test script for the new GPT: prompts plus pass criteria.
 
-**Formats:**
-- Default update: STATUS / FORMING / DELTA / TRIGGER / THESIS NULL / REVERSAL SCOUT / NEXT CHECK
-- TRACK mode and REVERSAL TRACK mode, per the docx
-- MISSED / NO CHASE
-- WARNING vs NULL
-- Timeframe-tag every level
-- Reset on direction change
-- Never invent percentages
+### Phase 4 — 60-day recalibration (analysis + config; deploy only if tables change)
 
-**Budget:**
-- Fund it by deleting rules the engine now answers (e.g. derived room / trend prose, candidate-state explanations) until `npm run check:gpt` is OK.
-- Test sheet: add the docx BTC scenarios, a fees-rejected plan (`stop_inside_costs`), a swing-horizon ready plan, and a MISSED case.
-
-### Phase 4 — 60-day recalibration and review (analysis + config; deploy if tables change)
-
-- When `deep60-2026-09-24/manifest.json` exists: re-run `replay-paths`, `replay-early-entry`, `replay-breakout-entry` and `replay-stops` on 60 days.
-- `npm run paths:table` rebuild. Bump configVersion only if the tables change.
+- When `deep60-2026-09-24/manifest.json` exists: re-run `replay-rules` (the shipped variant vs V0, 60-day out-of-sample halves), `replay-paths`, `replay-early-entry` and `replay-breakout-entry`.
+- Rebuild the table with `npm run paths:table`, including the new flag timeframes. Bump configVersion only if it changes.
 - Update the base-rate docs.
-- Re-check the T5 positive combo and the reversal-scout verdict.
-- Report whether any watch / scout item has earned promotion (net-positive, n ≥ 100). Promotion itself is an owner decision.
+- Re-check the T5 positive combo and the V7 verdict.
+- Report candidates for promotion (net-positive, n ≥ 100, both halves). Promotion itself is an owner decision.
 
-## 5. Definition of done
+### Phase 5 — Path-informed gating (conditional; research only)
 
-- A plan whose fees exceed its edge is never `ready` again, which the BTC 0.066% case proves.
-- Flags can yield swing-horizon plans that pass gross 3R and the net gate.
-- Every symbol carries the four-layer `state`, with a single trigger and timeframe-tagged levels.
-- Failed flags produce reversal scouts, and MISSED is explicit.
-- `?track=` works.
+Precondition, checked first; if not met, record the numbers in this plan's status and stop:
+- ≥ 7 days since the Phase 1 restart
+- `#path-calibration-section` shows the Brier score below baseline and a likely-path hit rate above the base rate on ≥ 50 resolved flags, with chase/runner reliability published
+
+If met, run `scripts/replay-rules.js` on top of the shipped rules:
+- **C1:** GOOD also requires `pathOutlook.likely ∉ {fail_first, false_break}`.
+- **C2:** runner-prone (chase elevated/high) → score the breakout-close entry (`lib/breakoutEntry.js`). Note: T4 P4 replay was net-negative.
+- **C3:** C1 + C2.
+
+Same metrics and out-of-sample rule. Append to `docs/GOOD_QUALITY_REPLAY.md`, recommend, stop. Shipping repeats Phase 1's procedure.
+
+## 5. Out of scope
+
+Changing cost assumptions without evidence; raising the 3% stop cap; 4h/1d flags; auto-tuning; execution.
+
+## 6. Risks
+
+- The net gate cuts GOOD count on 1m–5m; 15m/1h flags are meant to restore it, and Phase 0 measures whether they do.
+- 15 days is about 360 1h candles, so the 1h out-of-sample halves are thin. Report n honestly and use 60 days in Phase 4.
+- More flag timeframes means more payload and build time; measured in Phase 1.
+- The GPT budget is nearly full; Phase 3 depends on moving logic into engine fields.
+- The window restart resets the 14-day clock (approved, D2).
+
+## 7. Definition of done
+
+- A plan whose costs exceed its edge is never `ready` (the BTC 0.066% case proves it).
+- GOOD calls come from the chosen, replay-validated rules, including 15m/1h flags if chosen, and the testing window has restarted.
+- Every symbol carries the four-layer `state` with one trigger and timeframe-tagged levels.
+- Failed flags produce reversal scouts; MISSED is explicit; `?track=` works.
 - The new GPT prints all of it within budget.
-- The tracker shows net-first stats, the restarted window, horizon split, reversal scouts, calibration and watch-only divergence alerts.
-- Every phase deployed and verified; docs updated.
+- The tracker shows net-first stats, the restart note, the horizon split, reversal scouts, calibration and watch-only divergence alerts.
+- Every phase deployed and verified; docs current.
