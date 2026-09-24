@@ -91,6 +91,14 @@ footer.edge-strip{border-top:1px solid var(--border);margin-top:var(--zone-gap);
 .status-fact dd{font:400 var(--fs-title)/1.2 var(--mono);color:var(--text-display);font-variant-numeric:tabular-nums}
 .status-fact dd.fact-sub{font-size:var(--fs-sm);color:var(--text-secondary);letter-spacing:.04em;overflow-wrap:anywhere}
 @media (min-width:760px){.status-fact dd{font-size:var(--fs-md)}}
+@media (max-width:479px){
+  .status-facts{grid-template-columns:1fr;gap:0;padding:var(--sp-2) 0}
+  .status-fact{display:grid;grid-template-columns:auto 1fr;align-items:baseline;gap:0 var(--sp-3);padding:var(--sp-2) 0}
+  .status-fact+.status-fact{border-top:1px solid var(--border)}
+  .status-fact dd{text-align:right}
+  .status-fact dd.fact-sub{grid-column:1 / -1}
+  .heartbeat-axis{flex-wrap:wrap;gap:var(--sp-1) var(--sp-3)}
+}
 .heartbeat{display:grid;gap:2px}
 .heartbeat i{display:block;height:24px;background:transparent;border:1px dashed var(--border)}
 .heartbeat i.on{background:var(--text-display);border-color:var(--text-display)}
