@@ -10,6 +10,11 @@
  * reason tables use recommendation calls. Win rate = tp1 / (tp1 + stop); expectancy =
  * mean gross R over decided calls (tp1 = +R, stop = -1).
  *
+ * classCheck: per recommendation class (GOOD/WATCH/BAD, then DATA_UNAVAILABLE when
+ * present), how its calls played out on plan or candidate levels (score.js levelSource),
+ * since the phase start when given. Answers "did the filter block losers?"; it never
+ * feeds the tradable numbers.
+ *
  * Usage: node aggregate.js [--data ./data] [--now <iso>]
  */
 
@@ -74,6 +79,36 @@ export function groupStats(rows, keyFn) {
   return [...groups.entries()]
     .map(([key, g]) => ({ key, ...statsFor(g) }))
     .sort((a, b) => b.calls - a.calls || String(a.key).localeCompare(String(b.key)));
+}
+
+export const CLASS_CHECK_KEYS = ['GOOD', 'WATCH', 'BAD', 'DATA_UNAVAILABLE'];
+
+/** Per-class outcome check over rec rows (called at/after sinceMs when finite). */
+export function classCheck(outcomes, sinceMs = null) {
+  const since = isFiniteNumber(sinceMs);
+  const recs = outcomes.filter((r) => isRec(r) && (!since || Date.parse(r.calledAt) >= sinceMs));
+  const rows = [];
+  for (const key of CLASS_CHECK_KEYS) {
+    const g = recs.filter((r) => r.class === key);
+    if (key === 'DATA_UNAVAILABLE' && !g.length) continue;
+    const s = statsFor(g);
+    const decided = g.filter(isDecided);
+    rows.push({
+      key,
+      calls: s.calls,
+      scored: s.wins + s.losses,
+      wins: s.wins,
+      losses: s.losses,
+      open: s.open + s.pending,
+      notFilled: s.notFilled + s.expired,
+      noLevels: s.noLevels,
+      winRate: s.winRate,
+      expectancy: s.expectancy,
+      fromPlan: decided.filter((r) => r.levelSource === 'plan').length,
+      fromCandidate: decided.filter((r) => r.levelSource === 'candidate').length
+    });
+  }
+  return { since: since ? new Date(sinceMs).toISOString() : null, rows };
 }
 
 function reasonCounts(rows) {
@@ -222,6 +257,7 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
       ready24h: tradable.filter(in24h).length,
       lastGoodAt: goods.reduce((m, r) => (!m || r.calledAt > m ? r.calledAt : m), null)
     },
+    classCheck: classCheck(outcomes, opts.phaseStartMs),
     phase: isFiniteNumber(opts.phaseStartMs)
       ? { startedAt: new Date(opts.phaseStartMs).toISOString(), tradable: statsFor(tradable.filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs)) }
       : null

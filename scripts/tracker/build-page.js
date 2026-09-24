@@ -18,7 +18,9 @@
  * adds a dashed "your trades" line under the same filters, the wallet chart adds entry /
  * exit ticks, and two sections follow the charts: "Engine vs you" (GOOD calls taken,
  * skipped, not logged; WATCH/BAD taken as overrides, with outcomes) and the journal log.
- * Every section
+ * The Performance zone also carries a class check: GOOD / WATCH / BAD calls scored
+ * counterfactually from their flag candidate's levels ("did the filter work?"), kept out
+ * of the hero and the testing target. Every section
  * carries a PROVISIONAL tag; the edge disclaimer appears once, under the hero. Renders
  * from an empty data dir.
  *
@@ -320,6 +322,45 @@ function journalLogRows(journal, journalOutcomes) {
   });
 }
 
+// ---------- class check (counterfactual WATCH / BAD scoring) ----------
+
+export const NO_CLASS_CALLS = '[NO CLASSIFIED CALLS YET]';
+export const CLASS_CHECK_NOTE = 'WATCH and BAD are scored as if taken: entry at the flag breakout, stop at invalidation, TP1 at the measured move. Counterfactual only: never counted in the 30-plan target or the expectancy above.';
+const CLASS_CHECK_MIN_SCORED = 5;
+
+/** Class-check rows to show: GOOD, WATCH, BAD always; DATA_UNAVAILABLE only when it has calls. Null → empty state. */
+function classCheckRows(agg) {
+  const rows = agg.classCheck && Array.isArray(agg.classCheck.rows) ? agg.classCheck.rows : [];
+  const shown = rows.filter((r) => r && (r.key !== 'DATA_UNAVAILABLE' || r.calls > 0));
+  return shown.some((r) => r.calls > 0) ? shown : null;
+}
+
+/** Plain-language verdict for one class row: {text, cls}. */
+export function classVerdict(r) {
+  const scored = r.scored || 0;
+  if (scored < CLASS_CHECK_MIN_SCORED) return { text: `[${scored} SCORED · TOO FEW TO JUDGE]`, cls: 'dim' };
+  if (!isNum(r.expectancy)) return { text: dash, cls: '' };
+  if (r.key === 'GOOD') return r.expectancy > 0 ? { text: 'WORKING', cls: 'st-good' } : { text: 'NOT WORKING YET', cls: 'st-warn' };
+  if (r.key === 'WATCH' || r.key === 'BAD') return r.expectancy <= 0 ? { text: 'FILTER CONFIRMED', cls: 'st-good' } : { text: 'FILTER MAY BE BLOCKING WINNERS', cls: 'st-warn' };
+  return { text: dash, cls: '' };
+}
+
+const CLASS_CHECK_HEADERS = ['Class', 'Calls', 'Scored', 'Win rate', 'Exp. (gross R)', 'TP1 / Stop', 'Open', 'Not filled', 'No levels', 'Levels from (plan / candidate)'];
+const classCheckCells = (r) => [r.key, r.calls, r.scored, pct(r.winRate), { v: rVal(r.expectancy), cls: rStatus(r.expectancy) },
+  `${r.wins ?? 0} / ${r.losses ?? 0}`, r.open, r.notFilled, r.noLevels, `${r.fromPlan ?? 0} / ${r.fromCandidate ?? 0}`];
+
+function classCheckBody(agg) {
+  const rows = classCheckRows(agg);
+  if (!rows) return `<p class="empty" id="class-check-empty">${esc(NO_CLASS_CALLS)}</p>`;
+  const since = agg.classCheck.since ? `<p class="mono-note" id="class-check-since">SINCE ${esc(time(agg.classCheck.since))}</p>` : '';
+  const verdicts = `<dl class="stat-rows" id="class-check-verdicts">${rows.map((r) => {
+    const v = classVerdict(r);
+    const id = `class-check-verdict-${String(r.key).toLowerCase().replace(/_/g, '-')}`;
+    return `<div class="stat-row" id="${id}"><dt>${esc(r.key)}</dt><dd${v.cls ? ` class="${v.cls}"` : ''}>${esc(v.text)}</dd></div>`;
+  }).join('')}</dl>`;
+  return since + verdicts + table('class-check-table', CLASS_CHECK_HEADERS, rows.map(classCheckCells), NO_CLASS_CALLS, 1);
+}
+
 // ---------- page ----------
 
 /**
@@ -364,6 +405,9 @@ export function renderHtml(agg, data = {}) {
     + `<p class="edge-note" id="hero-edge-note">${esc(EDGE_NOTE)}</p>`
     + `<p class="note" id="instrument-row-note">Scored = a ready flag plan that reached TP1 or stop. R is gross, before fees and slippage.</p>`,
     { sm: 2, lg: 6 });
+
+  // Class check: did the filter work? Counterfactual WATCH / BAD scoring, separate from the hero.
+  const classCheck = section('class-check-section', 'Class check · did the filter work?', classCheckBody(agg), { sm: 2, lg: 12, foot: CLASS_CHECK_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -478,6 +522,7 @@ export function renderHtml(agg, data = {}) {
   const logRows = agg.dailyLog.map((r) => {
     const rv = r.outcome === 'stop' ? -1 : r.r;
     return [time(r.calledAt), r.symbol, callLabel(r), r.reasonCode || dash, r.timeframe || dash, r.direction || dash, levels(r),
+      r.levelSource === 'plan' || r.levelSource === 'candidate' ? r.levelSource : dash,
       { v: r.outcome, cls: outcomeStatus(r.outcome) }, { v: rVal(rv), cls: rStatus(rv) }, num(r.minutesToResolution, 0)];
   });
   const healthRows = [
@@ -506,7 +551,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, ...instruments]
+      tiles: [hero, classCheck, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -526,7 +571,7 @@ export function renderHtml(agg, data = {}) {
       id: 'zone-calls', title: 'Calls', sub: 'Open now, recent, by day',
       tiles: [
         section('open-calls-section', 'Open calls now', table('open-calls-table', ['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status', 'Filled', 'Net R:R'], openRows, '[NO OPEN CALLS]')),
-        section('daily-log-section', 'Call log (last 7 days)', table('daily-log-table', ['Called', 'Symbol', 'Call', 'Reason', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R', 'Min'], logRows, '[NO CALLS YET]')),
+        section('daily-log-section', 'Call log (last 7 days)', table('daily-log-table', ['Called', 'Symbol', 'Call', 'Reason', 'TF', 'Dir', 'Entry / stop / TP1', 'Levels', 'Outcome', 'R', 'Min'], logRows, '[NO CALLS YET]')),
         section('daily-summary-section', 'By day', table('daily-summary-table', ['Day', 'Calls', 'GOOD', 'WATCH', 'BAD', 'DATA_UNAV', 'Ready plans', 'Fills', 'TP1', 'Stop', 'Exp.'], dayRows, '[NO ROWS YET]', 1))
       ]
     }),
@@ -596,6 +641,12 @@ export function renderReport(agg) {
   out.push(`## Summary\n\n_${PROVISIONAL}_\n`);
   out.push(mdTable(['Expectancy 7d', 'Scored 7d', 'Win rate 7d', 'Fills 7d', 'Losing streak 7d', 'Avg win R 7d', 'Last capture'],
     [[isNum(t.expectancy7d) ? rVal(t.expectancy7d) : NO_SCORED, t7.wins + t7.losses, pct(t.winRate7d), `${t7.fills} / ${t7.calls}`, t.losingStreak7d, rVal(t7.avgWinR), time(t.lastCapture)]]));
+  out.push(`\n## Class check\n\n_${PROVISIONAL}_\n`);
+  const ccRows = classCheckRows(agg);
+  out.push(ccRows
+    ? mdTable([...CLASS_CHECK_HEADERS, 'Verdict'], ccRows.map((r) => [...classCheckCells(r), classVerdict(r).text]))
+    : `${NO_CLASS_CALLS}\n`);
+  out.push(`\n${CLASS_CHECK_NOTE}\n`);
   out.push(`\n## Open calls\n\n_${PROVISIONAL}_\n`);
   out.push(mdTable(['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status'],
     agg.openCalls.map((r) => [time(r.calledAt), r.symbol, callLabel(r), r.timeframe || dash, r.direction || dash, levels(r), r.outcome])));

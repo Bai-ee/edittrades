@@ -16,14 +16,23 @@
  *   rec/<class>       each flagRecommendation class change (GOOD/WATCH/BAD/DATA_UNAVAILABLE).
  *                     GOOD on a ready plan: same prefilled walk. Any other class whose
  *                     same-capture plan carries levels: a counterfactual level-touch walk
- *                     (entry touched within 15 1m candles). No levels: `no_levels`.
+ *                     (entry touched within 15 1m candles), mode counterfactual_level_touch.
+ *                     No plan levels but a flag candidate (candidateLevels): entry =
+ *                     breakout, stop = invalidation, tp1 = measuredTarget, else entry +/-
+ *                     measuredRR x risk; same touch walk, mode counterfactual_candidate.
+ *                     Neither: `no_levels`. Candidate-level rows stay kind 'rec', so they
+ *                     never reach the tradable (ready plan) stats.
+ *
+ * `levelSource` on every engine row: 'plan' (plan rows, and rec rows on same-capture plan
+ * levels), 'candidate' (rec rows on candidate levels), null (no levels).
  *
  * Every call carries `dims` (callDims): filter dimensions copied from its capture row.
  *
  * Outcomes: pending | not_filled | open | tp1 | stop | expired | rejected | no_levels.
  * Window: 24 h from the call close, then `expired`. Idempotent: final outcomes are kept
  * as written; only pending/open calls are re-scored, and a row's scoredAt changes only
- * when its content does.
+ * when its content does. One exception: a written `no_levels` rec row whose call now has
+ * candidate levels is re-scored once (rows from before candidate scoring existed).
  *
  * Journal (T2): each journal `open` record with entry/stop/tp1 and a direction is scored
  * like a ready plan (filled at entry at its time, walked for stop vs TP1 over 24 h). A
@@ -48,6 +57,28 @@ export const FINAL_OUTCOMES = new Set(['tp1', 'stop', 'not_filled', 'expired', '
 function levelsOf(plan) {
   if (!plan || !isFiniteNumber(plan.entry) || !isFiniteNumber(plan.stop) || !isFiniteNumber(plan.tp1)) return null;
   return { entry: plan.entry, stop: plan.stop, tp1: plan.tp1 };
+}
+
+/**
+ * Counterfactual levels from a recommendation's flag candidate, or null. tp1 is the
+ * candidate's measuredTarget when present, else entry + sign x measuredRR x |entry - stop|.
+ * Geometry must be stop < entry < tp1 (long) or tp1 < entry < stop (short).
+ * @param {Object} rec - flagRecommendation
+ * @returns {{direction:string, entry:number, stop:number, tp1:number}|null}
+ */
+export function candidateLevels(rec) {
+  const c = rec && rec.candidate && typeof rec.candidate === 'object' ? rec.candidate : null;
+  if (!c || (c.direction !== 'long' && c.direction !== 'short')) return null;
+  const entry = c.breakout;
+  const stop = c.invalidation;
+  if (!isFiniteNumber(entry) || !isFiniteNumber(stop)) return null;
+  const sign = c.direction === 'long' ? 1 : -1;
+  let tp1 = null;
+  if (isFiniteNumber(c.measuredTarget)) tp1 = c.measuredTarget;
+  else if (isFiniteNumber(c.measuredRR) && c.measuredRR > 0) tp1 = entry + sign * c.measuredRR * Math.abs(entry - stop);
+  if (tp1 === null) return null;
+  const ok = sign === 1 ? stop < entry && entry < tp1 : tp1 < entry && entry < stop;
+  return ok ? { direction: c.direction, entry, stop, tp1 } : null;
 }
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
@@ -146,7 +177,7 @@ export function extractCalls(rows) {
     else if (plan && plan.status === 'conditional') planSig = `conditional|${plan.candidateId}`;
     else if (plan && plan.status === 'rejected') planSig = `rejected|${plan.candidateId}|${plan.reasonCode}`;
     if (planSig && planSig !== prev.plan) {
-      calls.push({ ...baseCall(row, 'plan', planSig), class: null, reasonCode: plan.reasonCode ?? null, ...planFields(plan) });
+      calls.push({ ...baseCall(row, 'plan', planSig), class: null, reasonCode: plan.reasonCode ?? null, ...planFields(plan), levelSource: 'plan' });
     }
 
     const rec = row.flagRecommendation || null;
@@ -156,13 +187,22 @@ export function extractCalls(rows) {
       recSig = `${rec.class}|${rec.candidateId || '-'}|${code || '-'}`;
       if (recSig !== prev.rec) {
         const linked = plan && rec.candidateId && plan.candidateId === rec.candidateId ? plan : null;
+        const fields = planFields(linked);
+        let levelSource = fields.entry !== null ? 'plan' : null;
+        const cand = levelSource ? null : candidateLevels(rec);
+        if (cand) {
+          Object.assign(fields, cand);
+          if (fields.timeframe === null) fields.timeframe = rec.candidate.timeframe ?? null;
+          levelSource = 'candidate';
+        }
         calls.push({
           ...baseCall(row, 'rec', recSig),
           class: rec.class,
           reasonCode: code,
-          ...planFields(linked),
+          ...fields,
           candidateId: rec.candidateId ?? null,
-          readiness: rec.readiness ?? null
+          readiness: rec.readiness ?? null,
+          levelSource
         });
       }
     }
@@ -265,8 +305,14 @@ export function scoreCalls(calls, candlesBySymbol, previous = [], nowMs = Date.n
   // Pass 1: everything except conditional plans (they link to pass-1 ready calls).
   for (const call of calls) {
     const prev = prevById.get(call.callId);
-    // Final rows are kept as written; rows scored before `dims` existed get them once.
-    if (prev && FINAL_OUTCOMES.has(prev.outcome)) { rows.set(call.callId, prev.dims ? prev : { ...prev, dims: call.dims }); continue; }
+    // Final rows are kept as written; rows scored before `dims`/`levelSource` existed get
+    // them once. A `no_levels` rec row that now has candidate levels is re-scored.
+    const rescore = prev && prev.outcome === 'no_levels' && call.levelSource === 'candidate';
+    if (prev && FINAL_OUTCOMES.has(prev.outcome) && !rescore) {
+      const kept = prev.dims ? prev : { ...prev, dims: call.dims };
+      rows.set(call.callId, 'levelSource' in kept ? kept : { ...kept, levelSource: call.levelSource });
+      continue;
+    }
     if (call.kind === 'plan' && call.planStatus === 'conditional') continue;
     const candles = candlesBySymbol[call.symbol] || [];
 
@@ -276,8 +322,10 @@ export function scoreCalls(calls, candlesBySymbol, previous = [], nowMs = Date.n
       finish(call, walkCall(call, candles, nowMs, true), { mode: 'ready_prefilled' });
     } else if (call.entry === null) {
       finish(call, { outcome: 'no_levels', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null }, { mode: 'not_walked' });
-    } else if (call.class === 'GOOD' && call.planStatus === 'ready') {
+    } else if (call.class === 'GOOD' && call.planStatus === 'ready' && call.levelSource === 'plan') {
       finish(call, walkCall(call, candles, nowMs, true), { mode: 'ready_prefilled' });
+    } else if (call.levelSource === 'candidate') {
+      finish(call, walkCall(call, candles, nowMs, false), { mode: 'counterfactual_candidate' });
     } else {
       finish(call, walkCall(call, candles, nowMs, false), { mode: 'counterfactual_level_touch' });
     }

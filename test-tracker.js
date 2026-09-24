@@ -17,9 +17,9 @@ import {
   candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines
 } from './scripts/tracker/collect.js';
 import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet, readJournal, appendJournal, journalOutcomesFile } from './scripts/tracker/store.js';
-import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit } from './scripts/tracker/score.js';
+import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
 import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, FILTER_DIMS } from './scripts/tracker/charts.js';
-import { statsFor, computeAggregates } from './scripts/tracker/aggregate.js';
+import { statsFor, computeAggregates, classCheck } from './scripts/tracker/aggregate.js';
 import { buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
@@ -696,6 +696,115 @@ async function run() {
     buildPage(dir, out, T0 + 3 * 60 * MIN);
     const html = readFileSync(path.join(out, 'index.html'), 'utf8');
     assert(html.includes('id="journal-log-table"'), 'journal log on the built page');
+  });
+
+  // ------------------------------------------------ rec calls scored on candidate levels
+  const cand = (over = {}) => ({ candidateId: 'C', timeframe: '5m', direction: 'long', state: 'forming', breakout: 100, invalidation: 99, measuredRR: 2, ...over });
+  const candRec = (klass, over = {}) => rec(klass, { candidateId: null, readiness: 'no_plan', candidate: cand(over) });
+  const candCandles = {
+    LNG: candles(T0, 40, (i) => (i < 3 ? { h: 99.8, l: 99.5 } : i === 3 ? { h: 100.2, l: 99.9 } : i === 10 ? { h: 102.5, l: 101 } : { h: 100.5, l: 99.6 })),
+    SHT: candles(T0, 40, (i) => (i < 2 ? { h: 99.8, l: 99.5 } : i === 2 ? { h: 100.2, l: 99.8 } : i === 8 ? { h: 101.5, l: 100.5 } : { h: 100.4, l: 99.5 })),
+    NOF: candles(T0, 40, () => ({ h: 99.6, l: 99.2 }))
+  };
+  const candRows = [
+    captureRow('LNG', T0, null, candRec('WATCH')),
+    captureRow('SHT', T0, null, candRec('BAD', { direction: 'short', invalidation: 101 })),
+    captureRow('NOF', T0, null, candRec('WATCH'))
+  ];
+
+  await test('candidateLevels: long/short mirrored, measuredTarget preferred, bad geometry or no RR -> null', () => {
+    assertEqual(JSON.stringify(candidateLevels(candRec('WATCH'))), '{"direction":"long","entry":100,"stop":99,"tp1":102}', 'long from measuredRR');
+    assertEqual(JSON.stringify(candidateLevels(candRec('WATCH', { direction: 'short', invalidation: 101 }))), '{"direction":"short","entry":100,"stop":101,"tp1":98}', 'short mirrored');
+    assertEqual(candidateLevels(candRec('WATCH', { measuredTarget: 105 })).tp1, 105, 'measuredTarget preferred');
+    assertEqual(candidateLevels(candRec('WATCH', { invalidation: 101 })), null, 'long with stop above entry');
+    assertEqual(candidateLevels(candRec('WATCH', { measuredTarget: 99.5 })), null, 'long target below entry');
+    assertEqual(candidateLevels(candRec('WATCH', { measuredRR: null })), null, 'no measuredRR');
+    assertEqual(candidateLevels(candRec('WATCH', { measuredRR: 0 })), null, 'measuredRR 0');
+    assertEqual(candidateLevels(rec('WATCH')), null, 'no candidate');
+  });
+
+  await test('scorer: rec with no plan but a candidate walks candidate levels (tp1 long, stop short, not_filled)', () => {
+    const out = scoreCalls(extractCalls(candRows), candCandles, [], T0 + 2 * 60 * MIN);
+    const get = (s) => out.find((r) => r.symbol === s);
+    const lng = get('LNG');
+    assertEqual(lng.outcome, 'tp1', 'long tp1');
+    assertEqual(lng.r, 2, 'R = measuredRR');
+    assertEqual(lng.filledAt, iso(T0 + 3 * MIN), 'touch fill');
+    assertEqual(lng.levelSource, 'candidate', 'levelSource');
+    assertEqual(lng.mode, 'counterfactual_candidate', 'mode');
+    assertEqual(lng.kind, 'rec', 'stays a rec row');
+    assertEqual(lng.timeframe, '5m', 'candidate timeframe');
+    const sht = get('SHT');
+    assertEqual(sht.outcome, 'stop', 'short stop');
+    assertEqual(sht.r, -1, '-1R');
+    assertEqual(sht.levelSource, 'candidate', 'short levelSource');
+    assertEqual(get('NOF').outcome, 'not_filled', 'entry never touched in 15 candles');
+    assertEqual(get('NOF').mode, 'counterfactual_candidate', 'not_filled mode');
+    const base = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
+    assertEqual(base.find((r) => r.symbol === 'ADA' && r.kind === 'rec').levelSource, null, 'no levels -> null');
+    assertEqual(base.find((r) => r.symbol === 'XRP' && r.kind === 'rec').levelSource, 'plan', 'plan levels -> plan');
+    assert(base.filter((r) => r.kind === 'plan').every((r) => r.levelSource === 'plan'), 'plan rows -> plan');
+  });
+
+  await test('scorer: old no_levels rec row re-scored on candidate levels; other final rows untouched', () => {
+    const calls = extractCalls([...candRows, captureRow('BTC', T0, plan(), rec('GOOD'))]);
+    const strip = ({ levelSource, ...rest }) => rest;
+    const fresh = scoreCalls(calls, { ...candCandles, BTC: candleSet.BTC }, [], T0 + 2 * 60 * MIN);
+    const prev = fresh.map((r) => (r.symbol === 'LNG'
+      ? { ...strip(r), outcome: 'no_levels', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null, mode: 'not_walked', scoredAt: 'OLD' }
+      : r.symbol === 'BTC' ? { ...strip(r), outcome: 'stop', r: -1, scoredAt: 'OLD' } : r));
+    const again = scoreCalls(calls, { ...candCandles, BTC: candleSet.BTC }, prev, T0 + 3 * 60 * MIN);
+    const lng = again.find((r) => r.symbol === 'LNG');
+    assertEqual(lng.outcome, 'tp1', 're-scored');
+    assertEqual(lng.levelSource, 'candidate', 'levelSource set');
+    assertEqual(lng.scoredAt, iso(T0 + 3 * 60 * MIN), 'scoredAt moved');
+    const btc = again.filter((r) => r.symbol === 'BTC');
+    assert(btc.every((r) => r.outcome === 'stop' && r.scoredAt === 'OLD'), 'other final rows kept as written');
+    assert(btc.every((r) => r.levelSource === 'plan'), 'levelSource backfilled on kept rows');
+    const third = scoreCalls(calls, { ...candCandles, BTC: candleSet.BTC }, again, T0 + 4 * 60 * MIN);
+    assertEqual(JSON.stringify(third), JSON.stringify(again), 'stable after the one re-score');
+  });
+
+  await test('aggregate: candidate rows never move tradable, phase or 7d tiles', () => {
+    const base = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
+    const extra = scoreCalls(extractCalls(candRows), candCandles, [], T0 + 2 * 60 * MIN);
+    const opts = { phaseStartMs: T0 - 60 * MIN };
+    const a = computeAggregates(base, rows, candleSet, T0 + 2 * 60 * MIN, opts);
+    const b = computeAggregates([...base, ...extra], rows, candleSet, T0 + 2 * 60 * MIN, opts);
+    assertEqual(JSON.stringify(b.phase), JSON.stringify(a.phase), 'phase');
+    assertEqual(JSON.stringify(b.windows['7d'].tradable), JSON.stringify(a.windows['7d'].tradable), '7d tradable');
+    assertEqual(JSON.stringify(b.totals.tradable), JSON.stringify(a.totals.tradable), 'totals tradable');
+    for (const k of ['fills7d', 'winRate7d', 'expectancy7d', 'losingStreak7d']) assertEqual(b.tiles[k], a.tiles[k], k);
+    assert(b.classCheck.rows.find((r) => r.key === 'WATCH').fromCandidate === 1, 'candidate rows land in classCheck');
+  });
+
+  await test('aggregate: classCheck shape and numbers', () => {
+    const r = (klass, outcome, rv, levelSource, at = T0) => ({ kind: 'rec', class: klass, outcome, r: rv, levelSource, calledAt: iso(at), resolvedAt: iso(at), filledAt: rv === null ? null : iso(at) });
+    const out = [
+      r('BAD', 'stop', -1, 'candidate'), r('BAD', 'stop', -1, 'plan'), r('BAD', 'tp1', 2, 'candidate'), r('BAD', 'no_levels', null, null),
+      r('BAD', 'not_filled', null, 'candidate'), r('BAD', 'expired', null, 'candidate'), r('BAD', 'open', null, 'candidate'), r('BAD', 'pending', null, 'plan'),
+      r('WATCH', 'tp1', 3, 'candidate'), r('WATCH', 'stop', -1, 'candidate', T0 - 2 * 60 * MIN),
+      { kind: 'plan', planStatus: 'ready', outcome: 'tp1', r: 3, levelSource: 'plan', calledAt: iso(T0) }
+    ];
+    const cc = classCheck(out);
+    assertEqual(cc.since, null, 'no phase -> null');
+    assertEqual(cc.rows.map((x) => x.key).join(','), 'GOOD,WATCH,BAD', 'GOOD/WATCH/BAD always, no DATA_UNAVAILABLE');
+    const good = cc.rows[0];
+    assertEqual(good.calls, 0, 'GOOD zero');
+    assertEqual(good.winRate, null, 'GOOD winRate null');
+    assertEqual(good.expectancy, null, 'GOOD expectancy null');
+    const bad = cc.rows[2];
+    assertEqual(JSON.stringify([bad.calls, bad.scored, bad.wins, bad.losses, bad.open, bad.notFilled, bad.noLevels, bad.fromPlan, bad.fromCandidate]),
+      '[8,3,1,2,2,2,1,1,2]', 'BAD counts');
+    assertEqual(bad.winRate, 0.3333, 'BAD win rate 1/3');
+    assertEqual(bad.expectancy, 0, 'BAD expectancy (2-1-1)/3');
+    assertEqual(cc.rows[1].scored, 2, 'WATCH all time');
+    const since = classCheck([...out, r('DATA_UNAVAILABLE', 'no_levels', null, null)], T0 - 60 * MIN);
+    assertEqual(since.since, iso(T0 - 60 * MIN), 'since ISO');
+    assertEqual(since.rows[1].scored, 1, 'WATCH before phase excluded');
+    assertEqual(since.rows[3].key, 'DATA_UNAVAILABLE', 'DATA_UNAVAILABLE when present');
+    assertEqual(JSON.stringify(Object.keys(since.rows[0])), JSON.stringify(['key', 'calls', 'scored', 'wins', 'losses', 'open', 'notFilled', 'noLevels', 'winRate', 'expectancy', 'fromPlan', 'fromCandidate']), 'row keys');
+    assert(computeAggregates([], [], {}, T0).classCheck.rows.length === 3, 'computeAggregates carries classCheck');
   });
 
   await test('parseArgs: --data default ./data, --out default ./docs', () => {
