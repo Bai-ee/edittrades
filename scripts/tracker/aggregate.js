@@ -149,8 +149,9 @@ export function captureStats(captureRows, candles1mBySymbol = {}) {
  * @param {Array<Object>} captureRows
  * @param {Object<string, Array<Object>>} candles1mBySymbol
  * @param {number} [nowMs=Date.now()]
+ * @param {{phaseStartMs?: number}} [opts] phaseStartMs adds `phase` (ready-plan stats called since then)
  */
-export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {}, nowMs = Date.now()) {
+export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {}, nowMs = Date.now(), opts = {}) {
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const recs = outcomes.filter(isRec);
   const tradable = outcomes.filter(isTradable);
@@ -204,12 +205,15 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
     byDay,
     openCalls,
     dailyLog,
-    captures: captureStats(captureRows, candles1mBySymbol)
+    captures: captureStats(captureRows, candles1mBySymbol),
+    phase: isFiniteNumber(opts.phaseStartMs)
+      ? { startedAt: new Date(opts.phaseStartMs).toISOString(), tradable: statsFor(tradable.filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs)) }
+      : null
   };
 }
 
-export function aggregateDataDir(dataDir, nowMs = Date.now()) {
-  const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs);
+export function aggregateDataDir(dataDir, nowMs = Date.now(), opts = {}) {
+  const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs, opts);
   writeJson(aggregatesFile(dataDir), agg);
   return agg;
 }

@@ -17,7 +17,7 @@ import {
 import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs } from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir } from './scripts/tracker/score.js';
 import { statsFor, computeAggregates } from './scripts/tracker/aggregate.js';
-import { buildPage, renderHtml, PROVISIONAL } from './scripts/tracker/build-page.js';
+import { buildPage, renderHtml, rStatus, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
 
@@ -333,19 +333,39 @@ async function run() {
     assertEqual(agg.windows['7d'].reasonCounts.rr_below_min, 2, 'rr_below_min plan + rec');
   });
 
-  await test('page: renders from an empty data dir with tiles and one provisional label per section', () => {
+  await test('page: renders from an empty data dir with hero, phase block, and one provisional tag per section', () => {
     const dir = tmp();
     const out = path.join(dir, 'docs');
     const { htmlFile, mdFile } = buildPage(path.join(dir, 'data'), out, T0);
     const html = readFileSync(htmlFile, 'utf8');
-    for (const id of ['tile-last-capture', 'tile-calls-today', 'tile-good-today', 'tile-fills-7d', 'tile-win-rate-7d', 'tile-expectancy-7d', 'tile-losing-streak-7d', 'open-calls-section', 'window-7d-section', 'window-30d-section', 'daily-log-section']) {
+    for (const id of ['tile-last-capture', 'tile-expectancy-7d', 'hero-sample-size', 'tile-win-rate-7d', 'tile-fills-7d', 'tile-good-7d', 'tile-losing-streak-7d', 'tile-avg-r-7d', 'testing-phase-section', 'testing-phase-status', 'testing-phase-days-bar', 'testing-phase-plans-bar', 'what-we-track-section', 'open-calls-section', 'window-7d-section', 'window-30d-section', 'daily-log-section', 'capture-health-summary']) {
       assert(html.includes(`id="${id}"`), `missing #${id}`);
     }
     const sections = (html.match(/<section /g) || []).length;
-    assertEqual((html.match(new RegExp(PROVISIONAL, 'g')) || []).length, sections, 'one label per section');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, sections, 'one provisional tag per section');
+    assertEqual(html.split(EDGE_NOTE.replace(/'/g, '&#39;')).length - 1, 1, 'edge note once');
+    assert(html.includes(NO_SCORED), 'empty-state text');
+    assert(html.includes('n=0 scored calls'), 'sample size');
+    assert(/\[(RUNNING|SCHEDULED|READY FOR REVIEW)\]/.test(html), 'phase status word');
     assert(!/<script/i.test(html), 'no scripts');
-    assert(html.includes('prefers-color-scheme'), 'dark mode');
-    assert(readFileSync(mdFile, 'utf8').includes(PROVISIONAL), 'report labelled');
+    assert(html.includes('prefers-color-scheme: dark') && html.includes('prefers-color-scheme: light'), 'both schemes');
+    const md = readFileSync(mdFile, 'utf8');
+    assert(md.includes(PROVISIONAL) && md.includes('## Testing phase'), 'report labelled, phase block');
+  });
+
+  await test('page: hero shows signed expectancy with status color and phase progress counts', () => {
+    const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
+    const agg = computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN, { phaseStartMs: T0 - 60 * MIN });
+    const html = renderHtml(agg);
+    const e = agg.tiles.expectancy7d;
+    assert(typeof e === 'number', 'synthetic day has an expectancy');
+    assert(html.includes(`class="hero-value ${rStatus(e)}" id="tile-expectancy-7d"`), 'hero status class');
+    const t = agg.windows['7d'].tradable;
+    assert(html.includes(`n=${t.wins + t.losses} scored call`), 'hero sample size');
+    assertEqual(agg.phase.tradable.wins + agg.phase.tradable.losses, t.wins + t.losses, 'phase scored plans');
+    assertEqual(rStatus(0), 'st-good', '0R is green');
+    assertEqual(rStatus(-0.3), 'st-warn', 'amber band');
+    assertEqual(rStatus(-0.6), 'st-bad', 'red below -0.5R');
   });
 
   await test('page: populated render escapes values', () => {
