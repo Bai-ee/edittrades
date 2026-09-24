@@ -341,6 +341,50 @@ async function run() {
     assertEqual(short.stop, 1010, 'short stop is the candidate\'s own invalidation, unmoved');
   });
 
+  // T6 phase 0 net gate (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md): flagPlan.minNetRR,
+  // shipped off (null). A cfg override is how scripts/replay-rules.js replays a variant
+  // in-process; these tests exercise the same code path directly.
+  function withMinNetRR(minNetRR) {
+    return { ...ENGINE_CONFIG, flagPlan: { ...ENGINE_CONFIG.flagPlan, minNetRR } };
+  }
+
+  await test('net gate off by default: a gross-passing plan with thin net R:R still ships ready (long + short mirror)', () => {
+    for (const cand of [longCandidate({ invalidation: 999, measuredTarget: 1003 }), shortCandidate({ invalidation: 1001, measuredTarget: 997 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
+      assertEqual(plan.status, 'ready', `${cand.direction}: status (net gate off)`);
+      assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR`);
+      assertClose(plan.netRR, 0.333, 0.001, `${cand.direction}: netRR`);
+    }
+  });
+
+  await test('rejected/net_rr_below_min: same thin-net-R:R plan, net gate on via cfg override (long + short mirror), levels kept', () => {
+    for (const cand of [longCandidate({ invalidation: 999, measuredTarget: 1003 }), shortCandidate({ invalidation: 1001, measuredTarget: 997 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(1.0));
+      assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
+      assertEqual(plan.reasonCode, 'net_rr_below_min', `${cand.direction}: reasonCode`);
+      assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR still published`);
+      assertClose(plan.netRR, 0.333, 0.001, `${cand.direction}: netRR still published`);
+      assertEqual(plan.entry, 1000, `${cand.direction}: entry unmoved`);
+      assertEqual(plan.stop, cand.invalidation, `${cand.direction}: stop unmoved`);
+      assertEqual(plan.tp1, cand.measuredTarget, `${cand.direction}: tp1 unmoved`);
+    }
+  });
+
+  await test('net gate boundary: net R:R exactly at the floor passes, not rejected (long + short mirror)', () => {
+    for (const cand of [longCandidate({ invalidation: 998, measuredTarget: 1006 }), shortCandidate({ invalidation: 1002, measuredTarget: 994 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(1.0));
+      assertEqual(plan.status, 'ready', `${cand.direction}: status`);
+      assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
+      assertClose(plan.netRR, 1.0, 0.001, `${cand.direction}: netRR at the floor`);
+    }
+  });
+
+  await test('net gate never overrides the gross gate: a gross-failing plan stays rr_below_min even with a lenient net override', () => {
+    const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1029 }) }), withMinNetRR(5));
+    assertEqual(plan.status, 'rejected', 'status');
+    assertEqual(plan.reasonCode, 'rr_below_min', 'the gross gate runs first and short-circuits');
+  });
+
   await test('rejected/stop_distance_exceeds_cap: a 5% stop exceeds the 3% scalp cap (long)', () => {
     const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ invalidation: 950, measuredTarget: 1200 }) }));
     assertEqual(plan.status, 'rejected', 'status');

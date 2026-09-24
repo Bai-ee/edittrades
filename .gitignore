@@ -21,3 +21,6 @@ test/fixtures/history/
 
 # local forward-paper ledger (append-only call records + derived outcomes; never committed)
 paper-ledger/
+
+# scripts/replay-rules.js raw per-variant output (T6 phase 0; regenerate with npm run replay:rules)
+var/replay-rules/

@@ -185,6 +185,12 @@
  *     decision 2026-09-23 item 1a: 3R is gross price R. `netRR` (after `risk.feeBps`/
  *     `slippageBps` round trip) is published as information only and never rejects;
  *     lib/flagRecommendation.js adds a non-blocking `net_rr_low` oppose below minRR.
+ *   - minNetRR (null, T6 phase 0, `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`): optional
+ *     NET R:R floor (after `risk.feeBps`/`slippageBps`), checked in
+ *     `lib/flagTradePlan.js` right after the gross `minRR` gate. `null` (the shipped
+ *     default) leaves production behavior unchanged - the gate only runs when a replay
+ *     variant (`scripts/replay-rules.js`) sets it through `setConfigOverride`. Below the
+ *     floor: `status: 'rejected'`, `reasonCode: 'net_rr_below_min'`, levels kept.
  *   - entryToleranceAtr (0.1): after a closed candle has closed through the entry level,
  *     the latest closed candle's low (high for a short) must reach within this many ATR
  *     of it and close on the hold side for `ready` (else `conditional`). Tight on
@@ -228,11 +234,52 @@ function deepFreeze(value) {
 
 const raw = JSON.parse(readFileSync(new URL('./engine.json', import.meta.url), 'utf8'));
 
-/** @type {Object} frozen engine configuration */
-export const ENGINE_CONFIG = deepFreeze(raw);
+/**
+ * Deep-merge `patch` onto `base`: a plain object merges key by key (recursively); any
+ * other value (including an array) replaces the base value outright, so a variant never
+ * has to repeat an untouched sibling array to override one scalar.
+ */
+function deepMerge(base, patch) {
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out = { ...base };
+  for (const key of Object.keys(patch)) {
+    out[key] = (base && typeof base[key] === 'object' && base[key] !== null && !Array.isArray(base[key]))
+      ? deepMerge(base[key], patch[key])
+      : patch[key];
+  }
+  return out;
+}
+
+/**
+ * @type {Object} frozen engine configuration. A `let` binding, not `const`: named ES
+ * module exports are live bindings, so `setConfigOverride` reassigning this from within
+ * this module is immediately visible to every `import { ENGINE_CONFIG } from
+ * '../config/engine.js'` elsewhere - no caller passes `cfg` through by hand. (This
+ * repo's only `export default ENGINE_CONFIG` consumer is this file itself; nothing
+ * imports the default, so its staleness after an override is harmless.)
+ */
+export let ENGINE_CONFIG = deepFreeze(raw);
 
 /** @type {string} version stamped into every payload for reproducibility */
 export const CONFIG_VERSION = ENGINE_CONFIG.configVersion;
+
+/**
+ * In-process config override hook (T6 phase 0, `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`):
+ * lets `scripts/replay-rules.js` replay the production pipeline under a variant's
+ * threshold changes without a second copy of any detector or gate. Deep-merges
+ * `overrides` onto the on-disk base config and reassigns the live `ENGINE_CONFIG`
+ * binding; `null` (or omitted) restores the base config exactly.
+ *
+ * Default off: nothing on the request path calls this, so `buildScalpContext()` always
+ * runs against the on-disk `config/engine.json` in production and in every existing test
+ * suite. Not safe to call concurrently with another build in the same process - it is a
+ * single shared module-level binding - so a caller that wants isolated variants must run
+ * them in separate processes (`scripts/replay-rules.js` invoked once per variant).
+ * @param {Object|null} [overrides]
+ */
+export function setConfigOverride(overrides) {
+  ENGINE_CONFIG = overrides ? deepFreeze(deepMerge(raw, overrides)) : deepFreeze(raw);
+}
 
 /**
  * R:R multiples for a setup type, as used by calculateSLTP's callers.

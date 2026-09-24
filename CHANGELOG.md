@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-09-24 — T6 phase 0: fee-aware net gate + rule-variant replay (branch `upgrade-signal-engine`)
+
+`docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`. Research phase, no deploy. ConfigVersion
+2026.09.24-1 → **2026.09.24-2** (new `flagPlan.minNetRR` key, default `null` = off;
+production byte-identical). No schema change.
+
+- **Net gate (shippable, off by default):** `flagPlan.minNetRR` — `lib/flagTradePlan.js`
+  checks it right after the existing gross `minRR` gate; below the floor the plan is
+  `rejected`/`net_rr_below_min`, levels kept. `test:flagplan` +4 tests (47 total).
+- **Config override hook:** `config/engine.js` `setConfigOverride`/live `ENGINE_CONFIG`
+  binding (deep-merge onto the on-disk config, in-process only, default off) — lets a
+  replay variant flip a threshold without touching every module that reads
+  `ENGINE_CONFIG`. `test:config` +4 tests (18 total).
+- **`scripts/replay-rules.js`** (`npm run replay:rules`, new `test:rules` suite, 25
+  tests): replays 11 rule variants (net gate 1.0/1.5/2.0, `flag.timeframes` +15m/1h,
+  combinations, an ATR-floored stop, a 15m/1h-structure stop/target, and a
+  FAILED_FLAG_REVERSAL scout research pass) against `test/fixtures/history/deep-2026-09-24/`
+  through the production pipeline, scored with the tracker's own `walkOutcome`/cost
+  model. Results: `docs/GOOD_QUALITY_REPLAY.md`. Headline: the one real GOOD call in the
+  problem statement (0.066% stop, −4.0R net) generalizes — the shipped-default (gross-
+  only) gate averages **−2.31R net per call** over 15 days; a net gate at 2.0 (closest
+  variant to passing the phase-0 OOS rule, though 3 calls short of n≥20) averages
+  **+0.84R net**, and is the only variant that stays net-positive under the D3 0.34%
+  cost-sensitivity case (real Jupiter Perps fee research, recorded the same day).
+  Widening `flag.timeframes` to 15m/1h diluted every net-gated variant rather than
+  helping. **Owner must pick a variant (D1) before phase 1 ships.**
+- **Tests:** full gate — every `test:*` script + `check:gpt` + `git diff --check`; all
+  pass unchanged plus the 8 new tests above.
+
 ## 2026-09-24 — T5 P0 divergence measurement, net R on the tracker (branch `upgrade-signal-engine`)
 
 `docs/PLAN_DIVERGENCE_OPPORTUNITIES.md`. No engine, payload, config or threshold change.

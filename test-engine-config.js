@@ -17,7 +17,8 @@ import {
   ENGINE_CONFIG,
   CONFIG_VERSION,
   rrForSetupType,
-  rrForStrategy
+  rrForStrategy,
+  setConfigOverride
 } from './config/engine.js';
 
 import {
@@ -27,6 +28,7 @@ import {
 } from './services/strategy.js';
 
 import { buildScalpContext } from './services/scalpContext.js';
+import { buildFlagTradePlan } from './lib/flagTradePlan.js';
 import { readFileSync } from 'node:fs';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +61,11 @@ function assertEqual(actual, expected, msg) {
   if (actual !== expected) {
     throw new Error(`${msg || 'mismatch'}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
   }
+}
+
+function assertClose(actual, expected, tolerance, msg) {
+  assert(typeof actual === 'number' && Number.isFinite(actual), `${msg}: actual is not a finite number (${JSON.stringify(actual)})`);
+  assert(Math.abs(actual - expected) <= tolerance, `${msg}: expected ${expected} +/- ${tolerance}, got ${actual}`);
 }
 
 function assertArrayEqual(actual, expected, msg) {
@@ -190,6 +197,69 @@ async function run() {
       // strict-mode modules throw; either way the value must not change
     }
     assertEqual(ENGINE_CONFIG.scalp.maxStopDistancePct, 3.0, 'a threshold was mutated at runtime');
+  });
+
+  await test('documented defaults: the flag-plan net gate is off (T6 phase 0)', () => {
+    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, null, 'flagPlan.minNetRR is not off by default');
+  });
+
+  await test('setConfigOverride (T6 phase 0): deep-merges onto the base config, leaves siblings untouched, restores on null', () => {
+    const before = ENGINE_CONFIG.flagPlan.minNetRR;
+    try {
+      setConfigOverride({ flagPlan: { minNetRR: 1.5 } });
+      assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, 1.5, 'override did not apply');
+      assertEqual(ENGINE_CONFIG.flagPlan.minRR, 3.0, 'deep-merge dropped an untouched sibling key');
+      assertEqual(ENGINE_CONFIG.scalp.maxStopDistancePct, 3.0, 'an unrelated config block was disturbed');
+      assert(Object.isFrozen(ENGINE_CONFIG), 'overridden config is not frozen');
+      assert(Object.isFrozen(ENGINE_CONFIG.flagPlan), 'overridden nested block is not frozen');
+    } finally {
+      setConfigOverride(null);
+    }
+    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, before, 'override was not cleared');
+  });
+
+  await test('setConfigOverride: an array override replaces the base array outright (no element merge)', () => {
+    const baseTfs = ENGINE_CONFIG.flag.timeframes;
+    try {
+      setConfigOverride({ flag: { timeframes: ['1m', '3m', '5m', '15m', '1h'] } });
+      assertArrayEqual(ENGINE_CONFIG.flag.timeframes, ['1m', '3m', '5m', '15m', '1h'], 'array override did not replace');
+      assertEqual(ENGINE_CONFIG.flag.maxImpulseCandles, 20, 'a sibling scalar in the same block was disturbed');
+    } finally {
+      setConfigOverride(null);
+    }
+    assertArrayEqual(ENGINE_CONFIG.flag.timeframes, baseTfs, 'override was not cleared');
+  });
+
+  await test('setConfigOverride is a live ES module binding: another module\'s default `cfg = ENGINE_CONFIG` param sees it with no code change there', () => {
+    const candidate = {
+      candidateId: 'TEST:1m:long:override', timeframe: '1m', type: 'flag', direction: 'long', state: 'confirmed',
+      confidence: 80, chaseRisk: false, breakoutLevel: 1000, invalidation: 999, measuredTarget: 1003
+    };
+    const params = {
+      candidateSetups: [candidate],
+      geometryContext: {},
+      tfEntries: { '1m': { closedThrough: new Date(NOW).toISOString() }, '15m': { closedThrough: new Date(NOW).toISOString() } },
+      marketByTf: { '1m': { price: 1000, atr: 5 } },
+      candlesByTf: {},
+      intervalMsByTf: INTERVAL_MS,
+      geometryTimeframes: ['15m'],
+      now: NOW,
+      configVersion: 'TEST'
+    };
+    try {
+      const off = buildFlagTradePlan(params); // no cfg arg: uses the module's own default ENGINE_CONFIG
+      assertEqual(off.grossRR, 3, 'sanity: gross RR 3 meets the floor');
+      assertClose(off.netRR, 0.333, 0.001, 'sanity: thin net RR, published as information, net gate off');
+      assert(off.status !== 'rejected' || off.reasonCode !== 'net_rr_below_min', 'net gate must be off with no override in play');
+
+      setConfigOverride({ flagPlan: { minNetRR: 1.0 } });
+      const on = buildFlagTradePlan(params); // same call, no cfg arg: override now live, no import in lib/flagTradePlan.js changed
+      assertEqual(on.grossRR, off.grossRR, 'gross RR unaffected by the override');
+      assertEqual(on.status, 'rejected', 'the live override was not seen by lib/flagTradePlan.js\'s own default cfg param');
+      assertEqual(on.reasonCode, 'net_rr_below_min', 'reasonCode');
+    } finally {
+      setConfigOverride(null);
+    }
   });
 
   await test('unknown keys fall back instead of returning undefined', () => {

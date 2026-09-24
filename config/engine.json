@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.24-1",
+  "configVersion": "2026.09.24-2",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -178,7 +178,8 @@
 
   "flagPlan": {
     "minRR": 3.0,
-    "entryToleranceAtr": 0.1
+    "entryToleranceAtr": 0.1,
+    "minNetRR": null
   },
 
   "mark": {
