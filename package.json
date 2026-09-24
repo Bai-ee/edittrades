@@ -33,15 +33,19 @@
     "replay": "node scripts/replay.js",
     "replay:metrics": "node scripts/replay-metrics.js",
     "replay:outcomes": "node scripts/replay-outcomes.js",
+    "replay:paths": "node scripts/replay-paths.js",
     "ledger:record": "node scripts/paper-ledger.js record",
     "ledger:score": "node scripts/paper-ledger.js score",
     "check:gpt": "node scripts/check-gpt-instructions.js",
     "tracker:collect": "node scripts/tracker/collect.js",
     "tracker:score": "node scripts/tracker/score.js",
+    "tracker:paths": "node scripts/tracker/paths.js",
     "tracker:page": "node scripts/tracker/build-page.js",
     "tracker:sync": "node scripts/tracker/sync.js",
     "test:journal": "node test-journal.js",
-    "test:served": "node test-served.js"
+    "test:served": "node test-served.js",
+    "test:paths": "node test-flag-paths.js",
+    "test:replay-paths": "node test-replay-paths.js"
   },
   "keywords": [
     "trading",

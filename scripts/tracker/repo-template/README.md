@@ -34,12 +34,13 @@ Node 20 or later. No dependencies.
 export SCALP_CONTEXT_API_KEY=...   # never commit this
 node scripts/collect.js --data data
 node scripts/score.js --data data
+node scripts/paths.js --data data
 node scripts/aggregate.js --data data
 node scripts/build-page.js --data data --out docs
 open docs/index.html
 ```
 
-Every script takes `--data <dir>` (default `./data`); `build-page` also takes `--out <dir>` (default `./docs`). `score`, `aggregate` and `build-page` accept `--now <iso>` for replays.
+Every script takes `--data <dir>` (default `./data`); `build-page` also takes `--out <dir>` (default `./docs`). `score`, `paths`, `aggregate` and `build-page` accept `--now <iso>` for replays.
 
 ## Secrets
 

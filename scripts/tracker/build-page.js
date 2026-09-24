@@ -32,6 +32,8 @@ import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, ensureDir, readJsonl, readWallet, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
 import { aggregateDataDir } from './aggregate.js';
+import { pathsFile, pathsSummary } from './paths.js';
+import { PATHS } from './flag-paths.js';
 import {
   chartKit, chartScript, callVia, equityRows, journalEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
   FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, NO_JOURNAL, NO_JOURNAL_TRADES, CHART_CSS
@@ -371,6 +373,26 @@ function classCheckBody(agg) {
   return since + verdicts + table('class-check-table', CLASS_CHECK_HEADERS, rows.map(classCheckCells), NO_CLASS_CALLS, 1);
 }
 
+// ---------- flag paths (T4 P0, docs/PLAN_FLAG_PATHS.md; measure only, no production change) ----------
+
+export const NO_FLAG_PATHS = '[NO RESOLVED FLAG PATHS YET]';
+export const FLAG_PATHS_NOTE = "Measure only: labelled at the tightening point (first forming/proto capture), never fed back into a rule, threshold or trigger. n < 100 per bucket is uncalibrated.";
+const PATH_HEADERS = PATHS.map((p) => p.replace(/_/g, ' ').toUpperCase());
+const fmtShare = (v) => (isNum(v) ? `${v}%` : dash);
+
+function flagPathsWindowBody(block, idPrefix) {
+  if (!block.n) return `<p class="empty" id="${idPrefix}-empty">${esc(NO_FLAG_PATHS)}</p>`;
+  const row = (label, g) => [label, g.n, ...PATHS.map((p) => fmtShare(g.shares[p])), g.calibrated ? '' : { v: 'UNCALIBRATED', cls: 'dim' }];
+  const rows = [row('ALL', block.overall), ...block.byTf.map((g) => row(g.key, g))];
+  return table(`${idPrefix}-table`, ['Bucket', 'N', ...PATH_HEADERS, 'Status'], rows, NO_FLAG_PATHS, 1);
+}
+
+function flagPathsBody(summary) {
+  if (!summary.d7.n && !summary.d30.n) return `<p class="empty" id="flag-paths-empty">${esc(NO_FLAG_PATHS)}</p>`;
+  return sub('flag-paths-7d-sub', 'Last 7 days', flagPathsWindowBody(summary.d7, 'flag-paths-7d'), true)
+    + sub('flag-paths-30d-sub', 'Last 30 days', flagPathsWindowBody(summary.d30, 'flag-paths-30d'));
+}
+
 // ---------- page ----------
 
 /**
@@ -390,6 +412,7 @@ export function renderHtml(agg, data = {}) {
   const marks = walletMarks(journal, journalOutcomes);
   const ev = engineVsYou(outcomes, journal, journalOutcomes);
   const goods = outcomes.filter((r) => r.kind === 'rec' && r.class === 'GOOD' && r.calledAt).map((r) => r.calledAt);
+  const flagPaths = pathsSummary(Array.isArray(data.paths) ? data.paths : [], nowMs);
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
   const scored7 = t7.wins + t7.losses;
@@ -418,6 +441,9 @@ export function renderHtml(agg, data = {}) {
 
   // Class check: did the filter work? Counterfactual WATCH / BAD scoring, separate from the hero.
   const classCheck = section('class-check-section', 'Class check · did the filter work?', classCheckBody(agg), { sm: 2, lg: 12, foot: CLASS_CHECK_NOTE });
+
+  // Flag paths (T4 P0): measured scenario mix at the tightening point. Measure only.
+  const flagPathsSection = section('flag-paths-section', 'Flag paths · scenario mix at tightening', flagPathsBody(flagPaths), { sm: 2, lg: 12, foot: FLAG_PATHS_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -563,7 +589,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, classCheck, ...instruments]
+      tiles: [hero, classCheck, flagPathsSection, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -681,7 +707,8 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const howToFile = path.join(outDir, 'how-to.html');
   writeFileSync(htmlFile, renderHtml(agg, {
     outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir),
-    journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir))
+    journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir)),
+    paths: readJsonl(pathsFile(dataDir))
   }));
   writeFileSync(mdFile, renderReport(agg));
   writeFileSync(howToFile, renderHowTo());

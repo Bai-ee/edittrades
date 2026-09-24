@@ -29,7 +29,16 @@
  * `--backfill-1m <minutes>` extends the 1m capture further back than Kraken's 720-row
  * OHLC window by bucketing Kraken public trades into 1m candles. A 60-minute overlap
  * with the OHLC window is compared candle by candle and the result is written to
- * manifest.json; OHLC rows win wherever both exist.
+ * manifest.json; OHLC rows win wherever both exist. It is resumable: progress (the
+ * Kraken Trades `since` cursor and the trades collected so far) is checkpointed to
+ * `<out>/<SYMBOL>_1m.backfill.json` and picked back up on a rerun of the same command,
+ * and Kraken rate-limit responses (`EAPI:Rate limit exceeded`, HTTP 429) are retried
+ * with increasing backoff instead of aborting the run.
+ *
+ * `--derive-deep` (automatic whenever `--backfill-1m` is used) aggregates the backfilled
+ * 1m candles into UTC-aligned 5m/15m candles and prepends them to those timeframes'
+ * OHLC rows wherever OHLC doesn't reach that far back - OHLC still wins on overlap,
+ * recorded per timeframe in manifest.json the same way as the 1m backfill.
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, createWriteStream } from 'node:fs';
@@ -37,7 +46,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ENGINE_CONFIG } from '../config/engine.js';
 import { buildScalpContext, dropUnclosedCandles, INTERVAL_MS, SYMBOLS, TIMEFRAMES } from '../services/scalpContext.js';
-import { getCandlesWithProvenance, DERIVED_INTERVALS } from '../services/marketData.js';
+import { getCandlesWithProvenance, DERIVED_INTERVALS, aggregateToBuckets } from '../services/marketData.js';
 
 /** Timeframes read from history files (3m is derived, never stored). */
 export const NATIVE_TIMEFRAMES = TIMEFRAMES.filter((tf) => !DERIVED_INTERVALS[tf]);
@@ -275,22 +284,56 @@ export async function replaySymbol({ symbol, historyByTf, timeframes = TIMEFRAME
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function krakenTrades(pair, sinceNs) {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const res = await fetch(`https://api.kraken.com/0/public/Trades?pair=${pair}&since=${sinceNs}`);
-    const body = await res.json();
-    if (body.error && body.error.length) {
-      if (body.error.some((e) => /Too many requests/i.test(e))) { await sleep(5000 * (attempt + 1)); continue; }
-      throw new Error(`Kraken Trades: ${body.error.join(', ')}`);
+/**
+ * One page of Kraken public Trades, with retry/backoff. Both a Kraken-reported rate
+ * limit (`error: ["EAPI:Rate limit exceeded"]` or the older "Too many requests" text)
+ * and a plain HTTP 429 are treated as rate limiting and retried with increasing sleep
+ * rather than thrown. `fetchImpl`/`retryDelayMs`/`log` are injectable for tests; the
+ * defaults (global `fetch`, a capped exponential backoff, `console.error`) are what the
+ * CLI uses.
+ * @param {string} pair - Kraken pair name, e.g. 'XBTUSD'
+ * @param {string} sinceNs - nanosecond cursor
+ * @param {Object} [opts]
+ * @returns {Promise<{trades: Array, last: string}>}
+ */
+export async function krakenTrades(pair, sinceNs, opts = {}) {
+  const {
+    fetchImpl = fetch,
+    maxAttempts = 12,
+    retryDelayMs = (attempt) => Math.min(30000, 2000 * (attempt + 1)),
+    log = () => {}
+  } = opts;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let res;
+    try {
+      res = await fetchImpl(`https://api.kraken.com/0/public/Trades?pair=${pair}&since=${sinceNs}`);
+    } catch (err) {
+      log(`[replay] ${pair} trades fetch error: ${err.message} (attempt ${attempt + 1}/${maxAttempts})`);
+      await sleep(retryDelayMs(attempt));
+      continue;
     }
+    let body = null;
+    try { body = await res.json(); } catch { /* handled as bad response / rate limit below */ }
+    const rateLimited = res.status === 429 || (body && Array.isArray(body.error) && body.error.some((e) => /rate limit|too many requests/i.test(e)));
+    if (rateLimited) {
+      log(`[replay] ${pair} rate limited (attempt ${attempt + 1}/${maxAttempts})`);
+      await sleep(retryDelayMs(attempt));
+      continue;
+    }
+    if (!body || !body.result) throw new Error(`Kraken Trades: bad response (status ${res.status})`);
+    if (body.error && body.error.length) throw new Error(`Kraken Trades: ${body.error.join(', ')}`);
     const key = Object.keys(body.result).find((k) => k !== 'last');
     return { trades: body.result[key], last: body.result.last };
   }
-  throw new Error('Kraken Trades: rate limited');
+  throw new Error(`Kraken Trades: rate limited after ${maxAttempts} attempts`);
 }
 
-/** Bucket trades into 1m candles over [startMs, endMs). A minute without trades is flat at the previous close, volume 0. */
-export function tradesTo1m(trades, startMs, endMs) {
+/**
+ * Bucket trades into 1m candles over [startMs, endMs). A minute without trades is flat
+ * at the previous close, volume 0. `seedPrevClose` lets a resumed backfill continue the
+ * gap-fill rule across a checkpoint boundary instead of restarting it at null.
+ */
+export function tradesTo1m(trades, startMs, endMs, seedPrevClose = null) {
   const step = INTERVAL_MS['1m'];
   const byMinute = new Map();
   for (const [price, volume, time] of trades) {
@@ -304,7 +347,7 @@ export function tradesTo1m(trades, startMs, endMs) {
     else { c.high = Math.max(c.high, p); c.low = Math.min(c.low, p); c.close = p; c.volume += v; }
   }
   const out = [];
-  let prev = null;
+  let prev = seedPrevClose;
   for (let t = Math.floor(startMs / step) * step; t < endMs; t += step) {
     const c = byMinute.get(t);
     if (c) { c.volume = Number(c.volume.toFixed(8)); out.push(c); prev = c.close; }
@@ -313,24 +356,92 @@ export function tradesTo1m(trades, startMs, endMs) {
   return out;
 }
 
-async function backfill1m(symbol, ohlc1m, minutes) {
+/**
+ * Backfill 1m candles from Kraken public Trades further back than Kraken's 720-row OHLC
+ * window. Resumable via `opts.checkpointFile`: the Kraken Trades `since` cursor and the
+ * trades collected so far are written to disk every `flushEveryPages` pages and on
+ * completion, so a killed or crashed run continues from where it left off on a rerun
+ * instead of re-paginating from the start. `startMs` is pinned from the checkpoint's
+ * first run (the requested depth is a fixed historical range, independent of "now"), and
+ * `overlapEnd` only ever grows to match the freshest OHLC pull, so a later resume also
+ * covers any gap opened by real time elapsing between runs.
+ * @param {string} symbol
+ * @param {Array<Object>} ohlc1m - ascending, closed 1m OHLC candles from Kraken
+ * @param {number} minutes - how far back of trades to backfill, from `ohlc1m`'s oldest row
+ * @param {Object} [opts]
+ * @param {Function} [opts.fetchImpl] - injectable fetch, passed through to krakenTrades
+ * @param {Function} [opts.retryDelayMs] - injectable backoff schedule
+ * @param {string|null} [opts.checkpointFile] - path to persist/resume progress; no file, no persistence
+ * @param {number} [opts.flushEveryPages]
+ * @param {number} [opts.logEveryPages]
+ * @param {number} [opts.pageDelayMs] - sleep between successful pages (default 1100, Kraken's public rate limit)
+ * @param {Function} [opts.log]
+ */
+export async function backfill1m(symbol, ohlc1m, minutes, opts = {}) {
   const pair = KRAKEN_PAIRS[symbol];
   if (!pair) throw new Error(`no Kraken pair for ${symbol}`);
+  const {
+    fetchImpl,
+    retryDelayMs,
+    checkpointFile = null,
+    flushEveryPages = 50,
+    logEveryPages = 10,
+    pageDelayMs = 1100, // politeness sleep between successful pages; overridable so tests don't pay it
+    log = (msg) => console.error(msg)
+  } = opts;
   const step = INTERVAL_MS['1m'];
   const oldest = ohlc1m[0].timestamp;
-  const startMs = oldest - minutes * step;
-  const overlapEnd = oldest + 60 * step;
-  const trades = [];
-  let since = String(BigInt(startMs) * 1000000n);
-  for (;;) {
-    const page = await krakenTrades(pair, since);
-    if (!page.trades.length) break;
-    trades.push(...page.trades);
-    const lastMs = Number(page.trades[page.trades.length - 1][2]) * 1000;
-    if (lastMs >= overlapEnd || page.last === since) break;
-    since = page.last;
-    await sleep(1100);
+
+  let checkpoint = null;
+  if (checkpointFile && existsSync(checkpointFile)) {
+    try { checkpoint = JSON.parse(readFileSync(checkpointFile, 'utf8')); } catch (err) {
+      log(`[replay] ${symbol} backfill: checkpoint unreadable (${err.message}), starting fresh`);
+    }
   }
+
+  const resumable = checkpoint && checkpoint.symbol === symbol
+    && Number.isFinite(checkpoint.startMs) && Number.isFinite(checkpoint.overlapEnd)
+    && typeof checkpoint.since === 'string' && Array.isArray(checkpoint.trades);
+
+  let startMs;
+  let overlapEnd;
+  let since;
+  let trades;
+  let done;
+  if (resumable) {
+    startMs = checkpoint.startMs;
+    overlapEnd = Math.max(checkpoint.overlapEnd, oldest + 60 * step);
+    since = checkpoint.since;
+    trades = checkpoint.trades.slice();
+    done = checkpoint.done === true && overlapEnd <= checkpoint.overlapEnd;
+    log(`[replay] ${symbol} backfill: resuming from checkpoint (${trades.length} trades buffered, since ${since})`);
+  } else {
+    startMs = oldest - minutes * step;
+    overlapEnd = oldest + 60 * step;
+    since = String(BigInt(startMs) * 1000000n);
+    trades = [];
+    done = false;
+  }
+
+  const persist = () => {
+    if (checkpointFile) writeFileSync(checkpointFile, JSON.stringify({ symbol, startMs, overlapEnd, since, trades, done }));
+  };
+
+  let pagesFetched = 0;
+  while (!done) {
+    const page = await krakenTrades(pair, since, { fetchImpl, retryDelayMs, log });
+    pagesFetched++;
+    if (page.trades.length) trades.push(...page.trades);
+    const lastMs = page.trades.length ? Number(page.trades[page.trades.length - 1][2]) * 1000 : 0;
+    done = page.trades.length === 0 || lastMs >= overlapEnd || page.last === since;
+    since = page.last;
+    if (pagesFetched % logEveryPages === 0 || done) {
+      log(`[replay] ${symbol} backfill: page ${pagesFetched}, ${trades.length} trades so far${lastMs ? `, at ${new Date(lastMs).toISOString()}` : ''}`);
+    }
+    if (checkpointFile && (pagesFetched % flushEveryPages === 0 || done)) persist();
+    if (!done) await sleep(pageDelayMs);
+  }
+
   const built = tradesTo1m(trades, startMs, overlapEnd);
   const ohlcByTs = new Map(ohlc1m.map((c) => [c.timestamp, c]));
   let compared = 0;
@@ -345,29 +456,78 @@ async function backfill1m(symbol, ohlc1m, minutes) {
   return { candles: merged, report: { minutes, trades: trades.length, overlapCompared: compared, overlapMismatches: mismatches } };
 }
 
+/** Timeframes deep-derived from backfilled 1m via aggregateToBuckets (their native OHLC window is shallower than 14 days; 1h/4h/1d already reach far enough). */
+const DERIVE_DEEP_TIMEFRAMES = ['5m', '15m'];
+
+/**
+ * Aggregate 1m candles into `tf`-width, UTC-aligned buckets (production's own
+ * `aggregateToBuckets`, so a partial trailing bucket is dropped exactly as it is on the
+ * request path) and prepend them to `ohlcCandles` wherever OHLC doesn't reach that far
+ * back. OHLC wins on any overlapping timestamp - same rule as the 1m trade backfill -
+ * and the overlap is reported the same way.
+ * @param {Array<Object>} candles1m - ascending 1m candles (backfilled + OHLC)
+ * @param {'5m'|'15m'} tf
+ * @param {Array<Object>} ohlcCandles - ascending, closed OHLC rows for `tf`
+ * @returns {{candles: Array<Object>, report: Object}}
+ */
+export function deriveTimeframe(candles1m, tf, ohlcCandles) {
+  const derived = aggregateToBuckets(candles1m, INTERVAL_MS['1m'], INTERVAL_MS[tf]);
+  const ohlcByTs = new Map(ohlcCandles.map((c) => [c.timestamp, c]));
+  let compared = 0;
+  let mismatches = 0;
+  for (const c of derived) {
+    const o = ohlcByTs.get(c.timestamp);
+    if (!o) continue;
+    compared++;
+    if (['open', 'high', 'low', 'close'].some((k) => Math.abs(o[k] - c[k]) > 1e-9)) mismatches++;
+  }
+  const merged = [...derived.filter((c) => !ohlcByTs.has(c.timestamp)), ...ohlcCandles].sort((a, b) => a.timestamp - b.timestamp);
+  return { candles: merged, report: { derivedFrom: '1m', derivedBuckets: derived.length, overlapCompared: compared, overlapMismatches: mismatches } };
+}
+
 /**
  * Save a live pull, one file per symbol and native timeframe, through the production
  * fetch (strict: no synthetic data). Unclosed candles are dropped before writing.
+ *
+ * With `backfillMinutes > 0`, 1m is extended by `backfill1m` (checkpointed to
+ * `<outDir>/<SYMBOL>_1m.backfill.json`) and, unless `deriveDeep` is explicitly false,
+ * `deriveDeep` also extends 5m/15m from those backfilled 1m candles via `deriveTimeframe`.
+ * Neither runs, and neither the checkpoint file nor the manifest's `deriveDeep` entries
+ * are touched, when `backfillMinutes` is 0 - capture without backfill is unchanged.
  */
-export async function captureHistory({ symbols, outDir, backfillMinutes = 0, now = Date.now() }) {
+export async function captureHistory({ symbols, outDir, backfillMinutes = 0, deriveDeep, now = Date.now(), fetchImpl, log }) {
   mkdirSync(outDir, { recursive: true });
-  const manifest = { capturedAt: new Date(now).toISOString(), provider: 'kraken', symbols, timeframes: NATIVE_TIMEFRAMES, files: {}, backfill1m: {} };
+  const deep = deriveDeep === undefined ? backfillMinutes > 0 : Boolean(deriveDeep);
+  const manifest = { capturedAt: new Date(now).toISOString(), provider: 'kraken', symbols, timeframes: NATIVE_TIMEFRAMES, files: {}, backfill1m: {}, deriveDeep: {} };
   for (const symbol of symbols) {
+    let candles1mFinal = null;
     for (const tf of NATIVE_TIMEFRAMES) {
       const env = await getCandlesWithProvenance(`${symbol}USDT`, tf, CAPTURE_LIMIT, { allowSynthetic: false, now });
       if (env.error || env.provider !== 'kraken') throw new Error(`${symbol} ${tf}: ${env.error || `provider ${env.provider}`}`);
       let candles = dropUnclosedCandles(env.candles, tf, now);
       if (tf === '1m' && backfillMinutes > 0) {
-        const r = await backfill1m(symbol, candles, backfillMinutes);
+        const checkpointFile = path.join(outDir, `${symbol}_1m.backfill.json`);
+        const r = await backfill1m(symbol, candles, backfillMinutes, { fetchImpl, checkpointFile, log });
         candles = r.candles;
         manifest.backfill1m[symbol] = r.report;
+        candles1mFinal = candles;
+      }
+      if (deep && candles1mFinal && DERIVE_DEEP_TIMEFRAMES.includes(tf)) {
+        const d = deriveTimeframe(candles1mFinal, tf, candles);
+        candles = d.candles;
+        manifest.deriveDeep[symbol] = manifest.deriveDeep[symbol] || {};
+        manifest.deriveDeep[symbol][tf] = d.report;
       }
       const file = `${symbol}_${tf}.json`;
       writeFileSync(path.join(outDir, file), JSON.stringify({ symbol, timeframe: tf, provider: env.provider, capturedAt: manifest.capturedAt, candles }));
       manifest.files[file] = { count: candles.length, from: new Date(candles[0].timestamp).toISOString(), closedThrough: new Date(closeTimeOf(candles[candles.length - 1], tf)).toISOString() };
     }
+    // Written after every symbol (not only at the end): a multi-hour capture that is
+    // killed or crashes mid-run still leaves a manifest describing whichever symbols
+    // finished, alongside their files and the per-symbol backfill1m checkpoint for
+    // whichever symbol was in progress.
+    writeFileSync(path.join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   }
-  writeFileSync(path.join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
 }
 
@@ -395,7 +555,10 @@ export function parseArgs(argv) {
     to: opts.to ?? null,
     step: opts.step ? Number(opts.step) : 1,
     out: typeof opts.out === 'string' ? opts.out : null,
-    backfillMinutes: opts['backfill-1m'] ? Number(opts['backfill-1m']) : 0
+    backfillMinutes: opts['backfill-1m'] ? Number(opts['backfill-1m']) : 0,
+    // undefined (not just true/false) when the flag is absent, so captureHistory's own
+    // "on whenever backfill runs" default applies instead of being overridden to false.
+    deriveDeep: opts['derive-deep'] ? true : undefined
   };
 }
 
@@ -403,7 +566,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.capture) {
     if (!args.out) throw new Error('--capture needs --out <dir>');
-    const manifest = await captureHistory({ symbols: args.capture, outDir: args.out, backfillMinutes: args.backfillMinutes });
+    const manifest = await captureHistory({ symbols: args.capture, outDir: args.out, backfillMinutes: args.backfillMinutes, deriveDeep: args.deriveDeep });
     console.error(JSON.stringify(manifest, null, 2));
     return;
   }

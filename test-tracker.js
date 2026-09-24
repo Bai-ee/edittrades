@@ -15,16 +15,23 @@ import path from 'node:path';
 import {
   isSensitiveKey, stripSensitive, findSensitiveKeys, recordsFromPayload, candlesFromPayload, ingestPayload,
   candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines,
-  pullServed, servedRowsFromLines, servedKey
+  pullServed, servedRowsFromLines, servedKey, slimCandidate
 } from './scripts/tracker/collect.js';
 import { runAlerts, findNewGood, alertKey, alertsFile, ALERT_MAX_AGE_MIN } from './scripts/tracker/alerts.js';
-import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet, readJournal, appendJournal, journalOutcomesFile, appendCalls } from './scripts/tracker/store.js';
+import {
+  readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, aggregatesFile, parseArgs, walletFile, readWallet,
+  readJournal, appendJournal, journalOutcomesFile, appendCalls, appendCandles
+} from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
 import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
-import { statsFor, computeAggregates, classCheck } from './scripts/tracker/aggregate.js';
+import { statsFor, computeAggregates, classCheck, aggregateDataDir } from './scripts/tracker/aggregate.js';
 import { buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
+import { featuresAt } from './scripts/tracker/flag-paths.js';
+import {
+  pathsDataDir, computePathsRows, extractTighteningPoints, candidatesInRow, pathsFile, pathsSummary, derive3mFrom1m
+} from './scripts/tracker/paths.js';
 
 let passed = 0;
 let failed = 0;
@@ -177,7 +184,9 @@ async function run() {
     assertEqual(btc.flagRecommendation.class, 'GOOD', 'rec kept');
     assertEqual(btc.bias, 'scalp:L1', 'bias string kept');
     assertEqual(JSON.stringify(Object.keys(btc.mark)), '["price","driftBps","status"]', 'mark slimmed');
-    assertEqual(JSON.stringify(Object.keys(btc.candidateSetups[0])), '["id","tf","dir","state","breakout","invalidation","measuredRR","qual"]', 'candidate slimmed');
+    assertEqual(JSON.stringify(Object.keys(btc.candidateSetups[0])),
+      '["id","tf","dir","state","breakout","invalidation","measuredRR","qual","measuredTarget","compressionScore","durationCandles","impulseStrength","flagHigh","flagLow"]',
+      'candidate slimmed (T4-additive fields included)');
   });
 
   await test('wallet.jsonl: rows carry exactly the whitelisted keys, numbers only, deduped by t', () => {
@@ -947,6 +956,213 @@ async function run() {
     const scripts = html.match(/<script\b[^>]*>/gi) || [];
     assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'exactly one executable inline script');
     assert(!/gradient|box-shadow|drop-shadow/i.test(html), 'no gradients or shadows');
+  });
+
+  // ---------------------------------------------------------------- T4 flag paths (paths.js, docs/PLAN_FLAG_PATHS.md P0)
+
+  const tfRows = (startMs, stepMs, cs) => cs.map((r, i) => ({ timestamp: startMs + i * stepMs, open: r.o, high: r.h, low: r.l, close: r.c }));
+  const toStoreCandles = (symbol, arr) => arr.map((c) => ({ symbol, t: iso(c.timestamp), o: c.open, h: c.high, l: c.low, c: c.close, v: 0 }));
+  const allStoreCandles = (bySymbol) => Object.entries(bySymbol).flatMap(([sym, arr]) => toStoreCandles(sym, arr));
+  const slimCand = (over = {}) => ({
+    id: 'BTC:5m:long:tight', tf: '5m', dir: 'long', state: 'proto', breakout: 100, invalidation: 99, measuredRR: 2, qual: null,
+    measuredTarget: null, compressionScore: null, durationCandles: null, impulseStrength: null, flagHigh: null, flagLow: null, ...over
+  });
+  const candCaptureRow = (symbol, ms, candidateSetups, flagRecommendation = null, over = {}) =>
+    ({ ...captureRow(symbol, ms, null, flagRecommendation), candidateSetups, ...over });
+
+  await test('derive3mFrom1m: full UTC-aligned 3-minute buckets only, partial trailing bucket dropped', () => {
+    const c1m = candles(T0, 7, () => ({ h: 1, l: 0 }));
+    const out = derive3mFrom1m({ BTC: c1m }).BTC;
+    assertEqual(out.length, 2, 'two full buckets from 7 one-minute candles');
+    assertEqual(out[0].timestamp, T0, 'first bucket starts at T0');
+    assertEqual(out[1].timestamp, T0 + 3 * MIN, 'second bucket starts 3m later');
+    assertEqual(out[0].close, c1m[2].close, 'bucket close is its third 1m candle close');
+  });
+
+  await test('candidatesInRow: candidateSetups preferred over the flagRecommendation.candidate summary; legacy rows (no T4 fields) still parse to null', () => {
+    const rich = { symbol: 'BTC', closedThrough: iso(T0), candidateSetups: [slimCand({ measuredTarget: 103, compressionScore: 0.8, durationCandles: 6, impulseStrength: 3 })], flagRecommendation: null };
+    const c = candidatesInRow(rich).get('BTC:5m:long:tight');
+    assertEqual(c.measuredTarget, 103, 'richer candidateSetups value wins');
+    const legacy = { symbol: 'BTC', closedThrough: iso(T0), candidateSetups: [{ id: 'legacy1', tf: '5m', dir: 'long', state: 'proto', breakout: 100, invalidation: 99, measuredRR: 2, qual: null }], flagRecommendation: null };
+    const lc = candidatesInRow(legacy).get('legacy1');
+    assert(lc, 'legacy candidate (no T4 fields) parsed');
+    for (const k of ['measuredTarget', 'compressionScore', 'durationCandles', 'impulseStrength', 'flagHigh', 'flagLow']) assertEqual(lc[k], null, `${k} null on a legacy row`);
+    const feats = featuresAt({ ...lc, timeframe: lc.tf }, {});
+    assertEqual(feats.compression, 'unknown', 'compression unknown for a legacy row');
+    assertEqual(feats.duration, 'unknown', 'duration unknown for a legacy row');
+    assertEqual(feats.impulseStrength, 'unknown', 'impulseStrength unknown for a legacy row');
+    const summaryOnly = { symbol: 'BTC', closedThrough: iso(T0), candidateSetups: [], flagRecommendation: { class: 'WATCH', candidateId: 'sum1', candidate: { candidateId: 'sum1', timeframe: '3m', direction: 'short', state: 'forming', breakout: 50, invalidation: 51, measuredRR: 2 } } };
+    const su = candidatesInRow(summaryOnly).get('sum1');
+    assertEqual(su.tf, '3m', 'flagRecommendation.candidate summary fills in an id candidateSetups did not carry');
+    assertEqual(su.measuredTarget, null, 'summary carries no measuredTarget');
+  });
+
+  await test('extractTighteningPoints / computePathsRows: pure in-memory unit (no disk), earliest forming/proto sighting only, any input order', () => {
+    const cid = 'SOL:3m:short:unit';
+    const r1 = candCaptureRow('SOL', T0, [slimCand({ id: cid, tf: '3m', dir: 'short', state: 'forming', breakout: 20, invalidation: 21 })]);
+    const r2 = candCaptureRow('SOL', T0 + 3 * MIN, [slimCand({ id: cid, tf: '3m', dir: 'short', state: 'triggering', breakout: 20, invalidation: 21 })]);
+    const tightened = extractTighteningPoints([r2, r1]); // reversed input order
+    assertEqual(tightened.length, 1, 'one candidate');
+    assertEqual(tightened[0].tighteningAt, iso(T0), 'earliest forming/proto capture, regardless of input order');
+    assertEqual(tightened[0].symbol, 'SOL', 'symbol');
+    assertEqual(tightened[0].source, 'cron', 'default source');
+    const out = computePathsRows([r1, r2], { '3m': {}, '1m': {} }, [], T0 + 50 * MIN);
+    assertEqual(out.length, 1, 'computePathsRows finds it too');
+    assertEqual(out[0].status, 'pending', 'no candle data at all -> chop -> pending, window (24 x 3m = 72min) not yet elapsed');
+    assertEqual(out[0].path, 'chop', 'no data to resolve against');
+  });
+
+  await test('paths.js: tightening point detection, served-first-sighting source, runner path resolved, idempotent (frozen labelledAt)', () => {
+    const dir = tmp();
+    const cid = 'BTC:5m:long:tight';
+    const pCandles5m = tfRows(T0, 5 * MIN, [
+      { o: 99.6, h: 99.9, l: 99.4, c: 99.7 }, // forming
+      { o: 99.7, h: 100.5, l: 99.6, c: 100.4 }, // breakout close
+      { o: 100.4, h: 101.2, l: 100.3, c: 101.0 }
+    ]);
+    const p1m = tfRows(T0 + 5 * MIN, MIN, [
+      { o: 100.4, h: 100.5, l: 100.35, c: 100.45 },
+      { o: 100.45, h: 100.7, l: 100.4, c: 100.65 },
+      { o: 100.65, h: 100.9, l: 100.6, c: 100.85 },
+      { o: 100.85, h: 101.05, l: 100.8, c: 101.0 }, // target touch (+1R = 101)
+      { o: 101.0, h: 101.2, l: 100.95, c: 101.15 }
+    ]);
+    appendCandles(dir, '5m', toStoreCandles('BTC', pCandles5m));
+    appendCandles(dir, '1m', toStoreCandles('BTC', p1m));
+    appendCalls(dir, [
+      candCaptureRow('BTC', T0, [slimCand({ id: cid, state: 'proto' })], { class: 'WATCH', candidateId: cid, candidate: { candidateId: cid } }, { source: 'served' }),
+      candCaptureRow('BTC', T0 + 5 * MIN, [slimCand({ id: cid, state: 'confirmed' })])
+    ]);
+    const out = pathsDataDir(dir, T0 + 30 * MIN);
+    assertEqual(out.length, 1, 'one row per candidate despite two captures');
+    const r = out[0];
+    assertEqual(r.candidateId, cid, 'candidateId');
+    assertEqual(r.symbol, 'BTC', 'symbol');
+    assertEqual(r.tf, '5m', 'tf');
+    assertEqual(r.direction, 'long', 'direction');
+    assertEqual(r.tighteningAt, iso(T0), 'tightening at the first proto sighting, not the later confirmed one');
+    assertEqual(r.source, 'served', 'first sighting source recorded');
+    assertEqual(r.recClass, 'WATCH', 'recClass at tightening (flagRecommendation names this candidate)');
+    assertEqual(r.status, 'resolved', 'runner resolves on its own (has its own resolvedAt); window need not elapse');
+    assertEqual(r.path, 'runner', 'runner path');
+    assertEqual(r.breakoutAt, T0 + 5 * MIN, 'breakoutAt (ms, labelPath field)');
+    assertEqual(r.resolvedAt, T0 + 8 * MIN, 'resolvedAt at the target touch (ms)');
+    assertEqual(r.minutes, 8, 'minutes from tightening to resolution');
+    assert(r.labelledAt, 'labelledAt set once resolved');
+    assertEqual(r.features.tf, '5m', 'featuresAt tf (candidate.timeframe alias)');
+    assertEqual(r.features.direction, 'long', 'featuresAt direction');
+
+    const again = pathsDataDir(dir, T0 + 60 * MIN);
+    assertEqual(JSON.stringify(again), JSON.stringify(out), 'resolved row frozen byte-for-byte on rerun (idempotent, like score.js)');
+  });
+
+  await test('paths.js: pending while the window has not elapsed, resolved chop once it has, then frozen', () => {
+    const dir = tmp();
+    const cid = 'ETH:5m:long:flat';
+    const flatCandles = tfRows(T0, 5 * MIN, Array.from({ length: 6 }, () => ({ o: 49.5, h: 49.6, l: 49.4, c: 49.5 })));
+    appendCandles(dir, '5m', toStoreCandles('ETH', flatCandles));
+    appendCalls(dir, [candCaptureRow('ETH', T0, [slimCand({ id: cid, tf: '5m', dir: 'long', breakout: 50, invalidation: 49 })])]);
+
+    const soon = pathsDataDir(dir, T0 + 30 * MIN);
+    assertEqual(soon.length, 1, 'one candidate');
+    assertEqual(soon[0].status, 'pending', 'window (24 x 5m = 120min) has not elapsed yet');
+    assertEqual(soon[0].path, 'chop', 'nothing has happened yet');
+    assertEqual(soon[0].labelledAt, null, 'not labelled while pending');
+
+    const late = pathsDataDir(dir, T0 + 130 * MIN);
+    assertEqual(late[0].status, 'resolved', 'window has now elapsed - final chop');
+    assertEqual(late[0].path, 'chop', 'still chop');
+    assert(late[0].labelledAt, 'labelledAt set on the run that resolves it');
+    const firstLabelledAt = late[0].labelledAt;
+
+    const evenLater = pathsDataDir(dir, T0 + 999 * MIN);
+    assertEqual(JSON.stringify(evenLater), JSON.stringify(late), 'resolved chop frozen, labelledAt never moves again');
+    assertEqual(evenLater[0].labelledAt, firstLabelledAt, 'labelledAt unchanged');
+  });
+
+  await test('pathsSummary: base rates over resolved rows only, windowed by tighteningAt, by tf; uncalibrated under n=100', () => {
+    const mk = (id, tf, tighteningAt, p) => ({
+      candidateId: id, symbol: 'BTC', tf, direction: 'long', tighteningAt, source: 'cron', recClass: null, status: 'resolved',
+      path: p, breakoutAt: null, retestAt: null, resolvedAt: null, mfeR: null, targetR: null, minutes: null, features: {}, labelledAt: tighteningAt
+    });
+    const nowMs = T0 + 10 * 24 * 60 * MIN;
+    const rows2 = [
+      mk('a', '5m', iso(nowMs - 1 * 24 * 60 * MIN), 'runner'),
+      mk('b', '5m', iso(nowMs - 2 * 24 * 60 * MIN), 'retest_go'),
+      mk('c', '3m', iso(nowMs - 3 * 24 * 60 * MIN), 'chop'),
+      mk('d', '5m', iso(nowMs - 10 * 24 * 60 * MIN), 'runner'), // outside 7d, inside 30d
+      { ...mk('e', '5m', iso(nowMs - 1 * 24 * 60 * MIN), 'runner'), status: 'pending' } // excluded, not resolved
+    ];
+    const s = pathsSummary(rows2, nowMs);
+    assertEqual(s.d7.n, 3, '7d: a, b, c (d is outside 7d, e is pending)');
+    assertEqual(s.d7.overall.n, 3, 'overall n');
+    assertEqual(s.d7.overall.calibrated, false, 'n < 100 -> uncalibrated');
+    assertEqual(s.d7.overall.shares.runner, 33.33, 'runner share 1/3');
+    const tf5 = s.d7.byTf.find((g) => g.key === '5m');
+    assertEqual(tf5.n, 2, '5m bucket n (a, b)');
+    assertEqual(s.d30.n, 4, '30d also includes d');
+    const empty = pathsSummary([], nowMs);
+    assertEqual(empty.d7.n, 0, 'empty rows -> n 0');
+    assertEqual(empty.d7.overall.calibrated, false, 'empty -> uncalibrated');
+  });
+
+  await test('paths.js: outcomes.jsonl and aggregates.json byte-identical whether or not the step runs', () => {
+    const dirA = tmp();
+    const dirB = tmp();
+    const cid = 'BTC:5m:long:byte-check';
+    const extraRow = candCaptureRow('BTC', T0 + 50 * MIN, [slimCand({ id: cid, state: 'proto' })]);
+    const allRows = [...rows, extraRow];
+    for (const d of [dirA, dirB]) {
+      appendCalls(d, allRows);
+      appendCandles(d, '1m', allStoreCandles(candleSet));
+    }
+    scoreDataDir(dirA, T0 + 2 * 60 * MIN);
+    scoreDataDir(dirB, T0 + 2 * 60 * MIN);
+    aggregateDataDir(dirA, T0 + 2 * 60 * MIN);
+    aggregateDataDir(dirB, T0 + 2 * 60 * MIN);
+    const outcomesBefore = readFileSync(outcomesFile(dirB), 'utf8');
+    const aggBefore = readFileSync(aggregatesFile(dirB), 'utf8');
+
+    const pathsOut = pathsDataDir(dirB, T0 + 2 * 60 * MIN);
+    assert(pathsOut.length >= 1, 'paths.js found the injected tightening candidate');
+
+    assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), outcomesBefore, 'outcomes.jsonl byte-identical after running paths.js');
+    assertEqual(readFileSync(aggregatesFile(dirB), 'utf8'), aggBefore, 'aggregates.json byte-identical after running paths.js');
+    assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), readFileSync(outcomesFile(dirA), 'utf8'), 'outcomes.jsonl identical vs a dir that never ran paths.js');
+  });
+
+  await test('page: flag-paths tile renders with ids and the empty state from an empty data dir', () => {
+    const dir = tmp();
+    const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
+    const html = readFileSync(htmlFile, 'utf8');
+    for (const id of ['flag-paths-section', 'flag-paths-empty']) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    assert(html.includes('[NO RESOLVED FLAG PATHS YET]'), 'empty state text');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'one provisional tag per section (paths tile included)');
+    const scripts = html.match(/<script\b[^>]*>/gi) || [];
+    assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'still exactly one executable inline script');
+    assert(html.indexOf('id="class-check-section"') < html.indexOf('id="flag-paths-section"'), 'placed after class check in the performance zone');
+  });
+
+  await test('page: flag-paths tile renders populated rows with the path mix and an uncalibrated tag under n=100', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const resolvedRow = {
+      candidateId: 'BTC:5m:long:x', symbol: 'BTC', tf: '5m', direction: 'long', tighteningAt: iso(T0), source: 'cron',
+      recClass: 'WATCH', status: 'resolved', path: 'runner', breakoutAt: T0 + 5 * MIN, retestAt: null, resolvedAt: T0 + 8 * MIN,
+      mfeR: 1.5, targetR: 2, minutes: 8,
+      features: {
+        compression: 'tight', duration: 'short', impulseStrength: 'moderate', tf: '5m', direction: 'long', levelTests: 'unknown',
+        structureSteps: 'unknown', stochSide: 'unknown', stochSlope: 'unknown', tfAgreement: 'unknown', tdSide: 'unknown', ema200Side: 'unknown', roomR: 'unknown', hourUtc: '00-06'
+      },
+      labelledAt: iso(T0 + 8 * MIN)
+    };
+    writeJsonl(pathsFile(dataDir), [resolvedRow]);
+    const { htmlFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="flag-paths-7d-table"'), 'populated 7d table renders');
+    assert(html.includes('UNCALIBRATED'), 'n=1 < 100 -> flagged uncalibrated');
+    assert(html.includes('100%'), 'runner share visible (1/1 = 100%)');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'still one provisional tag per section');
   });
 
   await test('parseArgs: --data default ./data, --out default ./docs', () => {

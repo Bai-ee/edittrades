@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-24 — T4 P0 flag paths (branch `upgrade-signal-engine`)
+
+`docs/PLAN_FLAG_PATHS.md`. Measurement only: no engine, payload, schema, config or threshold change; MCP untouched.
+
+- **Labeller:** `scripts/tracker/flag-paths.js` (pure) labels a flag from its tightening point: retest_go / runner / false_break / fail_first / chop, plus bucketed features and base rates. A retest only counts after the breakout candle closes.
+- **Replay:** `scripts/replay-paths.js` (`npm run replay:paths`) runs the production pipeline per close, no lookahead. `scripts/replay.js --backfill-1m` is now resumable (checkpoint, rate-limit backoff) and derives 5m/15m depth from backfilled 1m (`--derive-deep`, automatic with backfill).
+- **Results:** `docs/FLAG_PATHS_BASE_RATES.md`, 10,997 flags over 15 days: 47.9% fail before breakout; among breakouts, runner (30%) about as common as retest_go (32%); the SOL 2026-09-24 case is labelled runner.
+- **Tracker:** `paths.js` step, `data/paths.jsonl`, `#flag-paths-section`; additive candidate fields; scoring untouched.
+- `lib/flagTradePlan.js`: `observeRetestHold` exported (no logic change) for a parity test.
+- **Tests:** new `test:paths` 22, `test:replay-paths` 19; `test:replay` 36 → 41; `test:tracker` 43 → 52.
+
 ## 2026-09-24 — T3 served calls (branch `upgrade-signal-engine`)
 
 `docs/PLAN_SERVED_CALLS.md`. No payload, schema, config or engine change; MCP untouched.

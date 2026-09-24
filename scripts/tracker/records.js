@@ -46,6 +46,14 @@ export function findSensitiveKeys(value, at = '$', found = []) {
   return found;
 }
 
+/**
+ * The last six fields (measuredTarget onward) are T4-additive (docs/PLAN_FLAG_PATHS.md
+ * P0 item 4, scripts/tracker/paths.js labelPath/featuresAt): kept only so the tracker can
+ * label a candidate's realised path and bucket its features at the tightening point.
+ * Additive only - the fields above them are unchanged, so a row stored before this
+ * existed still reads identically; a candidate that never carried these upstream (or a
+ * legacy stored row) just reads null here, same as any other missing field.
+ */
 export function slimCandidate(c) {
   if (!c || typeof c !== 'object') return null;
   return {
@@ -56,7 +64,13 @@ export function slimCandidate(c) {
     breakout: c.breakoutLevel ?? null,
     invalidation: c.invalidation ?? null,
     measuredRR: c.measuredRR ?? null,
-    qual: c.qual ?? null
+    qual: c.qual ?? null,
+    measuredTarget: c.measuredTarget ?? null,
+    compressionScore: c.compressionScore ?? null,
+    durationCandles: c.durationCandles ?? null,
+    impulseStrength: c.impulseStrength ?? null,
+    flagHigh: c.flagHigh ?? null,
+    flagLow: c.flagLow ?? null
   };
 }
 

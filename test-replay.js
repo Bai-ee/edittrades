@@ -8,11 +8,16 @@
  * Run: node test-replay.js
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { buildScalpContext, dropUnclosedCandles, INTERVAL_MS, TIMEFRAMES } from './services/scalpContext.js';
 import { getCandlesWithProvenance } from './services/marketData.js';
-import { buildAt, closedRows, loadHistoryDir, makeReplayFetch, parseArgs, replaySymbol, toReplayLine, tradesTo1m } from './scripts/replay.js';
+import {
+  buildAt, closedRows, loadHistoryDir, makeReplayFetch, parseArgs, replaySymbol, toReplayLine, tradesTo1m,
+  backfill1m, deriveTimeframe, krakenTrades
+} from './scripts/replay.js';
 import { computeMetrics, formatMetrics } from './scripts/replay-metrics.js';
 import { walkOutcome, extractStrategySignals, extractCandidateSignals, extractFlagPlanSignals, aggregateOutcomes, scoreSymbol } from './scripts/replay-outcomes.js';
 import { regression001History, regression002History, REPLAY_END } from './test/fixtures/replayHistories.js';
@@ -631,6 +636,142 @@ async function run() {
     assertClose(row.avgWinR, r, 1e-3, 'both wins have the identical R (same levels)');
     const expected = 0.5 * r + 0.5 * -1;
     assertClose(row.expectancy, expected, 1e-3, 'expectancy = winRate*avgWinR + (1-winRate)*-1');
+  });
+
+  console.log('\n7) Deep history backfill: 1m->5m/15m derivation, checkpointed resume, rate-limit backoff');
+
+  await test('deriveTimeframe: 1m -> 5m alignment to the UTC boundary, partial trailing bucket dropped, OHLC wins on overlap', () => {
+    const base = Date.UTC(2026, 8, 20, 0, 0, 0);
+    const c1m = [];
+    for (let i = 0; i < 17; i++) { // 3 full 5m buckets (0-15) + a 2-minute partial (15-17)
+      const t = base + i * MIN;
+      c1m.push({ timestamp: t, open: 100 + i, high: 100 + i + 0.5, low: 100 + i - 0.5, close: 100 + i + 0.2, volume: 1, closeTime: t + MIN });
+    }
+    // OHLC only reaches back to the minute-5 bucket, with different values so a real merge is provable.
+    const ohlc5m = [{ timestamp: base + 5 * MIN, open: 999, high: 999, low: 999, close: 999, volume: 42, closeTime: base + 10 * MIN }];
+    const { candles, report } = deriveTimeframe(c1m, '5m', ohlc5m);
+    assertEqual(candles.length, 3, 'derived 0m + OHLC 5m (wins) + derived 10m; the 15-17 partial bucket is dropped');
+    assertEqual(candles[0].timestamp, base, '5m buckets align to the UTC boundary');
+    assertEqual(candles.find((c) => c.timestamp === base + 5 * MIN).close, 999, 'OHLC wins at the one overlapping timestamp, not the derived aggregate');
+    assert(candles.find((c) => c.timestamp === base + 10 * MIN), 'derived bucket present past where OHLC reaches');
+    assert(!candles.some((c) => c.timestamp === base + 15 * MIN), 'a 2-of-5-minute trailing bucket never appears');
+    assertEqual(report.overlapCompared, 1, 'one overlapping timestamp compared');
+    assertEqual(report.overlapMismatches, 1, 'derived and OHLC deliberately differ at the overlap');
+  });
+
+  await test('deriveTimeframe: 15m alignment and partial-bucket drop, no OHLC at all', () => {
+    const base = Date.UTC(2026, 8, 20, 0, 0, 0);
+    const c1m = [];
+    for (let i = 0; i < 17; i++) {
+      const t = base + i * MIN;
+      c1m.push({ timestamp: t, open: 100, high: 101, low: 99, close: 100, volume: 1, closeTime: t + MIN });
+    }
+    const { candles, report } = deriveTimeframe(c1m, '15m', []);
+    assertEqual(candles.length, 1, 'one full 15m bucket (minutes 0-15); the trailing 2 minutes are a partial bucket, dropped');
+    assertEqual(candles[0].timestamp, base, '15m bucket aligned to the UTC boundary');
+    assertEqual(report.overlapCompared, 0, 'no OHLC to compare against');
+  });
+
+  await test('krakenTrades: a Kraken rate-limit error and an HTTP 429 both retry (not throw) and the call still succeeds', async () => {
+    let call = 0;
+    const fetchImpl = async () => {
+      call++;
+      if (call === 1) return { status: 200, json: async () => ({ error: ['EAPI:Rate limit exceeded'], result: {} }) };
+      if (call === 2) return { status: 429, json: async () => { throw new Error('no body'); } };
+      return { status: 200, json: async () => ({ error: [], result: { XXXUSD: [['100', '1', '1700000000']], last: '1700000000000000000' } }) };
+    };
+    const r = await krakenTrades('XXXUSD', '0', { fetchImpl, retryDelayMs: () => 1 });
+    assertEqual(call, 3, 'two retried pages before the third succeeds');
+    assertEqual(r.trades.length, 1, 'trades returned once the retries clear');
+    assertEqual(r.last, '1700000000000000000', 'cursor passed through');
+  });
+
+  await test('backfill1m: without a checkpoint file, one straight run merges trades with OHLC exactly as before (OHLC wins)', async () => {
+    const step = MIN;
+    const oldest = Date.UTC(2026, 8, 20, 1, 0, 0);
+    const ohlc1m = [{ timestamp: oldest, open: 200, high: 200, low: 200, close: 200, volume: 1, closeTime: oldest + step }];
+    const minutes = 5;
+    const startMs = oldest - minutes * step;
+    // One trade per minute across [startMs, oldest), price = minute index; overlapEnd reaches 60m past oldest but no
+    // trades exist there, so tradesTo1m only emits candles through the last minute that has a trade or a flowing prevClose.
+    const allTrades = [];
+    for (let t = startMs; t < oldest; t += step) allTrades.push([String(100 + (t - startMs) / step), '1', String(t / 1000 + 30)]);
+    const fetchImpl = async (url) => {
+      const since = BigInt(new URL(url).searchParams.get('since'));
+      const sinceMs = Number(since / 1000000n);
+      const rest = allTrades.filter((tr) => Math.round(Number(tr[2]) * 1000) > sinceMs);
+      const page = rest.slice(0, 2);
+      const last = page.length ? String(BigInt(Math.round(Number(page[page.length - 1][2]) * 1e9))) : String(since);
+      return { status: 200, json: async () => ({ error: [], result: { XXXUSD: page, last } }) };
+    };
+    const r = await backfill1m('BTC', ohlc1m, minutes, { fetchImpl, pageDelayMs: 5, logEveryPages: 1000, log: () => {} });
+    assertEqual(r.report.trades, allTrades.length, 'all trades collected across pages');
+    const merged = r.candles;
+    assertEqual(merged[0].timestamp, startMs, 'merged range starts at startMs');
+    const at = merged.find((c) => c.timestamp === oldest);
+    assertEqual(at.volume, 1, 'OHLC row wins at the overlapping timestamp (its own volume), not the derived trade bucket');
+    assertEqual(at.open, 200, 'OHLC values win, not the built-from-trades ones');
+  });
+
+  await test('backfill1m: a run interrupted mid-pagination checkpoints progress, and a rerun resumes from the checkpoint cursor instead of re-paginating from the start', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'replay-backfill-checkpoint-'));
+    try {
+      const checkpointFile = path.join(dir, 'BTC_1m.backfill.json');
+      const step = MIN;
+      const oldest = Date.UTC(2026, 8, 20, 2, 0, 0);
+      const ohlc1m = [{ timestamp: oldest, open: 300, high: 300, low: 300, close: 300, volume: 1, closeTime: oldest + step }];
+      const minutes = 20;
+      const startMs = oldest - minutes * step;
+      const overlapEnd = oldest + 60 * step;
+      const allTrades = [];
+      for (let t = startMs; t < overlapEnd; t += step) allTrades.push([String(100 + (t - startMs) / step), '1', String(t / 1000 + 30)]);
+
+      const makeServer = (pageSize, failAfterCalls) => {
+        let calls = 0;
+        return async (url) => {
+          calls++;
+          if (calls > failAfterCalls) throw new Error('simulated network outage');
+          const since = BigInt(new URL(url).searchParams.get('since'));
+          const sinceMs = Number(since / 1000000n);
+          const rest = allTrades.filter((tr) => Math.round(Number(tr[2]) * 1000) > sinceMs);
+          const page = rest.slice(0, pageSize);
+          const last = page.length ? String(BigInt(Math.round(Number(page[page.length - 1][2]) * 1e9))) : String(since);
+          return { status: 200, json: async () => ({ error: [], result: { XXXUSD: page, last } }) };
+        };
+      };
+
+      // Run 1: dies after 2 pages of 3 trades each (well short of the full range).
+      const fetch1 = makeServer(3, 2);
+      let threw = false;
+      try {
+        await backfill1m('BTC', ohlc1m, minutes, { fetchImpl: fetch1, checkpointFile, flushEveryPages: 1, logEveryPages: 1000, pageDelayMs: 5, retryDelayMs: () => 1, log: () => {} });
+      } catch {
+        threw = true;
+      }
+      assert(threw, 'the simulated outage propagates (the run did not silently complete)');
+      assert(existsSync(checkpointFile), 'checkpoint file written before the failure');
+      const cp1 = JSON.parse(readFileSync(checkpointFile, 'utf8'));
+      assert(cp1.trades.length > 0 && cp1.trades.length < allTrades.length, `checkpoint has partial progress (${cp1.trades.length}/${allTrades.length})`);
+      assert(cp1.since !== String(BigInt(startMs) * 1000000n), 'checkpoint cursor has advanced past the start');
+
+      // Run 2: a fetch that never fails, but records the very first `since` it is asked for -
+      // proof the resumed run continues from the checkpoint cursor rather than restarting at startMs.
+      let firstSinceRequested = null;
+      const fetch2 = async (url) => {
+        const since = new URL(url).searchParams.get('since');
+        if (firstSinceRequested === null) firstSinceRequested = since;
+        return makeServer(5, Infinity)(url);
+      };
+      const r = await backfill1m('BTC', ohlc1m, minutes, { fetchImpl: fetch2, checkpointFile, flushEveryPages: 1, logEveryPages: 1000, pageDelayMs: 5, log: () => {} });
+      assertEqual(firstSinceRequested, cp1.since, 'the resumed run\'s first request uses the checkpoint cursor, not startMs');
+      assertEqual(r.report.trades, allTrades.length, 'the resumed run collects every trade in the full range (checkpoint + continuation)');
+      const merged = r.candles;
+      assertEqual(merged[0].timestamp, startMs, 'the merged result still covers the full requested depth after resuming');
+      const at = merged.find((c) => c.timestamp === oldest);
+      assertEqual(at.volume, 1, 'OHLC still wins at the overlap after a resumed run');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
