@@ -4,7 +4,7 @@
  * Run: node test-flag-recommendation.js
  */
 
-import { buildFlagRecommendation, compactRecommendation } from './lib/flagRecommendation.js';
+import { buildFlagRecommendation, compactRecommendation, selectWatchCandidate } from './lib/flagRecommendation.js';
 import { INTERVAL_MS } from './services/scalpContext.js';
 
 let passed = 0;
@@ -163,6 +163,35 @@ async function run() {
     assertEqual(r.class, 'WATCH', 'class');
     assert(hasCode(r.changeConditions, 'entry_condition'), 'entry condition change');
     assert(/closed candle retests/.test(r.changeConditions.find((c) => c.code === 'entry_condition').text), 'condition text copied');
+  });
+
+  await test('T6 completion plan C4: FLAG_TF_ORDER is forward-compatible for 15m/1h - still loses the tie to 5m (smallest timeframe wins), even though neither is in the default candidate pool today', () => {
+    const fiveMin = { candidateId: 'BTC:5m:long:X', type: 'flag', direction: 'long', state: 'forming', timeframe: '5m', confidence: 70 };
+    const fifteenMin = { candidateId: 'BTC:15m:long:Y', type: 'flag', direction: 'long', state: 'forming', timeframe: '15m', confidence: 70 };
+    const oneHour = { candidateId: 'BTC:1h:long:Z', type: 'flag', direction: 'long', state: 'forming', timeframe: '1h', confidence: 70 };
+    assertEqual(selectWatchCandidate([fifteenMin, fiveMin]).candidateId, fiveMin.candidateId, '5m still wins over 15m on a tie');
+    assertEqual(selectWatchCandidate([oneHour, fifteenMin]).candidateId, fifteenMin.candidateId, '15m wins over 1h on a tie (still smallest-first)');
+  });
+
+  await test('T6 completion plan C2: setup is copied straight through from flagTradePlan.setup, in both the full record and the default-payload compact form (long + short mirror)', () => {
+    const setupFields = {
+      candidateId: 'BTC:3m:long:setup', timeframe: '3m', direction: 'long', entry: 1000, stop: 990, tp1: 1040,
+      grossRR: 4, netRR: 2.7, entryCondition: "a closed candle closes above 1000, then a later closed candle's low reaches within 0.1 ATR of 1000 and closes at or above it"
+    };
+    const r = rec({ plan: readyPlan({ setup: setupFields }) });
+    assertEqual(r.class, 'GOOD', 'sanity: class unaffected by setup (still GOOD on the ready plan)');
+    assertEqual(JSON.stringify(r.setup), JSON.stringify(setupFields), 'full record: setup copied through exactly');
+    const compact = compactRecommendation(r);
+    assertEqual(JSON.stringify(compact.setup), JSON.stringify(setupFields), 'compact (default-payload) record also carries setup, not stripped');
+  });
+
+  await test('T6 completion plan C2: no flagTradePlan.setup -> recommendation.setup is null, not omitted, in both forms', () => {
+    const r = rec({ plan: readyPlan() }); // readyPlan() has no setup key at all
+    assertEqual(r.setup, null, 'full record: setup null when flagTradePlan carries none');
+    assertEqual(compactRecommendation(r).setup, null, 'compact record: same');
+
+    const rNoPlan = rec({ plan: null, ev: evidence({ flags: [] }) });
+    assertEqual(rNoPlan.setup, null, 'no plan at all -> setup null, not thrown');
   });
 
   await test('WATCH: no flagTradePlan does not fall back to legacy bestSignal authority', () => {

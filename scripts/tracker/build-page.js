@@ -38,7 +38,7 @@ import { shadowOutcomesFile, shadowSummaryFile } from './shadow.js';
 import { vbShadowOutcomesFile, vbShadowSummaryFile } from './vb-shadow.js';
 import { PATHS } from './flag-paths.js';
 import {
-  chartKit, chartScript, callVia, equityRows, journalEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
+  chartKit, chartScript, callVia, equityRows, journalEquityRows, setupEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
   FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, NO_JOURNAL, NO_JOURNAL_TRADES, CHART_CSS
 } from './charts.js';
 import { PAGE_CSS } from './page-style.js';
@@ -209,6 +209,17 @@ function inlineBar(id, ratio) {
   return `<div class="ibar" id="${id}" role="img" aria-label="${Math.round(w)}%"><i style="width:${w.toFixed(1)}%"></i></div>`;
 }
 
+/**
+ * Config-boundary marker (T6 completion plan C3): the most recent configVersion
+ * change, gross + net expectancy before/after it, side by side. Empty string (no
+ * markup at all) when `cb` is null - single configVersion throughout, nothing to mark.
+ */
+function configBoundaryNote(cb) {
+  if (!cb) return '';
+  const seg = (s) => `n=${s.n} exp=${rVal(s.expectancy)} net=${rVal(s.netExpectancy)}`;
+  return `<p class="mono-note" id="testing-phase-config-boundary-note">CONFIG ${esc(cb.fromVersion)} &rarr; ${esc(cb.toVersion)} AT ${esc(time(cb.at))} - BEFORE (${esc(seg(cb.before))}) / AFTER (${esc(seg(cb.after))})</p>`;
+}
+
 /** One instrument = one small bento tile (a div, so no PROVISIONAL chip of its own). */
 function instrument(id, label, valueHtml, visual = '', subText = '', span = { sm: 1, lg: 3 }) {
   return tile({
@@ -228,8 +239,8 @@ function segButtons(dim, values, activeVal) {
   return values.map(([v, label]) => `<button type="button" class="seg-btn${v === activeVal ? ' is-on' : ''}" data-dim="${esc(dim)}" data-val="${esc(v)}" aria-pressed="${v === activeVal}">${esc(label)}</button>`).join('');
 }
 
-function equityBody(rows, nowMs, you = []) {
-  const values = filterValues([...rows, ...you]);
+function equityBody(rows, nowMs, you = [], setup = []) {
+  const values = filterValues([...rows, ...you, ...setup]);
   const stats = kit.equityStats(rows);
   const legend = `<div class="chart-legend" id="equity-chart-legend">`
     + `<span><svg class="swatch" viewBox="0 0 24 8" aria-hidden="true"><line class="line-main" x1="0" x2="24" y1="4" y2="4"/></svg>ENGINE CALLS</span>`
@@ -244,9 +255,9 @@ function equityBody(rows, nowMs, you = []) {
     + `<div class="chart-readout" id="equity-you-readout">${kit.youReadoutHtml(kit.equityStats(you), NO_JOURNAL_TRADES)}</div>`
     + `<div class="chart-frame-box" id="equity-chart-frame">${kit.equitySvg('equity-chart-svg', rows, SSR_WIDTH, nowMs, NO_SCORED_CHART, you)}</div>`
     + legend
-    + sub('equity-chart-caption-sub', 'How to read this chart', `<p class="note" id="equity-chart-caption">Cumulative gross R of scored ready flag plans, 1R risked per call: TP1 = +R to TP1 as walked by the scorer, stop = ${MINUS}1R. Not filled and expired calls are excluded; open calls are the hollow last point. Before fees and slippage. The dashed line is your journal trades: scored the same way from your entry, stop and TP1, or your reported R when you logged a close; filters apply through the engine call each trade links to.</p>`)
+    + sub('equity-chart-caption-sub', 'How to read this chart', `<p class="note" id="equity-chart-caption">Cumulative gross R of scored ready flag plans, 1R risked per call: TP1 = +R to TP1 as walked by the scorer, stop = ${MINUS}1R. Not filled and expired calls are excluded; open calls are the hollow last point. Before fees and slippage. The dashed line is your journal trades: scored the same way from your entry, stop and TP1, or your reported R when you logged a close; filters apply through the engine call each trade links to. SETUPs (T6 completion plan C2) are what-if only, shown in the filter table below, not the line above - never entered, walked forward only if the trigger actually occurred.</p>`)
     + filters
-    + sub('equity-filter-table-sub', 'By filter', `<div class="table-scroll" id="equity-filter-table-scroll">${kit.filterTableHtml(rows, {}, FILTER_DIMS, you)}</div>`);
+    + sub('equity-filter-table-sub', 'By filter', `<div class="table-scroll" id="equity-filter-table-scroll">${kit.filterTableHtml(rows, {}, FILTER_DIMS, you, setup)}</div>`);
 }
 
 function walletBody(rows, goods, nowMs, marks = []) {
@@ -513,10 +524,9 @@ export const NO_VB_SHADOW = '[NO V-B SHADOW ENTRIES YET]';
 export const VB_SHADOW_MIN_N = 20;
 export const VB_SHADOW_TOO_FEW = 'TOO FEW CALLS';
 // Cannot backfill: flagTradePlan.shadow only exists on rows captured after the engine
-// deploy that ships it (Step A + B2) goes live. Edit this line to "Accruing since
-// <ISO deploy time>" once that deploy completes - same pattern as PHASE_START/
-// RESTART_NOTE above.
-export const VB_SHADOW_ACCRUAL_NOTE = 'Not yet accruing - pending the engine deploy that ships flagTradePlan.shadow (Step A + B2), held by the Vercel daily deployment cap; ETA ~2026-09-25 12:30 CDT.';
+// deploy that ships it (Step A + B2) goes live. Edit this line again if the deploy
+// timeline changes - same pattern as PHASE_START/RESTART_NOTE above.
+export const VB_SHADOW_ACCRUAL_NOTE = 'Accruing since the Step A + B2 engine deploy (2026-09-24, schema 1.23.0 confirmed live) - nothing captured before that carries a shadow field.';
 export const VB_SHADOW_NOTE = `Shadow mode: gross minRR lowered to 2.5 (T6 completion plan D-variant, docs/OWNER_DECISIONS_2026-09-24.md), computed by the engine itself with real ATR and retest-hold - not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. ${VB_SHADOW_ACCRUAL_NOTE} Revisit 2026-10-07, n >= 20 scored plans each side (this vs V1c live) - see docs/OWNER_DECISIONS_2026-09-24.md.`;
 
 export const EMPTY_VB_SHADOW_SUMMARY = {
@@ -565,6 +575,7 @@ export function renderHtml(agg, data = {}) {
   const journal = Array.isArray(data.journal) ? data.journal : [];
   const journalOutcomes = Array.isArray(data.journalOutcomes) ? data.journalOutcomes : [];
   const youRows = journalEquityRows(journalOutcomes);
+  const setupRows = setupEquityRows(outcomes);
   const marks = walletMarks(journal, journalOutcomes);
   const ev = engineVsYou(outcomes, journal, journalOutcomes);
   const goods = outcomes.filter((r) => r.kind === 'rec' && r.class === 'GOOD' && r.calledAt).map((r) => r.calledAt);
@@ -632,7 +643,13 @@ export function renderHtml(agg, data = {}) {
     instrument('tile-losing-streak-7d', 'Losing streak',
       `<span class="${t.losingStreak7d >= 5 ? 'st-bad' : t.losingStreak7d ? '' : 'dim'}">${t.losingStreak7d}</span>`, '', 'MAX CONSECUTIVE STOPS'),
     instrument('tile-avg-r-7d', 'Avg win R',
-      isNum(t7.avgWinR) ? `<span class="${rStatus(t7.avgWinR)}">${esc(rVal(t7.avgWinR))}</span>` : emptyInline(), '', 'GROSS R AT TP1', { sm: 1, lg: 3 })
+      isNum(t7.avgWinR) ? `<span class="${rStatus(t7.avgWinR)}">${esc(rVal(t7.avgWinR))}</span>` : emptyInline(), '', 'GROSS R AT TP1', { sm: 1, lg: 3 }),
+    // T6 completion plan C3: visibility tiles - how often does the owner's chat see a
+    // GOOD call or a SETUP line, not just the 7-day expectancy above.
+    instrument('tile-good-per-hour-7d', 'GOOD / hour',
+      isNum(t.goodPerHour7d) ? `<span class="${t.goodPerHour7d ? '' : 'dim'}">${esc(num(t.goodPerHour7d, 3))}</span>` : emptyInline(), '', `${good7} GOOD / 7d`, { sm: 1, lg: 3 }),
+    instrument('tile-setups-per-day-7d', 'SETUPs / day',
+      isNum(t.setupsPerDay7d) ? `<span class="${t.setupsPerDay7d ? '' : 'dim'}">${esc(num(t.setupsPerDay7d, 2))}</span>` : emptyInline(), '', 'DISTINCT SETUP CANDIDATES / 7d', { sm: 1, lg: 3 })
   ];
 
   // System status: is the automated job running? Re-evaluated in the browser by statusScript().
@@ -690,7 +707,8 @@ export function renderHtml(agg, data = {}) {
     + `<div class="stat-row"><dt>Then</dt><dd>ONE CALIBRATION PASS WITH YOU</dd></div>`
     + `</dl>`
     + `<p class="mono-note" id="testing-phase-frozen">FROZEN DURING THE WINDOW: NO THRESHOLD TUNING. ALL LABELS PROVISIONAL.</p>`
-    + `<p class="mono-note" id="testing-phase-restart-note">${esc(RESTART_NOTE)}</p>`;
+    + `<p class="mono-note" id="testing-phase-restart-note">${esc(RESTART_NOTE)}</p>`
+    + configBoundaryNote(agg.configBoundary);
 
   // Activity, last 24 h.
   const activityBody = `<dl class="stat-rows" id="activity-24h-rows">`
@@ -768,7 +786,7 @@ export function renderHtml(agg, data = {}) {
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
       tiles: [
-        section('equity-chart-section', 'Engine-call equity curve', equityBody(eqRows, nowMs, youRows)),
+        section('equity-chart-section', 'Engine-call equity curve', equityBody(eqRows, nowMs, youRows, setupRows)),
         section('wallet-chart-section', 'Wallet value', walletBody(walletRows, goods, nowMs, marks))
       ]
     }),
@@ -821,7 +839,7 @@ ${topStrip}
 ${body}
 ${bottomStrip}
 </main>
-<script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows })}</script>
+<script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows, setup: setupRows })}</script>
 <script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods, marks })}</script>
 <script>${chartScript()}${statusScript()}</script>
 </body>

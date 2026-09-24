@@ -168,11 +168,11 @@ function planFields(plan) {
  */
 export function extractCalls(rows) {
   const sorted = [...rows].sort((a, b) => Date.parse(a.closedThrough) - Date.parse(b.closedThrough));
-  const last = new Map(); // symbol -> {plan, rec}
+  const last = new Map(); // symbol -> {plan, rec, setup}
   const calls = [];
   for (const row of sorted) {
     if (!row || !row.symbol || !row.closedThrough) continue;
-    const prev = last.get(row.symbol) || { plan: null, rec: null };
+    const prev = last.get(row.symbol) || { plan: null, rec: null, setup: null };
     const plan = row.flagTradePlan || null;
 
     let planSig = null;
@@ -209,7 +209,34 @@ export function extractCalls(rows) {
         });
       }
     }
-    last.set(row.symbol, { plan: planSig, rec: recSig });
+    // SETUP tier (T6 completion plan C2): a separate call stream from
+    // flagRecommendation.setup - the best still-conditional candidate, independent of
+    // whichever candidate the plan/rec above are about. A new call each time its own
+    // candidateId+entry+stop+tp1 signature changes (same dedup shape as the 'plan'
+    // kind's own ready|candidateId|entry|stop|tp1 key). Scored what-if (mode
+    // 'counterfactual_setup' below): never prefilled - a SETUP is never entered, only
+    // walked forward from whenever its own entry level is actually touched, same as
+    // 'counterfactual_level_touch'/'counterfactual_candidate' already do for other rows.
+    const setup = rec && rec.setup ? rec.setup : null;
+    let setupSig = null;
+    if (setup && setup.candidateId && isFiniteNumber(setup.entry) && isFiniteNumber(setup.stop) && isFiniteNumber(setup.tp1)) {
+      setupSig = `setup|${setup.candidateId}|${setup.entry}|${setup.stop}|${setup.tp1}`;
+    }
+    if (setupSig && setupSig !== prev.setup) {
+      calls.push({
+        ...baseCall(row, 'setup', setupSig),
+        class: null, reasonCode: null,
+        timeframe: setup.timeframe ?? null, direction: setup.direction ?? null, candidateId: setup.candidateId,
+        planStatus: null, planReasonCode: null,
+        entry: setup.entry, stop: setup.stop, tp1: setup.tp1,
+        grossRR: isFiniteNumber(setup.grossRR) ? setup.grossRR : null,
+        netRR: isFiniteNumber(setup.netRR) ? setup.netRR : null,
+        entryCondition: setup.entryCondition ?? null,
+        levelSource: 'setup'
+      });
+    }
+
+    last.set(row.symbol, { plan: planSig, rec: recSig, setup: setupSig });
   }
   return calls;
 }
@@ -323,6 +350,11 @@ export function scoreCalls(calls, candlesBySymbol, previous = [], nowMs = Date.n
       finish(call, { outcome: 'rejected', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null }, { mode: 'not_walked' });
     } else if (call.kind === 'plan') {
       finish(call, walkCall(call, candles, nowMs, true), { mode: 'ready_prefilled' });
+    } else if (call.kind === 'setup') {
+      // T6 completion plan C2: what-if - never entered, walked forward only from
+      // whenever the setup's own entry level is actually touched (same fill-window
+      // touch search walkCall already uses for counterfactual_level_touch).
+      finish(call, walkCall(call, candles, nowMs, false), { mode: 'counterfactual_setup' });
     } else if (call.entry === null) {
       finish(call, { outcome: 'no_levels', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null }, { mode: 'not_walked' });
     } else if (call.class === 'GOOD' && call.planStatus === 'ready' && call.levelSource === 'plan') {

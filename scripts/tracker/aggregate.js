@@ -62,7 +62,7 @@ export function statsFor(rows) {
   for (const r of decided) {
     const gross = r.outcome === 'stop' ? -1 : r.r;
     if (!isFiniteNumber(gross)) continue;
-    const cost = costR(r.entry, r.stop);
+    const cost = costR(r.entry, r.stop, r.direction);
     if (cost === null) continue;
     costRs.push(cost);
     netRs.push(gross - cost);
@@ -200,6 +200,34 @@ export function captureStats(captureRows, candles1mBySymbol = {}) {
 }
 
 /**
+ * Config-boundary marker (T6 completion plan C3): the most recent configVersion
+ * change seen across tradable (ready-plan) outcome rows, chronologically, with gross +
+ * net stats split before/after it. Every scored call already carries its own capture's
+ * `configVersion` (score.js's `baseCall`). Null when every row shares one
+ * configVersion (nothing shipped mid-window yet) or there are fewer than 2 rows.
+ * @param {Array<Object>} outcomes
+ * @returns {{at:string, fromVersion:string, toVersion:string, before:Object, after:Object}|null}
+ */
+export function configBoundary(outcomes) {
+  const rows = (outcomes || [])
+    .filter((r) => r && isTradable(r) && r.configVersion && r.calledAt)
+    .sort((a, b) => Date.parse(a.calledAt) - Date.parse(b.calledAt));
+  if (rows.length < 2) return null;
+  let boundaryIdx = -1;
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i].configVersion !== rows[i - 1].configVersion) boundaryIdx = i;
+  }
+  if (boundaryIdx === -1) return null;
+  return {
+    at: rows[boundaryIdx].calledAt,
+    fromVersion: rows[boundaryIdx - 1].configVersion,
+    toVersion: rows[boundaryIdx].configVersion,
+    before: statsFor(rows.slice(0, boundaryIdx)),
+    after: statsFor(rows.slice(boundaryIdx))
+  };
+}
+
+/**
  * Everything the page and report need.
  * @param {Array<Object>} outcomes
  * @param {Array<Object>} captureRows
@@ -252,6 +280,14 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
   const served24h = servedRows.filter((r) => Date.parse(r.servedAt || r.capturedAt) >= since24h);
 
   const t7 = w7.tradable;
+  // T6 completion plan C3: GOOD/hour and SETUPs/day, both over the same 7-day window
+  // t7 already uses. GOOD/hour counts distinct GOOD rec calls (same dedup extractCalls
+  // already gives every call - one row per class change, not per capture); SETUPs/day
+  // counts distinct 'setup'-kind calls (extractCalls dedupes those by their own
+  // candidateId+entry+stop+tp1 signature, T6 completion plan C2).
+  const HOURS_7D = 7 * 24;
+  const good7dRows = recs.filter((r) => r.class === 'GOOD' && Date.parse(r.calledAt) >= nowMs - 7 * DAY);
+  const setup7dRows = outcomes.filter((r) => r.kind === 'setup' && Date.parse(r.calledAt) >= nowMs - 7 * DAY);
   return {
     generatedAt: new Date(nowMs).toISOString(),
     label: 'provisional; not evidence of an edge',
@@ -265,10 +301,13 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
       winRate7d: t7.winRate,
       expectancy7d: t7.expectancy,
       netExpectancy7d: t7.netExpectancy,
-      losingStreak7d: t7.maxLosingStreak
+      losingStreak7d: t7.maxLosingStreak,
+      goodPerHour7d: round(good7dRows.length / HOURS_7D, 4),
+      setupsPerDay7d: round(setup7dRows.length / 7, 3)
     },
     totals: { outcomes: outcomes.length, recCalls: recs.length, tradable: statsFor(tradable) },
     windows: { '7d': w7, '30d': w30 },
+    configBoundary: configBoundary(outcomes),
     byDay,
     openCalls,
     dailyLog,

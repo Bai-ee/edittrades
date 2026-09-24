@@ -843,7 +843,9 @@ components:
         ready/conditional/rejected status with a stable reasonCode. Null when the
         symbol has no confirmed directional flag candidate this build. Independent of
         strategies/bestSignal and of the 4h bias lean - a flat or counter-trend 4h does
-        not change this plan's status (see docs/GPT_INSTRUCTIONS.md).
+        not change this plan's status (see docs/GPT_INSTRUCTIONS.md). A separate
+        still-forming candidate (SETUP tier, schema 1.24.0) is published on
+        flagRecommendation.setup, not here - see SetupTier.
       properties:
         candidateId:
           description: The selected candidateSetups[] entry this plan was built from.
@@ -924,23 +926,28 @@ components:
           type: [number, "null"]
         netRR:
           description: >-
-            Reward:risk to tp1 net of config.risk.feeBps/slippageBps round-trip cost.
-            Information only against flagPlan.minRR (published even on a plan rejected
-            for a different reason); since 1.21.0 also the T6 phase 1 gate - below
-            flagPlan.minNetRR (when set) the plan is rejected net_rr_below_min or
-            stop_inside_costs and the recommendation reflects it as BAD, not a
-            non-blocking oppose.
+            Reward:risk to tp1 net of round-trip cost. Schema 1.24.0 (T6 completion
+            plan C1, D-cost decision): direction-dependent -
+            config.risk.costBpsByDirection[direction] when the plan's own direction is
+            known (positions funded from USDC/USDT, so a long pays more), else the
+            flat config.risk.feeBps/slippageBps fallback. Information only against
+            flagPlan.minRR (published even on a plan rejected for a different reason);
+            since 1.21.0 also the T6 phase 1 gate - below flagPlan.minNetRR (when set)
+            the plan is rejected net_rr_below_min or stop_inside_costs and the
+            recommendation reflects it as BAD, not a non-blocking oppose.
           type: [number, "null"]
         costR:
           description: >-
-            Schema 1.21.0 (T6 phase 1). Round-trip fee+slippage cost expressed as a
-            fraction of this plan's own gross risk (2 * (config.risk.feeBps +
-            slippageBps) / 10000 * entry / abs(entry - stop)) - the same cost amount
-            netRR charges against the ratio, here as a plain number so "the stop is too
-            tight to pay its own costs" is directly readable. >= 0.5 is what makes a net
-            rejection stop_inside_costs instead of net_rr_below_min. Published whenever
-            entry/stop are valid (same point grossRR/netRR are computed), independent of
-            whether the net gate is on.
+            Schema 1.21.0 (T6 phase 1); direction-dependent since 1.24.0 (T6 completion
+            plan C1, same cost model as netRR above). Round-trip cost expressed as a
+            fraction of this plan's own gross risk (costAmount / abs(entry - stop),
+            costAmount = entry * config.risk.costBpsByDirection[direction] / 10000, or
+            the flat 2 * (config.risk.feeBps + slippageBps) / 10000 * entry fallback) -
+            the same cost amount netRR charges against the ratio, here as a plain
+            number so "the stop is too tight to pay its own costs" is directly
+            readable. >= 0.5 is what makes a net rejection stop_inside_costs instead of
+            net_rr_below_min. Published whenever entry/stop are valid (same point
+            grossRR/netRR are computed), independent of whether the net gate is on.
           type: [number, "null"]
         stopDistancePct:
           description: abs(entry - stop) / entry * 100. Required <= config.scalp.maxStopDistancePct for ready/conditional.
@@ -1088,6 +1095,8 @@ components:
           enum: [high, medium, low, null]
         readiness:
           type: string
+        setup:
+          $ref: "#/components/schemas/SetupTier"
         policyVersion:
           type: string
         trace:
@@ -1174,10 +1183,58 @@ components:
           enum: [high, medium, low, null]
         readiness:
           type: string
+        setup:
+          $ref: "#/components/schemas/SetupTier"
         policyVersion:
           type: string
         trace:
           type: object
+    SetupTier:
+      description: >-
+        Schema 1.24.0 (T6 completion plan C2). The best still-conditional attempt in
+        the symbol's candidate pool - a candidate with valid gross+net economics
+        (every 'conditional' flagTradePlan status already implies grossRR >=
+        flagPlan.minRR and, when the net gate is on, netRR >= flagPlan.minNetRR - the
+        retest-hold sequence just hasn't completed yet), surfaced even when a
+        DIFFERENT candidate won flagTradePlan's own selection. Null when no such
+        candidate exists this build. Informational only - never GO IN, never gates
+        class/primaryReason/supports/opposes on its own, distinct from flagTradePlan
+        (the live plan) and from a GOOD class. Published in the default payload (not
+        gated by include).
+      type: [object, "null"]
+      properties:
+        candidateId:
+          type: [string, "null"]
+        timeframe:
+          type: string
+          enum: ["1m", "3m", "5m"]
+        direction:
+          type: string
+          enum: [long, short]
+        entry:
+          type: number
+        stop:
+          type: number
+        tp1:
+          type: number
+        grossRR:
+          type: number
+        netRR:
+          description: Direction-dependent cost (T6 completion plan C1) - see FlagTradePlan.netRR.
+          type: [number, "null"]
+        entryCondition:
+          description: The exact trigger sentence, same format as FlagTradePlan.entryCondition; quote verbatim, never paraphrase.
+          type: string
+      required:
+        - candidateId
+        - timeframe
+        - direction
+        - entry
+        - stop
+        - tp1
+        - grossRR
+        - netRR
+        - entryCondition
     ModelEvidence:
       type: object
       description: >-
@@ -1867,6 +1924,21 @@ components:
               type: number
             slippageBps:
               type: number
+            costBpsByDirection:
+              description: >-
+                Schema 1.24.0 (T6 completion plan C1, D-cost decision,
+                docs/OWNER_DECISIONS_2026-09-24.md). Round-trip cost, already doubled,
+                by direction - positions are funded from USDC/USDT, so a long pays the
+                extra swap in and out. Used in place of feeBps/slippageBps wherever a
+                plan's own direction is known (grossRR/netRR/costR on every
+                flagTradePlan and flagTradePlan.shadow.<id>); feeBps/slippageBps stay
+                the fallback for a direction-less computation.
+              type: object
+              properties:
+                long:
+                  type: number
+                short:
+                  type: number
         flag:
           type: object
           properties:

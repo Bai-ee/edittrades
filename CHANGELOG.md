@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-09-24 — T6 completion plan Step C: SETUP tier, dir-cost, config-boundary marker (branch `upgrade-signal-engine`)
+
+Owner-approved after Step A + B2 deployed live at schema 1.23.0. Not deployed - stops for the gate. Schema 1.23.0 → **1.24.0**, configVersion 2026.09.24-3 → **2026.09.24-4**.
+
+- **C1 (D-cost applied live)**: `config/engine.json` risk.costBpsByDirection `{long:34, short:14}`.
+  `lib/flagTradePlan.js`'s `costRFraction`/`netRiskReward` take an optional `direction` -
+  `flagTradePlan.netRR`/`costR` are now direction-dependent on every plan and shadow
+  variant (a long's cost is harsher than a short's at the same gross R:R - never assume
+  symmetric net numbers). `scripts/tracker/costs.js` mirrors it so the tracker's real
+  GOOD-call net expectancy and `vb-shadow.js` share the same cost model.
+  `scripts/tracker/breakout-entry.js`'s own vendored `netRiskReward` deliberately
+  untouched (frozen/unpublished T4 P4 feature).
+- **C2 (SETUP tier)**: `flagRecommendation.setup` - the best still-conditional candidate
+  in the pool, computed once in `buildFlagTradePlan` (reuses its own attempts pass),
+  distinct from `flagTradePlan`, published in the default payload, informational only
+  (never GO IN). Tracker: `score.js`'s `kind:'setup'`/`counterfactual_setup` what-if
+  scoring, `aggregate.js` tiles `goodPerHour7d`/`setupsPerDay7d`, `charts.js`'s
+  `setupEquityRows` in the equity filter table.
+- **C3 (tracker)**: `aggregate.js`'s `configBoundary` - the most recent configVersion
+  transition, gross+net stats before/after, on the page. Net R alongside gross
+  wherever gross is shown: `chartKit`'s readouts and filter table gain a vendored
+  dir-cost net column.
+- **C4**: `FLAG_TF_RANK`/`FLAG_TF_ORDER` gain 15m/1h entries, inert today
+  (`flag.timeframes` stays 1m/3m/5m), ready with no code change if ever widened.
+- **C5**: GPT instructions - `SETUP LINE` in `signals`, `flagRecommendation.setup`
+  rule, `dir-priced` net-R wording; mark rule (RISK) untouched. 7744 → 7988 units.
+
+Tests: `test:flagplan` 59 → 67, `test:tracker` 93 → 110, `test:flagrec` 20 → 23,
+`test:scalp` 120 → 121; `test:config`/`test:geometry`/`test:pattern` schemaVersion
+assertions updated to 1.24.0, counts unchanged. 26 suites, all green; `check:gpt` OK
+(7988/7990); `git diff --check` clean. Details: `docs/EDITTRADES_MCP_CONNECTOR.md`.
+
 ## 2026-09-24 — System map + changelog page (branch `upgrade-signal-engine`)
 
 `docs/ARCHITECTURE_MAP.json` (every lib/services/api/config/scripts/tracker file, by pipeline stage) drives a generated tracker page `changelog.html` (`scripts/tracker/changelog-page.js`, `build-changelog.js`, `npm run tracker:changelog`); new suite `test:archmap` keeps the map, CHANGELOG schema entries and test names in step with the code. No engine, payload, schema, config or MCP change.

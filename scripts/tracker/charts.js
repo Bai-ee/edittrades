@@ -104,6 +104,31 @@ export function equityRows(outcomes) {
       at: r.resolvedAt || null,
       o: r.outcome,
       r: r.outcome === 'stop' ? -1 : r.outcome === 'tp1' && isNum(r.r) ? r.r : null,
+      entry: isNum(r.entry) ? r.entry : null,
+      stop: isNum(r.stop) ? r.stop : null,
+      dir: r.direction ?? null,
+      f: rowFilters(r)
+    }))
+    .sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+}
+
+/**
+ * SETUP tier what-if rows (T6 completion plan C2), same shape as equityRows: tp1 (+R),
+ * stop (-1R), or open (hollow) - from score.js's `kind:'setup'`/`counterfactual_setup`
+ * calls (walked from whenever the setup's own entry level was actually touched, never
+ * prefilled - it was never entered). Filterable the same way via `f` (rowFilters).
+ */
+export function setupEquityRows(outcomes) {
+  return (outcomes || [])
+    .filter((r) => r && r.kind === 'setup' && ['tp1', 'stop', 'open'].includes(r.outcome))
+    .map((r) => ({
+      t: r.calledAt,
+      at: r.resolvedAt || null,
+      o: r.outcome,
+      r: r.outcome === 'stop' ? -1 : r.outcome === 'tp1' && isNum(r.r) ? r.r : null,
+      entry: isNum(r.entry) ? r.entry : null,
+      stop: isNum(r.stop) ? r.stop : null,
+      dir: r.direction ?? null,
       f: rowFilters(r)
     }))
     .sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
@@ -123,6 +148,9 @@ export function journalEquityRows(journalOutcomes) {
       at: r.resolvedAt || null,
       o: r.outcome,
       r: r.outcome === 'stop' ? -1 : (r.outcome === 'tp1' || r.outcome === 'closed') && isNum(r.r) ? r.r : null,
+      entry: isNum(r.entry) ? r.entry : null,
+      stop: isNum(r.stop) ? r.stop : null,
+      dir: r.direction ?? null,
       f: rowFilters(r)
     }))
     .sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
@@ -300,7 +328,25 @@ export function chartKit() {
     return out + `<line class="axis" x1="${g.pad.l}" x2="${g.w - g.pad.r}" y1="${g.pad.t + g.ph}" y2="${g.pad.t + g.ph}"/>`;
   }
 
-  /** n = decided (tp1, stop, closed), win = R > 0, expectancy, max losing streak (R < 0 in a row), cumulative points. */
+  // T6 completion plan C1/C3: vendored copy of costs.js's direction-dependent cost
+  // model (chartKit is serialized to a string for the inline client-side script and
+  // cannot import) - "net and gross R labeled side by side wherever one is shown"
+  // extends here too. A long pays 34bps round-trip (positions funded from USDC/USDT,
+  // the extra swap in/out), a short 14bps, an unresolved/missing direction the flat
+  // 20bps fallback. Null when entry/stop aren't available on the row (e.g. a journal
+  // "closed" trade logged with only a reported R) - skipped from the net average, not
+  // treated as a zero cost.
+  const DIR_COST_BPS = { long: 34, short: 14 };
+  const FLAT_COST_BPS = 20;
+  function netRFor(entry, stopPx, dir, grossR) {
+    if (!isNum(entry) || !isNum(stopPx) || entry <= 0 || !isNum(grossR)) return null;
+    const risk = Math.abs(entry - stopPx);
+    if (!(risk > 0)) return null;
+    const bps = dir === 'long' ? DIR_COST_BPS.long : dir === 'short' ? DIR_COST_BPS.short : FLAT_COST_BPS;
+    return grossR - (bps / 10000) * entry / risk;
+  }
+
+  /** n = decided (tp1, stop, closed), win = R > 0, expectancy (gross + net), max losing streak (R < 0 in a row), cumulative points. */
   function equityStats(rows) {
     const decided = rows.filter((r) => (r.o === 'tp1' || r.o === 'stop' || r.o === 'closed') && isNum(r.r))
       .map((r) => ({ ...r, ms: Date.parse(r.at || r.t) }))
@@ -315,10 +361,12 @@ export function chartKit() {
     });
     const wins = decided.filter((r) => r.r > 0).length;
     const n = decided.length;
+    const netVals = decided.map((r) => netRFor(r.entry, r.stop, r.dir, r.r)).filter(isNum);
     return {
       n, wins, losses: n - wins, open: rows.filter((r) => r.o === 'open').length,
       winRate: n ? wins / n : null,
       expectancy: n ? Math.round((cum / n) * 100) / 100 : null,
+      netExpectancy: netVals.length ? Math.round((netVals.reduce((a, b) => a + b, 0) / netVals.length) * 100) / 100 : null,
       cum: Math.round(cum * 100) / 100,
       maxLosingStreak, points
     };
@@ -368,6 +416,7 @@ export function chartKit() {
   function readoutHtml(s) {
     return `<span id="equity-readout-n">N=${s.n}</span><span id="equity-readout-win">WIN ${pct(s.winRate)}</span>`
       + `<span id="equity-readout-exp">EXP <b class="${rStatus(s.expectancy)}">${signedR(s.expectancy)}</b></span>`
+      + `<span id="equity-readout-net">NET <b class="${rStatus(s.netExpectancy)}">${signedR(s.netExpectancy)}</b></span>`
       + `<span id="equity-readout-cum">CUM <b class="${s.n ? rStatus(s.cum) : ''}">${s.n ? signedR(s.cum) : DASH}</b></span>`
       + `<span id="equity-readout-open">${s.open} OPEN</span>`;
   }
@@ -377,6 +426,7 @@ export function chartKit() {
     if (!s.n && !s.open) return `<span id="equity-you-readout-empty">YOUR TRADES ${esc(emptyText)}</span>`;
     return `<span id="equity-you-readout-n">YOUR TRADES N=${s.n}</span><span id="equity-you-readout-win">WIN ${pct(s.winRate)}</span>`
       + `<span id="equity-you-readout-exp">EXP <b class="${rStatus(s.expectancy)}">${signedR(s.expectancy)}</b></span>`
+      + `<span id="equity-you-readout-net">NET <b class="${rStatus(s.netExpectancy)}">${signedR(s.netExpectancy)}</b></span>`
       + `<span id="equity-you-readout-cum">CUM <b class="${s.n ? rStatus(s.cum) : ''}">${s.n ? signedR(s.cum) : DASH}</b></span>`
       + `<span id="equity-you-readout-open">${s.open} OPEN</span>`;
   }
@@ -384,10 +434,11 @@ export function chartKit() {
   const matches = (r, sel, skip) => Object.keys(sel).every((k) => k === skip || !sel[k].length || sel[k].includes(r.f[k]));
 
   /** Rows: all scored, the current selection, then each selected value within the other filters. */
-  function filterTableHtml(rows, sel, dims, you) {
+  function filterTableHtml(rows, sel, dims, you, setup) {
     const lines = [['All scored', equityStats(rows)]];
     const active = dims.filter(([k]) => sel[k] && sel[k].length);
     if (you && you.length) lines.push([active.length ? 'Your trades (selection)' : 'Your trades', equityStats(you.filter((r) => matches(r, sel)))]);
+    if (setup && setup.length) lines.push([active.length ? 'SETUPs, what-if (selection)' : 'SETUPs, what-if', equityStats(setup.filter((r) => matches(r, sel)))]);
     if (active.length) {
       lines.push(['Selection', equityStats(rows.filter((r) => matches(r, sel)))]);
       for (const [k, label] of active) {
@@ -395,9 +446,10 @@ export function chartKit() {
       }
     }
     const td = (v, cls) => `<td class="num${cls ? ` ${cls}` : ''}">${esc(v)}</td>`;
-    return `<table id="equity-filter-table"><thead><tr><th>Filter</th><th class="num">n</th><th class="num">Win rate</th><th class="num">Exp. (gross R)</th><th class="num">Max loss streak</th></tr></thead><tbody>`
+    return `<table id="equity-filter-table"><thead><tr><th>Filter</th><th class="num">n</th><th class="num">Win rate</th><th class="num">Exp. (gross R)</th><th class="num">Net exp. (dir-cost)</th><th class="num">Max loss streak</th></tr></thead><tbody>`
       + lines.map(([label, s]) => `<tr><td>${esc(label)}</td>${td(s.n, s.n ? '' : 'dim')}${td(pct(s.winRate), s.n ? '' : 'dim')}`
-        + `${td(signedR(s.expectancy), s.n ? rStatus(s.expectancy) : 'dim')}${td(s.maxLosingStreak, s.maxLosingStreak >= 5 ? 'st-bad' : s.maxLosingStreak ? '' : 'dim')}</tr>`).join('')
+        + `${td(signedR(s.expectancy), s.n ? rStatus(s.expectancy) : 'dim')}${td(signedR(s.netExpectancy), isNum(s.netExpectancy) ? rStatus(s.netExpectancy) : 'dim')}`
+        + `${td(s.maxLosingStreak, s.maxLosingStreak >= 5 ? 'st-bad' : s.maxLosingStreak ? '' : 'dim')}</tr>`).join('')
       + '</tbody></table>';
   }
 
@@ -498,6 +550,7 @@ var read=function(id){try{return JSON.parse($(id).textContent);}catch(e){return 
 var calls=read('tracker-calls-data')||{rows:[],you:[],dims:[],now:null};
 var wallet=read('tracker-wallet-data')||{rows:[],good:[],marks:[],now:null,range:'all'};
 calls.you=calls.you||[];
+calls.setup=calls.setup||[];
 var nowMs=Date.parse(calls.now)||Date.now();
 var sel={};var range=wallet.range||'all';
 var width=function(id){var el=$(id);return el&&el.clientWidth?el.clientWidth:640;};
@@ -505,11 +558,11 @@ var pick=function(list){return list.filter(function(r){return Object.keys(sel).e
 var selected=function(){return pick(calls.rows);};
 function drawEquity(){
   if(!$('equity-chart-frame'))return;
-  var rows=selected(),you=pick(calls.you);
+  var rows=selected(),you=pick(calls.you),setup=pick(calls.setup);
   $('equity-chart-frame').innerHTML=kit.equitySvg('equity-chart-svg',rows,width('equity-chart-frame'),nowMs,calls.rows.length||calls.you.length?${JSON.stringify(NO_MATCH_CHART)}:${JSON.stringify(NO_SCORED_CHART)},you);
   if($('equity-readout'))$('equity-readout').innerHTML=kit.readoutHtml(kit.equityStats(rows));
   if($('equity-you-readout'))$('equity-you-readout').innerHTML=kit.youReadoutHtml(kit.equityStats(you),calls.you.length?${JSON.stringify(NO_MATCH_CHART)}:${JSON.stringify(NO_JOURNAL_TRADES)});
-  if($('equity-filter-table-scroll'))$('equity-filter-table-scroll').innerHTML=kit.filterTableHtml(calls.rows,sel,calls.dims,calls.you);
+  if($('equity-filter-table-scroll'))$('equity-filter-table-scroll').innerHTML=kit.filterTableHtml(calls.rows,sel,calls.dims,calls.you,setup);
   var n=Object.keys(sel).reduce(function(a,k){return a+sel[k].length;},0);
   if($('equity-filters-count'))$('equity-filters-count').textContent=n?n+' ACTIVE':'NONE ACTIVE';
 }

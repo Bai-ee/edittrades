@@ -1446,9 +1446,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.23.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.24.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.23.0', 'schemaVersion must be bumped to 1.23.0');
+    assertEqual(case6Result.schemaVersion, '1.24.0', 'schemaVersion must be bumped to 1.24.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1845,9 +1845,16 @@ async function main() {
       assertEqual(JSON.stringify(modelInclude.symbols.BTC.flagTradePlan), JSON.stringify(plainPlan), 'same under include=model');
     });
 
+    await test('T6 completion plan C2: flagTradePlan never carries setup - published once, on flagRecommendation.setup only (byte budget, no duplication)', () => {
+      for (const [sym, symData] of Object.entries(case6Result.symbols)) {
+        if (symData.flagTradePlan) assert(!('setup' in symData.flagTradePlan), `${sym}: flagTradePlan.setup must be stripped before publish`);
+        if (symData.flagRecommendation) assert('setup' in symData.flagRecommendation, `${sym}: flagRecommendation always carries the setup key (null when none)`);
+      }
+    });
+
     await test('review fix 6a: default flagRecommendation is codes + one-line text; the full record is model.recommendation only', async () => {
       // Phase 2 (schema 1.18.0): `candidate` names the nearest flag on a no-plan WATCH (else null).
-      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
+      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'setup', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
       for (const [sym, symData] of Object.entries(case6Result.symbols)) {
         const r = symData.flagRecommendation;
         assertEqual(JSON.stringify(Object.keys(r)), JSON.stringify(COMPACT_KEYS), `${sym}: compact keys`);
@@ -1878,7 +1885,7 @@ async function main() {
       assertEqual(failed.flagHigh, 3, 'input not mutated');
     });
 
-    await test('T6 completion plan A1: payload byte caps on a synthetic worst case, not a frozen day (default <= 80,200 B, compact <= 45,000 B)', async () => {
+    await test('T6 completion plan A1/C2: payload byte caps on a synthetic worst case, not a frozen day (default <= 81,200 B, compact <= 45,800 B)', async () => {
       // A frozen historical fixture only proves "this one day fit" - it says nothing
       // about the worst case, and the live payload has already exceeded 79,000 B on a
       // day this suite never captured. This test instead builds the worst SHAPE the
@@ -1956,7 +1963,11 @@ async function main() {
           netRR: 2.87,
           costR: 0.41,
           stopDistancePct: 1.517,
-          planId: `${candidateId}|${closedThroughIso}|2026.09.24-3`
+          planId: `${candidateId}|${closedThroughIso}|2026.09.24-4`
+          // T6 completion plan C2: flagTradePlan.setup is stripped before publish
+          // (services/scalpContext.js) - the SETUP tier is published once, on
+          // flagRecommendation.setup only (worstRecommendation below), not duplicated
+          // here.
         };
       }
 
@@ -1969,6 +1980,17 @@ async function main() {
           asOf: closedThroughIso,
           primaryReason: { code: 'ready_flag_plan', text: 'The engine has a ready long flag plan with entry 114.05, stop 112.32, TP1 118.9.' },
           readiness: 'ready',
+          setup: {
+            candidateId: `${candidateId}:setup`,
+            timeframe: '3m',
+            direction: 'short',
+            entry: 114.9,
+            stop: 116.7,
+            tp1: 109.4,
+            grossRR: 3.06,
+            netRR: 2.51,
+            entryCondition: 'a closed candle closes below 114.9, then a later closed candle\'s high reaches within 0.1 ATR of 114.9 and closes at or below it'
+          },
           qualityBand: 'high',
           policyVersion: 'flag-21-decision-v1',
           supports: ['rr_ok', 'net_rr_ok', 'td:bull:4/4', '4h:with', 'a200:6/7', 'ema200:1m:above', 'divergence_agrees', 'data_fresh'],
@@ -2028,8 +2050,8 @@ async function main() {
       const def = Buffer.byteLength(JSON.stringify(filterPayload(built, {})), 'utf8');
       const compact = Buffer.byteLength(JSON.stringify(filterPayload(built, { compact: true })), 'utf8');
       console.log(`      worst-case payload: default ${def} B, compact ${compact} B`);
-      assert(def <= 80200, `default worst-case payload ${def} B exceeds 80,200`);
-      assert(compact <= 45000, `compact worst-case payload ${compact} B exceeds 45,000`);
+      assert(def <= 81200, `default worst-case payload ${def} B exceeds 81,200`);
+      assert(compact <= 45800, `compact worst-case payload ${compact} B exceeds 45,800`);
     });
 
     await test('failed candidate trace string carries failReason as a fourth token; live ones keep three', () => {

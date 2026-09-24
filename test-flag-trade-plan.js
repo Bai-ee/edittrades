@@ -13,7 +13,7 @@
  * Run: node test-flag-trade-plan.js
  */
 
-import { buildFlagTradePlan } from './lib/flagTradePlan.js';
+import { buildFlagTradePlan, costRFraction, netRiskReward } from './lib/flagTradePlan.js';
 import { buildScalpContext, INTERVAL_MS } from './services/scalpContext.js';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { FIXTURE_PIVOT, withTimes, regression001, mirror } from './test/fixtures/flagFixtures.js';
@@ -148,7 +148,7 @@ async function run() {
     assertEqual(plan.tp1, 1040, 'tp1');
     assertEqual(plan.tp2, null, 'tp2 (no cap, TP1 already the full measured move)');
     assertEqual(plan.grossRR, 4, 'grossRR = |tp1 - entry| / |entry - stop|');
-    assertClose(plan.netRR, 3.1667, 0.001, 'netRR');
+    assertClose(plan.netRR, 2.731, 0.001, 'netRR (T6 completion plan C1: a long pays the 34bps dir-cost, not the flat 20bps)');
     assertEqual(plan.entryCondition, "a closed candle closes above 1000, then a later closed candle's low reaches within 0.1 ATR of 1000 and closes at or above it", 'entryCondition');
     assert(plan.candidateId && plan.planId && plan.planId.includes(plan.candidateId), 'planId embeds candidateId');
   });
@@ -160,7 +160,7 @@ async function run() {
     assertEqual(plan.stop, 1010, 'stop');
     assertEqual(plan.tp1, 960, 'tp1');
     assertEqual(plan.grossRR, 4, 'grossRR');
-    assertClose(plan.netRR, 3.1667, 0.001, 'netRR');
+    assertClose(plan.netRR, 3.386, 0.001, 'netRR (T6 completion plan C1: a short pays the cheaper 14bps dir-cost, not the flat 20bps)');
     assertEqual(plan.entryCondition, "a closed candle closes below 1000, then a later closed candle's high reaches within 0.1 ATR of 1000 and closes at or below it", 'entryCondition');
   });
 
@@ -336,7 +336,7 @@ async function run() {
     assertEqual(plan.tp1, 1020, 'tp1 capped to the zone\'s near edge');
     assertEqual(plan.tp2, 1040, 'tp2 keeps the measured target, since it is still beyond the capped TP1');
     assertEqual(plan.grossRR, 10, 'grossRR uses the capped TP1, not the raw measured target');
-    assertClose(plan.netRR, 4.5, 0.001, 'netRR uses the capped TP1, not the raw measured target');
+    assertClose(plan.netRR, 3.074, 0.001, 'netRR uses the capped TP1, not the raw measured target (T6 completion plan C1: 34bps long dir-cost)');
   });
 
   await test('nearest-level cap (short mirror)', () => {
@@ -358,14 +358,31 @@ async function run() {
   });
 
   await test('owner decision 1a: gross R:R of exactly 3 passes even though net R:R after fees is below 3 (long + short mirror)', () => {
-    // entry 1000, stop 990/1010 (risk 10), target 1030/970 (reward 30, gross RR 3.0 exactly).
-    for (const cand of [longCandidate({ measuredTarget: 1030 }), shortCandidate({ measuredTarget: 970 })]) {
+    // entry 1000, stop 985/1015 (risk 15, T6 completion plan C1: wide enough that the
+    // 34bps long dir-cost still clears the 2.0 net floor), target 1045/955 (reward 45,
+    // gross RR 3.0 exactly).
+    for (const cand of [longCandidate({ invalidation: 985, measuredTarget: 1045 }), shortCandidate({ invalidation: 1015, measuredTarget: 955 })]) {
       const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
       assertEqual(plan.status, 'ready', `${cand.direction}: status (gross floor met)`);
       assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
       assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR`);
       assert(plan.netRR < ENGINE_CONFIG.flagPlan.minRR, `${cand.direction}: netRR ${plan.netRR} is below the floor but never rejects`);
     }
+  });
+
+  await test('T6 completion plan C1: dir-cost is a real gate difference, not just a reported number - a long can fail net_rr_below_min where the mirrored short still readies', () => {
+    // Same gross geometry as the two tests above, but risk narrowed back to 10 (reward
+    // 30, gross RR 3.0): the long's 34bps dir-cost now pushes net R:R under the 2.0
+    // floor (1.985), while the short's cheaper 14bps still clears it (2.509) - dir-cost
+    // is direction-dependent at the GATE, not only in reporting.
+    const longPlan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1030 }), candles: levelCandles('long', 'retest') }));
+    assertEqual(longPlan.status, 'rejected', 'long: the 34bps dir-cost now fails the net gate on this fixture');
+    assertEqual(longPlan.reasonCode, 'net_rr_below_min', 'long: reasonCode (costR stays well under 0.5)');
+    assert(longPlan.netRR < ENGINE_CONFIG.flagPlan.minNetRR, `long netRR ${longPlan.netRR} must be below the 2.0 floor`);
+
+    const shortPlan = buildFlagTradePlan(baseParams({ candidate: shortCandidate({ measuredTarget: 970 }), candles: levelCandles('short', 'retest') }));
+    assertEqual(shortPlan.status, 'ready', 'short: the same gross geometry still readies - only the direction-dependent cost differs');
+    assert(shortPlan.netRR >= ENGINE_CONFIG.flagPlan.minNetRR, `short netRR ${shortPlan.netRR} must clear the 2.0 floor`);
   });
 
   await test('rejected/rr_below_min: gross R:R 2.9 is below the floor (long + short mirror)', () => {
@@ -394,13 +411,16 @@ async function run() {
   }
 
   await test('shipped default (2.0): a gross-passing plan whose round-trip cost alone eats over half its risk is rejected stop_inside_costs (long + short mirror), levels kept', () => {
-    for (const cand of [longCandidate({ invalidation: 999, measuredTarget: 1003 }), shortCandidate({ invalidation: 1001, measuredTarget: 997 })]) {
+    // T6 completion plan C1: risk scaled to each direction's own dir-cost amount (34bps
+    // long / 14bps short of entry) so costR/netRR land on the SAME clean numbers the
+    // flat-cost fixture used - risk = cost/2 always yields costR=2.0, netRR=1/3.
+    for (const cand of [longCandidate({ invalidation: 998.3, measuredTarget: 1005.1 }), shortCandidate({ invalidation: 1000.7, measuredTarget: 997.9 })]) {
       const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') })); // no cfg arg: the shipped default
       assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, 'stop_inside_costs', `${cand.direction}: reasonCode (costR >= 0.5)`);
       assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR still published`);
       assertClose(plan.netRR, 0.333, 0.001, `${cand.direction}: netRR still published`);
-      assertClose(plan.costR, 2.0, 0.001, `${cand.direction}: costR (round-trip cost is 2x this stop's own risk)`);
+      assertClose(plan.costR, 2.0, 0.001, `${cand.direction}: costR (round-trip dir-cost is 2x this stop's own risk)`);
       assertEqual(plan.entry, 1000, `${cand.direction}: entry unmoved`);
       assertEqual(plan.stop, cand.invalidation, `${cand.direction}: stop unmoved`);
       assertEqual(plan.tp1, cand.measuredTarget, `${cand.direction}: tp1 unmoved`);
@@ -409,20 +429,29 @@ async function run() {
 
   await test('the real BTC 0.066%-stop incident (section 1a) is now rejected stop_inside_costs, not ready', () => {
     // entry 83,409.4 / stop 83,464.3 / tp1 83,228 - the one GOOD call the whole T6 plan is about.
+    // T6 completion plan C1: this incident is a short, so its dir-cost (14bps) is
+    // CHEAPER than the flat 20bps this test originally assumed - netR is healthier
+    // (0.38 vs the old 0.07), but costR (2.13) is still far over the 0.5 threshold, so
+    // the incident is still caught, still stop_inside_costs, not ready.
     const cand = {
       candidateId: 'BTC:1m:short:incident', timeframe: '1m', type: 'flag', direction: 'short', state: 'confirmed',
       confidence: 80, chaseRisk: false, breakoutLevel: 83409.4, invalidation: 83464.3, measuredTarget: 83228
     };
     const plan = buildFlagTradePlan(baseParams({ candidate: cand }));
     assertClose(plan.grossRR, 3.30, 0.01, 'grossRR matches the incident (3.30)');
-    assert(plan.netRR < 0.1, `netRR should be near the incident's 0.07, got ${plan.netRR}`);
-    assert(plan.costR > 2.5, `costR should be near the incident's implied ~3.0, got ${plan.costR}`);
+    assertClose(plan.netRR, 0.376, 0.001, 'netRR at the short (14bps) dir-cost');
+    assertClose(plan.costR, 2.127, 0.001, 'costR at the short (14bps) dir-cost - still far over the 0.5 threshold');
     assertEqual(plan.status, 'rejected', 'status');
     assertEqual(plan.reasonCode, 'stop_inside_costs', 'reasonCode');
   });
 
+  // T6 completion plan C1: the fixtures below scale risk proportionally to each
+  // direction's own dir-cost (34bps long / 14bps short of entry, cost = entry * bps)
+  // so grossRR, netRR and costR land on the SAME clean numbers the pre-C1 flat-cost
+  // fixtures used - a direction-neutral way to keep the "long + short mirror" loops
+  // meaningful once the cost itself is no longer direction-neutral.
   await test('shipped default (2.0): a wider-stop plan clears the net gate and ships ready (long + short mirror)', () => {
-    for (const cand of [longCandidate({ invalidation: 995, measuredTarget: 1020 }), shortCandidate({ invalidation: 1005, measuredTarget: 980 })]) {
+    for (const cand of [longCandidate({ invalidation: 991.5, measuredTarget: 1034 }), shortCandidate({ invalidation: 1003.5, measuredTarget: 986 })]) {
       const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
       assertEqual(plan.status, 'ready', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
@@ -433,7 +462,7 @@ async function run() {
   });
 
   await test('rejected/net_rr_below_min (not costs-heavy): the same wider-stop plan fails a stricter override while costR stays under 0.5 (long + short mirror)', () => {
-    for (const cand of [longCandidate({ invalidation: 995, measuredTarget: 1020 }), shortCandidate({ invalidation: 1005, measuredTarget: 980 })]) {
+    for (const cand of [longCandidate({ invalidation: 991.5, measuredTarget: 1034 }), shortCandidate({ invalidation: 1003.5, measuredTarget: 986 })]) {
       const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(3.0));
       assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, 'net_rr_below_min', `${cand.direction}: reasonCode (costR < 0.5, so the plainer code)`);
@@ -442,7 +471,7 @@ async function run() {
   });
 
   await test('net gate boundary: net R:R exactly at the shipped 2.0 floor passes, not rejected (long + short mirror)', () => {
-    for (const cand of [longCandidate({ invalidation: 994, measuredTarget: 1018 }), shortCandidate({ invalidation: 1006, measuredTarget: 982 })]) {
+    for (const cand of [longCandidate({ invalidation: 989.8, measuredTarget: 1030.6 }), shortCandidate({ invalidation: 1004.2, measuredTarget: 987.4 })]) {
       const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
       assertEqual(plan.status, 'ready', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
@@ -462,6 +491,28 @@ async function run() {
     const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate({ measuredTarget: 1029 }) }), withMinNetRR(5));
     assertEqual(plan.status, 'rejected', 'status');
     assertEqual(plan.reasonCode, 'rr_below_min', 'the gross gate runs first and short-circuits');
+  });
+
+  // T6 completion plan C1 (D-cost decision, docs/OWNER_DECISIONS_2026-09-24.md): direct
+  // unit coverage of costRFraction/netRiskReward's new optional `direction` param,
+  // beyond the end-to-end buildFlagTradePlan cases above.
+  await test('costRFraction/netRiskReward: direction-dependent when direction is given (long 34bps, short 14bps), unchanged when omitted', () => {
+    const riskCfg = ENGINE_CONFIG.risk;
+    // costRFraction is cost-as-a-fraction-of-risk: costAmount (entry * bps/10000) / |entry-stop|.
+    assertClose(costRFraction(1000, 990, riskCfg, 'long'), 0.34, 0.001, 'long: (34/10000 * 1000) / |1000-990|');
+    assertClose(costRFraction(1000, 990, riskCfg, 'short'), 0.14, 0.001, 'short: (14/10000 * 1000) / 10');
+    assertEqual(costRFraction(1000, 990, riskCfg), 0.2, 'direction omitted: flat (2*(5+5)/10000 * 1000) / 10');
+    assertEqual(costRFraction(1000, 990, riskCfg, 'flat'), 0.2, 'an unrecognized direction token also falls back to flat');
+
+    assertClose(netRiskReward(1000, 990, 1040, riskCfg, 'long'), (40 - 3.4) / (10 + 3.4), 0.0001, 'long netRR uses the 34bps cost amount (3.4 price units)');
+    assertClose(netRiskReward(1000, 990, 1040, riskCfg, 'short'), (40 - 1.4) / (10 + 1.4), 0.0001, 'short netRR uses the 14bps cost amount (1.4 price units)');
+    assertClose(netRiskReward(1000, 990, 1040, riskCfg), (40 - 2) / (10 + 2), 0.0001, 'direction omitted: flat cost amount (2), unchanged from before C1');
+  });
+
+  await test('costRFraction/netRiskReward: a missing costBpsByDirection key falls back to flat even when direction is given', () => {
+    const bareCfg = { feeBps: 5, slippageBps: 5 };
+    assertEqual(costRFraction(1000, 990, bareCfg, 'long'), 0.2, 'no costBpsByDirection on this cfg -> flat cost regardless of direction');
+    assertClose(netRiskReward(1000, 990, 1040, bareCfg, 'short'), (40 - 2) / (10 + 2), 0.0001, 'same for netRiskReward');
   });
 
   await test('rejected/stop_distance_exceeds_cap: a 5% stop exceeds the 3% scalp cap (long)', () => {
@@ -585,6 +636,17 @@ async function run() {
     assertEqual(plan.candidateId, 'BTC:5m:long:Y', 'the 5m attempt wins the timeframe tie-break');
   });
 
+  await test('T6 completion plan C4: FLAG_TF_RANK is forward-compatible for 15m/1h - ranks ahead of 5m on a confidence tie, even though neither is in the default candidate pool today', () => {
+    const fiveMin = longCandidate({ candidateId: 'BTC:5m:long:X', timeframe: '5m', confidence: 80 });
+    const fifteenMin = longCandidate({ candidateId: 'BTC:15m:long:Y', timeframe: '15m', confidence: 80 });
+    const params = baseParams({ candidate: fiveMin });
+    params.candidateSetups = [fiveMin, fifteenMin];
+    params.tfEntries['15m'] = { closedThrough: FRESH_1M };
+    params.marketByTf['15m'] = { price: 1000, atr: 5 };
+    const plan = buildFlagTradePlan(params);
+    assertEqual(plan.candidateId, 'BTC:15m:long:Y', 'the 15m attempt wins the timeframe tie-break over 5m');
+  });
+
   await test('selection: confidence and timeframe tied, lexicographically-smaller candidateId wins (stable tie-break)', () => {
     const a = longCandidate({ candidateId: 'BTC:1m:long:2026-09-23T11:00:00.000Z', confidence: 80 });
     const b = longCandidate({ candidateId: 'BTC:1m:long:2026-09-23T12:00:00.000Z', confidence: 80 });
@@ -622,7 +684,10 @@ async function run() {
 
   await test('shadow variant that differs (rejected rr_below_min live, ready under V-B) publishes shadow.vB, full retest-hold semantics (long + short)', () => {
     for (const dir of ['long', 'short']) {
-      const cand = dir === 'long' ? longCandidate({ measuredTarget: 1029 }) : shortCandidate({ measuredTarget: 971 }); // grossRR 2.9
+      // T6 completion plan C1: risk widened to 15 (from the default 10) so netRR clears
+      // the 2.0 floor under the 34bps long dir-cost too (a risk=10 fixture at grossRR
+      // 2.9 now fails net_rr_below_min for a long - see the dedicated C1 test above).
+      const cand = dir === 'long' ? longCandidate({ invalidation: 985, measuredTarget: 1043.5 }) : shortCandidate({ invalidation: 1015, measuredTarget: 956.5 }); // grossRR 2.9
       const plan = buildFlagTradePlan(baseParams({
         candidate: cand, price: dir === 'long' ? 1003 : 997,
         candles: levelCandles(dir, 'retest'), shadowVariants: VB_VARIANT
@@ -670,6 +735,88 @@ async function run() {
       candles: levelCandles('long', 'retest'), shadowVariants: VB_VARIANT
     }));
     assertEqual(JSON.stringify(a.shadow), JSON.stringify(b.shadow), 'identical inputs produce a byte-identical shadow object');
+  });
+
+  // -------------------------------------------------------------------------
+  // Section 1c: SETUP tier (T6 completion plan C2) - the best still-conditional
+  // attempt in the pool, surfaced even when a different candidate wins the live plan.
+  // -------------------------------------------------------------------------
+  console.log('\n1c) SETUP tier (T6 completion plan C2)\n');
+
+  /** A second candidate on a different timeframe, breakout-close-only candles (conditional/awaiting_retest, valid economics). */
+  function setupParams(readyCand, conditionalCand, dir) {
+    const params = baseParams({ candidate: readyCand, price: dir === 'long' ? 1003 : 997, candles: levelCandles(dir, 'retest') });
+    params.candidateSetups = [readyCand, conditionalCand];
+    params.tfEntries['3m'] = { closedThrough: FRESH_1M };
+    params.marketByTf['3m'] = { price: 1000, atr: 5 };
+    params.candlesByTf['3m'] = levelCandles(dir, 'breakout');
+    return params;
+  }
+
+  await test("setup surfaces a different candidate's still-conditional attempt even when the live plan is already ready (long + short mirror)", () => {
+    for (const dir of ['long', 'short']) {
+      const readyCand = dir === 'long' ? longCandidate() : shortCandidate();
+      const conditionalCand = dir === 'long'
+        ? longCandidate({ candidateId: 'BTC:3m:long:setup', timeframe: '3m' })
+        : shortCandidate({ candidateId: 'BTC:3m:short:setup', timeframe: '3m' });
+      const plan = buildFlagTradePlan(setupParams(readyCand, conditionalCand, dir));
+      assertEqual(plan.status, 'ready', `${dir}: live plan is the 1m ready candidate`);
+      assertEqual(plan.candidateId, readyCand.candidateId, `${dir}: live plan matches the ready candidate, not the conditional one`);
+      assert(plan.setup, `${dir}: setup is published`);
+      assertEqual(plan.setup.candidateId, conditionalCand.candidateId, `${dir}: setup surfaces the DIFFERENT (3m, still-conditional) candidate`);
+      assertEqual(plan.setup.timeframe, '3m', `${dir}: setup timeframe`);
+      assertEqual(plan.setup.direction, dir, `${dir}: setup direction`);
+      assertEqual(plan.setup.entry, 1000, `${dir}: setup entry (breakoutLevel, unmoved)`);
+      assertEqual(plan.setup.stop, conditionalCand.invalidation, `${dir}: setup stop unmoved`);
+      assertEqual(plan.setup.grossRR, 4, `${dir}: setup grossRR (same default candidate economics as the ready one)`);
+      assert(typeof plan.setup.netRR === 'number', `${dir}: setup netRR published (dir-cost, T6 completion plan C1)`);
+      assert(typeof plan.setup.entryCondition === 'string' && plan.setup.entryCondition.length > 0, `${dir}: setup carries the exact trigger sentence`);
+    }
+  });
+
+  await test('no qualifying conditional attempt: setup is null, not omitted (long + short mirror)', () => {
+    for (const dir of ['long', 'short']) {
+      const readyCand = dir === 'long' ? longCandidate() : shortCandidate();
+      const plan = buildFlagTradePlan(baseParams({ candidate: readyCand, price: dir === 'long' ? 1003 : 997, candles: levelCandles(dir, 'retest') }));
+      assertEqual(plan.status, 'ready', `${dir}: sanity, live plan ready`);
+      assertEqual(plan.setup, null, `${dir}: no other conditional candidate exists - setup is null, not undefined`);
+      assert('setup' in plan, `${dir}: the setup key itself is always present`);
+    }
+  });
+
+  await test('SETUP fixture that becomes ready: once the retest-hold close lands, setup drops to null and the plan itself is now ready (long + short mirror)', () => {
+    for (const dir of ['long', 'short']) {
+      const cand = dir === 'long'
+        ? longCandidate({ candidateId: 'BTC:3m:long:setup2', timeframe: '3m' })
+        : shortCandidate({ candidateId: 'BTC:3m:short:setup2', timeframe: '3m' });
+      const params = baseParams({ candidate: cand, price: 1000, candles: levelCandles(dir, 'breakout') });
+      const conditional = buildFlagTradePlan(params);
+      assertEqual(conditional.status, 'conditional', `${dir}: sole candidate is conditional (breakout close only)`);
+      assert(conditional.setup && conditional.setup.candidateId === cand.candidateId, `${dir}: the sole conditional candidate is also its own setup`);
+
+      params.candlesByTf[cand.timeframe] = levelCandles(dir, 'retest');
+      params.marketByTf[cand.timeframe] = { price: dir === 'long' ? 1003 : 997, atr: 5 };
+      const ready = buildFlagTradePlan(params);
+      assertEqual(ready.status, 'ready', `${dir}: same candidate now clears the retest-hold`);
+      assertEqual(ready.candidateId, cand.candidateId, `${dir}: same candidate`);
+      assertEqual(ready.setup, null, `${dir}: no longer any conditional-status attempt in the pool - setup drops to null`);
+    }
+  });
+
+  await test('SETUP fixture that voids: once the candidate leaves the confirmed pool (failed/expired), setup drops to null (long + short mirror)', () => {
+    for (const dir of ['long', 'short']) {
+      const cand = dir === 'long'
+        ? longCandidate({ candidateId: 'BTC:3m:long:setup3', timeframe: '3m' })
+        : shortCandidate({ candidateId: 'BTC:3m:short:setup3', timeframe: '3m' });
+      const params = baseParams({ candidate: cand, price: 1000, candles: levelCandles(dir, 'breakout') });
+      const conditional = buildFlagTradePlan(params);
+      assertEqual(conditional.status, 'conditional', `${dir}: sanity, sole candidate is conditional`);
+      assert(conditional.setup, `${dir}: setup published while the candidate is still confirmed`);
+
+      params.candidateSetups = [{ ...cand, state: 'failed' }];
+      const voided = buildFlagTradePlan(params);
+      assertEqual(voided, null, `${dir}: a failed candidate drops out of the confirmed pool entirely - no plan at all, no setup`);
+    }
   });
 
   // -------------------------------------------------------------------------

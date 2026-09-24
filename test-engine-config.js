@@ -250,9 +250,12 @@ async function run() {
   });
 
   await test('setConfigOverride is a live ES module binding: another module\'s default `cfg = ENGINE_CONFIG` param sees it with no code change there', () => {
+    // T6 completion plan C1: risk 1.7 (not 1) so the 34bps long dir-cost (3.4 price
+    // units) still leaves a positive net reward - grossRR stays 3, costR stays 2.0
+    // (still >= the 0.5 stop_inside_costs threshold), netRR stays the same clean 0.333.
     const candidate = {
       candidateId: 'TEST:1m:long:override', timeframe: '1m', type: 'flag', direction: 'long', state: 'confirmed',
-      confidence: 80, chaseRisk: false, breakoutLevel: 1000, invalidation: 999, measuredTarget: 1003
+      confidence: 80, chaseRisk: false, breakoutLevel: 1000, invalidation: 998.3, measuredTarget: 1005.1
     };
     const params = {
       candidateSetups: [candidate],
@@ -349,7 +352,7 @@ async function run() {
       fetchCandles: fakeFetch,
       fetchAccount: fakeAccount
     });
-    assertEqual(payload.schemaVersion, '1.23.0', 'schemaVersion was not bumped');
+    assertEqual(payload.schemaVersion, '1.24.0', 'schemaVersion was not bumped');
     assertEqual(payload.configVersion, CONFIG_VERSION, 'payload configVersion does not match the loader');
     assertEqual(typeof payload.configVersion, 'string', 'configVersion is not a string in the payload');
   });

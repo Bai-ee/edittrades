@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.24-3",
+  "configVersion": "2026.09.24-4",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -38,6 +38,7 @@
     "maxLeverage": 100,
     "feeBps": 5,
     "slippageBps": 5,
+    "costBpsByDirection": { "long": 34, "short": 14 },
     "defaultLossBudgetPctOfCollateral": 5
   },
 

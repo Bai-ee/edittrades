@@ -23,9 +23,9 @@ import {
   readJournal, appendJournal, journalOutcomesFile, appendCalls, appendCandles
 } from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
-import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
-import { statsFor, computeAggregates, classCheck, aggregateDataDir } from './scripts/tracker/aggregate.js';
-import { FEE_BPS, SLIPPAGE_BPS, costR, netR } from './scripts/tracker/costs.js';
+import { chartKit, equityRows, journalEquityRows, setupEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
+import { statsFor, computeAggregates, classCheck, aggregateDataDir, configBoundary } from './scripts/tracker/aggregate.js';
+import { FEE_BPS, SLIPPAGE_BPS, COST_BPS_BY_DIRECTION, costR, netR } from './scripts/tracker/costs.js';
 import {
   buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED,
   NO_CALIBRATION, CALIBRATION_MIN_N, EMPTY_CALIBRATION, NO_SHADOW, SHADOW_TOO_FEW, PHASE_NAME, RESTART_NOTE,
@@ -404,6 +404,59 @@ async function run() {
     assertEqual(get('ADA', 'plan').outcome, 'pending', 'conditional never ready, window open');
   });
 
+  // ---------------------------------------------------------------- T6 completion plan C2 (SETUP tier)
+
+  function setupCaptureRow(symbol, ms, setup) {
+    return captureRow(symbol, ms, null, setup ? { class: 'WATCH', setupId: null, candidateId: null, primaryReason: { code: 'x', text: 'x' }, readiness: 'no_plan', setup } : null);
+  }
+
+  function setupFields(over = {}) {
+    return { candidateId: 'BTC:1m:long:setup1', timeframe: '1m', direction: 'long', entry: 100, stop: 99, tp1: 103, grossRR: 3, netRR: 2.8, entryCondition: 'a closed candle closes above 100, then a later closed candle\'s low reaches within 0.1 ATR of 100 and closes at or above it', ...over };
+  }
+
+  /** {timestamp, open, high, low, close} candles starting at `startMs`, one per `stepMs`. */
+  function setupCandles(startMs, stepMs, cs) {
+    return cs.map((r, i) => ({ timestamp: startMs + i * stepMs, open: r.o, high: r.h, low: r.l, close: r.c }));
+  }
+
+  // Long entry 100/stop 99/tp1 103: candle 0 hovers between stop and entry (no touch of
+  // either), candle 1 touches/crosses entry cleanly (low 99.5, safely above stop),
+  // candle 2 reaches tp1. Short mirrors around 100/101/97.
+  const LONG_SETUP_CANDLES = [{ o: 99.5, h: 99.8, l: 99.3, c: 99.6 }, { o: 99.6, h: 100.2, l: 99.5, c: 100.1 }, { o: 100.1, h: 103.2, l: 100, c: 103.1 }];
+  const SHORT_SETUP_CANDLES = [{ o: 100.5, h: 100.7, l: 100.2, c: 100.4 }, { o: 100.4, h: 100.5, l: 99.8, c: 100 }, { o: 100, h: 100.2, l: 96.9, c: 97 }];
+
+  await test('extractCalls + scoreCalls: SETUP tier scored what-if (never prefilled - touched then walked), mirrored long/short', () => {
+    const longRow = setupCaptureRow('BTC', T0, setupFields());
+    const longCandles = setupCandles(T0, MIN, LONG_SETUP_CANDLES);
+    const longCalls = extractCalls([longRow]);
+    const longSetupCalls = longCalls.filter((c) => c.kind === 'setup');
+    assertEqual(longSetupCalls.length, 1, 'one setup call extracted');
+    assertEqual(longSetupCalls[0].candidateId, 'BTC:1m:long:setup1', 'candidateId carried');
+    assertEqual(longSetupCalls[0].levelSource, 'setup', 'levelSource');
+    const longScored = scoreCalls(longCalls, { BTC: longCandles }, [], T0 + 60 * MIN);
+    const longSetup = longScored.find((r) => r.kind === 'setup');
+    assertEqual(longSetup.mode, 'counterfactual_setup', 'mode');
+    assertEqual(longSetup.outcome, 'tp1', 'trigger touched (candle 1 crosses 100), then walked to tp1');
+
+    const shortRow = setupCaptureRow('ETH', T0, setupFields({ candidateId: 'ETH:1m:short:setup1', direction: 'short', entry: 100, stop: 101, tp1: 97 }));
+    const shortCandles = setupCandles(T0, MIN, SHORT_SETUP_CANDLES);
+    const shortCalls = extractCalls([shortRow]);
+    const shortScored = scoreCalls(shortCalls, { ETH: shortCandles }, [], T0 + 60 * MIN);
+    const shortSetup = shortScored.find((r) => r.kind === 'setup');
+    assertEqual(shortSetup.mode, 'counterfactual_setup', 'mode (short)');
+    assertEqual(shortSetup.outcome, 'tp1', 'short trigger touched then walked to tp1');
+  });
+
+  await test('SETUP call stream: no new call once flagRecommendation.setup disappears from a later capture (covers a SETUP becoming ready or voiding, from the tracker\'s side) - the already-created call still scores on its own window', () => {
+    const row1 = setupCaptureRow('BTC', T0, setupFields());
+    const row2 = setupCaptureRow('BTC', T0 + MIN, null); // setup gone next capture - became ready (own plan/rec call, separate) or voided
+    const calls = extractCalls([row1, row2]);
+    assertEqual(calls.filter((c) => c.kind === 'setup').length, 1, 'still exactly one setup call - no duplicate, no call for the disappearance itself');
+    const candles = setupCandles(T0, MIN, LONG_SETUP_CANDLES);
+    const scored = scoreCalls(calls, { BTC: candles }, [], T0 + 60 * MIN);
+    assertEqual(scored.find((r) => r.kind === 'setup').outcome, 'tp1', 'the one setup call is still walked and scored normally');
+  });
+
   await test('callDims: filter dimensions copied from the capture row; final rows backfilled once', () => {
     const r = captureRow('BTC', T0, plan(), rec('GOOD', {
       candidate: { timeframe: '1m', direction: 'long', state: 'confirmed' },
@@ -474,10 +527,22 @@ async function run() {
     assertEqual(netR(100, 99, null), null, 'non-finite gross R -> null');
   });
 
-  await test('costs.js: FEE_BPS/SLIPPAGE_BPS match config/engine.json risk (documented, tested source of truth)', () => {
+  await test('costs.js: FEE_BPS/SLIPPAGE_BPS/COST_BPS_BY_DIRECTION match config/engine.json risk (documented, tested source of truth)', () => {
     const engineCfg = JSON.parse(readFileSync('config/engine.json', 'utf8'));
     assertEqual(FEE_BPS, engineCfg.risk.feeBps, 'feeBps');
     assertEqual(SLIPPAGE_BPS, engineCfg.risk.slippageBps, 'slippageBps');
+    assertEqual(COST_BPS_BY_DIRECTION.long, engineCfg.risk.costBpsByDirection.long, 'costBpsByDirection.long');
+    assertEqual(COST_BPS_BY_DIRECTION.short, engineCfg.risk.costBpsByDirection.short, 'costBpsByDirection.short');
+  });
+
+  await test('costs.js: T6 completion plan C1 - costR/netR are direction-dependent when direction is passed (long 34bps, short 14bps), unchanged when omitted', () => {
+    const r6 = (v) => Math.round(v * 1e6) / 1e6;
+    assertEqual(r6(costR(100, 99, 'long')), 0.34, 'long: 34/10000 * 100 / 1');
+    assertEqual(r6(costR(100, 99, 'short')), 0.14, 'short: 14/10000 * 100 / 1');
+    assertEqual(costR(100, 99), 0.2, 'omitted direction still falls back to the flat 20bps cost');
+    assertEqual(costR(100, 99, 'flat'), 0.2, 'an unrecognized direction token also falls back to flat');
+    assertEqual(r6(netR(100, 99, 3, 'long')), 2.66, 'long tp1 (r=3) nets 3 - 0.34');
+    assertEqual(r6(netR(100, 99, -1, 'short')), -1.14, 'short stop nets -1 - 0.14');
   });
 
   await test('aggregate: win rate, expectancy, losing streak, median time', () => {
@@ -527,12 +592,83 @@ async function run() {
     assertEqual(agg.windows['7d'].reasonCounts.rr_below_min, 2, 'rr_below_min plan + rec');
   });
 
+  await test('T6 completion plan C3: configBoundary null with a single configVersion, detects the most recent transition otherwise, splits gross+net stats before/after', () => {
+    const row = (cv, outcome, rVal, at) => ({ kind: 'plan', planStatus: 'ready', outcome, r: rVal, entry: 100, stop: 99, configVersion: cv, calledAt: at });
+    const single = [row('v1', 'tp1', 3, iso(T0)), row('v1', 'stop', null, iso(T0 + MIN))];
+    assertEqual(configBoundary(single), null, 'single configVersion -> null');
+    assertEqual(configBoundary([row('v1', 'tp1', 3, iso(T0))]), null, 'fewer than 2 rows -> null');
+
+    const mixed = [
+      row('v1', 'tp1', 3, iso(T0)),
+      row('v1', 'stop', null, iso(T0 + MIN)),
+      row('v2', 'tp1', 4, iso(T0 + 2 * MIN)),
+      row('v2', 'tp1', 2, iso(T0 + 3 * MIN)),
+      { kind: 'rec', class: 'GOOD', configVersion: 'v2', calledAt: iso(T0 + 4 * MIN) } // not tradable - excluded
+    ];
+    const cb = configBoundary(mixed);
+    assert(cb, 'boundary detected');
+    assertEqual(cb.fromVersion, 'v1', 'fromVersion');
+    assertEqual(cb.toVersion, 'v2', 'toVersion');
+    assertEqual(cb.at, iso(T0 + 2 * MIN), 'boundary at the first v2 row');
+    assertEqual(cb.before.calls, 2, 'before: the two v1 tradable rows');
+    assertEqual(cb.after.calls, 2, 'after: the two v2 tradable rows (rec row excluded)');
+    assertEqual(cb.before.expectancy, statsFor(mixed.slice(0, 2)).expectancy, 'before gross expectancy matches statsFor over the same slice');
+    assertEqual(cb.after.expectancy, statsFor(mixed.slice(2, 4)).expectancy, 'after gross expectancy matches statsFor over the same slice');
+    assertEqual(cb.before.netExpectancy, statsFor(mixed.slice(0, 2)).netExpectancy, 'before net expectancy carried too');
+    assertEqual(cb.after.netExpectancy, statsFor(mixed.slice(2, 4)).netExpectancy, 'after net expectancy carried too');
+  });
+
+  await test('T6 completion plan C3: page shows the config-boundary note only when a real transition exists', () => {
+    const dir1 = tmp();
+    const { htmlFile: h1 } = buildPage(path.join(dir1, 'data'), path.join(dir1, 'docs'), T0);
+    assert(!readFileSync(h1, 'utf8').includes('id="testing-phase-config-boundary-note"'), 'empty data dir - no boundary note');
+
+    const dir2 = tmp();
+    // Reuse the shared scorer/aggregate pipeline: one capture under v1, one under v2.
+    // No candles needed - configBoundary only reads planStatus (from the capture
+    // itself), not the walked outcome.
+    const dataDir = path.join(dir2, 'data');
+    appendCalls(dataDir, [
+      { ...captureRow('BTC', T0, plan({ status: 'ready' }), null), configVersion: 'v1' },
+      { ...captureRow('BTC', T0 + 60 * MIN, plan({ status: 'ready', candidateId: 'BTC:1m:long:cfg2' }), null), configVersion: 'v2' }
+    ]);
+    scoreDataDir(dataDir, T0 + 2 * 60 * MIN);
+    const { htmlFile: h2 } = buildPage(dataDir, path.join(dir2, 'docs'), T0 + 2 * 60 * MIN);
+    const html2 = readFileSync(h2, 'utf8');
+    assert(html2.includes('id="testing-phase-config-boundary-note"'), 'two distinct configVersions - boundary note present');
+    assert(html2.includes('CONFIG v1'), 'names the from-version');
+    assert(html2.includes('v2'), 'names the to-version');
+  });
+
+  await test('T6 completion plan C3: aggregate tiles - goodPerHour7d and setupsPerDay7d over the 7-day window', () => {
+    const r = (kind, klass, at) => ({ kind, class: klass, calledAt: at });
+    const outcomes = [
+      r('rec', 'GOOD', iso(T0)),
+      r('rec', 'GOOD', iso(T0 + 60 * MIN)),
+      r('rec', 'WATCH', iso(T0 + 90 * MIN)), // not GOOD - excluded
+      r('setup', null, iso(T0)),
+      r('setup', null, iso(T0 + 30 * MIN)),
+      r('setup', null, iso(T0 + 2 * 24 * 60 * MIN)) // 2 days old, still inside the 7d window
+    ];
+    const agg = computeAggregates(outcomes, [], {}, T0 + 3 * 24 * 60 * MIN);
+    const round4 = (v) => Math.round(v * 1e4) / 1e4;
+    const round3 = (v) => Math.round(v * 1e3) / 1e3;
+    assertEqual(agg.tiles.goodPerHour7d, round4(2 / (7 * 24)), '2 GOOD calls over 7*24 hours');
+    assertEqual(agg.tiles.setupsPerDay7d, round3(3 / 7), '3 setup calls over 7 days');
+  });
+
+  await test('T6 completion plan C3: goodPerHour7d/setupsPerDay7d are 0 (not null) with no qualifying rows, from an empty data dir', () => {
+    const agg = aggregateDataDir(tmp(), T0);
+    assertEqual(agg.tiles.goodPerHour7d, 0, 'no GOOD calls -> 0');
+    assertEqual(agg.tiles.setupsPerDay7d, 0, 'no setup calls -> 0');
+  });
+
   await test('page: renders from an empty data dir with hero, phase block, and one provisional tag per section', () => {
     const dir = tmp();
     const out = path.join(dir, 'docs');
     const { htmlFile, mdFile } = buildPage(path.join(dir, 'data'), out, T0);
     const html = readFileSync(htmlFile, 'utf8');
-    for (const id of ['tile-last-capture', 'tile-expectancy-7d', 'hero-sample-size', 'tile-win-rate-7d', 'tile-fills-7d', 'tile-good-7d', 'tile-losing-streak-7d', 'tile-avg-r-7d', 'testing-phase-section', 'testing-phase-status', 'testing-phase-days-bar', 'testing-phase-plans-bar', 'testing-phase-restart-note', 'what-we-track-section', 'open-calls-section', 'window-7d-section', 'window-30d-section', 'daily-log-section', 'capture-health-summary']) {
+    for (const id of ['tile-last-capture', 'tile-expectancy-7d', 'hero-sample-size', 'tile-win-rate-7d', 'tile-fills-7d', 'tile-good-7d', 'tile-losing-streak-7d', 'tile-avg-r-7d', 'tile-good-per-hour-7d', 'tile-setups-per-day-7d', 'testing-phase-section', 'testing-phase-status', 'testing-phase-days-bar', 'testing-phase-plans-bar', 'testing-phase-restart-note', 'what-we-track-section', 'open-calls-section', 'window-7d-section', 'window-30d-section', 'daily-log-section', 'capture-health-summary']) {
       assert(html.includes(`id="${id}"`), `missing #${id}`);
     }
     assert(html.includes(RESTART_NOTE.replace(/'/g, '&#39;')), 'T6 phase 1 window-restart note text (net R:R ≥ 2.0, flags on 1m/3m/5m)');
@@ -840,6 +976,46 @@ async function run() {
     assertEqual(again[0].scoredAt, rows[0].scoredAt, 'scoredAt stable when unchanged');
     const noClose = scoreJournal([journalSet[3]], jCandles, [], [], T0);
     assertEqual(noClose[0].outcome, 'no_levels', 'no levels, no close');
+  });
+
+  await test('T6 completion plan C1/C3: equityStats computes netExpectancy (dir-cost) beside gross, shown in readoutHtml/filterTableHtml - "net and gross R labeled side by side"', () => {
+    const kit = chartKit();
+    // long tp1 r=3 (entry 100/stop 99, 34bps cost) + short stop r=-1 (entry 100/stop 101, 14bps cost).
+    const rows = [
+      { t: iso(T0), at: iso(T0 + MIN), o: 'tp1', r: 3, entry: 100, stop: 99, dir: 'long', f: {} },
+      { t: iso(T0 + MIN), at: iso(T0 + 2 * MIN), o: 'stop', r: -1, entry: 100, stop: 101, dir: 'short', f: {} }
+    ];
+    const s = kit.equityStats(rows);
+    assertEqual(s.expectancy, 1, 'gross expectancy (3 + -1) / 2');
+    // long net: 3 - 0.34 = 2.66; short net: -1 - 0.14 = -1.14; avg = 0.76
+    assertEqual(s.netExpectancy, 0.76, 'net expectancy at dir-cost (34bps long, 14bps short)');
+
+    const readout = kit.readoutHtml(s);
+    assert(readout.includes('id="equity-readout-net"'), 'readout carries a NET span beside EXP');
+    assert(readout.includes('+0.76R'), 'net value rendered');
+
+    const table = kit.filterTableHtml(rows, {}, FILTER_DIMS, [], []);
+    assert(table.includes('Net exp. (dir-cost)'), 'filter table carries the net exp. column header');
+    assert(table.includes('+0.76R'), 'filter table shows the same net value');
+  });
+
+  await test('T6 completion plan C2: setupEquityRows filters to kind:setup tp1/stop/open only, filterable and shown in the equity filter table (not the drawn line)', () => {
+    const scored = [
+      { kind: 'setup', outcome: 'tp1', r: 2.5, calledAt: iso(T0), resolvedAt: iso(T0 + 10 * MIN), dims: { candidateDirection: 'long' }, symbol: 'BTC', direction: 'long' },
+      { kind: 'setup', outcome: 'stop', r: null, calledAt: iso(T0 + MIN), resolvedAt: iso(T0 + 5 * MIN), dims: { candidateDirection: 'short' }, symbol: 'ETH', direction: 'short' },
+      { kind: 'setup', outcome: 'not_filled', r: null, calledAt: iso(T0 + 2 * MIN), dims: {}, symbol: 'SOL', direction: 'long' }, // excluded - never triggered
+      { kind: 'plan', outcome: 'tp1', r: 3, calledAt: iso(T0), symbol: 'BTC' } // different kind - excluded
+    ];
+    const setupRows = setupEquityRows(scored);
+    assertEqual(setupRows.length, 2, 'tp1 and stop only - not_filled and the plan-kind row excluded');
+    assertEqual(setupRows.map((r) => r.o).join(), 'tp1,stop', 'outcomes, oldest first');
+    assertEqual(setupRows[0].r, 2.5, 'tp1 r carried');
+    assertEqual(setupRows[1].r, -1, 'stop is -1R');
+
+    const kit = chartKit();
+    const table = kit.filterTableHtml([], {}, FILTER_DIMS, [], setupRows);
+    assert(table.includes('SETUPs, what-if'), 'filter table carries a SETUPs row when setup rows exist');
+    assert(!kit.filterTableHtml([], {}, FILTER_DIMS, [], []).includes('SETUPs, what-if'), 'no row at all when there are no setup rows');
   });
 
   await test('journal chart rows, wallet marks (up/down, colored by R), your-trades line, Engine vs you', () => {

@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, writeJson } from './store.js';
 import { isFiniteNumber } from './walk-outcome.js';
 import { walkShadow } from './breakout-entry.js';
-import { costR } from './costs.js';
+import { netR as netRAt } from './costs.js';
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -46,31 +46,21 @@ function roundN(value, decimals) {
   return Math.round(value * factor) / factor;
 }
 
-// T6 completion plan B2, D-cost (docs/OWNER_DECISIONS_2026-09-24.md, owner-approved
-// 2026-09-24): positions are funded from USDC/USDT, so a long pays the 0.34%
-// round-trip swap-in/out rate and a short pays 0.14%; an unresolved direction falls
-// back to the shipped flat 0.20% (costs.js's costR). Same numbers
-// scripts/replay-rules.js's netR_sensDir uses for the offline replay research.
-const DIR_COST_PCT_LONG = 0.0034;
-const DIR_COST_PCT_SHORT = 0.0014;
-
-function costRAtPct(entry, stop, pct) {
-  if (!isFiniteNumber(entry) || !isFiniteNumber(stop) || entry <= 0) return null;
-  const risk = Math.abs(entry - stop);
-  if (!(risk > 0)) return null;
-  return (pct * entry) / risk;
-}
-
-/** Net R at the shipped flat 0.20% cost, and at the owner's answered per-direction cost. Null grossR (open/expired) -> both null. */
+/**
+ * Net R at the shipped flat 0.20% cost, and at the owner-answered per-direction cost
+ * (T6 completion plan C1, D-cost decision, `docs/OWNER_DECISIONS_2026-09-24.md` -
+ * `costs.js`'s `netR`, the same helper `aggregate.js` now uses for V1c's real GOOD-call
+ * net expectancy, so this shadow tile and V1c's own numbers are comparable at the
+ * 2026-10-07 revisit). Null grossR (open/expired) -> both null.
+ */
 function netRs(entry, stop, direction, walk) {
   const grossR = walk.outcome === 'stop' ? -1 : walk.outcome === 'tp1' ? walk.r : null;
   if (!isFiniteNumber(grossR)) return { netR: null, netRDirCost: null };
-  const flat = costR(entry, stop);
-  const dirPct = direction === 'long' ? DIR_COST_PCT_LONG : direction === 'short' ? DIR_COST_PCT_SHORT : 0.0020;
-  const dir = costRAtPct(entry, stop, dirPct);
+  const flat = netRAt(entry, stop, grossR);
+  const dir = netRAt(entry, stop, grossR, direction);
   return {
-    netR: flat === null ? null : roundN(grossR - flat, 4),
-    netRDirCost: dir === null ? null : roundN(grossR - dir, 4)
+    netR: flat === null ? null : roundN(flat, 4),
+    netRDirCost: dir === null ? null : roundN(dir, 4)
   };
 }
 

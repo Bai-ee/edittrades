@@ -53,8 +53,16 @@ export const FLAG_PLAN_SHADOW_VARIANTS = [{ id: 'vB', minRR: 2.5 }];
 // dropping flagSlope/breakoutDistancePct/invalidationDistancePct/levelSource (schema
 // 1.22.0, confirmed unread by any consumer - see openapi/scalp-context.yaml); the
 // remaining gap on that extreme tail case was judged not worth a further field cut.
-// Compact cap stays 45,000 B (already passes, no change). See test-scalp-context.js's
-// "T6 completion plan A1" test.
+// 80,200 -> 81,200 B / compact 45,000 -> 45,800 B (2026-09-24, T6 completion plan C2):
+// `flagRecommendation.setup` (SETUP tier, default payload - candidateId/timeframe/
+// direction/entry/stop/tp1/grossRR/netRR/entryCondition for the best still-conditional
+// candidate, a DIFFERENT one from the plan above, so additive not substitutive) is
+// short text like `primaryReason`/`changeConditions` already are, not a candidate for
+// the include=model-only trim - the exact trigger sentence is the point of the tier.
+// Worst case measured 81,152 B default / 45,747 B compact with the extra candidate;
+// `flagTradePlan.setup` itself is stripped before publish (services/scalpContext.js,
+// same call site) so the same object is never serialized twice.
+// See test-scalp-context.js's "T6 completion plan A1"/"C2" tests.
 export const CANDLE_LIMITS = {
   '1m': 20,
   '3m': 20,
@@ -737,7 +745,8 @@ export function buildConfigSnapshot(includeFailed = ENGINE_CONFIG.flag.includeFa
       liquidationBufferPct: ENGINE_CONFIG.risk.liquidationBufferPct,
       maintenanceMarginPct: ENGINE_CONFIG.risk.maintenanceMarginPct,
       feeBps: ENGINE_CONFIG.risk.feeBps,
-      slippageBps: ENGINE_CONFIG.risk.slippageBps
+      slippageBps: ENGINE_CONFIG.risk.slippageBps,
+      costBpsByDirection: ENGINE_CONFIG.risk.costBpsByDirection
     },
     flag: { includeFailed }
   };
@@ -1635,6 +1644,15 @@ export async function buildScalpContext(options = {}) {
       });
     }
 
+    // T6 completion plan C2: flagTradePlan.setup was read by buildFlagRecommendation
+    // above (copied through as flagRecommendation.setup, the field the SETUP tier
+    // actually publishes) - drop it from flagTradePlan itself before publishing so the
+    // same object isn't serialized twice in the default payload (byte budget).
+    if (flagTradePlan && Object.prototype.hasOwnProperty.call(flagTradePlan, 'setup')) {
+      const { setup: _publishedViaRecommendation, ...flagTradePlanWithoutSetup } = flagTradePlan;
+      flagTradePlan = flagTradePlanWithoutSetup;
+    }
+
     // P1: Pyth mark beside the closed-candle price. `price` itself is untouched.
     const mark = buildMark(rawMarks[symbol], price, safeNow, ENGINE_CONFIG.mark.pyth.maxAgeSec);
 
@@ -1750,7 +1768,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.23.0',
+    schemaVersion: '1.24.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
