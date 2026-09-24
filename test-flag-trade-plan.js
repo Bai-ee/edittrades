@@ -341,41 +341,76 @@ async function run() {
     assertEqual(short.stop, 1010, 'short stop is the candidate\'s own invalidation, unmoved');
   });
 
-  // T6 phase 0 net gate (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md): flagPlan.minNetRR,
-  // shipped off (null). A cfg override is how scripts/replay-rules.js replays a variant
-  // in-process; these tests exercise the same code path directly.
+  // T6 phase 1 net gate (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md, owner decision D1 -
+  // variant V1c): flagPlan.minNetRR ships ON at 2.0 (config 2026.09.24-3). A cfg
+  // override is how scripts/replay-rules.js replayed the variants in-process (phase 0)
+  // and how these tests reach the off/other-threshold code paths directly.
   function withMinNetRR(minNetRR) {
     return { ...ENGINE_CONFIG, flagPlan: { ...ENGINE_CONFIG.flagPlan, minNetRR } };
   }
 
-  await test('net gate off by default: a gross-passing plan with thin net R:R still ships ready (long + short mirror)', () => {
+  await test('shipped default (2.0): a gross-passing plan whose round-trip cost alone eats over half its risk is rejected stop_inside_costs (long + short mirror), levels kept', () => {
     for (const cand of [longCandidate({ invalidation: 999, measuredTarget: 1003 }), shortCandidate({ invalidation: 1001, measuredTarget: 997 })]) {
-      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
-      assertEqual(plan.status, 'ready', `${cand.direction}: status (net gate off)`);
-      assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR`);
-      assertClose(plan.netRR, 0.333, 0.001, `${cand.direction}: netRR`);
-    }
-  });
-
-  await test('rejected/net_rr_below_min: same thin-net-R:R plan, net gate on via cfg override (long + short mirror), levels kept', () => {
-    for (const cand of [longCandidate({ invalidation: 999, measuredTarget: 1003 }), shortCandidate({ invalidation: 1001, measuredTarget: 997 })]) {
-      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(1.0));
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') })); // no cfg arg: the shipped default
       assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
-      assertEqual(plan.reasonCode, 'net_rr_below_min', `${cand.direction}: reasonCode`);
+      assertEqual(plan.reasonCode, 'stop_inside_costs', `${cand.direction}: reasonCode (costR >= 0.5)`);
       assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR still published`);
       assertClose(plan.netRR, 0.333, 0.001, `${cand.direction}: netRR still published`);
+      assertClose(plan.costR, 2.0, 0.001, `${cand.direction}: costR (round-trip cost is 2x this stop's own risk)`);
       assertEqual(plan.entry, 1000, `${cand.direction}: entry unmoved`);
       assertEqual(plan.stop, cand.invalidation, `${cand.direction}: stop unmoved`);
       assertEqual(plan.tp1, cand.measuredTarget, `${cand.direction}: tp1 unmoved`);
     }
   });
 
-  await test('net gate boundary: net R:R exactly at the floor passes, not rejected (long + short mirror)', () => {
-    for (const cand of [longCandidate({ invalidation: 998, measuredTarget: 1006 }), shortCandidate({ invalidation: 1002, measuredTarget: 994 })]) {
-      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(1.0));
+  await test('the real BTC 0.066%-stop incident (section 1a) is now rejected stop_inside_costs, not ready', () => {
+    // entry 83,409.4 / stop 83,464.3 / tp1 83,228 - the one GOOD call the whole T6 plan is about.
+    const cand = {
+      candidateId: 'BTC:1m:short:incident', timeframe: '1m', type: 'flag', direction: 'short', state: 'confirmed',
+      confidence: 80, chaseRisk: false, breakoutLevel: 83409.4, invalidation: 83464.3, measuredTarget: 83228
+    };
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand }));
+    assertClose(plan.grossRR, 3.30, 0.01, 'grossRR matches the incident (3.30)');
+    assert(plan.netRR < 0.1, `netRR should be near the incident's 0.07, got ${plan.netRR}`);
+    assert(plan.costR > 2.5, `costR should be near the incident's implied ~3.0, got ${plan.costR}`);
+    assertEqual(plan.status, 'rejected', 'status');
+    assertEqual(plan.reasonCode, 'stop_inside_costs', 'reasonCode');
+  });
+
+  await test('shipped default (2.0): a wider-stop plan clears the net gate and ships ready (long + short mirror)', () => {
+    for (const cand of [longCandidate({ invalidation: 995, measuredTarget: 1020 }), shortCandidate({ invalidation: 1005, measuredTarget: 980 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
       assertEqual(plan.status, 'ready', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
-      assertClose(plan.netRR, 1.0, 0.001, `${cand.direction}: netRR at the floor`);
+      assertEqual(plan.grossRR, 4, `${cand.direction}: grossRR`);
+      assertClose(plan.netRR, 2.571, 0.001, `${cand.direction}: netRR clears the 2.0 floor`);
+      assertClose(plan.costR, 0.4, 0.001, `${cand.direction}: costR under the 0.5 stop_inside_costs threshold`);
+    }
+  });
+
+  await test('rejected/net_rr_below_min (not costs-heavy): the same wider-stop plan fails a stricter override while costR stays under 0.5 (long + short mirror)', () => {
+    for (const cand of [longCandidate({ invalidation: 995, measuredTarget: 1020 }), shortCandidate({ invalidation: 1005, measuredTarget: 980 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(3.0));
+      assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
+      assertEqual(plan.reasonCode, 'net_rr_below_min', `${cand.direction}: reasonCode (costR < 0.5, so the plainer code)`);
+      assertClose(plan.costR, 0.4, 0.001, `${cand.direction}: costR`);
+    }
+  });
+
+  await test('net gate boundary: net R:R exactly at the shipped 2.0 floor passes, not rejected (long + short mirror)', () => {
+    for (const cand of [longCandidate({ invalidation: 994, measuredTarget: 1018 }), shortCandidate({ invalidation: 1006, measuredTarget: 982 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }));
+      assertEqual(plan.status, 'ready', `${cand.direction}: status`);
+      assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
+      assertClose(plan.netRR, 2.0, 0.001, `${cand.direction}: netRR at the floor`);
+    }
+  });
+
+  await test('net gate off via explicit override: the thin-net-R:R plan ships ready when minNetRR is set to null (long + short mirror)', () => {
+    for (const cand of [longCandidate({ invalidation: 999, measuredTarget: 1003 }), shortCandidate({ invalidation: 1001, measuredTarget: 997 })]) {
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(null));
+      assertEqual(plan.status, 'ready', `${cand.direction}: status (net gate explicitly off)`);
+      assertEqual(plan.reasonCode, null, `${cand.direction}: reasonCode`);
     }
   });
 

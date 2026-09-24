@@ -2,12 +2,13 @@
 
 Last updated: 2026-09-24
 Status: plan approved by owner. Phases run in order.
-- **Phase 0 done** (2026-09-24, no deploy): `docs/GOOD_QUALITY_REPLAY.md`. Recommends
-  V1c (net gate 2.0); V1b as the volume-weighted alternative. **Hard stop — waiting on
-  the owner's pick (D1) before phase 1.**
-- **Hard stop after Phase 0:** the owner picks the rule variant.
-- Phases 1–4 then run back to back; each is deployed and verified before the next.
-- Phase 5 is conditional (≥ 7 days after Phase 1).
+- **Phase 0 done** (2026-09-24, no deploy): `docs/GOOD_QUALITY_REPLAY.md`. Recommended
+  V1c (net gate 2.0); V1b as the volume-weighted alternative.
+- **Phase 1 shipped** (2026-09-24, owner decision D1: variant V1c): `flagPlan.minNetRR`
+  null → 2.0, `flag.timeframes` unchanged. Deployed and verified - see
+  `docs/EDITTRADES_MCP_CONNECTOR.md`'s history table and "Verify after any redeploy".
+- Phases 2–4 next, back to back; each is deployed and verified before the next.
+- Phase 5 is conditional (≥ 7 days after Phase 1, i.e. from 2026-10-01).
 
 Supersedes `docs/PLAN_GOOD_QUALITY.md` (its Steps A/B/C are Phases 0/1/5 here).
 Branch: `upgrade-signal-engine`. Tracker repo: `../edittrades-tracker`.

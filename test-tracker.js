@@ -28,7 +28,7 @@ import { statsFor, computeAggregates, classCheck, aggregateDataDir } from './scr
 import { FEE_BPS, SLIPPAGE_BPS, costR, netR } from './scripts/tracker/costs.js';
 import {
   buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED,
-  NO_CALIBRATION, CALIBRATION_MIN_N, EMPTY_CALIBRATION, NO_SHADOW, SHADOW_TOO_FEW
+  NO_CALIBRATION, CALIBRATION_MIN_N, EMPTY_CALIBRATION, NO_SHADOW, SHADOW_TOO_FEW, PHASE_NAME, RESTART_NOTE
 } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
@@ -501,9 +501,11 @@ async function run() {
     const out = path.join(dir, 'docs');
     const { htmlFile, mdFile } = buildPage(path.join(dir, 'data'), out, T0);
     const html = readFileSync(htmlFile, 'utf8');
-    for (const id of ['tile-last-capture', 'tile-expectancy-7d', 'hero-sample-size', 'tile-win-rate-7d', 'tile-fills-7d', 'tile-good-7d', 'tile-losing-streak-7d', 'tile-avg-r-7d', 'testing-phase-section', 'testing-phase-status', 'testing-phase-days-bar', 'testing-phase-plans-bar', 'what-we-track-section', 'open-calls-section', 'window-7d-section', 'window-30d-section', 'daily-log-section', 'capture-health-summary']) {
+    for (const id of ['tile-last-capture', 'tile-expectancy-7d', 'hero-sample-size', 'tile-win-rate-7d', 'tile-fills-7d', 'tile-good-7d', 'tile-losing-streak-7d', 'tile-avg-r-7d', 'testing-phase-section', 'testing-phase-status', 'testing-phase-days-bar', 'testing-phase-plans-bar', 'testing-phase-restart-note', 'what-we-track-section', 'open-calls-section', 'window-7d-section', 'window-30d-section', 'daily-log-section', 'capture-health-summary']) {
       assert(html.includes(`id="${id}"`), `missing #${id}`);
     }
+    assert(html.includes(RESTART_NOTE.replace(/'/g, '&#39;')), 'T6 phase 1 window-restart note text (net R:R ≥ 2.0, flags on 1m/3m/5m)');
+    assert(html.includes(PHASE_NAME.toUpperCase()), 'phase name reflects the T6 phase 1 restart');
     const sections = (html.match(/<section /g) || []).length;
     assertEqual((html.match(/class="prov-tag"/g) || []).length, sections, 'one provisional tag per section');
     assertEqual(html.split(EDGE_NOTE.replace(/'/g, '&#39;')).length - 1, 1, 'edge note once');

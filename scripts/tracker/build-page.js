@@ -48,12 +48,18 @@ export const PROVISIONAL = 'provisional; not evidence of an edge';
 export const EDGE_NOTE = "Not evidence of an edge. Scores the engine's calls against later closed candles.";
 export const NO_SCORED = '[NO SCORED CALLS YET]';
 
-// Active testing phase (docs/MASTER_PLAN_NEXT_STEPS.md Phase 4). Edit here when the phase changes.
-export const PHASE_NAME = 'Phase 4 forward paper record';
-export const PHASE_START = '2026-09-23';
+// Active testing phase (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md Phase 1). Edit here when the phase changes.
+export const PHASE_NAME = 'Phase 5 forward record (net-gated rules)';
+export const PHASE_START = '2026-09-24';
 export const PHASE_DAYS = 14;
 export const PHASE_TARGET_PLANS = 30;
 const PHASE_START_MS = Date.parse(`${PHASE_START}T00:00:00Z`);
+
+// T6 phase 1 window restart (owner decision D1, variant V1c, config 2026.09.24-3): edit
+// alongside PHASE_NAME/PHASE_START on the next restart, or drop once the next phase
+// makes it stale. Aggregates keep every earlier call - phaseStartMs only moves the
+// testing-phase target window forward, nothing is deleted (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md).
+export const RESTART_NOTE = 'Window restarted 2026-09-24: GOOD now requires net R:R ≥ 2.0 after fees (flagPlan.minNetRR) and flags stay on 1m/3m/5m (unchanged). Earlier calls kept for reference.';
 
 // Tracker schedule. Must match the cron in repo-template/.github/workflows/track.yml.
 export const SCHEDULE_MINUTES = [7, 17, 27, 37, 47, 57];
@@ -635,7 +641,8 @@ export function renderHtml(agg, data = {}) {
     + `<div class="stat-row"><dt>Done when</dt><dd>DAY ${PHASE_DAYS} AND ≥ ${PHASE_TARGET_PLANS} SCORED PLANS</dd></div>`
     + `<div class="stat-row"><dt>Then</dt><dd>ONE CALIBRATION PASS WITH YOU</dd></div>`
     + `</dl>`
-    + `<p class="mono-note" id="testing-phase-frozen">FROZEN DURING THE WINDOW: NO THRESHOLD TUNING. ALL LABELS PROVISIONAL.</p>`;
+    + `<p class="mono-note" id="testing-phase-frozen">FROZEN DURING THE WINDOW: NO THRESHOLD TUNING. ALL LABELS PROVISIONAL.</p>`
+    + `<p class="mono-note" id="testing-phase-restart-note">${esc(RESTART_NOTE)}</p>`;
 
   // Activity, last 24 h.
   const activityBody = `<dl class="stat-rows" id="activity-24h-rows">`

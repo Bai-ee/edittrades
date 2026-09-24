@@ -199,8 +199,8 @@ async function run() {
     assertEqual(ENGINE_CONFIG.scalp.maxStopDistancePct, 3.0, 'a threshold was mutated at runtime');
   });
 
-  await test('documented defaults: the flag-plan net gate is off (T6 phase 0)', () => {
-    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, null, 'flagPlan.minNetRR is not off by default');
+  await test('documented defaults: the flag-plan net gate ships on at 2.0 (T6 phase 1, owner decision D1, variant V1c)', () => {
+    assertEqual(ENGINE_CONFIG.flagPlan.minNetRR, 2.0, 'flagPlan.minNetRR drifted from the shipped V1c floor');
   });
 
   await test('setConfigOverride (T6 phase 0): deep-merges onto the base config, leaves siblings untouched, restores on null', () => {
@@ -247,16 +247,16 @@ async function run() {
       configVersion: 'TEST'
     };
     try {
-      const off = buildFlagTradePlan(params); // no cfg arg: uses the module's own default ENGINE_CONFIG
-      assertEqual(off.grossRR, 3, 'sanity: gross RR 3 meets the floor');
-      assertClose(off.netRR, 0.333, 0.001, 'sanity: thin net RR, published as information, net gate off');
-      assert(off.status !== 'rejected' || off.reasonCode !== 'net_rr_below_min', 'net gate must be off with no override in play');
+      const shipped = buildFlagTradePlan(params); // no cfg arg: uses the module's own default ENGINE_CONFIG (net gate on, 2.0)
+      assertEqual(shipped.grossRR, 3, 'sanity: gross RR 3 meets the floor');
+      assertClose(shipped.netRR, 0.333, 0.001, 'sanity: thin net RR, published on every plan');
+      assertEqual(shipped.status, 'rejected', 'the shipped default net gate must already reject this thin-net-RR plan');
+      assertEqual(shipped.reasonCode, 'stop_inside_costs', 'reasonCode');
 
-      setConfigOverride({ flagPlan: { minNetRR: 1.0 } });
-      const on = buildFlagTradePlan(params); // same call, no cfg arg: override now live, no import in lib/flagTradePlan.js changed
-      assertEqual(on.grossRR, off.grossRR, 'gross RR unaffected by the override');
-      assertEqual(on.status, 'rejected', 'the live override was not seen by lib/flagTradePlan.js\'s own default cfg param');
-      assertEqual(on.reasonCode, 'net_rr_below_min', 'reasonCode');
+      setConfigOverride({ flagPlan: { minNetRR: null } });
+      const overridden = buildFlagTradePlan(params); // same call, no cfg arg: override now live, no import in lib/flagTradePlan.js changed
+      assertEqual(overridden.grossRR, shipped.grossRR, 'gross RR unaffected by the override');
+      assert(overridden.status !== 'rejected' || overridden.reasonCode !== 'stop_inside_costs', 'the live override (net gate off) was not seen by lib/flagTradePlan.js\'s own default cfg param');
     } finally {
       setConfigOverride(null);
     }
@@ -330,7 +330,7 @@ async function run() {
       fetchCandles: fakeFetch,
       fetchAccount: fakeAccount
     });
-    assertEqual(payload.schemaVersion, '1.20.0', 'schemaVersion was not bumped');
+    assertEqual(payload.schemaVersion, '1.21.0', 'schemaVersion was not bumped');
     assertEqual(payload.configVersion, CONFIG_VERSION, 'payload configVersion does not match the loader');
     assertEqual(typeof payload.configVersion, 'string', 'configVersion is not a string in the payload');
   });

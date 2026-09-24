@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-09-24 — T6 phase 1: fee-aware net gate ships on, V1c (branch `upgrade-signal-engine`)
+
+`docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`, owner decision D1 from the phase 0 replay
+study (`docs/GOOD_QUALITY_REPLAY.md`). Schema 1.20.0 → **1.21.0** (additive), configVersion
+2026.09.24-2 → **2026.09.24-3**. Deploy approved for this step.
+
+- **Config:** `flagPlan.minNetRR` null → 2.0. `flag.timeframes` unchanged (1m/3m/5m —
+  V1c does not widen detection).
+- **`lib/flagTradePlan.js`:** the net gate now rejects for real — `net_rr_below_min`,
+  or the more specific `stop_inside_costs` when the round-trip cost alone is already
+  ≥ 0.5R of the stop's own risk (the BTC 0.066%-stop incident from section 1a is
+  `stop_inside_costs`: costR ≈ 3.0). New `costR` field published on every plan once
+  entry/stop are known (exported `costRFraction`).
+- **`lib/flagRecommendation.js`:** `net_rr_below_min`/`stop_inside_costs` join the
+  existing hard-rejection mapping (BAD, not DATA_UNAVAILABLE). `net_rr_low` renamed/
+  split: `net_rr_ok` (support, ready/conditional plan cleared the net floor) or —
+  reachable only when the gate is off — `fees_heavy` (oppose).
+- **GPT instructions:** `flagTradePlan=trade authority` now names the floor
+  (`net R:R≥2.0 after costs`); funded by tightening wording elsewhere, 7984 → 7978
+  units. New test-sheet prompt 17 (fee-rejected plan).
+- **Tracker window restart:** `scripts/tracker/build-page.js` `PHASE_NAME` → "Phase 5
+  forward record (net-gated rules)", `PHASE_START` → 2026-09-24, new
+  `#testing-phase-restart-note`; 14-day/30-plan target unchanged, nothing deleted.
+- **openapi:** `FlagTradePlan.costR` (additive), `reasonCode` enum +2 values,
+  `FlagRecommendation` description updated.
+- **Tests:** `test:flagplan` 43 → 50 (net gate on by default, `costR`,
+  `stop_inside_costs`, the real BTC-incident fixture, long/short mirrored);
+  `test:flagrec`/`test:flagrec:fixtures`/`test:tracker` unchanged in count, assertions
+  updated. Full gate (every `test:*` + `check:gpt` + `git diff --check`) passes.
+- **Deploy:** `npx vercel --prod --yes`, verified per
+  `docs/EDITTRADES_MCP_CONNECTOR.md` → "Verify after any redeploy"; tracker synced and
+  pushed, `track` workflow triggered once.
+
 ## 2026-09-24 — T6 phase 0: fee-aware net gate + rule-variant replay (branch `upgrade-signal-engine`)
 
 `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`. Research phase, no deploy. ConfigVersion

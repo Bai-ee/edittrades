@@ -183,14 +183,15 @@
  *     GROSS price R:R floor to TP1 (|tp1 - entry| / |entry - stop|), required for
  *     `ready`/`conditional`; below it the plan is rejected `rr_below_min`. Owner
  *     decision 2026-09-23 item 1a: 3R is gross price R. `netRR` (after `risk.feeBps`/
- *     `slippageBps` round trip) is published as information only and never rejects;
- *     lib/flagRecommendation.js adds a non-blocking `net_rr_low` oppose below minRR.
- *   - minNetRR (null, T6 phase 0, `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`): optional
- *     NET R:R floor (after `risk.feeBps`/`slippageBps`), checked in
- *     `lib/flagTradePlan.js` right after the gross `minRR` gate. `null` (the shipped
- *     default) leaves production behavior unchanged - the gate only runs when a replay
- *     variant (`scripts/replay-rules.js`) sets it through `setConfigOverride`. Below the
- *     floor: `status: 'rejected'`, `reasonCode: 'net_rr_below_min'`, levels kept.
+ *     `slippageBps` round trip) is published on every plan, gross-gated or not.
+ *   - minNetRR (2.0, T6 phase 1, config 2026.09.24-3, `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`,
+ *     owner decision D1 from the `docs/GOOD_QUALITY_REPLAY.md` phase 0 study - variant
+ *     V1c): NET R:R floor (after `risk.feeBps`/`slippageBps`), checked in
+ *     `lib/flagTradePlan.js` right after the gross `minRR` gate. Below the floor:
+ *     `status: 'rejected'`, `reasonCode: 'net_rr_below_min'` (or `stop_inside_costs`
+ *     when the round-trip cost alone is >= 0.5R), levels kept. `null` turns the gate
+ *     off (used by `scripts/replay-rules.js`'s V0/pre-net-gate variants via
+ *     `setConfigOverride`); production runs with it on.
  *   - entryToleranceAtr (0.1): after a closed candle has closed through the entry level,
  *     the latest closed candle's low (high for a short) must reach within this many ATR
  *     of it and close on the hold side for `ready` (else `conditional`). Tight on

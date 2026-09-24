@@ -246,8 +246,8 @@ async function run() {
       check(dir, { dir, p, g: geometry(dir, { zoneAt: 1030 }) }, {
         class: 'GOOD',
         primary: 'ready_flag_plan',
-        supports: ['rr_ok'],
-        opposes: [`tp1_capped:${mir(dir, 1030)}`, `level:15m:${mir(dir, 1030)}`, 'net_rr_low']
+        supports: ['rr_ok', 'net_rr_ok'],
+        opposes: [`tp1_capped:${mir(dir, 1030)}`, `level:15m:${mir(dir, 1030)}`]
       });
     }
   });
