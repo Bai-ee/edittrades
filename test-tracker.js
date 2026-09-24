@@ -17,7 +17,7 @@ import {
   candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines,
   pullServed, servedRowsFromLines, servedKey, slimCandidate
 } from './scripts/tracker/collect.js';
-import { runAlerts, findNewGood, alertKey, alertsFile, ALERT_MAX_AGE_MIN } from './scripts/tracker/alerts.js';
+import { runAlerts, findNewGood, alertKey, alertsFile, chartTimeframe, saveChart, ALERT_MAX_AGE_MIN } from './scripts/tracker/alerts.js';
 import {
   readAllCalls, readCandles, readJsonl, writeJsonl, readJson, writeJson, outcomesFile, aggregatesFile, parseArgs, walletFile, readWallet,
   readJournal, appendJournal, journalOutcomesFile, appendCalls, appendCandles
@@ -509,7 +509,7 @@ async function run() {
     assert(howTo.includes('prefers-color-scheme: dark') && howTo.includes('prefers-color-scheme: light'), 'both schemes');
   });
 
-  await test('alerts: new GOOD call alerts once per symbol+candidate, fresh only, owner mentioned', () => {
+  await test('alerts: new GOOD call alerts once per symbol+candidate, fresh only, owner mentioned', async () => {
     const dir = tmp();
     const data = path.join(dir, 'data');
     const now = Date.parse('2026-09-24T06:10:00Z');
@@ -524,19 +524,52 @@ async function run() {
       row('ETH', 'WATCH', '2026-09-24T06:07:05.000Z', 'ETH:5m:long:b'),
       row('SOL', 'GOOD', '2026-09-24T03:00:05.000Z', 'SOL:5m:long:old')
     ]);
-    const first = runAlerts(data, { nowMs: now, mention: 'owner-x' });
+    const first = await runAlerts(data, { nowMs: now, mention: 'owner-x' });
     assertEqual(first.length, 1, 'one fresh GOOD');
     assert(first[0].title.includes('BTC LONG 5m') && first[0].title.includes('entry 100') && first[0].title.includes('TP1 103'), 'title levels');
     assert(first[0].body.includes('@owner-x') && first[0].body.includes('aligned 21/200'), 'mention + reason');
     assertEqual(readJsonl(alertsFile(data)).length, 1, 'recorded');
     appendCalls(data, [row('BTC', 'GOOD', '2026-09-24T06:08:05.000Z', 'BTC:5m:long:a')]);
-    assertEqual(runAlerts(data, { nowMs: now + 60_000 }).length, 0, 'same candidate not re-alerted');
+    assertEqual((await runAlerts(data, { nowMs: now + 60_000 })).length, 0, 'same candidate not re-alerted');
     appendCalls(data, [row('BTC', 'GOOD', '2026-09-24T06:09:05.000Z', 'BTC:5m:long:c', { source: 'served' })]);
-    const second = runAlerts(data, { nowMs: now + 120_000 });
+    const second = await runAlerts(data, { nowMs: now + 120_000 });
     assertEqual(second.length, 1, 'new candidate alerts');
     assert(second[0].body.includes('seen via chat'), 'served labelled chat');
     assertEqual(findNewGood([row('SOL', 'GOOD', new Date(now - (ALERT_MAX_AGE_MIN + 1) * 60_000).toISOString(), 'x')], [], now).length, 0, 'stale ignored');
     assertEqual(alertKey({ symbol: 'BTC', closedThrough: 't', flagRecommendation: {} }), 'BTC|t', 'key falls back to close');
+  });
+
+  await test('alerts: chart at alert time is saved and embedded; failures never block the alert', async () => {
+    const dir = tmp();
+    const data = path.join(dir, 'data');
+    const chartsDir = path.join(dir, 'alerts');
+    const now = Date.parse('2026-09-24T06:10:00Z');
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 1)]);
+    const calls = [];
+    const okFetch = async (url, init) => { calls.push({ url, init }); return { ok: true, arrayBuffer: async () => png }; };
+    const good = (symbol, candidateId, tf) => ({
+      capturedAt: '2026-09-24T06:07:05.000Z', closedThrough: '2026-09-24T06:07:00.000Z', symbol, price: 100, source: 'cron',
+      flagRecommendation: { class: 'GOOD', candidateId, candidate: { timeframe: tf, direction: 'short' } },
+      flagTradePlan: { status: 'ready', entry: 100, stop: 101, tp1: 97, candidateId }
+    });
+    appendCalls(data, [good('ETH', 'ETH:15m:short:a', '15m')]);
+    const chart = { chartsDir, rawBase: 'https://raw.example/alerts', url: 'https://engine.example/api/scalp-context', key: 'k', fetchImpl: okFetch };
+    const [a] = await runAlerts(data, { nowMs: now, chart });
+    assertEqual(calls.length, 1, 'one chart fetch');
+    assert(calls[0].url.endsWith('?chart=ETH%3A15m'), 'plan/candidate timeframe charted');
+    assertEqual(calls[0].init.headers['X-EditTrades-Client'], 'tracker', 'identifies as tracker');
+    assert(a.chartUrl && a.chartUrl.startsWith('https://raw.example/alerts/') && a.chartUrl.endsWith('-ETH-15m-' + a.chartUrl.slice(-12)), 'chart url');
+    assert(a.body.includes(`](${a.chartUrl})`), 'image embedded in body');
+    assert(existsSync(path.join(chartsDir, a.chartUrl.split('/').pop())), 'png saved');
+    assert(a.title.includes('ETH SHORT 15m'), 'direction from candidate');
+
+    appendCalls(data, [{ ...good('BTC', 'BTC:5m:short:b', '5m'), capturedAt: '2026-09-24T06:08:05.000Z', closedThrough: '2026-09-24T06:08:00.000Z' }]);
+    const [b] = await runAlerts(data, { nowMs: now, chart: { ...chart, fetchImpl: async () => { throw new Error('down'); } } });
+    assert(b && !b.chartUrl && !b.body.includes('!['), 'network failure: alert without image');
+    assertEqual(await saveChart({ symbol: 'BTC', timeframe: '5m', nowMs: now, chartsDir, key: 'k', fetchImpl: async () => ({ ok: true, arrayBuffer: async () => Buffer.from('<html>') }) }), null, 'non-PNG rejected');
+    assertEqual(await saveChart({ symbol: 'BTC', timeframe: '5m', nowMs: now, chartsDir, key: 'k', fetchImpl: async () => ({ ok: false }) }), null, 'HTTP error rejected');
+    assertEqual(await saveChart({ symbol: 'BTC', timeframe: '5m', nowMs: now, chartsDir, key: null, fetchImpl: okFetch }), null, 'no key, no fetch');
+    assertEqual(chartTimeframe({ flagRecommendation: {} }), '5m', 'default timeframe');
   });
 
   await test('status: LIVE / DELAYED / STALLED bands, next run on the schedule, cron in sync', () => {

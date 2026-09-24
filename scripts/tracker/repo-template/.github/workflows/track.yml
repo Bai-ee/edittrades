@@ -46,20 +46,13 @@ jobs:
           node scripts/shadow.js --data data
           node scripts/aggregate.js --data data
           node scripts/build-page.js --data data --out docs
-      - name: Alert new GOOD calls (GitHub issue, emailed to the owner)
+      - name: Find new GOOD calls and capture their charts
         env:
-          GH_TOKEN: ${{ github.token }}
+          SCALP_CONTEXT_API_KEY: ${{ secrets.SCALP_CONTEXT_API_KEY }}
           TEST_ALERT: ${{ github.event.inputs.test_alert || 'false' }}
         run: |
-          if [ "$TEST_ALERT" = "true" ]; then
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "Test alert · GOOD-call email check" \
-              --body "Test of the GOOD-call email path, opened by the tracker bot. Safe to close. cc @$GITHUB_REPOSITORY_OWNER" || echo "test issue failed"
-          fi
-          node scripts/alerts.js --data data --file "$RUNNER_TEMP/alerts.json"
-          jq -c '.[]' "$RUNNER_TEMP/alerts.json" | while read -r a; do
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$(jq -r .title <<<"$a")" --body "$(jq -r .body <<<"$a")" \
-              || echo "issue create failed for $(jq -r .key <<<"$a")"
-          done
+          if [ "$TEST_ALERT" = "true" ]; then test=--test; else test=; fi
+          node scripts/alerts.js --data data --file "$RUNNER_TEMP/alerts.json" --charts alerts $test
       - name: Commit data and page
         env:
           DEPLOY_INPUT: ${{ github.event.inputs.deploy || 'auto' }}
@@ -67,6 +60,7 @@ jobs:
           git config user.name "edittrades-tracker[bot]"
           git config user.email "edittrades-tracker@users.noreply.github.com"
           git add data docs
+          if [ -d alerts ]; then git add alerts; fi
           if git diff --cached --quiet; then echo "nothing changed"; exit 0; fi
           m=$((10#$(date -u +%M) % 30))
           deploy="$DEPLOY_INPUT"
@@ -81,3 +75,12 @@ jobs:
             sleep $((i * 5))
           done
           exit 1
+      - name: Open alert issues (GitHub emails the owner); runs only after the push, so charts resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f "$RUNNER_TEMP/alerts.json" ] || exit 0
+          jq -c '.[]' "$RUNNER_TEMP/alerts.json" | while read -r a; do
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$(jq -r .title <<<"$a")" --body "$(jq -r .body <<<"$a")" \
+              || echo "issue create failed for $(jq -r .key <<<"$a")"
+          done
