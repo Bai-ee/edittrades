@@ -22,12 +22,14 @@ export const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&a
  * @param {string} [o.foot] - footnote text (escaped)
  * @param {string} [o.cls] - extra classes
  * @param {'section'|'div'} [o.as] - element; sections carry a PROVISIONAL tag on the tracker page
+ * @param {Object<string, string>} [o.data] - extra data-* attributes (escaped), e.g. {lastCapture: iso}
  */
-export function tile({ id, title = '', tag = null, sm = 2, lg = 12, body, foot = '', cls = '', as = 'section' }) {
+export function tile({ id, title = '', tag = null, sm = 2, lg = 12, body, foot = '', cls = '', as = 'section', data = {} }) {
   const head = title || tag
     ? `<header class="tile-head" id="${id}-head">${title ? `<h3 class="tile-title">${esc(title)}</h3>` : '<span></span>'}${tag ? `<span class="prov-tag">${esc(tag)}</span>` : ''}</header>`
     : '';
-  return `<${as} id="${id}" data-section="${id}" class="tile${cls ? ` ${cls}` : ''}" style="--sm:${sm};--lg:${lg}">`
+  const dataAttrs = Object.entries(data).map(([k, v]) => ` data-${k.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}="${esc(v)}"`).join('');
+  return `<${as} id="${id}" data-section="${id}"${dataAttrs} class="tile${cls ? ` ${cls}` : ''}" style="--sm:${sm};--lg:${lg}">`
     + head
     + `<div class="tile-body" id="${id}-body">${body}</div>`
     + (foot ? `<p class="tile-foot" id="${id}-foot">${esc(foot)}</p>` : '')

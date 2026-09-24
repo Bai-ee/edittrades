@@ -20,7 +20,7 @@ import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFi
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit } from './scripts/tracker/score.js';
 import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, FILTER_DIMS } from './scripts/tracker/charts.js';
 import { statsFor, computeAggregates } from './scripts/tracker/aggregate.js';
-import { buildPage, renderHtml, rStatus, engineVsYou, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
+import { buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
 
@@ -459,6 +459,30 @@ async function run() {
     assert(!/<script/i.test(howTo), 'no scripts');
     assert(!/SCALP_CONTEXT_API_KEY|Bearer|walletAddress/i.test(howTo), 'no secrets or wallet fields');
     assert(howTo.includes('prefers-color-scheme: dark') && howTo.includes('prefers-color-scheme: light'), 'both schemes');
+  });
+
+  await test('status: LIVE / DELAYED / STALLED bands, next run on the schedule, cron in sync', () => {
+    const at = Date.parse('2026-09-24T02:00:00Z');
+    assertEqual(systemStatus(null, at).word, 'WAITING', 'no captures');
+    assertEqual(systemStatus('2026-09-24T01:30:00Z', at).word, 'LIVE', '30 min');
+    assertEqual(systemStatus('2026-09-24T00:50:00Z', at).word, 'DELAYED', '70 min');
+    assertEqual(systemStatus('2026-09-23T23:00:00Z', at).word, 'STALLED', '3 h');
+    assertEqual(new Date(nextRunMs(at)).toISOString(), '2026-09-24T02:07:00.000Z', 'next :07');
+    assertEqual(new Date(nextRunMs(Date.parse('2026-09-24T02:07:00Z'))).toISOString(), '2026-09-24T02:37:00.000Z', 'strictly after');
+    const yml = readFileSync('scripts/tracker/repo-template/.github/workflows/track.yml', 'utf8');
+    assert(yml.includes(`cron: '${SCHEDULE_MINUTES.join(',')} * * * *'`), 'page schedule matches workflow cron');
+  });
+
+  await test('page: system zone sits first with status, heartbeat, timeline and activity', () => {
+    const dir = tmp();
+    const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
+    const html = readFileSync(htmlFile, 'utf8');
+    for (const id of ['zone-system', 'system-status-section', 'system-status-word', 'system-heartbeat', 'system-next-run', 'system-runs-24h', 'testing-phase-day', 'testing-phase-plans-eta', 'activity-24h-section']) {
+      assert(html.includes(`id="${id}"`), `missing #${id}`);
+    }
+    assert(html.indexOf('id="zone-system"') < html.indexOf('id="zone-performance"'), 'system zone first');
+    assert(html.includes('>WAITING<'), 'empty store shows WAITING');
+    assert(html.includes('data-last-capture=""'), 'status tile carries last capture for the browser');
   });
 
   await test('page: hero shows signed expectancy with status color and phase progress counts', () => {

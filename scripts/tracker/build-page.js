@@ -49,6 +49,56 @@ export const PHASE_DAYS = 14;
 export const PHASE_TARGET_PLANS = 30;
 const PHASE_START_MS = Date.parse(`${PHASE_START}T00:00:00Z`);
 
+// Tracker schedule. Must match the cron in repo-template/.github/workflows/track.yml.
+export const SCHEDULE_MINUTES = [7, 37];
+export const SCHEDULE_TEXT = 'Every 30 min at :07 and :37 UTC';
+// Status bands by minutes since the last capture (GitHub can start a scheduled job a few minutes late).
+export const LIVE_MAX_MIN = 45;
+export const DELAYED_MAX_MIN = 90;
+const HEARTBEAT_SLOTS = 48;
+const SLOT_MS = 30 * 60 * 1000;
+
+/** LIVE / DELAYED / STALLED / WAITING from the last capture. Mirrored in statusScript(). */
+export function systemStatus(lastCaptureIso, nowMs) {
+  if (!lastCaptureIso) return { word: 'WAITING', cls: 'st-warn', mins: null };
+  const mins = Math.max(0, Math.round((nowMs - Date.parse(lastCaptureIso)) / 60_000));
+  if (mins <= LIVE_MAX_MIN) return { word: 'LIVE', cls: 'st-good', mins };
+  if (mins <= DELAYED_MAX_MIN) return { word: 'DELAYED', cls: 'st-warn', mins };
+  return { word: 'STALLED', cls: 'st-bad', mins };
+}
+
+/**
+ * Browser half of the status tile: the page is only rebuilt when the job runs, so a stopped
+ * job would otherwise leave "LIVE" frozen on screen. Re-derives status, last-run age and the
+ * next-run countdown from the viewer's clock every 30 s. Appended to the page's one script.
+ */
+export function statusScript() {
+  return `(function(){
+var el=document.getElementById('system-status-section');if(!el)return;
+var last=el.getAttribute('data-last-capture');var mins=${JSON.stringify(SCHEDULE_MINUTES)};
+var set=function(id,t){var n=document.getElementById(id);if(n)n.textContent=t;};
+var cls=function(id,c,live){var n=document.getElementById(id);if(!n)return;n.classList.remove('st-good','st-warn','st-bad','is-live');n.classList.add(c);if(live)n.classList.add('is-live');};
+function tick(){var now=Date.now();
+  if(last){var m=Math.max(0,Math.round((now-Date.parse(last))/60000));
+    var s=m<=${LIVE_MAX_MIN}?['LIVE','st-good']:m<=${DELAYED_MAX_MIN}?['DELAYED','st-warn']:['STALLED','st-bad'];
+    set('system-status-word',s[0]);cls('system-status-word',s[1]);cls('system-status-dot',s[1],s[0]==='LIVE');
+    set('system-last-run-age',m+' min ago');set('tile-last-capture','LAST CAPTURE '+(m<90?m+' MIN AGO':Math.round(m/60)+' H AGO'));}
+  var d=new Date(now);d.setUTCSeconds(0,0);for(var i=0;i<61;i++){d.setUTCMinutes(d.getUTCMinutes()+1);if(mins.indexOf(d.getUTCMinutes())>=0)break;}
+  set('system-next-run','in '+Math.max(1,Math.ceil((d.getTime()-now)/60000))+' min');}
+tick();setInterval(tick,30000);})();`;
+}
+
+/** Next scheduled run strictly after nowMs. */
+export function nextRunMs(nowMs) {
+  const d = new Date(nowMs);
+  d.setUTCSeconds(0, 0);
+  for (let i = 0; i < 61; i++) {
+    d.setUTCMinutes(d.getUTCMinutes() + 1);
+    if (SCHEDULE_MINUTES.includes(d.getUTCMinutes())) return d.getTime();
+  }
+  return null;
+}
+
 const DAY = 24 * 60 * 60 * 1000;
 const MINUS = '−';
 const dash = '–';
@@ -136,7 +186,7 @@ function inlineBar(id, ratio) {
 }
 
 /** One instrument = one small bento tile (a div, so no PROVISIONAL chip of its own). */
-function instrument(id, label, valueHtml, visual = '', subText = '', span = { sm: 1, lg: 4 }) {
+function instrument(id, label, valueHtml, visual = '', subText = '', span = { sm: 1, lg: 3 }) {
   return tile({
     id: `${id}-tile`, as: 'div', cls: 'tile-instrument', ...span,
     body: `<div class="instrument" id="${id}"><div class="label">${esc(label)}</div><div class="inst-value">${valueHtml}</div>${visual}${subText ? `<div class="inst-sub">${esc(subText)}</div>` : ''}</div>`
@@ -299,7 +349,7 @@ export function renderHtml(agg, data = {}) {
   const topStrip = `<header class="edge-strip" id="tracker-top-edge-strip"><span id="tracker-page-title">EDITTRADES / CALL TRACKER</span>`
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
     + jumpNav('tracker-jump-nav', [
-      ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
+      ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
       ['#zone-calls', 'Calls'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
       ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"']
     ]);
@@ -313,7 +363,7 @@ export function renderHtml(agg, data = {}) {
     + `<div class="hero-n" id="hero-sample-size">n=${scored7} scored call${scored7 === 1 ? '' : 's'} · 7d</div></div>`
     + `<p class="edge-note" id="hero-edge-note">${esc(EDGE_NOTE)}</p>`
     + `<p class="note" id="instrument-row-note">Scored = a ready flag plan that reached TP1 or stop. R is gross, before fees and slippage.</p>`,
-    { sm: 2, lg: 7 });
+    { sm: 2, lg: 6 });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -324,25 +374,76 @@ export function renderHtml(agg, data = {}) {
       segBar('win-rate-7d-bar', (t7.winRate || 0) * 20, 20), scored7 ? `${t7.wins} TP1 / ${t7.losses} STOP` : '', { sm: 2, lg: 6 }),
     instrument('tile-fills-7d', 'Fill rate',
       t7.calls ? esc(pct(fillRate)) : emptyInline('[NO READY PLANS YET]'),
-      inlineBar('fill-rate-7d-bar', fillRate), `${t7.fills} / ${t7.calls} READY PLANS`, { sm: 2, lg: 6 }),
+      inlineBar('fill-rate-7d-bar', fillRate), `${t7.fills} / ${t7.calls} READY PLANS`, { sm: 1, lg: 3 }),
     instrument('tile-good-7d', 'GOOD calls', `<span class="${good7 ? '' : 'dim'}">${good7}</span>`, '', `${w7.byClass.reduce((a, g) => a + g.calls, 0)} REC CALLS`),
     instrument('tile-losing-streak-7d', 'Losing streak',
       `<span class="${t.losingStreak7d >= 5 ? 'st-bad' : t.losingStreak7d ? '' : 'dim'}">${t.losingStreak7d}</span>`, '', 'MAX CONSECUTIVE STOPS'),
     instrument('tile-avg-r-7d', 'Avg win R',
-      isNum(t7.avgWinR) ? `<span class="${rStatus(t7.avgWinR)}">${esc(rVal(t7.avgWinR))}</span>` : emptyInline(), '', 'GROSS R AT TP1', { sm: 2, lg: 4 })
+      isNum(t7.avgWinR) ? `<span class="${rStatus(t7.avgWinR)}">${esc(rVal(t7.avgWinR))}</span>` : emptyInline(), '', 'GROSS R AT TP1', { sm: 1, lg: 3 })
   ];
 
-  // Testing phase.
-  const scoredText = isNum(phase.scored) ? phase.scored : dash;
-  const phaseBody = `<dl class="stat-rows" id="testing-phase-rows">`
-    + `<div class="stat-row" id="testing-phase-status-row"><dt>Status</dt><dd><span class="status-word" id="testing-phase-status">[${esc(phase.status)}]</span></dd></div>`
-    + `<div class="stat-row"><dt>Phase</dt><dd>${esc(PHASE_NAME.toUpperCase())}</dd></div>`
-    + `<div class="stat-row"><dt>Start</dt><dd>${esc(PHASE_START)} → ${esc(phase.endDate)}</dd></div>`
-    + `<div class="stat-row"><dt>Target</dt><dd>${PHASE_DAYS} DAYS / ≥ ${PHASE_TARGET_PLANS} SCORED PLANS</dd></div>`
+  // System status: is the automated job running? Re-evaluated in the browser by statusScript().
+  const act = agg.activity || { firstRun: null, runs: 0, runTimes48h: [], recCalls24h: 0, good24h: 0, ready24h: 0, lastGoodAt: null };
+  const status = systemStatus(t.lastCapture, nowMs);
+  const next = nextRunMs(nowMs);
+  const firstRunMs = act.firstRun ? Date.parse(act.firstRun) : null;
+  const runMs = act.runTimes48h.map((iso) => Date.parse(iso));
+  let runs24h = 0;
+  const beats = Array.from({ length: HEARTBEAT_SLOTS }, (_, i) => {
+    const from = nowMs - (HEARTBEAT_SLOTS - i) * SLOT_MS;
+    const to = from + SLOT_MS;
+    if (firstRunMs === null || to <= firstRunMs) return '<i class="pre"></i>';
+    const hit = runMs.some((ms) => ms >= from && ms < to);
+    if (hit) runs24h++;
+    return hit ? '<i class="on"></i>' : '<i class="miss"></i>';
+  }).join('');
+  const expectedSlots = firstRunMs === null ? 0 : Math.min(HEARTBEAT_SLOTS, Math.ceil((nowMs - Math.max(firstRunMs, nowMs - HEARTBEAT_SLOTS * SLOT_MS)) / SLOT_MS));
+  const statusBody = `<div class="status-hero" id="system-status-hero">`
+    + `<span class="status-dot ${status.cls}${status.word === 'LIVE' ? ' is-live' : ''}" id="system-status-dot" aria-hidden="true"></span>`
+    + `<span class="status-big ${status.cls}" id="system-status-word">${esc(status.word)}</span>`
+    + `<span class="status-desc" id="system-status-desc">Automated · no manual step. ${esc(SCHEDULE_TEXT)} on GitHub Actions: pull the engine, score calls, rebuild this page.</span></div>`
+    + `<dl class="status-facts" id="system-status-facts">`
+    + `<div class="status-fact" id="system-last-run-fact"><dt>Last run</dt><dd id="system-last-run-age">${esc(status.mins === null ? 'none yet' : `${status.mins} min ago`)}</dd><dd class="fact-sub" id="system-last-run-time">${esc(time(t.lastCapture))}</dd></div>`
+    + `<div class="status-fact" id="system-next-run-fact"><dt>Next run</dt><dd id="system-next-run">${esc(next ? `in ${Math.max(1, Math.ceil((next - nowMs) / 60_000))} min` : dash)}</dd><dd class="fact-sub">${esc(SCHEDULE_TEXT.replace('Every 30 min at ', '').toUpperCase())}</dd></div>`
+    + `<div class="status-fact" id="system-runs-fact"><dt>Runs · 24 h</dt><dd id="system-runs-24h">${runs24h} / ${expectedSlots || dash}</dd><dd class="fact-sub">${act.runs} since ${esc(act.firstRun ? act.firstRun.slice(0, 10) : dash)}</dd></div>`
     + `</dl>`
-    + `<div class="progress" id="testing-phase-days-progress"><div class="progress-head"><span class="label">Days elapsed</span><span class="progress-val">${phase.elapsed} / ${PHASE_DAYS}</span></div>${segBar('testing-phase-days-bar', phase.elapsed, PHASE_DAYS, 'hero')}</div>`
-    + `<div class="progress" id="testing-phase-plans-progress"><div class="progress-head"><span class="label">Plans scored (TP1 or stop)</span><span class="progress-val">${scoredText} / ${PHASE_TARGET_PLANS}</span></div>${segBar('testing-phase-plans-bar', phase.scored || 0, PHASE_TARGET_PLANS, 'hero')}</div>`
-    + `<p class="mono-note" id="testing-phase-frozen">FROZEN DURING THE WINDOW: NO THRESHOLD TUNING. ONE CALIBRATION PASS WITH THE OWNER AFTER THE WINDOW CLOSES. ALL LABELS PROVISIONAL.</p>`;
+    + `<div class="heartbeat-wrap" id="system-heartbeat-wrap"><div class="heartbeat" id="system-heartbeat" style="grid-template-columns:repeat(${HEARTBEAT_SLOTS},1fr)" role="img" aria-label="${runs24h} of ${expectedSlots} half-hour slots in the last 24 hours had a run">${beats}</div>`
+    + `<div class="heartbeat-axis" id="system-heartbeat-axis"><span>24 H AGO</span><span class="heartbeat-key"><i class="on"></i>RUN <i class="miss"></i>MISSED</span><span>BUILT ${esc(time(agg.generatedAt).slice(11))}</span></div></div>`;
+  const statusTile = tile({
+    id: 'system-status-section', as: 'div', cls: 'tile-status', sm: 2, lg: 12,
+    body: statusBody, data: { lastCapture: t.lastCapture || '' }
+  });
+
+  // Testing phase timeline.
+  const scoredText = isNum(phase.scored) ? phase.scored : dash;
+  const dayRate = phase.elapsed ? (phase.scored || 0) / phase.elapsed : 0;
+  const remaining = Math.max(0, PHASE_TARGET_PLANS - (phase.scored || 0));
+  const etaText = remaining === 0 ? 'TARGET REACHED'
+    : dayRate > 0 ? `AT ${num(dayRate, 1)}/DAY ≈ ${new Date(nowMs + (remaining / dayRate) * DAY).toISOString().slice(0, 10)}`
+      : 'ETA UNKNOWN · NO SCORED PLANS YET';
+  const dayCells = Array.from({ length: PHASE_DAYS }, (_, i) => `<i class="${i < phase.elapsed - 1 ? 'on' : i === phase.elapsed - 1 ? 'on now' : ''}"></i>`).join('');
+  const phaseBody = `<div class="phase-head" id="testing-phase-head-row"><span class="status-word" id="testing-phase-status">[${esc(phase.status)}]</span>`
+    + `<span class="phase-day" id="testing-phase-day">Day ${phase.elapsed} <span class="phase-of">of ${PHASE_DAYS}</span></span></div>`
+    + `<div class="progress" id="testing-phase-days-progress"><div class="seg seg-hero seg-days" id="testing-phase-days-bar" style="grid-template-columns:repeat(${PHASE_DAYS},1fr)" role="img" aria-label="Day ${phase.elapsed} of ${PHASE_DAYS}">${dayCells}</div>`
+    + `<div class="timeline-axis" id="testing-phase-axis"><span>START ${esc(PHASE_START.slice(5))}</span><span>PULSING = TODAY</span><span>END ${esc(phase.endDate.slice(5))}</span></div></div>`
+    + `<div class="progress" id="testing-phase-plans-progress"><div class="progress-head"><span class="label">Plans scored (TP1 or stop)</span><span class="progress-val">${scoredText} / ${PHASE_TARGET_PLANS}</span></div>${segBar('testing-phase-plans-bar', phase.scored || 0, PHASE_TARGET_PLANS, 'hero')}`
+    + `<div class="timeline-axis" id="testing-phase-plans-eta"><span>${esc(etaText)}</span></div></div>`
+    + `<dl class="stat-rows" id="testing-phase-rows">`
+    + `<div class="stat-row"><dt>Phase</dt><dd>${esc(PHASE_NAME.toUpperCase())}</dd></div>`
+    + `<div class="stat-row"><dt>Done when</dt><dd>DAY ${PHASE_DAYS} AND ≥ ${PHASE_TARGET_PLANS} SCORED PLANS</dd></div>`
+    + `<div class="stat-row"><dt>Then</dt><dd>ONE CALIBRATION PASS WITH YOU</dd></div>`
+    + `</dl>`
+    + `<p class="mono-note" id="testing-phase-frozen">FROZEN DURING THE WINDOW: NO THRESHOLD TUNING. ALL LABELS PROVISIONAL.</p>`;
+
+  // Activity, last 24 h.
+  const activityBody = `<dl class="stat-rows" id="activity-24h-rows">`
+    + `<div class="stat-row" id="activity-rec-calls-row"><dt>Recommendation calls</dt><dd>${act.recCalls24h}</dd></div>`
+    + `<div class="stat-row" id="activity-good-row"><dt>GOOD calls</dt><dd class="${act.good24h ? 'st-good' : 'dim'}">${act.good24h}</dd></div>`
+    + `<div class="stat-row" id="activity-ready-row"><dt>Ready plans</dt><dd class="${act.ready24h ? '' : 'dim'}">${act.ready24h}</dd></div>`
+    + `<div class="stat-row" id="activity-open-row"><dt>Open calls now</dt><dd class="${agg.openCalls.length ? '' : 'dim'}">${agg.openCalls.length}</dd></div>`
+    + `<div class="stat-row" id="activity-last-good-row"><dt>Last GOOD call</dt><dd>${esc(act.lastGoodAt ? time(act.lastGoodAt) : 'NONE YET')}</dd></div>`
+    + `</dl>`
+    + `<p class="note" id="activity-24h-note">Only GOOD calls with a ready plan get scored. Mostly WATCH and BAD is normal while the market sets up.</p>`;
 
   // What we track and why.
   const planCount = w7.byPlanStatus.reduce((a, g) => a + g.calls, 0);
@@ -394,12 +495,16 @@ export function renderHtml(agg, data = {}) {
 
   const body = [
     zone({
-      id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
+      id: 'zone-system', title: 'System', sub: 'Automated tracker · testing window',
       tiles: [
-        hero,
-        section('testing-phase-section', 'Testing phase', phaseBody, { sm: 2, lg: 5 }),
-        ...instruments
+        statusTile,
+        section('testing-phase-section', 'Testing timeline', phaseBody, { sm: 2, lg: 7 }),
+        tile({ id: 'activity-24h-section', title: 'Activity · last 24 h', as: 'div', sm: 2, lg: 5, body: activityBody })
       ]
+    }),
+    zone({
+      id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
+      tiles: [hero, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -459,7 +564,7 @@ ${bottomStrip}
 </main>
 <script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows })}</script>
 <script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods, marks })}</script>
-<script>${chartScript()}</script>
+<script>${chartScript()}${statusScript()}</script>
 </body>
 </html>
 `;

@@ -185,6 +185,13 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
     .filter((r) => r.outcome === 'open' || r.outcome === 'pending')
     .sort((a, b) => Date.parse(b.calledAt) - Date.parse(a.calledAt));
 
+  // Tracker runs = distinct capture minutes (one run writes one row per symbol).
+  const runMinutes = [...new Set(captureRows.map((r) => (r.capturedAt ? r.capturedAt.slice(0, 16) : null)).filter(Boolean))].sort();
+  const since24h = nowMs - DAY;
+  const since48h = nowMs - 2 * DAY;
+  const in24h = (r) => Date.parse(r.calledAt) >= since24h;
+  const goods = recs.filter((r) => r.class === 'GOOD' && r.calledAt);
+
   const t7 = w7.tradable;
   return {
     generatedAt: new Date(nowMs).toISOString(),
@@ -206,6 +213,15 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
     openCalls,
     dailyLog,
     captures: captureStats(captureRows, candles1mBySymbol),
+    activity: {
+      firstRun: runMinutes.length ? `${runMinutes[0]}:00.000Z` : null,
+      runs: runMinutes.length,
+      runTimes48h: runMinutes.map((m) => `${m}:00.000Z`).filter((iso) => Date.parse(iso) >= since48h),
+      recCalls24h: recs.filter(in24h).length,
+      good24h: goods.filter(in24h).length,
+      ready24h: tradable.filter(in24h).length,
+      lastGoodAt: goods.reduce((m, r) => (!m || r.calledAt > m ? r.calledAt : m), null)
+    },
     phase: isFiniteNumber(opts.phaseStartMs)
       ? { startedAt: new Date(opts.phaseStartMs).toISOString(), tradable: statsFor(tradable.filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs)) }
       : null
