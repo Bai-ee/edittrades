@@ -15,6 +15,10 @@
  * since the phase start when given. Answers "did the filter block losers?"; it never
  * feeds the tradable numbers.
  *
+ * Served rows (T3, source 'served') feed calls and scoring like cron rows, but never the
+ * capture-health numbers, last capture or run counts (those describe the cron job).
+ * activity.served24h / servedGood24h count served rows (and GOOD ones) in the last 24 h.
+ *
  * Usage: node aggregate.js [--data ./data] [--now <iso>]
  */
 
@@ -192,7 +196,9 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
   const tradable = outcomes.filter(isTradable);
   const w7 = windowBlock(outcomes, nowMs - 7 * DAY);
   const w30 = windowBlock(outcomes, nowMs - 30 * DAY);
-  const lastCapture = captureRows.reduce((m, r) => (r.capturedAt && (!m || r.capturedAt > m) ? r.capturedAt : m), null);
+  const cronRows = captureRows.filter((r) => r.source !== 'served');
+  const servedRows = captureRows.filter((r) => r.source === 'served');
+  const lastCapture = cronRows.reduce((m, r) => (r.capturedAt && (!m || r.capturedAt > m) ? r.capturedAt : m), null);
   const lastClosedThrough = captureRows.reduce((m, r) => (r.closedThrough && (!m || r.closedThrough > m) ? r.closedThrough : m), null);
 
   const days = [...new Set(outcomes.map((r) => dayOf(r.calledAt)))].sort().reverse();
@@ -221,11 +227,12 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
     .sort((a, b) => Date.parse(b.calledAt) - Date.parse(a.calledAt));
 
   // Tracker runs = distinct capture minutes (one run writes one row per symbol).
-  const runMinutes = [...new Set(captureRows.map((r) => (r.capturedAt ? r.capturedAt.slice(0, 16) : null)).filter(Boolean))].sort();
+  const runMinutes = [...new Set(cronRows.map((r) => (r.capturedAt ? r.capturedAt.slice(0, 16) : null)).filter(Boolean))].sort();
   const since24h = nowMs - DAY;
   const since48h = nowMs - 2 * DAY;
   const in24h = (r) => Date.parse(r.calledAt) >= since24h;
   const goods = recs.filter((r) => r.class === 'GOOD' && r.calledAt);
+  const served24h = servedRows.filter((r) => Date.parse(r.servedAt || r.capturedAt) >= since24h);
 
   const t7 = w7.tradable;
   return {
@@ -247,7 +254,7 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
     byDay,
     openCalls,
     dailyLog,
-    captures: captureStats(captureRows, candles1mBySymbol),
+    captures: captureStats(cronRows, candles1mBySymbol),
     activity: {
       firstRun: runMinutes.length ? `${runMinutes[0]}:00.000Z` : null,
       runs: runMinutes.length,
@@ -255,7 +262,9 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
       recCalls24h: recs.filter(in24h).length,
       good24h: goods.filter(in24h).length,
       ready24h: tradable.filter(in24h).length,
-      lastGoodAt: goods.reduce((m, r) => (!m || r.calledAt > m ? r.calledAt : m), null)
+      lastGoodAt: goods.reduce((m, r) => (!m || r.calledAt > m ? r.calledAt : m), null),
+      served24h: served24h.length,
+      servedGood24h: served24h.filter((r) => r.flagRecommendation && r.flagRecommendation.class === 'GOOD').length
     },
     classCheck: classCheck(outcomes, opts.phaseStartMs),
     phase: isFiniteNumber(opts.phaseStartMs)

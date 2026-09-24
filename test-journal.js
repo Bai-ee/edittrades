@@ -288,12 +288,12 @@ async function run() {
 
   const importLines = (file) => readFileSync(new URL(file, import.meta.url), 'utf8').split('\n').filter((l) => /^\s*import\b|\bfrom\s+['"]/.test(l)).join('\n');
 
-  await test('journal imports only crypto, @vercel/blob and lib/journalSchema.js (nothing that can sign or execute)', () => {
+  await test('journal imports only crypto, @vercel/blob, lib/journalSchema.js and lib/blobJsonl.js (nothing that can sign or execute)', () => {
     const api = importLines('./api/journal.js');
-    const lib = importLines('./lib/journalSchema.js');
-    assertEqual(lib, '', 'schema is pure');
+    assertEqual(importLines('./lib/journalSchema.js'), '', 'schema is pure');
+    assertEqual(importLines('./lib/blobJsonl.js'), '', 'blob helpers are pure');
     const froms = [...api.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]).sort();
-    assertEqual(froms.join(), "../lib/journalSchema.js,@vercel/blob,crypto", 'imports');
+    assertEqual(froms.join(), "../lib/blobJsonl.js,../lib/journalSchema.js,@vercel/blob,crypto", 'imports');
     const src = readFileSync(new URL('./api/journal.js', import.meta.url), 'utf8');
     // SCALP_CONTEXT_API_KEY is read on purpose: one ChatGPT Action carries one bearer for
     // every operation, so the journal accepts the Action's key as well as its own.

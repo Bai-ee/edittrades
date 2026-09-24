@@ -14,11 +14,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   isSensitiveKey, stripSensitive, findSensitiveKeys, recordsFromPayload, candlesFromPayload, ingestPayload,
-  candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines
+  candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines,
+  pullServed, servedRowsFromLines, servedKey
 } from './scripts/tracker/collect.js';
-import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet, readJournal, appendJournal, journalOutcomesFile } from './scripts/tracker/store.js';
+import { readAllCalls, readCandles, readJsonl, outcomesFile, parseArgs, walletFile, readWallet, readJournal, appendJournal, journalOutcomesFile, appendCalls } from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
-import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, FILTER_DIMS } from './scripts/tracker/charts.js';
+import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
 import { statsFor, computeAggregates, classCheck } from './scripts/tracker/aggregate.js';
 import { buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
@@ -805,6 +806,112 @@ async function run() {
     assertEqual(since.rows[3].key, 'DATA_UNAVAILABLE', 'DATA_UNAVAILABLE when present');
     assertEqual(JSON.stringify(Object.keys(since.rows[0])), JSON.stringify(['key', 'calls', 'scored', 'wins', 'losses', 'open', 'notFilled', 'noLevels', 'winRate', 'expectancy', 'fromPlan', 'fromCandidate']), 'row keys');
     assert(computeAggregates([], [], {}, T0).classCheck.rows.length === 3, 'computeAggregates carries classCheck');
+  });
+
+  // ---- served calls (T3)
+  const servedRow = (row, servedMs) => ({ ...row, capturedAt: iso(servedMs), source: 'served', servedAt: iso(servedMs) });
+
+  await test('served pull: manifest + day files, source served, cron close dropped, class change kept, deduped, stripped', async () => {
+    const dir = tmp();
+    const base = 'https://store1.public.blob.vercel-storage.com';
+    appendCalls(dir, [captureRow('BTC', T0, plan(), rec('GOOD'))]); // cron already has BTC @ T0
+    const day1 = [
+      servedRow(captureRow('BTC', T0, plan(), rec('GOOD')), T0 + 20_000), // cron duplicate -> dropped
+      servedRow(captureRow('ETH', T0 + 15 * MIN, null, rec('WATCH', { candidateId: null })), T0 + 15 * MIN + 30_000),
+      servedRow(captureRow('ETH', T0 + 15 * MIN, null, rec('GOOD', { candidateId: null })), T0 + 15 * MIN + 40_000), // class differs -> kept
+      servedRow(captureRow('ETH', T0 + 15 * MIN, null, rec('WATCH', { candidateId: null })), T0 + 15 * MIN + 50_000), // same key -> dropped
+      { ...servedRow(captureRow('SOL', T0 + 16 * MIN, null, rec('BAD', { candidateId: null, walletAddress: 'SECRET_ADDR_S' })), T0 + 16 * MIN), account: { address: 'SECRET_ADDR_T' } },
+      servedRow(captureRow('SOL', T0 + 17 * MIN, null, null), T0 + 17 * MIN) // no recommendation -> skipped
+    ];
+    const files = {
+      [`${base}/served/manifest.json`]: JSON.stringify({ schemaVersion: 'served-manifest-1', baseUrl: base, days: ['2026-09-20', 'bad'] }),
+      [`${base}/served/2026-09-20.jsonl`]: [...day1.map((r) => JSON.stringify(r)), '{torn'].join('\n')
+    };
+    const urls = [];
+    const fakeFetch = async (url) => {
+      urls.push(url);
+      const key = url.split('?')[0];
+      return files[key] === undefined ? { ok: false, status: 404, text: async () => '' } : { ok: true, status: 200, text: async () => files[key] };
+    };
+    const r1 = await pullServed(dir, base, fakeFetch, 123);
+    assertEqual(r1.days, 1, 'valid days only');
+    assertEqual(r1.added, 3, 'added ETH WATCH, ETH GOOD, SOL BAD');
+    assertEqual(r1.duplicates, 2, 'cron close + same served key');
+    assert(urls.every((u) => u.endsWith('?t=123')), 'cache-busted');
+    const all = readAllCalls(dir);
+    assertEqual(all.filter((r) => r.source === 'served').length, 3, 'served rows');
+    assertEqual(all.filter((r) => r.source === 'cron').length, 1, 'old cron row reads as cron');
+    assert(!allText(dir).includes('SECRET_ADDR'), 'sensitive keys stripped');
+    const r2 = await pullServed(dir, base, fakeFetch, 124);
+    assertEqual(r2.added, 0, 'second pull adds nothing');
+    assertEqual(servedKey(day1[1]), `ETH|${iso(T0 + 15 * MIN)}|WATCH|-`, 'served key');
+    assertEqual(servedRowsFromLines([{ symbol: 'BTC' }, null, [1], { symbol: 'X', closedThrough: iso(T0) }]).length, 0, 'rows need symbol, close, recommendation');
+    const none = await pullServed(tmp(), 'https://empty.public.blob.vercel-storage.com', fakeFetch);
+    assertEqual(none.added, 0, 'no manifest -> nothing');
+  });
+
+  await test('served pull: only days from the newest stored served day minus one are fetched', async () => {
+    const dir = tmp();
+    const base = 'https://store2.public.blob.vercel-storage.com';
+    const day = (d) => `2026-09-${d}`;
+    const files = { [`${base}/served/manifest.json`]: JSON.stringify({ baseUrl: base, days: [day(18), day(19), day(20), day(21)] }) };
+    for (const d of [18, 19, 20, 21]) {
+      const ms = Date.parse(`${day(d)}T12:00:00.000Z`);
+      files[`${base}/served/${day(d)}.jsonl`] = JSON.stringify(servedRow(captureRow('BTC', ms, null, rec('WATCH', { candidateId: null })), ms + 1000)) + '\n';
+    }
+    const urls = [];
+    const fakeFetch = async (url) => { urls.push(url.split('?')[0]); const t = files[url.split('?')[0]]; return t === undefined ? { ok: false, status: 404, text: async () => '' } : { ok: true, status: 200, text: async () => t }; };
+    assertEqual((await pullServed(dir, base, fakeFetch, 1)).days, 4, 'first pull reads every day');
+    urls.length = 0;
+    assertEqual((await pullServed(dir, base, fakeFetch, 2)).days, 2, 'then newest stored day minus one');
+    assert(!urls.some((u) => u.includes(day(18)) || u.includes(day(19))), 'older days skipped');
+  });
+
+  await test('served GOOD call on a ready plan scores ready_prefilled exactly like cron; dims.source split', () => {
+    const cronRows = [captureRow('BTC', T0, plan(), rec('GOOD'))];
+    const servedRows = [servedRow(captureRow('BTC', T0, plan(), rec('GOOD')), T0 + 30_000)];
+    const strip = (r) => { const { dims, capturedAt, ...rest } = r; const { source, ...d } = dims; return JSON.stringify({ ...rest, d }); };
+    const a = scoreCalls(extractCalls(cronRows), candleSet, [], T0 + 2 * 60 * MIN);
+    const b = scoreCalls(extractCalls(servedRows), candleSet, [], T0 + 2 * 60 * MIN);
+    const goodA = a.find((r) => r.kind === 'rec');
+    const goodB = b.find((r) => r.kind === 'rec');
+    assertEqual(goodB.mode, 'ready_prefilled', 'mode');
+    assertEqual(goodB.outcome, 'tp1', 'outcome');
+    assertEqual(goodA.dims.source, 'cron', 'cron source');
+    assertEqual(goodB.dims.source, 'served', 'served source');
+    assertEqual(callDims({}).source, 'cron', 'rows without source read as cron');
+    assertEqual(a.length, b.length, 'same calls');
+    for (let i = 0; i < a.length; i++) assertEqual(strip(b[i]), strip(a[i]), `call ${i} identical apart from source`);
+    assertEqual(callVia(goodB), 'chat', 'via chat');
+    assertEqual(callVia({ dims: {} }), 'cron', 'via cron default');
+    assert(FILTER_DIMS.some(([k]) => k === 'via'), 'via filter dim');
+    assertEqual(equityRows(b).find(() => true).f.via, 'chat', 'equity row carries via');
+  });
+
+  await test('aggregate: served rows counted in activity, never as runs, last capture or capture health', () => {
+    const nowMs = T0 + 60 * MIN;
+    const capture = [
+      captureRow('BTC', T0, plan(), rec('WATCH')),
+      servedRow(captureRow('BTC', T0 + 15 * MIN, plan(), rec('GOOD')), T0 + 15 * MIN + 10_000),
+      servedRow(captureRow('ETH', T0 + 15 * MIN, null, rec('WATCH', { candidateId: null })), T0 + 15 * MIN + 10_000),
+      servedRow(captureRow('ETH', T0 - 30 * 60 * MIN, null, rec('GOOD', { candidateId: null })), T0 - 30 * 60 * MIN) // older than 24 h
+    ];
+    const out = scoreCalls(extractCalls(capture), candleSet, [], nowMs);
+    const agg = computeAggregates(out, capture, {}, nowMs);
+    assertEqual(agg.activity.served24h, 2, 'served 24h');
+    assertEqual(agg.activity.servedGood24h, 1, 'served GOOD 24h');
+    assertEqual(agg.activity.runs, 1, 'runs = cron capture minutes only');
+    assertEqual(agg.tiles.lastCapture, iso(T0 + 2000), 'last capture from cron');
+    assertEqual(agg.captures.captures, 1, 'capture health counts cron rows');
+    const html = renderHtml(agg, { outcomes: out });
+    assert(html.includes('id="activity-served-row"'), 'served activity row');
+    assert(/id="activity-served-row"><dt>Seen in chat · 24 h<\/dt><dd[^>]*>2 <span class="st-good">\(1 GOOD\)<\/span>/.test(html), 'served count and GOOD count');
+    assert(/<th>Via<\/th>/.test(html), 'Via column');
+    assert(/<td[^>]*>chat<\/td><\/tr>/.test(html), 'served call shows chat');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'one provisional tag per section');
+    const scripts = html.match(/<script\b[^>]*>/gi) || [];
+    assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'exactly one executable inline script');
+    assert(!/gradient|box-shadow|drop-shadow/i.test(html), 'no gradients or shadows');
   });
 
   await test('parseArgs: --data default ./data, --out default ./docs', () => {

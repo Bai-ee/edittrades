@@ -63,6 +63,9 @@ import {
 
 import { handleScalpContext } from './api/scalp-context.js';
 
+// Handler tests use fixture payloads; never record them to a real Blob store (T3).
+process.env.TRACK_SERVED_CALLS = 'false';
+
 import { buildVisualGate, resolveCoils } from './lib/patternLifecycle.js';
 
 import { regression001, mirror, withTimes } from './test/fixtures/flagFixtures.js';

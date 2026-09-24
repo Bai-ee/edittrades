@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, ensureDir, readJsonl, readWallet, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
 import { aggregateDataDir } from './aggregate.js';
 import {
-  chartKit, chartScript, equityRows, journalEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
+  chartKit, chartScript, callVia, equityRows, journalEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
   FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, NO_JOURNAL, NO_JOURNAL_TRADES, CHART_CSS
 } from './charts.js';
 import { PAGE_CSS } from './page-style.js';
@@ -427,7 +427,7 @@ export function renderHtml(agg, data = {}) {
   ];
 
   // System status: is the automated job running? Re-evaluated in the browser by statusScript().
-  const act = agg.activity || { firstRun: null, runs: 0, runTimes48h: [], recCalls24h: 0, good24h: 0, ready24h: 0, lastGoodAt: null };
+  const act = { served24h: 0, servedGood24h: 0, ...(agg.activity || { firstRun: null, runs: 0, runTimes48h: [], recCalls24h: 0, good24h: 0, ready24h: 0, lastGoodAt: null }) };
   const status = systemStatus(t.lastCapture, nowMs);
   const next = nextRunMs(nowMs);
   const firstRunMs = act.firstRun ? Date.parse(act.firstRun) : null;
@@ -488,6 +488,7 @@ export function renderHtml(agg, data = {}) {
     + `<div class="stat-row" id="activity-ready-row"><dt>Ready plans</dt><dd class="${act.ready24h ? '' : 'dim'}">${act.ready24h}</dd></div>`
     + `<div class="stat-row" id="activity-open-row"><dt>Open calls now</dt><dd class="${agg.openCalls.length ? '' : 'dim'}">${agg.openCalls.length}</dd></div>`
     + `<div class="stat-row" id="activity-last-good-row"><dt>Last GOOD call</dt><dd>${esc(act.lastGoodAt ? time(act.lastGoodAt) : 'NONE YET')}</dd></div>`
+    + `<div class="stat-row" id="activity-served-row"><dt>Seen in chat · 24 h</dt><dd class="${act.served24h ? '' : 'dim'}">${act.served24h}${act.servedGood24h ? ` <span class="st-good">(${act.servedGood24h} GOOD)</span>` : ''}</dd></div>`
     + `</dl>`
     + `<p class="note" id="activity-24h-note">Only GOOD calls with a ready plan get scored. Mostly WATCH and BAD is normal while the market sets up.</p>`;
 
@@ -523,7 +524,7 @@ export function renderHtml(agg, data = {}) {
     const rv = r.outcome === 'stop' ? -1 : r.r;
     return [time(r.calledAt), r.symbol, callLabel(r), r.reasonCode || dash, r.timeframe || dash, r.direction || dash, levels(r),
       r.levelSource === 'plan' || r.levelSource === 'candidate' ? r.levelSource : dash,
-      { v: r.outcome, cls: outcomeStatus(r.outcome) }, { v: rVal(rv), cls: rStatus(rv) }, num(r.minutesToResolution, 0)];
+      { v: r.outcome, cls: outcomeStatus(r.outcome) }, { v: rVal(rv), cls: rStatus(rv) }, num(r.minutesToResolution, 0), callVia(r)];
   });
   const healthRows = [
     ['Capture rows', c.captures], ['Symbols', c.symbols.join(', ') || dash],
@@ -571,7 +572,7 @@ export function renderHtml(agg, data = {}) {
       id: 'zone-calls', title: 'Calls', sub: 'Open now, recent, by day',
       tiles: [
         section('open-calls-section', 'Open calls now', table('open-calls-table', ['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status', 'Filled', 'Net R:R'], openRows, '[NO OPEN CALLS]')),
-        section('daily-log-section', 'Call log (last 7 days)', table('daily-log-table', ['Called', 'Symbol', 'Call', 'Reason', 'TF', 'Dir', 'Entry / stop / TP1', 'Levels', 'Outcome', 'R', 'Min'], logRows, '[NO CALLS YET]')),
+        section('daily-log-section', 'Call log (last 7 days)', table('daily-log-table', ['Called', 'Symbol', 'Call', 'Reason', 'TF', 'Dir', 'Entry / stop / TP1', 'Levels', 'Outcome', 'R', 'Min', 'Via'], logRows, '[NO CALLS YET]')),
         section('daily-summary-section', 'By day', table('daily-summary-table', ['Day', 'Calls', 'GOOD', 'WATCH', 'BAD', 'DATA_UNAV', 'Ready plans', 'Fills', 'TP1', 'Stop', 'Exp.'], dayRows, '[NO ROWS YET]', 1))
       ]
     }),

@@ -26,7 +26,9 @@
  * `levelSource` on every engine row: 'plan' (plan rows, and rec rows on same-capture plan
  * levels), 'candidate' (rec rows on candidate levels), null (no levels).
  *
- * Every call carries `dims` (callDims): filter dimensions copied from its capture row.
+ * Every call carries `dims` (callDims): filter dimensions copied from its capture row,
+ * including `source` ('cron', or 'served' for a call the GPT was served, T3). A served
+ * row is scored exactly like a cron row; it only adds a capture point.
  *
  * Outcomes: pending | not_filled | open | tp1 | stop | expired | rejected | no_levels.
  * Window: 24 h from the call close, then `expired`. Idempotent: final outcomes are kept
@@ -122,6 +124,7 @@ export function callDims(row) {
     ema200Side: ema ? ema.token.split(':')[2] ?? null : null,
     ema200Token: ema ? ema.token : null,
     divergence: agrees && conflicts ? 'mixed' : agrees ? 'agrees' : conflicts ? 'conflicts' : 'none',
+    source: row.source === 'served' ? 'served' : 'cron',
     ...lists
   };
 }

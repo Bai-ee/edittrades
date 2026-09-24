@@ -40,7 +40,8 @@
     "tracker:score": "node scripts/tracker/score.js",
     "tracker:page": "node scripts/tracker/build-page.js",
     "tracker:sync": "node scripts/tracker/sync.js",
-    "test:journal": "node test-journal.js"
+    "test:journal": "node test-journal.js",
+    "test:served": "node test-served.js"
   },
   "keywords": [
     "trading",

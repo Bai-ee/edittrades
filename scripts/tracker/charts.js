@@ -34,7 +34,7 @@ export const NO_JOURNAL_TRADES = '[NO JOURNAL TRADES YET]';
 export const FILTER_DIMS = Object.freeze([
   ['class', 'Class'], ['reason', 'Reason code'], ['symbol', 'Symbol'], ['tf', 'Timeframe'], ['dir', 'Direction'],
   ['plan', 'Plan status at call'], ['td', 'Top-down'], ['ema', 'EMA200 side'], ['div', 'Divergence'],
-  ['drift', 'Mark drift |bps|'], ['hour', 'Hour UTC']
+  ['drift', 'Mark drift |bps|'], ['hour', 'Hour UTC'], ['via', 'Via']
 ]);
 
 export const WALLET_RANGES = Object.freeze([['24h', '24H'], ['7d', '7D'], ['30d', '30D'], ['all', 'ALL']]);
@@ -43,6 +43,7 @@ export const DEFAULT_WALLET_RANGE = 'all';
 const VALUE_ORDER = {
   class: ['GOOD', 'WATCH', 'BAD', 'DATA_UNAVAILABLE'],
   dir: ['long', 'short'],
+  via: ['cron', 'chat'],
   td: ['supports', 'opposes', 'unknowns'],
   ema: ['above', 'below', 'missing'],
   div: ['agrees', 'conflicts', 'mixed'],
@@ -72,6 +73,11 @@ export function hourBucket(iso) {
  * Slim equity-curve rows from outcomes: ready plan calls that reached tp1 or stop, or are
  * still open. {t, at, o, r, f:{<dim>: value}}; r is +R (tp1) or -1 (stop), null if open.
  */
+/** 'chat' for a call the GPT was served (T3, dims.source 'served'), else 'cron'. */
+export function callVia(r) {
+  return r && r.dims && r.dims.source === 'served' ? 'chat' : 'cron';
+}
+
 function rowFilters(r) {
   const d = r.dims && typeof r.dims === 'object' ? r.dims : {};
   return {
@@ -85,7 +91,8 @@ function rowFilters(r) {
     ema: val(d.ema200Side),
     div: val(d.divergence),
     drift: driftBucket(r.markDriftBps),
-    hour: hourBucket(r.calledAt)
+    hour: hourBucket(r.calledAt),
+    via: callVia(r)
   };
 }
 

@@ -38,7 +38,8 @@ ChatGPT uses it to decide TAKE / WAIT / PASS independently from the engine recom
 | `lib/pythMark.js` | Read-only Pyth mark (P1): one Hermes request per build, Bearer `PYTH_API_KEY`, never throws; `symbols.<SYM>.mark` beside `price` |
 | `openapi/scalp-context.yaml` | REST Action schema for the Custom GPT (source of truth for field-level detail) |
 | `CHATGPT_ACTION_SETUP.md` | REST Action setup |
-| `api/journal.js`, `lib/journalSchema.js` | T2 trade journal: `POST`/`GET /api/journal`, bearer `JOURNAL_API_KEY` (or the Action's `SCALP_CONTEXT_API_KEY`), Vercel Blob append (`journal/YYYY-MM-DD.jsonl` + `journal/manifest.json`). REST only, never an MCP tool; imports only `crypto`, `@vercel/blob` and the pure schema |
+| `api/journal.js`, `lib/journalSchema.js` | T2 trade journal: `POST`/`GET /api/journal`, bearer `JOURNAL_API_KEY` (or the Action's `SCALP_CONTEXT_API_KEY`), Vercel Blob append (`journal/YYYY-MM-DD.jsonl` + `journal/manifest.json`). REST only, never an MCP tool; imports only `crypto`, `@vercel/blob`, the pure schema and `lib/blobJsonl.js` |
+| `lib/servedCalls.js`, `lib/blobJsonl.js`, `scripts/tracker/records.js` | T3 served calls (`docs/PLAN_SERVED_CALLS.md`): the REST JSON 200 path records the unfiltered payload's calls to Blob `served/YYYY-MM-DD.jsonl` + `served/manifest.json` in the tracker's row shape (`source: served`). `blobJsonl.js` = the journal's ETag read-modify-write helpers, shared; `records.js` = the tracker's pure row builder and sensitive-key strip, shared. Not reachable from MCP |
 
 Tests:
 
@@ -63,12 +64,13 @@ Tests:
 | `npm run test:ledger` | `test-paper-ledger.js` (`scripts/paper-ledger.js`; append-only forward-paper ledger, work package 3) | 12 |
 | `npm run test:evidence` | `test-model-evidence.js` (`lib/modelEvidence.js`; EMA map, channels, divergence) | 8 |
 | `npm run test:mark` | `test-pyth-mark.js` (`lib/pythMark.js`; mock Hermes: expo/conf, one request, no key → no request, failures → unavailable, drift sign, stale; `dataStatus` untouched) | 12 |
-| `npm run test:tracker` | `test-tracker.js` (`scripts/tracker/`, T1 call tracker: collector strips account/wallet/balance/address keys before disk, dedupe, candle store, vendored `walkOutcome` parity, scorer synthetic day, idempotency, aggregates, page from an empty store, charts; T2 journal pull/score/your-trades line/wallet ticks/Engine vs you; dev only, never on the request path) | 31 |
-| `npm run test:journal` | `test-journal.js` (T2: `lib/journalSchema.js` validation, `api/journal.js` auth 401, method 405, body cap 413/400, rate limit 429, idempotency on `id`, ETag retry, GET newest-first/limit; journal imports nothing that signs or executes; MCP neither imports the journal nor registers a journal tool; Blob put/get injected, no network) | 16 |
+| `npm run test:tracker` | `test-tracker.js` (`scripts/tracker/`, T1 call tracker: collector strips account/wallet/balance/address keys before disk, dedupe, candle store, vendored `walkOutcome` parity, scorer synthetic day, idempotency, aggregates, page from an empty store, charts; T2 journal pull/score/your-trades line/wallet ticks/Engine vs you; T3 served pull/dedupe/day window, served scoring parity, activity counts, Via column; dev only, never on the request path) | 42 |
+| `npm run test:journal` | `test-journal.js` (T2: `lib/journalSchema.js` validation, `api/journal.js` auth 401, method 405, body cap 413/400, rate limit 429, idempotency on `id`, ETag retry, GET newest-first/limit; journal imports nothing that signs or executes; MCP neither imports the journal nor registers a journal tool; Blob put/get injected, no network) | 17 |
+| `npm run test:served` | `test-served.js` (T3: served rows stripped + credential guard, dedupe, manifest, day rollover, kill switch/no token/unavailable, store error swallowed, 1500 ms timeout; handler records once on the JSON 200 with the unfiltered payload, never on 401/405/500/503/chart, response identical with and without the hook; MCP does not import the recorder; Blob injected, no network) | 18 |
 
 The first four are the deploy gate; the rest are the per-module suites added by the engine phases. Run all twenty-one before a deploy (`test:tracker` covers the out-of-band call tracker, not the request path).
 
-Counts re-run 2026-09-24 (T2): `test:pattern` 33, `test:flagplan` 43, `test:flagrec` 18, `test:flagrec:fixtures` 16, all others as listed.
+Counts re-run 2026-09-24 (T2): `test:pattern` 33, `test:flagplan` 43, `test:flagrec` 18, `test:flagrec:fixtures` 16, all others as listed. T3 (2026-09-24): `test:served` 18 (new), `test:tracker` 31 → 42, `test:journal` 17; deploy gate unchanged (sltp 50, scalp 117, mcp 52, wallet 28).
 
 Replay (Phase 10, dev only, never on the request path): `npm run replay -- --capture BTC,SOL,ETH --out test/fixtures/history/<date>/ [--backfill-1m 360]` saves a live pull; `npm run replay -- --history <dir> --symbols BTC --out btc.jsonl` runs `buildScalpContext()` once per closed candle with no lookahead; `npm run replay:metrics -- btc.jsonl` prints candidate counts, visual-gate rate by code, lifetime and label precision/recall; `npm run replay:outcomes -- btc.jsonl <historyDir>` (trading-model quick pass Q4; signal-reliability minimum plan work package 3 added exact-`flagTradePlan` scoring alongside the existing strategy/`FLAG_MEASURED` rows, plus a rejection-reason breakdown) walks the same JSONL forward on 1m candles and scores every valid strategy signal, confirmed flag candidate, and selected flag trade plan: fill rate, win rate, average win R, expectancy, max losing streak, median time to TP1. Details: master plan, Phase 10; `docs/PLAN_TRADING_MODEL_QUICK_PASS.md` Q4.
 
@@ -94,6 +96,8 @@ Trade journal (T2, REST only, not part of MCP):
 | Path | Auth | Methods | Behavior |
 | --- | --- | --- | --- |
 | `/api/journal` | Bearer `JOURNAL_API_KEY` or `SCALP_CONTEXT_API_KEY` | `POST`, `GET` (others 405) | `POST` validates one record (`text` required, `kind` open/close/adjust/skip/note, numbers optional, optional `engineRef`), stamps `id`/`receivedAt`/`schemaVersion`, appends to Blob `journal/YYYY-MM-DD.jsonl` (ETag-guarded read-modify-write) and keeps `journal/manifest.json` (`baseUrl`, `days[]`); 201, or 200 `duplicate:true` for an `id` already stored today/yesterday; 400 invalid, 401, 413 over 4 KB, 429 over 10/min per key (in-memory, best effort per warm instance), 503 store unavailable. `GET ?limit=` (default 10, max 50) returns records newest first. Actions `postJournal`/`getJournal` in `openapi/scalp-context.yaml`, same bearer scheme as the context Action (`bearerAuth`); the journal also accepts `SCALP_CONTEXT_API_KEY` because a ChatGPT Action carries one bearer for all operations |
+
+Served calls (T3, REST side effect, not part of MCP): before sending a JSON 200, `GET /api/scalp-context` records the **unfiltered** payload's per-symbol calls (rows with a `flagRecommendation`) to Blob `served/YYYY-MM-DD.jsonl` (dedupe key `symbol|closedThrough|class|planStatus`) and `served/manifest.json` (`served-manifest-1`). Awaited with a 1500 ms cap; failures log `[Served] skipped=<reason>` and are swallowed; status, headers and body never change. Not on 401/405/500/503 or `?chart`. Off with `TRACK_SERVED_CALLS=false` or without `BLOB_READ_WRITE_TOKEN`. The tracker pulls these rows and scores them like cron rows (`source: served`, page "Via: chat").
 
 Fresh `McpServer` + transport per request, torn down on `res.close`. `sessionIdGenerator: undefined` = stateless mode, required on serverless.
 
@@ -189,6 +193,7 @@ Optional `chart: "BTC:1m"` tool arg / `?chart=BTC:1m` query returns exactly one 
 - MCP has no network auth. A private GPT/plugin listing is UI privacy, not authentication.
 - Trade execution stays behind `TRADE_EXECUTION_ENABLED` + `TRADE_EXECUTION_API_KEY`, separate from market-context auth. Never register an execution tool in MCP.
 - The trade journal (`api/journal.js`) is a separate REST write path with its own key; it records text only, imports nothing that can sign or execute, and is not reachable from MCP (`test:journal` asserts both).
+- Served-call recording (`lib/servedCalls.js`) writes only the tracker's row shape: explicit field list, account/wallet/balance/address/margin/performance keys stripped, then a fail-closed re-check plus a credential check (bearer/secret/api-key keys, `Bearer ` values, URLs with key query params); any hit writes nothing. MCP never imports it (`test:served` asserts).
 
 ## Environment (Vercel production)
 
@@ -200,7 +205,8 @@ Optional `chart: "BTC:1m"` tool arg / `?chart=BTC:1m` query returns exactly one 
 | `ACCOUNT_BASELINE_USD` | Starting stablecoin margin for P&L |
 | `PYTH_API_KEY` | Hermes Bearer for `mark` (P1); missing → `mark.status: unavailable` |
 | `JOURNAL_API_KEY` | Journal REST Bearer (T2); missing → every journal request 401 |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob store `edittrades-journal` (public access) for the journal; missing → journal 503 |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob store `edittrades-journal` (public access) for the journal and served calls; missing → journal 503, served recording off |
+| `TRACK_SERVED_CALLS` | Optional kill switch (T3); `false` → no served-call recording. Unset = on |
 
 Missing wallet vars → `account.status: disabled`, market data unaffected. Missing `PYTH_API_KEY` → every `mark.status: unavailable`, no Hermes request, market data unaffected.
 
@@ -233,6 +239,8 @@ curl -s -X POST $U/api/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'                                # one tool
 ```
 
+After a deploy that touches the REST path, also confirm served recording: one authed GET, then `curl -s <blob base>/served/manifest.json` lists today and `served/<today>.jsonl` has one row per symbol (a repeat GET at the same close adds none).
+
 ## Open items
 
 - Phase 8b (confirmation chart) in progress; then 9, 9b, 10, 11, 8c, 3b per the master plan.
@@ -254,3 +262,4 @@ curl -s -X POST $U/api/mcp -H 'Content-Type: application/json' \
 | 2026-09-23 | P1 Pyth mark (`docs/PLAN_PYTH_MARK_PRICE.md`): new `lib/pythMark.js` (one Hermes `/v2/updates/price/latest` request for all symbols, Bearer `PYTH_API_KEY`, 4 s timeout, never throws, key/URL never logged); `symbols.<SYM>.mark` beside `price` (`price` unchanged), `decisionTrace.bias` `|mark:<driftBps>`/`|mark:na`, compact mark `{price, driftBps, status}`; `mark.pyth` config block (feed ids, maxAgeSec 30, timeoutMs 4000). Schema 1.15.0 → 1.16.0, configVersion → 2026.09.23-5. Tests: scalp 113 → 117, new `test:mark` 12; others unchanged. Not deployed. |
 | 2026-09-23 | Owner decisions 1a + 4a (`docs/OWNER_DECISIONS_2026-09-23.md`): `flagTradePlan.grossRR` published, plan gate on gross R:R ≥ `flagPlan.minRR` (renamed from `minNetRR`), reasonCode `rr_below_min` replaces `net_rr_below_3`, `netRR` information only; recommendation `rr_ok` support + non-blocking `net_rr_low` oppose, net never BAD; `room:blocked` reads only the candidate's mapped geometry timeframe. Schema 1.16.0 → 1.17.0, configVersion → 2026.09.23-6. Tests: flagplan 42 → 43, flagrec 17 → 18, pattern 32 → 33; others unchanged (sltp 50, scalp 117, mcp 52, wallet 28, config 14, risk 24, geometry 36, chart 18, replay 36, bias 15, topdown 15, freshness 10, ledger 12, evidence 8, mark 12). Live default 75,102 B, compact 39,948 B. Not deployed. |
 | 2026-09-23 | Phase 2 recommendation completeness (`docs/MASTER_PLAN_NEXT_STEPS.md`): `lib/flagRecommendation.js` cites context on every record (top-down, EMA200 count/side, weekly EMA200 unknown, 4h lean, first level ahead on the candidate's own geometry timeframe, TP1 cap, channel-edge risk, candidate qual codes, divergence, freshness), names the nearest forming/triggering/proto flag as `candidate` on a no-plan WATCH, and writes concrete `changeConditions` (close/retest trigger, rejection remedy, or `a 1m/3m/5m flag must form`); BAD lists the disqualifying reason first. Class logic unchanged. `services/scalpContext.js` passes `candidates` + `geometryContext` into the recommendation. Schema 1.17.0 → 1.18.0, configVersion → 2026.09.23-7. Fixture payload default 76,864 → 78,003 B (cap 79,000), compact 41,459 → 42,598 B. Tests: new `test:flagrec:fixtures` 16; scalp 117, flagrec 18 unchanged in count (assertions updated for the new key/context). GPT instructions unchanged (7,976). Not deployed. |
+| 2026-09-24 | T3 served calls (`docs/PLAN_SERVED_CALLS.md`): `GET /api/scalp-context` JSON 200 records the unfiltered payload's calls to Blob `served/` (1500 ms cap, swallowed, response unchanged, kill switch `TRACK_SERVED_CALLS=false`); `lib/blobJsonl.js` (journal blob helpers, moved) and `scripts/tracker/records.js` (tracker row builder, moved) shared; tracker `pullServed`, `source` dim, activity "Seen in chat", call log Via column. No payload/schema/config change; MCP untouched. New suite `test:served` 18; tracker 31 → 42; journal 17. |

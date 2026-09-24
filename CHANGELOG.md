@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-24 — T3 served calls (branch `upgrade-signal-engine`)
+
+`docs/PLAN_SERVED_CALLS.md`. No payload, schema, config or engine change; MCP untouched.
+
+- **Engine:** `GET /api/scalp-context` records the unfiltered payload's calls (one row per symbol with a `flagRecommendation`) to Vercel Blob `served/YYYY-MM-DD.jsonl` + `served/manifest.json` before sending a JSON 200. Awaited with a 1500 ms cap; errors logged without secrets and swallowed; response unchanged. Not on 401/405/500/503 or `?chart`. Kill switch `TRACK_SERVED_CALLS=false`; off without `BLOB_READ_WRITE_TOKEN`. New `lib/servedCalls.js`.
+- **Refactors (behaviour-identical):** journal Blob helpers moved to `lib/blobJsonl.js`; tracker row builder and sensitive-key strip moved to `scripts/tracker/records.js` (`collect.js` re-exports).
+- **Tracker:** `pullServed` adds served rows to `data/calls/` as `source: 'served'` (cron duplicates dropped); `dims.source`; served rows scored like cron, excluded from run/capture-health counts; page `#activity-served-row`, call-log Via column, `Via` equity filter.
+- **Tests:** new `test:served` (18); `test:tracker` 31 → 42; `test:journal` 17.
+
 ## 2026-09-22 — Scalp context engine (branch `upgrade-signal-engine`)
 
 Payload schema 1.1.0 → 1.8.0, live in production. Details: `docs/MASTER_PLAN_ENGINE_REFINEMENT.md`, `docs/EDITTRADES_MCP_CONNECTOR.md`.

@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: EditTrades Scalp Context
   version: 1.0.0
-  description: Read-only endpoint that returns the latest closed-candle BTC, SOL and ETH market context for scalp trading decisions, plus the user's append-only trade journal (/api/journal, its own bearer key; records what the user said, never executes).
+  description: Read-only endpoint that returns the latest closed-candle BTC, SOL and ETH market context for scalp trading decisions, plus the user's append-only trade journal (/api/journal, its own bearer key; records what the user said, never executes). Each successful context response is also recorded server-side for the public call tracker (engine calls only, never account data); the response itself is unchanged.
 servers:
   # Replace with your production domain if different.
   - url: https://snapshottradingview.vercel.app

@@ -22,12 +22,12 @@ import {
   validateJournalEntry, journalDay, journalDayPath, parseJournalLines,
   JOURNAL_MANIFEST_PATH, MAX_RECORD_BYTES, byteLength
 } from '../lib/journalSchema.js';
+import { readBlob, updateBlob, updateManifest, baseUrlOf } from '../lib/blobJsonl.js';
 
 export const RATE_LIMIT = 10;
 export const RATE_WINDOW_MS = 60_000;
 export const DEFAULT_LIMIT = 10;
 export const MAX_LIMIT = 50;
-const WRITE_ATTEMPTS = 3;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const hits = new Map(); // key hash -> [timestamps]
@@ -56,53 +56,6 @@ function safeCompare(a, b) {
 
 // ---------------------------------------------------------------- blob store
 
-const isPreconditionFailed = (err) => err && (err.name === 'BlobPreconditionFailedError' || /precondition/i.test(String(err.message)));
-
-/** {text, etag, url} of a blob, or null when it does not exist. Always bypasses the CDN cache. */
-async function readBlob(get, pathname) {
-  let res;
-  try {
-    res = await get(pathname, { access: 'public', useCache: false });
-  } catch (err) {
-    if (err && err.name === 'BlobNotFoundError') return null;
-    throw err;
-  }
-  if (!res) return null;
-  const text = res.stream ? await new Response(res.stream).text() : '';
-  return { text, etag: res.blob ? res.blob.etag : null, url: res.blob ? res.blob.url : null };
-}
-
-function writeBlob(put, pathname, body, contentType, etag) {
-  return put(pathname, body, {
-    access: 'public',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType,
-    cacheControlMaxAge: 60,
-    ...(etag ? { ifMatch: etag } : {})
-  });
-}
-
-/** Read-modify-write with ETag guard, retried on a concurrent write. `change` returns the new text or null (no write). */
-async function updateBlob({ get, put }, pathname, contentType, change) {
-  for (let attempt = 1; ; attempt++) {
-    const current = await readBlob(get, pathname);
-    const next = change(current ? current.text : null);
-    if (next === null) return { written: false, current };
-    try {
-      const result = await writeBlob(put, pathname, next, contentType, current ? current.etag : null);
-      return { written: true, result };
-    } catch (err) {
-      if (attempt < WRITE_ATTEMPTS && isPreconditionFailed(err)) continue;
-      throw err;
-    }
-  }
-}
-
-function baseUrlOf(url) {
-  try { return new URL(url).origin; } catch { return null; }
-}
-
 /** Append `record` to its day file unless its id is already stored. */
 async function appendRecord(store, record) {
   const day = journalDay(record.receivedAt);
@@ -118,20 +71,12 @@ async function appendRecord(store, record) {
   });
   if (!written) return { duplicate, day };
 
-  const baseUrl = baseUrlOf(result && result.url);
-  await updateBlob(store, JOURNAL_MANIFEST_PATH, 'application/json', (text) => {
-    let manifest = null;
-    try { manifest = text ? JSON.parse(text) : null; } catch { manifest = null; }
-    const days = Array.isArray(manifest && manifest.days) ? manifest.days.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
-    const known = manifest && manifest.baseUrl === baseUrl && days.includes(day);
-    if (known) return null;
-    const next = {
-      schemaVersion: 'journal-manifest-1',
-      baseUrl: baseUrl || (manifest && manifest.baseUrl) || null,
-      days: [...new Set([...days, day])].sort(),
-      updatedAt: record.receivedAt
-    };
-    return `${JSON.stringify(next, null, 2)}\n`;
+  await updateManifest(store, {
+    manifestPath: JOURNAL_MANIFEST_PATH,
+    manifestSchema: 'journal-manifest-1',
+    baseUrl: baseUrlOf(result && result.url),
+    day,
+    updatedAt: record.receivedAt
   });
   return { duplicate: false, day };
 }

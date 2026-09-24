@@ -8,11 +8,16 @@
  * unavailable, and never echoes secrets, stack traces, or trade-execution
  * details. `?chart=SYMBOL:TIMEFRAME` (phase 8b) returns one image/png instead of
  * JSON; it is read after auth.
+ *
+ * Side effect (T3, docs/PLAN_SERVED_CALLS.md): a JSON 200 first records the unfiltered
+ * payload's calls to Vercel Blob (lib/servedCalls.js), awaited with a 1500 ms cap. It
+ * never changes the status, headers or body; TRACK_SERVED_CALLS=false turns it off.
  */
 
 import { buildScalpContext, filterPayload, wantsBias, wantsModel } from '../services/scalpContext.js';
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
+import { recordServedCalls } from '../lib/servedCalls.js';
 import crypto from 'crypto';
 
 /**
@@ -64,8 +69,9 @@ export default function handler(req, res) {
  * @param {Object} res
  * @param {Object} [deps]
  * @param {Function} [deps.build=buildScalpContext] - injectable, for tests
+ * @param {Function} [deps.record=recordServedCalls] - injectable, for tests
  */
-export async function handleScalpContext(req, res, { build = buildScalpContext } = {}) {
+export async function handleScalpContext(req, res, { build = buildScalpContext, record = recordServedCalls } = {}) {
   // /api/mcp is routed into this function because the project is at the Vercel
   // Hobby 12-function ceiling. It is dispatched before any REST logic runs and
   // shares nothing with it: no auth, status codes, or response shape below this
@@ -174,6 +180,10 @@ export async function handleScalpContext(req, res, { build = buildScalpContext }
       res.setHeader('Content-Type', 'image/png');
       return res.status(200).send(chart.png);
     }
+
+    // Served-call recording (T3): the unfiltered payload, so compact/include/symbols
+    // filters never hide the plan. Capped and swallowed; the response below is unchanged.
+    try { await record(payload); } catch { /* recording never affects the response */ }
 
     console.log(`[ScalpContext] requestId=${requestId} status=200 durationMs=${Date.now() - startedAt} symbols=${symbolsCount} warnings=${warningsCount}`);
     return res.status(200).json({

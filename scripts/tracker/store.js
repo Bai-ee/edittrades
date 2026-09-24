@@ -2,7 +2,9 @@
  * EditTrades call tracker - file store (T1, docs/PLAN_CALL_TRACKER.md).
  *
  * Append-only JSONL under a data dir:
- *   calls/YYYY-MM-DD.jsonl   one line per symbol per capture (UTC day of closedThrough)
+ *   calls/YYYY-MM-DD.jsonl   one line per symbol per capture (UTC day of closedThrough);
+ *                            `source` 'cron' (this job) or 'served' (a call the GPT was
+ *                            served, T3); rows written before T3 read as 'cron'
  *   candles/<tf>.jsonl       closed candles {symbol,t,o,h,l,c,v}, keyed by symbol+t
  *   outcomes.jsonl           one line per scored call (rewritten by score.js)
  *   wallet.jsonl             one whitelisted wallet-value sample per capture, keyed by t
@@ -92,6 +94,7 @@ export function readAllCalls(dataDir) {
   const files = readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort();
   const rows = [];
   for (const f of files) rows.push(...readJsonl(path.join(dir, f)));
+  for (const row of rows) if (!row.source) row.source = 'cron';
   rows.sort((a, b) => (Date.parse(a.closedThrough) - Date.parse(b.closedThrough)) || String(a.symbol).localeCompare(String(b.symbol)));
   return rows;
 }
@@ -117,6 +120,42 @@ export function appendCalls(dataDir, rows) {
       const key = callKey(row);
       if (seen.has(key)) { duplicates++; continue; }
       seen.add(key);
+      fresh.push(row);
+    }
+    appendJsonl(file, fresh);
+    added += fresh.length;
+  }
+  return { added, duplicates };
+}
+
+/**
+ * Append served-call rows (T3). A row is dropped when a cron row with the same
+ * symbol+closedThrough is stored (already tracked) or when a served row with the same
+ * `servedKeyOf` key is stored; two served rows at one close are both kept only if their
+ * class or plan status differ.
+ * @param {string} dataDir
+ * @param {Array<Object>} rows - source 'served'
+ * @param {(row: Object) => string} servedKeyOf
+ * @returns {{added:number, duplicates:number}}
+ */
+export function appendServedCalls(dataDir, rows, servedKeyOf) {
+  const byFile = new Map();
+  for (const row of rows) {
+    const file = callsFileFor(dataDir, row.closedThrough);
+    if (!byFile.has(file)) byFile.set(file, []);
+    byFile.get(file).push(row);
+  }
+  let added = 0;
+  let duplicates = 0;
+  for (const [file, fileRows] of byFile) {
+    const existing = readJsonl(file);
+    const cron = new Set(existing.filter((r) => r.source !== 'served').map(callKey));
+    const served = new Set(existing.filter((r) => r.source === 'served').map(servedKeyOf));
+    const fresh = [];
+    for (const row of fileRows) {
+      const key = servedKeyOf(row);
+      if (cron.has(callKey(row)) || served.has(key)) { duplicates++; continue; }
+      served.add(key);
       fresh.push(row);
     }
     appendJsonl(file, fresh);

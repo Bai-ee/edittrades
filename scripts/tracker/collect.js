@@ -25,101 +25,26 @@
  * carry no account fields, but each one still goes through the same sensitive-key strip
  * and fail-closed re-check as the call rows. A failed pull warns; it never fails the run.
  *
- * Usage: node collect.js [--data ./data] [--url <scalp-context url>] [--journal-base <url>] [--no-journal]
+ * Served calls (T3, docs/PLAN_SERVED_CALLS.md): pullServed fetches the calls the engine
+ * served to the GPT from the same Blob base - served/manifest.json, then each
+ * served/YYYY-MM-DD.jsonl from the newest stored served day minus one - and appends them
+ * to data/calls/ as capture rows with source 'served' (appendServedCalls: a close already
+ * captured by cron is dropped). Same strip and fail-closed re-check. A failed pull warns.
+ *
+ * Usage: node collect.js [--data ./data] [--url <scalp-context url>] [--journal-base <url>] [--no-journal] [--no-served]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, appendCalls, appendCandles, appendWallet, appendJournal, CANDLE_TIMEFRAMES } from './store.js';
+import { parseArgs, appendCalls, appendServedCalls, appendCandles, appendWallet, appendJournal, readAllCalls, CANDLE_TIMEFRAMES } from './store.js';
+import { stripSensitive, findSensitiveKeys, recordsFromPayload, servedKey } from './records.js';
+
+// Row building lives in records.js (shared with the engine's served-calls recorder).
+export { isSensitiveKey, stripSensitive, findSensitiveKeys, slimCandidate, recordsFromPayload, servedKey } from './records.js';
 
 export const DEFAULT_URL = 'https://snapshottradingview.vercel.app/api/scalp-context';
 
 const TF_MS = { '1m': 60_000, '5m': 300_000, '15m': 900_000 };
-
-/** True for a key that could carry account, wallet, or balance data. */
-export function isSensitiveKey(key) {
-  const k = String(key).toLowerCase();
-  if (k === 'account' || k === 'wallet' || k === 'performance' || k === 'margin') return true;
-  if (k.startsWith('holdings')) return true;
-  return k.includes('wallet') || k.includes('balance') || k.includes('address');
-}
-
-/** Deep copy of `value` with every sensitive key removed at any depth. */
-export function stripSensitive(value) {
-  if (Array.isArray(value)) return value.map(stripSensitive);
-  if (value && typeof value === 'object') {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (isSensitiveKey(k)) continue;
-      out[k] = stripSensitive(v);
-    }
-    return out;
-  }
-  return value;
-}
-
-/** Paths of any sensitive keys left in `value` (empty = clean). */
-export function findSensitiveKeys(value, at = '$', found = []) {
-  if (Array.isArray(value)) value.forEach((v, i) => findSensitiveKeys(v, `${at}[${i}]`, found));
-  else if (value && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) {
-      if (isSensitiveKey(k)) found.push(`${at}.${k}`);
-      findSensitiveKeys(v, `${at}.${k}`, found);
-    }
-  }
-  return found;
-}
-
-function slimCandidate(c) {
-  if (!c || typeof c !== 'object') return null;
-  return {
-    id: c.candidateId ?? null,
-    tf: c.timeframe ?? null,
-    dir: c.direction ?? null,
-    state: c.state ?? null,
-    breakout: c.breakoutLevel ?? null,
-    invalidation: c.invalidation ?? null,
-    measuredRR: c.measuredRR ?? null,
-    qual: c.qual ?? null
-  };
-}
-
-/**
- * One stripped call row per symbol from a scalp-context payload. Throws (nothing is
- * written) if any sensitive key survives the strip.
- * @param {Object} payload
- * @param {number} [capturedAtMs=Date.now()]
- * @returns {Array<Object>}
- */
-export function recordsFromPayload(payload, capturedAtMs = Date.now()) {
-  const symbols = payload && payload.symbols && typeof payload.symbols === 'object' ? payload.symbols : {};
-  const rows = [];
-  for (const [symbol, sym] of Object.entries(symbols)) {
-    if (!sym || typeof sym !== 'object') continue;
-    const mark = sym.mark && typeof sym.mark === 'object'
-      ? { price: sym.mark.price ?? null, driftBps: sym.mark.driftBps ?? null, status: sym.mark.status ?? null }
-      : null;
-    const row = {
-      capturedAt: new Date(capturedAtMs).toISOString(),
-      closedThrough: payload.closedThrough ?? null,
-      schemaVersion: payload.schemaVersion ?? null,
-      configVersion: payload.configVersion ?? null,
-      dataStatus: payload.dataStatus ?? null,
-      symbol,
-      price: sym.price ?? null,
-      mark,
-      flagTradePlan: sym.flagTradePlan ?? null,
-      flagRecommendation: sym.flagRecommendation ?? null,
-      candidateSetups: Array.isArray(sym.candidateSetups) ? sym.candidateSetups.map(slimCandidate).filter(Boolean) : [],
-      bias: sym.decisionTrace && sym.decisionTrace.bias !== undefined ? sym.decisionTrace.bias : null
-    };
-    const clean = stripSensitive(row);
-    const leaked = findSensitiveKeys(clean);
-    if (leaked.length) throw new Error(`refusing to write: sensitive keys survived strip (${leaked.length})`);
-    rows.push(clean);
-  }
-  return rows;
-}
 
 /** The only keys a wallet.jsonl row may carry, in order. */
 export const WALLET_KEYS = Object.freeze(['t', 'status', 'marginUsd', 'holdingsUsd', 'totalUsd', 'baselineUsd', 'pnlUsd', 'pnlPct']);
@@ -298,6 +223,64 @@ export async function pullJournal(dataDir, base, fetchImpl = fetch, nowMs = Date
   return { days: days.length, ...result };
 }
 
+// ---------------------------------------------------------------- served calls (T3)
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Served-call rows made safe to store: plain objects with a symbol, a valid closedThrough
+ * and a flagRecommendation; sensitive keys stripped at any depth; source forced to
+ * 'served'. Throws (nothing written) if any sensitive key survives the strip.
+ */
+export function servedRowsFromLines(rows) {
+  const out = [];
+  for (const r of rows || []) {
+    if (!r || typeof r !== 'object' || Array.isArray(r) || typeof r.symbol !== 'string' || !Number.isFinite(Date.parse(r.closedThrough))) continue;
+    if (!r.flagRecommendation || typeof r.flagRecommendation !== 'object') continue;
+    const clean = { ...stripSensitive(r), source: 'served' };
+    if (findSensitiveKeys(clean).length) throw new Error('refusing to write: sensitive keys survived strip in a served row');
+    out.push(clean);
+  }
+  return out;
+}
+
+/**
+ * Pull served-call day files into data/calls/, from the newest stored served day minus one
+ * (all listed days when none is stored yet).
+ * @param {string} dataDir
+ * @param {string} base - public Blob base URL
+ * @param {Function} [fetchImpl=fetch]
+ * @param {number} [nowMs=Date.now()] - cache-buster
+ * @returns {Promise<{days:number, added:number, duplicates:number}>}
+ */
+export async function pullServed(dataDir, base, fetchImpl = fetch, nowMs = Date.now()) {
+  const get = async (url) => {
+    const res = await fetchImpl(`${url}?t=${nowMs}`, { headers: { Accept: '*/*' }, signal: AbortSignal.timeout(20_000) });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`served HTTP ${res.status}`);
+    return res.text();
+  };
+  const manifestText = await get(`${base}/served/manifest.json`);
+  if (manifestText === null) return { days: 0, added: 0, duplicates: 0 };
+  const manifest = JSON.parse(manifestText);
+  const listed = Array.isArray(manifest.days) ? manifest.days.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
+  const newest = readAllCalls(dataDir)
+    .filter((r) => r.source === 'served')
+    .map((r) => Date.parse(r.servedAt || r.capturedAt))
+    .filter(Number.isFinite)
+    .reduce((m, ms) => Math.max(m, ms), -Infinity);
+  const from = Number.isFinite(newest) ? new Date(newest - DAY_MS).toISOString().slice(0, 10) : null;
+  const days = from ? listed.filter((d) => d >= from) : listed;
+  const fileBase = typeof manifest.baseUrl === 'string' && /^https:\/\/[a-z0-9.-]+$/i.test(manifest.baseUrl) ? manifest.baseUrl : base;
+  const rows = [];
+  for (const day of days) {
+    const text = await get(`${fileBase}/served/${day}.jsonl`);
+    if (text !== null) rows.push(...parseLines(text));
+  }
+  const result = appendServedCalls(dataDir, servedRowsFromLines(rows), servedKey);
+  return { days: days.length, ...result };
+}
+
 /** Write one payload's calls and candles into `dataDir`. */
 export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const rows = recordsFromPayload(payload, capturedAtMs);
@@ -336,10 +319,21 @@ async function main() {
       console.warn(`[tracker:collect] journal pull failed: ${err.message}`);
     }
   }
+  let served = 'off';
+  const servedBase = opts['no-served'] ? null : resolveJournalBase(opts);
+  if (servedBase) {
+    try {
+      const s = await pullServed(opts.data, servedBase);
+      served = `+${s.added} (dup ${s.duplicates}, ${s.days} day file(s))`;
+    } catch (err) {
+      served = 'failed';
+      console.warn(`[tracker:collect] served pull failed: ${err.message}`);
+    }
+  }
   console.log(`[tracker:collect] closedThrough=${result.closedThrough} symbols=${result.symbols.join(',')} `
     + `calls +${result.calls.added} (dup ${result.calls.duplicates}) `
     + `candles 1m +${result.candles['1m']} 5m +${result.candles['5m']} 15m +${result.candles['15m']} `
-    + `wallet +${result.wallet} (${result.walletStatus}) journal ${journal}`);
+    + `wallet +${result.wallet} (${result.walletStatus}) journal ${journal} served ${served}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
