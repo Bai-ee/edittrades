@@ -863,6 +863,54 @@ components:
             "tf=5m|structureSteps=some|roomR=roomy".
           type: string
       required: [id, tf, dir, at, lean, likely, chase, w, n, cal, key]
+    BreakoutEntry:
+      type: [object, "null"]
+      description: >-
+        Schema 1.20.0 (T4 P4, docs/PLAN_FLAG_PATHS.md "P4"), SHADOW MODE ONLY - tracking
+        and research, never a trade instruction. Do not act on this field: it is not
+        gated by the same review flagTradePlan is, and status is always "shadow". A
+        second, shadow-only entry for the symbol's pathOutlook candidate (same
+        candidateId): the breakout candle's own close, published only when that candle
+        is the FIRST closed candle beyond breakoutLevel (nothing after it) and
+        pathOutlook.chase is elevated or high. Gated on the same grossRR >=
+        flagPlan.minRR and stop distance <= scalp.maxStopDistancePct the engine uses
+        everywhere else - never a lowered bar. Null most of the time: null when
+        pathOutlook is null or not "broken", when chase is "low", when the candidate has
+        already aged past its own breakout candle, or when the entry fails either gate.
+        Never an input to flagTradePlan, flagRecommendation, strategies, bestSignal, or
+        any gate/threshold - see lib/breakoutEntry.js. Replay evaluation and the
+        promotion recommendation: docs/BREAKOUT_ENTRY_SHADOW.md.
+      properties:
+        id:
+          description: The candidateSetups[] entry this shadow entry was built from (matches pathOutlook.id).
+          type: string
+        tf:
+          type: string
+          enum: ["1m", "3m", "5m"]
+        dir:
+          type: string
+          enum: [long, short]
+        at:
+          description: ISO close time of the breakout candle (the entry fill time).
+          type: string
+        entry:
+          description: The breakout candle's own close.
+          type: number
+        stop:
+          type: number
+        tp1:
+          description: The candidate's measuredTarget, unadjusted (no geometry TP1 cap).
+          type: number
+        grossRR:
+          type: number
+        netRR:
+          description: Net of config.risk fees/slippage, same formula flagTradePlan.js uses. Information only.
+          type: [number, "null"]
+        status:
+          description: Always "shadow" - never an executable trade state.
+          type: string
+          enum: [shadow]
+      required: [id, tf, dir, at, entry, stop, tp1, grossRR, netRR, status]
     FlagTradePlan:
       type: [object, "null"]
       description: >-
@@ -1352,6 +1400,8 @@ components:
           $ref: "#/components/schemas/FlagRecommendation"
         pathOutlook:
           $ref: "#/components/schemas/PathOutlook"
+        breakoutEntry:
+          $ref: "#/components/schemas/BreakoutEntry"
         model:
           $ref: "#/components/schemas/ModelEvidence"
         timeframes:

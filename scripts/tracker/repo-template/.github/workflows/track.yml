@@ -42,6 +42,8 @@ jobs:
           node scripts/collect.js --data data
           node scripts/score.js --data data
           node scripts/paths.js --data data
+          node scripts/calibration.js --data data
+          node scripts/shadow.js --data data
           node scripts/aggregate.js --data data
           node scripts/build-page.js --data data --out docs
       - name: Alert new GOOD calls (GitHub issue, emailed to the owner)

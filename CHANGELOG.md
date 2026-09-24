@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-24 — T4 P3 calibration + P4 shadow breakout entry (branch `upgrade-signal-engine`)
+
+Schema 1.19.0 → 1.20.0 (additive). Nothing that drives a trade changed: `flagTradePlan`, `flagRecommendation`, GO IN, strategies, gates, minRR, the 3% scalp stop guard are byte-identical; the GPT instructions do not mention the shadow field.
+
+- **P3:** capture rows keep whitelisted `pathOutlook` and `breakoutEntry`; tracker `calibration.js` compares each call's first tightening/broken prediction with the realised path: Brier vs baseline, likely-path hit rate, chase precision, runner/fail-first reliability. Page `#path-calibration-section`.
+- **P4 (shadow):** `symbols.<SYM>.breakoutEntry` (`lib/breakoutEntry.js`, `scripts/tracker/breakout-entry.js`): on a runner-prone flag's breakout candle (chase elevated/high), entry at the close, stop = invalidation, tp1 = measured target, only if grossRR ≥ minRR and stop ≤ scalp max; `status: 'shadow'`. `lib/flagTradePlan.js` exports `netRiskReward` (no logic change). Replay (`npm run replay:breakout`, `docs/BREAKOUT_ENTRY_SHADOW.md`): gated shadow −0.65R net/trade, retest entry −0.35R net on the same flags; not promoted. Tracker `shadow.js` scores shadow vs retest live (`#breakout-shadow-section`).
+- **Tests:** new `test:breakout` 33; `test:tracker` 52 → 76.
+
 ## 2026-09-24 — T4 P1 + P2 path outlook (branch `upgrade-signal-engine`)
 
 `docs/PLAN_FLAG_PATHS.md`. Schema 1.18.0 → 1.19.0 (additive), configVersion 2026.09.23-7 → 2026.09.24-1. Information only: `flagTradePlan`, `flagRecommendation`, strategies, gates, thresholds and the scalp stop guard are unchanged.

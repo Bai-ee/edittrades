@@ -30,9 +30,11 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, ensureDir, readJsonl, readWallet, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
+import { parseArgs, ensureDir, readJsonl, readJson, readWallet, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
 import { aggregateDataDir } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
+import { calibrationFile } from './calibration.js';
+import { shadowOutcomesFile, shadowSummaryFile } from './shadow.js';
 import { PATHS } from './flag-paths.js';
 import {
   chartKit, chartScript, callVia, equityRows, journalEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
@@ -393,6 +395,110 @@ function flagPathsBody(summary) {
     + sub('flag-paths-30d-sub', 'Last 30 days', flagPathsWindowBody(summary.d30, 'flag-paths-30d'));
 }
 
+// ---------- path calibration (T4 P3, docs/PLAN_FLAG_PATHS.md; measure only) ----------
+
+export const NO_CALIBRATION = '[NO CALIBRATION DATA YET]';
+export const CALIBRATION_MIN_N = 30;
+export const CALIBRATION_TOO_FEW = 'TOO FEW CALLS';
+export const CALIBRATION_NOTE = "Measure only: pathOutlook's own predicted weights vs the realised path, never fed back into a rule, threshold or weight table. n < 30 per stat reads too few calls.";
+
+export const EMPTY_CALIBRATION = {
+  n: 0,
+  phases: {
+    tightening: { n: 0, brier: null, baselineBrier: null, baseline: {} },
+    broken: { n: 0, brier: null, baselineBrier: null, baseline: {} }
+  },
+  reliability: { runner: [], fail_first: [] },
+  likely: { n: 0, hitRate: null },
+  chase: { highElevated: { n: 0, runnerRate: null }, low: { n: 0, runnerRate: null } }
+};
+
+function calibrationPhaseRow(label, stats) {
+  if (!stats || !stats.n) return [label, 0, dash, dash];
+  if (stats.n < CALIBRATION_MIN_N) return [label, stats.n, { v: CALIBRATION_TOO_FEW, cls: 'dim' }, dash];
+  return [label, stats.n, num(stats.brier, 4), num(stats.baselineBrier, 4)];
+}
+
+function calibrationReliabilityBody(idPrefix, rows) {
+  const tableRows = (rows || []).map((r) => [r.bucket, r.n, r.meanPredicted === null ? dash : `${r.meanPredicted}%`, r.realisedRate === null ? dash : `${r.realisedRate}%`]);
+  return table(`${idPrefix}-table`, ['Predicted %', 'N', 'Mean predicted', 'Realised rate'], tableRows, NO_CALIBRATION, 1);
+}
+
+/** `${value} · n=N` once n reaches CALIBRATION_MIN_N, else TOO FEW CALLS (still with n), else a dash. */
+function calibrationStatText(n, valuePct) {
+  if (!n) return dash;
+  if (n < CALIBRATION_MIN_N) return `${CALIBRATION_TOO_FEW} · n=${n}`;
+  return `${pct(valuePct / 100)} · n=${n}`;
+}
+
+function calibrationBody(cal) {
+  if (!cal || !cal.n) return `<p class="empty" id="path-calibration-empty">${esc(NO_CALIBRATION)}</p>`;
+  const row = (id, label, value) => `<div class="stat-row" id="${id}"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`;
+  const likelyText = calibrationStatText(cal.likely.n, cal.likely.hitRate);
+  const chaseHiText = calibrationStatText(cal.chase.highElevated.n, cal.chase.highElevated.runnerRate);
+  const chaseLoText = calibrationStatText(cal.chase.low.n, cal.chase.low.runnerRate);
+  return `<dl class="stat-rows" id="path-calibration-summary-rows">`
+    + row('path-calibration-likely-row', 'Likely hit rate', likelyText)
+    + row('path-calibration-chase-hi-row', 'Chase high/elevated → runner', chaseHiText)
+    + row('path-calibration-chase-lo-row', 'Chase low → runner', chaseLoText)
+    + `</dl>`
+    + table('path-calibration-phases-table', ['Phase', 'N', 'Brier', 'Baseline Brier'],
+      [calibrationPhaseRow('TIGHTENING', cal.phases.tightening), calibrationPhaseRow('BROKEN', cal.phases.broken)], NO_CALIBRATION, 1)
+    + sub('path-calibration-runner-reliability-sub', 'Reliability · runner', calibrationReliabilityBody('path-calibration-runner-reliability', cal.reliability.runner))
+    + sub('path-calibration-fail-first-reliability-sub', 'Reliability · fail first', calibrationReliabilityBody('path-calibration-fail-first-reliability', cal.reliability.fail_first));
+}
+
+// ---------- breakout entry shadow (T4 P4, docs/PLAN_FLAG_PATHS.md; shadow mode, never traded) ----------
+
+export const NO_SHADOW = '[NO SHADOW ENTRIES YET]';
+export const SHADOW_MIN_N = 30;
+export const SHADOW_TOO_FEW = 'TOO FEW CALLS';
+export const SHADOW_NOTE = "Shadow mode: a breakout-close entry, scored but never traded (docs/PLAN_FLAG_PATHS.md P4). Never feeds flagTradePlan, class logic or any gate. Retest is the same stop/target from a retest-hold entry, for comparison. n < 30 per row reads too few calls.";
+
+const EMPTY_SHADOW_LEG_STATS = { n: 0, wins: 0, losses: 0, open: 0, winRate: null, expectancy: null, maxLosingStreak: 0 };
+export const EMPTY_SHADOW_SUMMARY = {
+  n: 0,
+  shadow: { overall: EMPTY_SHADOW_LEG_STATS, byChase: { highElevated: EMPTY_SHADOW_LEG_STATS, lowUnknown: EMPTY_SHADOW_LEG_STATS } },
+  retest: { overall: EMPTY_SHADOW_LEG_STATS, byChase: { highElevated: EMPTY_SHADOW_LEG_STATS, lowUnknown: EMPTY_SHADOW_LEG_STATS } }
+};
+
+function shadowStatRow(label, s) {
+  if (!s || !s.n) return [label, 0, dash, dash];
+  if (s.n < SHADOW_MIN_N) return [label, s.n, { v: SHADOW_TOO_FEW, cls: 'dim' }, dash];
+  return [label, s.n, pct(s.winRate), { v: rVal(s.expectancy), cls: rStatus(s.expectancy) }];
+}
+
+function shadowSummaryBody(summary) {
+  const rows = [
+    shadowStatRow('SHADOW · ALL', summary.shadow.overall),
+    shadowStatRow('SHADOW · CHASE HIGH/ELEVATED', summary.shadow.byChase.highElevated),
+    shadowStatRow('SHADOW · CHASE LOW/UNKNOWN', summary.shadow.byChase.lowUnknown),
+    shadowStatRow('RETEST · ALL', summary.retest.overall),
+    shadowStatRow('RETEST · CHASE HIGH/ELEVATED', summary.retest.byChase.highElevated),
+    shadowStatRow('RETEST · CHASE LOW/UNKNOWN', summary.retest.byChase.lowUnknown)
+  ];
+  return table('breakout-shadow-summary-table', ['Entry', 'N', 'Win rate', 'Exp. (gross R)'], rows, NO_SHADOW, 1);
+}
+
+const legR = (leg) => (leg.outcome === 'stop' ? -1 : leg.outcome === 'tp1' ? leg.r : null);
+
+function shadowListRows(rows) {
+  return [...rows]
+    .filter((r) => r && r.shadow)
+    .sort((a, b) => (b.breakoutAt || 0) - (a.breakoutAt || 0))
+    .slice(0, 20)
+    .map((r) => [time(new Date(r.breakoutAt).toISOString()), r.symbol, r.tf, r.direction, levels(r.shadow),
+      { v: r.shadow.outcome, cls: outcomeStatus(r.shadow.outcome) }, { v: rVal(legR(r.shadow)), cls: rStatus(legR(r.shadow)) }]);
+}
+
+function shadowBody(summary, rows) {
+  const total = (summary.shadow.overall.n || 0) + (summary.retest.overall.n || 0);
+  if (!total) return `<p class="empty" id="breakout-shadow-empty">${esc(NO_SHADOW)}</p>`;
+  return shadowSummaryBody(summary)
+    + sub('breakout-shadow-list-sub', 'Last 20 shadow entries',
+      table('breakout-shadow-list-table', ['Time', 'Symbol', 'TF', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], shadowListRows(rows), NO_SHADOW));
+}
+
 // ---------- page ----------
 
 /**
@@ -413,6 +519,9 @@ export function renderHtml(agg, data = {}) {
   const ev = engineVsYou(outcomes, journal, journalOutcomes);
   const goods = outcomes.filter((r) => r.kind === 'rec' && r.class === 'GOOD' && r.calledAt).map((r) => r.calledAt);
   const flagPaths = pathsSummary(Array.isArray(data.paths) ? data.paths : [], nowMs);
+  const calibration = data.calibration && typeof data.calibration === 'object' ? data.calibration : EMPTY_CALIBRATION;
+  const shadowRows = Array.isArray(data.shadowOutcomes) ? data.shadowOutcomes : [];
+  const shadowSum = data.shadowSummary && typeof data.shadowSummary === 'object' ? data.shadowSummary : EMPTY_SHADOW_SUMMARY;
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
   const scored7 = t7.wins + t7.losses;
@@ -444,6 +553,12 @@ export function renderHtml(agg, data = {}) {
 
   // Flag paths (T4 P0): measured scenario mix at the tightening point. Measure only.
   const flagPathsSection = section('flag-paths-section', 'Flag paths · scenario mix at tightening', flagPathsBody(flagPaths), { sm: 2, lg: 12, foot: FLAG_PATHS_NOTE });
+
+  // Path calibration (T4 P3): pathOutlook's predicted weights vs the realised path. Measure only.
+  const pathCalibrationSection = section('path-calibration-section', 'Path calibration · predicted vs realised', calibrationBody(calibration), { sm: 2, lg: 12, foot: CALIBRATION_NOTE });
+
+  // Breakout entry shadow (T4 P4): breakout-close entry scored but never traded, vs retest. Shadow mode only.
+  const breakoutShadowSection = section('breakout-shadow-section', 'Breakout entry (shadow, not traded)', shadowBody(shadowSum, shadowRows), { sm: 2, lg: 12, foot: SHADOW_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -589,7 +704,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, classCheck, flagPathsSection, ...instruments]
+      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -708,7 +823,8 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   writeFileSync(htmlFile, renderHtml(agg, {
     outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir),
     journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir)),
-    paths: readJsonl(pathsFile(dataDir))
+    paths: readJsonl(pathsFile(dataDir)), calibration: readJson(calibrationFile(dataDir), null),
+    shadowOutcomes: readJsonl(shadowOutcomesFile(dataDir)), shadowSummary: readJson(shadowSummaryFile(dataDir), null)
   }));
   writeFileSync(mdFile, renderReport(agg));
   writeFileSync(howToFile, renderHowTo());

@@ -75,6 +75,51 @@ export function slimCandidate(c) {
 }
 
 /**
+ * T4 P3-additive (docs/PLAN_FLAG_PATHS.md P3, `scripts/tracker/calibration.js`): a
+ * whitelisted copy of the live payload's `symbols.<SYM>.pathOutlook`
+ * (`lib/pathOutlook.js`) - id/tf/dir/at/lean/likely/chase/w/n/cal/key only, `?? null` per
+ * key so a legacy or partial object still reads cleanly. null when the payload carries no
+ * `pathOutlook` for this symbol (no live flag candidate, or an uncalibrated bucket).
+ */
+export function slimPathOutlook(p) {
+  if (!p || typeof p !== 'object') return null;
+  return {
+    id: p.id ?? null,
+    tf: p.tf ?? null,
+    dir: p.dir ?? null,
+    at: p.at ?? null,
+    lean: p.lean ?? null,
+    likely: p.likely ?? null,
+    chase: p.chase ?? null,
+    w: p.w ?? null,
+    n: p.n ?? null,
+    cal: p.cal ?? null,
+    key: p.key ?? null
+  };
+}
+
+/**
+ * Additive, same pattern as `slimPathOutlook`: a whitelisted copy of the live payload's
+ * `symbols.<SYM>.breakoutEntry` (built by a concurrent workstream). id/tf/dir/at/entry/
+ * stop/tp1/grossRR/netRR/status only; null when absent.
+ */
+export function slimBreakoutEntry(b) {
+  if (!b || typeof b !== 'object') return null;
+  return {
+    id: b.id ?? null,
+    tf: b.tf ?? null,
+    dir: b.dir ?? null,
+    at: b.at ?? null,
+    entry: b.entry ?? null,
+    stop: b.stop ?? null,
+    tp1: b.tp1 ?? null,
+    grossRR: b.grossRR ?? null,
+    netRR: b.netRR ?? null,
+    status: b.status ?? null
+  };
+}
+
+/**
  * One stripped call row per symbol from a scalp-context payload. Throws (nothing is
  * written) if any sensitive key survives the strip.
  * @param {Object} payload
@@ -101,7 +146,9 @@ export function recordsFromPayload(payload, capturedAtMs = Date.now()) {
       flagTradePlan: sym.flagTradePlan ?? null,
       flagRecommendation: sym.flagRecommendation ?? null,
       candidateSetups: Array.isArray(sym.candidateSetups) ? sym.candidateSetups.map(slimCandidate).filter(Boolean) : [],
-      bias: sym.decisionTrace && sym.decisionTrace.bias !== undefined ? sym.decisionTrace.bias : null
+      bias: sym.decisionTrace && sym.decisionTrace.bias !== undefined ? sym.decisionTrace.bias : null,
+      pathOutlook: slimPathOutlook(sym.pathOutlook),
+      breakoutEntry: slimBreakoutEntry(sym.breakoutEntry)
     };
     const clean = stripSensitive(row);
     const leaked = findSensitiveKeys(clean);

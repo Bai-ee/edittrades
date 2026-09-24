@@ -22,6 +22,7 @@ import { buildFlagTradePlan } from '../lib/flagTradePlan.js';
 import { buildModelEvidence } from '../lib/modelEvidence.js';
 import { buildFlagRecommendation, compactRecommendation } from '../lib/flagRecommendation.js';
 import { buildPathOutlook } from '../lib/pathOutlook.js';
+import { buildBreakoutEntry } from '../lib/breakoutEntry.js';
 import { buildBiasMatrix, buildAlignment, buildDecisionInputs, zonesFromGeometry, biasTraceSummary } from '../lib/biasMatrix.js';
 import { buildWeeklyLean, buildTopDown, buildAboveBelow200 } from '../lib/topDown.js';
 import { fetchPythMarks, buildMark, markTraceToken, compactMark } from '../lib/pythMark.js';
@@ -1607,6 +1608,23 @@ export async function buildScalpContext(options = {}) {
       console.warn(`[ScalpContext] ${symbol}: path outlook failed - ${err.message}`);
     }
 
+    // T4 P4 SHADOW MODE (docs/PLAN_FLAG_PATHS.md "P4"): a breakout-close entry for
+    // runner-prone flags, published for the tracker to score - info only, never an
+    // input to flagTradePlan, flagRecommendation, strategies, bestSignal, or any gate/
+    // threshold (lib/breakoutEntry.js). Same separate-channel rule as pathOutlook above:
+    // a fault is logged, never warned, and the field is simply null.
+    let breakoutEntry = null;
+    try {
+      breakoutEntry = buildBreakoutEntry({
+        candidateSetups,
+        pathOutlook,
+        tfEntries,
+        closedByTf
+      });
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: breakout entry failed - ${err.message}`);
+    }
+
     const decisionTrace = buildDecisionTrace({
       rawStrategies,
       bestSignal,
@@ -1644,7 +1662,10 @@ export async function buildScalpContext(options = {}) {
       flagRecommendation: compactRecommendation(recommendationFull),
       // T4 P1: measured-history scenario weights for the live flag candidate. null when
       // none exists. Never gates anything above.
-      pathOutlook
+      pathOutlook,
+      // T4 P4 SHADOW MODE: breakout-close entry for runner-prone flags, tracker-scored
+      // only, status always 'shadow'. null most of the time. Never gates anything above.
+      breakoutEntry
     };
     if (includeModel && modelEvidence) symbolsOut[symbol].model = { ...modelEvidence, recommendation: recommendationFull };
     if (includeBias && bias) {
@@ -1698,7 +1719,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.19.0',
+    schemaVersion: '1.20.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

@@ -41,13 +41,17 @@
     "tracker:collect": "node scripts/tracker/collect.js",
     "tracker:score": "node scripts/tracker/score.js",
     "tracker:paths": "node scripts/tracker/paths.js",
+    "tracker:calibration": "node scripts/tracker/calibration.js",
+    "tracker:shadow": "node scripts/tracker/shadow.js",
     "tracker:page": "node scripts/tracker/build-page.js",
     "tracker:sync": "node scripts/tracker/sync.js",
     "test:journal": "node test-journal.js",
     "test:served": "node test-served.js",
     "test:paths": "node test-flag-paths.js",
     "test:replay-paths": "node test-replay-paths.js",
-    "test:outlook": "node test-path-outlook.js"
+    "test:outlook": "node test-path-outlook.js",
+    "test:breakout": "node test-breakout-entry.js",
+    "replay:breakout": "node scripts/replay-breakout-entry.js"
   },
   "keywords": [
     "trading",

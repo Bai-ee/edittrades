@@ -22,6 +22,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 - **[PLAN_TRADE_JOURNAL.md](./PLAN_TRADE_JOURNAL.md)** — T2, trade journal (built 2026-09-24, not deployed): `POST`/`GET /api/journal` (bearer `JOURNAL_API_KEY`, Vercel Blob), GPT commands `log <text>` / `journal`, tracker pulls it into "your trades" beside the engine's calls.
 - **[PLAN_PYTH_MARK_PRICE.md](./PLAN_PYTH_MARK_PRICE.md)** — P1, Pyth mark price beside the Kraken price (done 2026-09-23, schema 1.16.0, not deployed): `symbols.<SYM>.mark`, `decisionTrace.bias` `mark:` token, `lib/pythMark.js`.
 - **[PLAN_FLAG_PATHS.md](./PLAN_FLAG_PATHS.md)** — T4 plan: measured scenario weights (retest_go / runner / false_break / fail_first / chop) at the moment a flag tightens; P0 done, P1–P4 not approved.
+- **[BREAKOUT_ENTRY_SHADOW.md](./BREAKOUT_ENTRY_SHADOW.md)** — T4 P4 shadow breakout-close entry: replay results vs the retest entry (net negative after fees; not promoted), live shadow tracking in the tracker.
 - **[FLAG_PATHS_BASE_RATES.md](./FLAG_PATHS_BASE_RATES.md)** — T4 P0, flag-path base rates (provisional, measure-only, dev-only): `scripts/replay-paths.js` + `scripts/tracker/flag-paths.js`, path mix and feature base rates from replayed history, no production change.
 
 ### API and connector

@@ -19,19 +19,29 @@ import {
 } from './scripts/tracker/collect.js';
 import { runAlerts, findNewGood, alertKey, alertsFile, ALERT_MAX_AGE_MIN } from './scripts/tracker/alerts.js';
 import {
-  readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, aggregatesFile, parseArgs, walletFile, readWallet,
+  readAllCalls, readCandles, readJsonl, writeJsonl, readJson, writeJson, outcomesFile, aggregatesFile, parseArgs, walletFile, readWallet,
   readJournal, appendJournal, journalOutcomesFile, appendCalls, appendCandles
 } from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
 import { chartKit, equityRows, journalEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
 import { statsFor, computeAggregates, classCheck, aggregateDataDir } from './scripts/tracker/aggregate.js';
-import { buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED } from './scripts/tracker/build-page.js';
+import {
+  buildPage, renderHtml, rStatus, engineVsYou, systemStatus, nextRunMs, expectedRuns, SCHEDULE_MINUTES, PROVISIONAL, EDGE_NOTE, NO_SCORED,
+  NO_CALIBRATION, CALIBRATION_MIN_N, EMPTY_CALIBRATION, NO_SHADOW, SHADOW_TOO_FEW
+} from './scripts/tracker/build-page.js';
 import { walkOutcome as vendoredWalk } from './scripts/tracker/walk-outcome.js';
 import { walkOutcome as sourceWalk } from './scripts/replay-outcomes.js';
 import { featuresAt } from './scripts/tracker/flag-paths.js';
 import {
   pathsDataDir, computePathsRows, extractTighteningPoints, candidatesInRow, pathsFile, pathsSummary, derive3mFrom1m
 } from './scripts/tracker/paths.js';
+import {
+  calibrationFile, calibrationDataDir, joinCalibrationRows, firstPathOutlookSightings, multiClassBrier, baselineWeights, baselineBrier,
+  phaseStats, reliabilityTable, likelyHitRate, chaseStats, computeCalibration
+} from './scripts/tracker/calibration.js';
+import {
+  SHADOW_CFG, shadowOutcomesFile, shadowSummaryFile, breakoutCloseAt, chaseTagFor, computeShadowRows, shadowDataDir, shadowSummary
+} from './scripts/tracker/shadow.js';
 
 let passed = 0;
 let failed = 0;
@@ -225,9 +235,36 @@ async function run() {
 
   await test('collector: row fields match the plan list', () => {
     const [row] = recordsFromPayload(payloadWithSecrets(), T0);
-    for (const k of ['capturedAt', 'closedThrough', 'schemaVersion', 'configVersion', 'symbol', 'price', 'mark', 'flagTradePlan', 'flagRecommendation', 'candidateSetups', 'bias']) {
+    for (const k of ['capturedAt', 'closedThrough', 'schemaVersion', 'configVersion', 'symbol', 'price', 'mark', 'flagTradePlan', 'flagRecommendation', 'candidateSetups', 'bias', 'pathOutlook', 'breakoutEntry']) {
       assert(k in row, `missing ${k}`);
     }
+  });
+
+  // ---------------------------------------------------------------- T4 P3 records.js additions (pathOutlook, breakoutEntry)
+
+  await test('records.js: pathOutlook and breakoutEntry are whitelisted-key copies, null when absent', () => {
+    const p = payloadWithSecrets();
+    p.symbols.BTC.pathOutlook = {
+      id: 'BTC:5m:long:x', tf: '5m', dir: 'long', at: 'tightening', lean: 'breakout', likely: 'runner', chase: 'elevated',
+      w: { retest_go: 40, runner: 35, false_break: 15, fail_first: 5, chop: 5 }, n: 140, cal: true, key: 'tf=5m',
+      extraneousField: 'DROP_ME', walletAddress: 'SECRET_LEAK'
+    };
+    p.symbols.BTC.breakoutEntry = {
+      id: 'BTC:5m:long:x', tf: '5m', dir: 'long', at: 'broken', entry: 101, stop: 99.5, tp1: 105, grossRR: 2.7, netRR: 2.5, status: 'ready',
+      extraneousField: 'DROP_ME', margin: { usd: 1 }
+    };
+    const [btc, eth] = recordsFromPayload(p, T0);
+    assertEqual(JSON.stringify(Object.keys(btc.pathOutlook)), JSON.stringify(['id', 'tf', 'dir', 'at', 'lean', 'likely', 'chase', 'w', 'n', 'cal', 'key']), 'pathOutlook whitelist, exact keys');
+    assertEqual(btc.pathOutlook.likely, 'runner', 'value copied');
+    assertEqual(btc.pathOutlook.w.runner, 35, 'nested w copied');
+    assert(!('extraneousField' in btc.pathOutlook), 'non-whitelisted key dropped');
+    assert(!('walletAddress' in btc.pathOutlook), 'sensitive key dropped even inside pathOutlook');
+    assertEqual(JSON.stringify(Object.keys(btc.breakoutEntry)), JSON.stringify(['id', 'tf', 'dir', 'at', 'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'status']), 'breakoutEntry whitelist, exact keys');
+    assertEqual(btc.breakoutEntry.entry, 101, 'value copied');
+    assert(!('extraneousField' in btc.breakoutEntry) && !('margin' in btc.breakoutEntry), 'non-whitelisted keys dropped');
+    assertEqual(eth.pathOutlook, null, 'absent pathOutlook -> null (ETH symbol carries none)');
+    assertEqual(eth.breakoutEntry, null, 'absent breakoutEntry -> null');
+    assertEqual(findSensitiveKeys([btc, eth]).length, 0, 'no sensitive keys survive anywhere in the rows');
   });
 
   await test('collector: strip fails closed (findSensitiveKeys sees any survivor; strip is deep)', () => {
@@ -1106,7 +1143,7 @@ async function run() {
     assertEqual(empty.d7.overall.calibrated, false, 'empty -> uncalibrated');
   });
 
-  await test('paths.js: outcomes.jsonl and aggregates.json byte-identical whether or not the step runs', () => {
+  await test('paths.js + calibration.js + shadow.js: outcomes.jsonl and aggregates.json byte-identical whether or not the steps run', () => {
     const dirA = tmp();
     const dirB = tmp();
     const cid = 'BTC:5m:long:byte-check';
@@ -1129,6 +1166,28 @@ async function run() {
     assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), outcomesBefore, 'outcomes.jsonl byte-identical after running paths.js');
     assertEqual(readFileSync(aggregatesFile(dirB), 'utf8'), aggBefore, 'aggregates.json byte-identical after running paths.js');
     assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), readFileSync(outcomesFile(dirA), 'utf8'), 'outcomes.jsonl identical vs a dir that never ran paths.js');
+
+    const calOut = calibrationDataDir(dirB, T0 + 2 * 60 * MIN);
+    assert(existsSync(calibrationFile(dirB)), 'calibration.json written');
+    assert(calOut.n >= 0, 'calibration output shape');
+
+    assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), outcomesBefore, 'outcomes.jsonl byte-identical after running calibration.js too');
+    assertEqual(readFileSync(aggregatesFile(dirB), 'utf8'), aggBefore, 'aggregates.json byte-identical after running calibration.js too');
+    assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), readFileSync(outcomesFile(dirA), 'utf8'), 'outcomes.jsonl identical vs a dir that never ran paths.js/calibration.js');
+    assert(!existsSync(calibrationFile(dirA)), 'dir A never ran calibration.js either');
+
+    const pathsBefore = readFileSync(pathsFile(dirB), 'utf8');
+    const calBefore = readFileSync(calibrationFile(dirB), 'utf8');
+    const shadowOut = shadowDataDir(dirB, T0 + 2 * 60 * MIN);
+    assert(existsSync(shadowOutcomesFile(dirB)) && existsSync(shadowSummaryFile(dirB)), 'shadow-outcomes.jsonl and shadow.json written');
+    assert(shadowOut.rows.length >= 0, 'shadow output shape');
+
+    assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), outcomesBefore, 'outcomes.jsonl byte-identical after running shadow.js too');
+    assertEqual(readFileSync(aggregatesFile(dirB), 'utf8'), aggBefore, 'aggregates.json byte-identical after running shadow.js too');
+    assertEqual(readFileSync(pathsFile(dirB), 'utf8'), pathsBefore, 'paths.jsonl byte-identical after running shadow.js');
+    assertEqual(readFileSync(calibrationFile(dirB), 'utf8'), calBefore, 'calibration.json byte-identical after running shadow.js');
+    assertEqual(readFileSync(outcomesFile(dirB), 'utf8'), readFileSync(outcomesFile(dirA), 'utf8'), 'outcomes.jsonl identical vs a dir that never ran paths.js/calibration.js/shadow.js');
+    assert(!existsSync(shadowOutcomesFile(dirA)), 'dir A never ran shadow.js either');
   });
 
   await test('page: flag-paths tile renders with ids and the empty state from an empty data dir', () => {
@@ -1163,6 +1222,422 @@ async function run() {
     assert(html.includes('UNCALIBRATED'), 'n=1 < 100 -> flagged uncalibrated');
     assert(html.includes('100%'), 'runner share visible (1/1 = 100%)');
     assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'still one provisional tag per section');
+  });
+
+  // ---------------------------------------------------------------- T4 P3 calibration.js (docs/PLAN_FLAG_PATHS.md P3)
+
+  const poRow = (id, at, w, extra = {}) => ({ pathOutlook: { id, tf: '5m', dir: 'long', at, lean: 'breakout', likely: 'runner', chase: 'elevated', w, n: 140, cal: true, key: 'tf=5m', ...extra } });
+  const wOf = (over = {}) => ({ retest_go: 40, runner: 30, false_break: 15, fail_first: 10, chop: 5, ...over });
+  const calPathRow = (id, calPath, over = {}) => ({
+    candidateId: id, symbol: 'BTC', tf: '5m', direction: 'long', tighteningAt: iso(T0), source: 'cron', recClass: null,
+    status: 'resolved', path: calPath, breakoutAt: null, retestAt: null, resolvedAt: null, mfeR: null, targetR: null, minutes: null, features: {}, labelledAt: iso(T0), ...over
+  });
+
+  await test('firstPathOutlookSightings: first capture per candidateId per phase kept, later same-phase captures ignored, rows with no pathOutlook skipped', () => {
+    const callRows = [
+      poRow('a', 'tightening', wOf({ runner: 20 })),
+      poRow('a', 'tightening', wOf({ runner: 99 })), // later tightening capture for 'a' - ignored (first sighting is fixed)
+      poRow('a', 'broken', wOf({ runner: 60 })),
+      { pathOutlook: null }, // absent pathOutlook - skipped
+      { flagRecommendation: {} } // no pathOutlook field at all - skipped
+    ];
+    const seen = firstPathOutlookSightings(callRows);
+    assertEqual(seen.size, 1, 'only candidate a seen');
+    assertEqual(seen.get('a').tightening.w.runner, 20, 'first tightening kept, later ignored');
+    assertEqual(seen.get('a').broken.w.runner, 60, 'broken kept separately from tightening');
+  });
+
+  await test('joinCalibrationRows: tightening always compared; broken compared only when the realised path is not fail_first', () => {
+    const callRows = [
+      poRow('runner-id', 'tightening', wOf()), poRow('runner-id', 'broken', wOf({ runner: 70 })),
+      poRow('failfirst-id', 'tightening', wOf()), poRow('failfirst-id', 'broken', wOf({ runner: 70 }))
+    ];
+    const pathRows = [calPathRow('runner-id', 'runner'), calPathRow('failfirst-id', 'fail_first')];
+    const joined = joinCalibrationRows(pathRows, callRows);
+    assertEqual(joined.length, 3, 'runner-id contributes 2 rows (broke out - both phases scored), failfirst-id contributes 1 (never broke out)');
+    assertEqual(joined.filter((r) => r.candidateId === 'runner-id').length, 2, 'both phases for runner-id');
+    const ffRows = joined.filter((r) => r.candidateId === 'failfirst-id');
+    assertEqual(ffRows.length, 1, 'only tightening for failfirst-id');
+    assertEqual(ffRows[0].phase, 'tightening', 'the broken sighting for failfirst-id is dropped, not scored');
+  });
+
+  await test('joinCalibrationRows: only resolved rows with a known path and a pathOutlook sighting are joined', () => {
+    const callRows = [poRow('a', 'tightening', wOf())];
+    const pathRows = [calPathRow('a', 'runner', { status: 'pending' }), calPathRow('b', 'runner')]; // a pending (unresolved), b has no sighting
+    assertEqual(joinCalibrationRows(pathRows, callRows).length, 0, 'pending row and unsighted candidate both excluded');
+  });
+
+  await test('multiClassBrier: hand example - sum over paths (p - outcome)^2, p = w/100', () => {
+    const rows = [{ predicted: wOf({ retest_go: 50, runner: 30, false_break: 10, fail_first: 5, chop: 5 }), realised: 'runner' }];
+    // (.5-0)^2 + (.3-1)^2 + (.1-0)^2 + (.05-0)^2 + (.05-0)^2 = .25 + .49 + .01 + .0025 + .0025 = .755
+    assertEqual(multiClassBrier(rows), 0.755, 'hand-computed Brier');
+    assertEqual(multiClassBrier([]), null, 'empty set -> null, not 0 (0 would read as perfectly calibrated)');
+  });
+
+  await test('baselineWeights / baselineBrier: naive baseline is the realised-path frequency of the same joined set', () => {
+    const rows = [{ realised: 'runner' }, { realised: 'runner' }, { realised: 'chop' }, { realised: 'retest_go' }];
+    const w = baselineWeights(rows);
+    assertEqual(w.runner, 50, '2/4 runner');
+    assertEqual(w.chop, 25, '1/4 chop');
+    assertEqual(w.retest_go, 25, '1/4 retest_go');
+    assertEqual(w.false_break, 0, '0/4 false_break');
+    assertEqual(w.fail_first, 0, '0/4 fail_first');
+    assertEqual(baselineBrier(rows), multiClassBrier(rows.map((r) => ({ ...r, predicted: w }))), 'baselineBrier == scoring the constant baseline weights against every row in the set');
+    assertEqual(baselineWeights([]).runner, 0, 'empty set -> all zero');
+    assertEqual(baselineBrier([]), null, 'empty set -> null');
+  });
+
+  await test('phaseStats: n, brier, baselineBrier and baseline together', () => {
+    const rows = [
+      { predicted: wOf({ runner: 100, retest_go: 0, false_break: 0, fail_first: 0, chop: 0 }), realised: 'runner' },
+      { predicted: wOf({ runner: 0, retest_go: 100, false_break: 0, fail_first: 0, chop: 0 }), realised: 'retest_go' }
+    ];
+    const s = phaseStats(rows);
+    assertEqual(s.n, 2, 'n');
+    assertEqual(s.brier, 0, 'each row perfectly predicted its own realised path -> Brier 0');
+    assertEqual(s.baselineBrier, 0.5, 'the 50/50 baseline scores 0.5 against two certain, opposite outcomes');
+    assertEqual(phaseStats([]).n, 0, 'empty phase -> n 0, brier/baselineBrier null');
+    assertEqual(phaseStats([]).brier, null, 'null brier on empty phase');
+  });
+
+  await test('reliabilityTable: ten fixed buckets by predicted probability for one path, mean predicted and realised rate per bucket', () => {
+    const rows = [
+      { predicted: wOf({ runner: 5 }), realised: 'chop' }, // bucket 0-10
+      { predicted: wOf({ runner: 15 }), realised: 'runner' }, // bucket 10-20
+      { predicted: wOf({ runner: 15 }), realised: 'chop' }, // bucket 10-20
+      { predicted: wOf({ runner: 25 }), realised: 'runner' } // bucket 20-30
+    ];
+    const table = reliabilityTable(rows, 'runner');
+    assertEqual(table.length, 10, 'always ten fixed buckets');
+    const b0 = table.find((b) => b.bucket === '0-10');
+    assertEqual(b0.n, 1, 'one row at 5%');
+    assertEqual(b0.meanPredicted, 5, 'mean predicted in bucket');
+    assertEqual(b0.realisedRate, 0, 'never became runner in this bucket');
+    const b10 = table.find((b) => b.bucket === '10-20');
+    assertEqual(b10.n, 2, 'two rows at 15%');
+    assertEqual(b10.realisedRate, 50, 'half became runner');
+    const b20 = table.find((b) => b.bucket === '20-30');
+    assertEqual(b20.realisedRate, 100, 'the one row in this bucket became runner');
+    const b90 = table.find((b) => b.bucket === '90-100');
+    assertEqual(b90.n, 0, 'empty bucket');
+    assertEqual(b90.meanPredicted, null, 'null mean predicted on an empty bucket');
+    assertEqual(b90.realisedRate, null, 'null realised rate on an empty bucket');
+  });
+
+  await test('likelyHitRate: share of rows whose `likely` field matched the realised path', () => {
+    const rows = [{ likely: 'runner', realised: 'runner' }, { likely: 'runner', realised: 'chop' }, { likely: null, realised: 'runner' }];
+    const r = likelyHitRate(rows);
+    assertEqual(r.n, 2, 'only rows carrying a likely value count');
+    assertEqual(r.hitRate, 50, '1 of 2 hit');
+    assertEqual(likelyHitRate([]).n, 0, 'empty -> n 0');
+    assertEqual(likelyHitRate([]).hitRate, null, 'empty -> null hit rate');
+  });
+
+  await test('chaseStats: runner rate for chase high/elevated vs chase low', () => {
+    const rows = [
+      { chase: 'high', realised: 'runner' }, { chase: 'high', realised: 'chop' }, { chase: 'elevated', realised: 'runner' },
+      { chase: 'low', realised: 'chop' }, { chase: 'low', realised: 'chop' }
+    ];
+    const c = chaseStats(rows);
+    assertEqual(c.highElevated.n, 3, 'high and elevated pooled');
+    assertEqual(c.highElevated.runnerRate, 66.7, 'two of three became runner');
+    assertEqual(c.low.n, 2, 'low count');
+    assertEqual(c.low.runnerRate, 0, 'none of the low group became runner');
+  });
+
+  await test('computeCalibration / calibrationDataDir: end-to-end shape, empty-set defaults', () => {
+    const empty = computeCalibration([], []);
+    assertEqual(empty.n, 0, 'no rows -> n 0');
+    assertEqual(empty.phases.tightening.n, 0, 'no tightening rows');
+    assertEqual(empty.phases.broken.n, 0, 'no broken rows');
+    assertEqual(empty.reliability.runner.length, 10, 'reliability table always ten buckets, even empty');
+    assertEqual(empty.likely.hitRate, null, 'no likely data');
+    assertEqual(empty.chase.highElevated.n, 0, 'no chase data');
+
+    const dir = tmp();
+    appendCalls(dir, [{ symbol: 'BTC', closedThrough: iso(T0), ...poRow('e2e-id', 'tightening', wOf({ runner: 60, retest_go: 20, false_break: 10, fail_first: 5, chop: 5 })) }]);
+    writeJsonl(pathsFile(dir), [calPathRow('e2e-id', 'runner')]);
+    const out = calibrationDataDir(dir, T0 + 60 * MIN);
+    assertEqual(out.n, 1, 'the one joined row (tightening)');
+    assertEqual(out.phases.tightening.n, 1, 'tightening phase n');
+    assertEqual(readJson(calibrationFile(dir)).n, 1, 'written to disk');
+  });
+
+  await test('page: path-calibration tile renders with ids and the empty state from an empty data dir', () => {
+    const dir = tmp();
+    const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
+    const html = readFileSync(htmlFile, 'utf8');
+    for (const id of ['path-calibration-section', 'path-calibration-empty']) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    assert(html.includes(NO_CALIBRATION), 'empty state text');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'one provisional tag per section (calibration tile included)');
+    const scripts = html.match(/<script\b[^>]*>/gi) || [];
+    assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'still exactly one executable inline script');
+    assert(html.indexOf('id="flag-paths-section"') < html.indexOf('id="path-calibration-section"'), 'placed after flag paths, near it, in the performance zone');
+  });
+
+  await test('page: path-calibration tile shows TOO FEW CALLS under n=30, populated summary rows and both reliability subs', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const cal = {
+      generatedAt: iso(T0), n: 5,
+      phases: {
+        tightening: { n: 5, brier: 0.42, baselineBrier: 0.5, baseline: { retest_go: 20, runner: 40, false_break: 20, fail_first: 10, chop: 10 } },
+        broken: { n: 0, brier: null, baselineBrier: null, baseline: {} }
+      },
+      reliability: { runner: reliabilityTable([{ predicted: { runner: 35 }, realised: 'runner' }], 'runner'), fail_first: reliabilityTable([], 'fail_first') },
+      likely: { n: 5, hitRate: 60 },
+      chase: { highElevated: { n: 3, runnerRate: 66.7 }, low: { n: 2, runnerRate: 0 } }
+    };
+    writeJson(calibrationFile(dataDir), cal);
+    const { htmlFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="path-calibration-phases-table"'), 'phases table renders');
+    // tightening (n=5), likely (n=5), chase high/elevated (n=3), chase low (n=2) are all below CALIBRATION_MIN_N; broken (n=0) reads a dash, not TOO FEW CALLS.
+    assertEqual((html.match(/TOO FEW CALLS/g) || []).length, 4, `four stats under n=${CALIBRATION_MIN_N} all read TOO FEW CALLS`);
+    assert(html.includes('id="path-calibration-runner-reliability-sub"') && html.includes('id="path-calibration-fail-first-reliability-sub"'), 'both reliability subs present');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'still one provisional tag per section');
+  });
+
+  await test('page: path-calibration tile shows numeric Brier once a phase reaches n=CALIBRATION_MIN_N', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const cal = {
+      generatedAt: iso(T0), n: 30,
+      phases: {
+        tightening: { n: CALIBRATION_MIN_N, brier: 0.41, baselineBrier: 0.5, baseline: {} },
+        broken: { n: 0, brier: null, baselineBrier: null, baseline: {} }
+      },
+      reliability: { runner: reliabilityTable([], 'runner'), fail_first: reliabilityTable([], 'fail_first') },
+      likely: { n: 30, hitRate: 55 },
+      chase: { highElevated: { n: 30, runnerRate: 40 }, low: { n: 30, runnerRate: 10 } }
+    };
+    writeJson(calibrationFile(dataDir), cal);
+    const { htmlFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('>0.41<'), 'numeric brier shown at n=30, not TOO FEW CALLS');
+    assert(html.includes('>0.5<'), 'baseline brier shown');
+    assert(html.includes('55%'), 'likely hit rate visible at n=30');
+    assert(html.includes('40%'), 'chase high/elevated runner rate visible at n=30');
+    assert(!html.includes('TOO FEW CALLS'), 'nothing in this fixture is below the threshold');
+  });
+
+  // ---------------------------------------------------------------- T4 P4 shadow.js (breakout entry shadow scoring)
+
+  await test('shadow.js: SHADOW_CFG matches config/engine.json (documented, tested source of truth)', () => {
+    const engineCfg = JSON.parse(readFileSync('config/engine.json', 'utf8'));
+    assertEqual(SHADOW_CFG.minRR, engineCfg.flagPlan.minRR, 'minRR');
+    assertEqual(SHADOW_CFG.maxStopPct, engineCfg.scalp.maxStopDistancePct, 'maxStopPct');
+    assertEqual(SHADOW_CFG.feeBps, engineCfg.risk.feeBps, 'feeBps');
+    assertEqual(SHADOW_CFG.slippageBps, engineCfg.risk.slippageBps, 'slippageBps');
+  });
+
+  await test('shadow.js: breakoutCloseAt reads the close of the candle at breakoutAt on 1m/3m/5m (3m derived from 1m)', () => {
+    const c1m = candles(T0, 9, (i) => ({ h: 100 + i, l: 99 + i }));
+    const c5m = candles(T0, 3, (i) => ({ h: 200 + i, l: 199 + i }));
+    const candlesByTf = { '1m': { BTC: c1m }, '3m': derive3mFrom1m({ BTC: c1m }), '5m': { BTC: c5m }, '15m': {} };
+    assertEqual(breakoutCloseAt('BTC', '1m', T0 + 2 * MIN, candlesByTf), c1m[2].close, '1m lookup');
+    assertEqual(breakoutCloseAt('BTC', '3m', T0 + 3 * MIN, candlesByTf), candlesByTf['3m'].BTC[1].close, '3m derived lookup');
+    assertEqual(breakoutCloseAt('BTC', '5m', T0, candlesByTf), c5m[0].close, '5m lookup');
+    assertEqual(breakoutCloseAt('BTC', '5m', T0 + 999 * MIN, candlesByTf), null, 'no candle at that timestamp -> null');
+    assertEqual(breakoutCloseAt('ETH', '1m', T0, candlesByTf), null, 'unknown symbol -> null');
+  });
+
+  await test('shadow.js: chaseTagFor - engine row (breakoutEntry.id match) wins, else latest pathOutlook before breakoutAt (reconstructed), else unknown', () => {
+    const cid = 'BTC:5m:long:chase-test';
+    const breakoutAtMs = T0 + 10 * MIN;
+    const rowEarly = { closedThrough: iso(T0), pathOutlook: { id: cid, chase: 'elevated' } };
+    const rowLate = { closedThrough: iso(T0 + 5 * MIN), pathOutlook: { id: cid, chase: 'high' } };
+    const rowAfter = { closedThrough: iso(breakoutAtMs + MIN), pathOutlook: { id: cid, chase: 'low' } };
+    const rowEngine = { closedThrough: iso(breakoutAtMs + 5 * MIN), breakoutEntry: { id: cid }, pathOutlook: { id: cid, chase: 'high' } };
+
+    assertEqual(JSON.stringify(chaseTagFor(cid, breakoutAtMs, [rowEarly, rowLate, rowAfter])),
+      JSON.stringify({ chase: 'high', source: 'reconstructed' }), 'latest sighting strictly before breakoutAt wins; rowAfter (later) ignored');
+    assertEqual(JSON.stringify(chaseTagFor(cid, breakoutAtMs, [rowEarly, rowLate, rowEngine])),
+      JSON.stringify({ chase: 'high', source: 'engine' }), 'engine row (own live breakoutEntry) wins over the reconstructed fallback');
+    assertEqual(JSON.stringify(chaseTagFor(cid, breakoutAtMs, [])), JSON.stringify({ chase: 'unknown', source: 'unknown' }), 'no data -> unknown');
+    assertEqual(JSON.stringify(chaseTagFor(cid, breakoutAtMs, [{ closedThrough: iso(T0), pathOutlook: { id: 'other', chase: 'high' } }])),
+      JSON.stringify({ chase: 'unknown', source: 'unknown' }), 'no matching candidateId -> unknown');
+  });
+
+  function buildShadowRunnerFixture() {
+    const cid = 'SOL:5m:long:shadow-hand';
+    const breakoutOpenMs = T0 + 5 * MIN;
+    const candles5m = tfRows(T0, 5 * MIN, [
+      { o: 114.5, h: 114.9, l: 114.4, c: 114.6 }, // tightening (forming) candle
+      { o: 114.6, h: 115.0, l: 114.55, c: 114.99 } // breakout candle, closes 114.99 (> breakoutLevel 114.95)
+    ]);
+    const candles1m = tfRows(breakoutOpenMs + 5 * MIN, MIN, [ // starting at the breakout candle's own close time
+      { o: 114.99, h: 115.2, l: 114.9, c: 115.1 },
+      { o: 115.1, h: 115.6, l: 115.0, c: 115.5 },
+      { o: 115.5, h: 116.1, l: 115.4, c: 116.0 } // touches measuredTarget 116.00, no retest first (runner)
+    ]);
+    const candlesByTf = { '1m': { SOL: candles1m }, '3m': {}, '5m': { SOL: candles5m }, '15m': {} };
+    const callRows = [candCaptureRow('SOL', T0, [slimCand({ id: cid, tf: '5m', dir: 'long', state: 'forming', breakout: 114.95, invalidation: 114.71, measuredTarget: 116.00 })])];
+    const pathsRow = {
+      candidateId: cid, symbol: 'SOL', tf: '5m', direction: 'long', tighteningAt: iso(T0), source: 'cron', recClass: null,
+      status: 'resolved', path: 'runner', breakoutAt: breakoutOpenMs, retestAt: null, resolvedAt: null, mfeR: null, targetR: null, minutes: null, features: {}, labelledAt: iso(T0)
+    };
+    return { pathsRow, callRows, candlesByTf };
+  }
+
+  await test('shadow.js: SOL-like runner hand case - shadow published and resolves tp1, retest none (no retest-hold on a runner)', () => {
+    const { pathsRow, callRows, candlesByTf } = buildShadowRunnerFixture();
+    const rows = computeShadowRows([pathsRow], callRows, candlesByTf, [], T0 + 60 * MIN);
+    assertEqual(rows.length, 1, 'one shadow row');
+    const r = rows[0];
+    assertEqual(r.candidateId, pathsRow.candidateId, 'candidateId');
+    assert(r.shadow, 'shadow entry published (RR and stop % pass)');
+    assertEqual(r.shadow.entry, 114.99, 'entry = breakout close');
+    assertEqual(r.shadow.stop, 114.71, 'stop = invalidation');
+    assertEqual(r.shadow.tp1, 116, 'tp1 = measuredTarget');
+    assertEqual(r.shadow.outcome, 'tp1', 'shadow walk resolves tp1');
+    assertEqual(r.retest, null, 'no retest leg (runner path, paths.jsonl retestAt null)');
+    assertEqual(r.status, 'resolved', 'terminal shadow outcome, no applicable retest -> resolved');
+    assert(r.computedAt, 'computedAt set once resolved');
+  });
+
+  await test('shadow.js: idempotent - resolved rows kept byte-for-byte on rerun', () => {
+    const { pathsRow, callRows, candlesByTf } = buildShadowRunnerFixture();
+    const first = computeShadowRows([pathsRow], callRows, candlesByTf, [], T0 + 60 * MIN);
+    const again = computeShadowRows([pathsRow], callRows, candlesByTf, first, T0 + 120 * MIN);
+    assertEqual(JSON.stringify(again), JSON.stringify(first), 'resolved row frozen byte-for-byte, including computedAt');
+  });
+
+  await test('shadow.js: shadowSummary - win rate, expectancy, max losing streak, split shadow vs retest and by chase', () => {
+    const leg = (outcome, r, resolvedAt) => ({ entry: 1, stop: 1, tp1: 1, grossRR: 3, netRR: 3, outcome, r, resolvedAt, minutes: 1 });
+    const rows = [
+      { candidateId: 'a', chase: 'high', shadow: leg('tp1', 3, T0), retest: null },
+      { candidateId: 'b', chase: 'elevated', shadow: leg('stop', -1, T0 + MIN), retest: leg('tp1', 2, T0 + MIN) },
+      { candidateId: 'c', chase: 'low', shadow: leg('stop', -1, T0 + 2 * MIN), retest: null },
+      { candidateId: 'd', chase: 'unknown', shadow: null, retest: leg('stop', -1, T0 + 3 * MIN) },
+      { candidateId: 'e', chase: 'high', shadow: leg('open', null, null), retest: null }
+    ];
+    const s = shadowSummary(rows);
+    assertEqual(s.n, 5, 'total rows');
+
+    assertEqual(s.shadow.overall.n, 4, 'four shadow legs published (a,b,c,e)');
+    assertEqual(s.shadow.overall.wins, 1, 'one tp1 (a)');
+    assertEqual(s.shadow.overall.losses, 2, 'two stops (b,c)');
+    assertEqual(s.shadow.overall.open, 1, 'one open (e)');
+    assertEqual(s.shadow.overall.winRate, 0.3333, 'win rate over decided (1 of 3)');
+    assertEqual(s.shadow.overall.expectancy, 0.3333, 'expectancy (3-1-1)/3');
+    assertEqual(s.shadow.overall.maxLosingStreak, 2, 'a(win) then b,c(stop,stop) back to back');
+
+    assertEqual(s.retest.overall.n, 2, 'two retest legs (b,d)');
+    assertEqual(s.retest.overall.wins, 1, 'b tp1');
+    assertEqual(s.retest.overall.losses, 1, 'd stop');
+    assertEqual(s.retest.overall.winRate, 0.5, 'retest win rate');
+    assertEqual(s.retest.overall.expectancy, 0.5, 'retest expectancy (2-1)/2');
+    assertEqual(s.retest.overall.maxLosingStreak, 1, 'b(win) then d(stop)');
+
+    assertEqual(s.shadow.byChase.highElevated.n, 3, 'a,b,e are chase high/elevated');
+    assertEqual(s.shadow.byChase.highElevated.wins, 1, 'a');
+    assertEqual(s.shadow.byChase.highElevated.losses, 1, 'b');
+    assertEqual(s.shadow.byChase.highElevated.open, 1, 'e');
+    assertEqual(s.shadow.byChase.highElevated.winRate, 0.5, 'a win / b stop');
+    assertEqual(s.shadow.byChase.highElevated.expectancy, 1, '(3-1)/2');
+    assertEqual(s.shadow.byChase.lowUnknown.n, 1, 'only c has a shadow leg among low/unknown (c,d)');
+    assertEqual(s.shadow.byChase.lowUnknown.losses, 1, 'c stop');
+    assertEqual(s.shadow.byChase.lowUnknown.expectancy, -1, 'single loss');
+
+    assertEqual(s.retest.byChase.highElevated.n, 1, 'only b has a retest leg among high/elevated (a,b,e)');
+    assertEqual(s.retest.byChase.highElevated.wins, 1, 'b tp1');
+    assertEqual(s.retest.byChase.lowUnknown.n, 1, 'only d has a retest leg among low/unknown (c,d)');
+    assertEqual(s.retest.byChase.lowUnknown.losses, 1, 'd stop');
+
+    const empty = shadowSummary([]);
+    assertEqual(empty.n, 0, 'empty rows -> n 0');
+    assertEqual(empty.shadow.overall.n, 0, 'empty shadow overall');
+    assertEqual(empty.shadow.overall.winRate, null, 'null win rate on empty, not 0');
+  });
+
+  await test('shadow.js + paths.js: shadowDataDir end to end through the store, stable on rerun', () => {
+    const dir = tmp();
+    const cid = 'BTC:5m:long:e2e';
+    const candles5m = tfRows(T0, 5 * MIN, [
+      { o: 114.75, h: 114.85, l: 114.72, c: 114.8 }, // tightening (proto) candle, between invalidation and breakout
+      { o: 114.8, h: 115.0, l: 114.75, c: 114.99 } // breakout candle
+    ]);
+    const candles1m = tfRows(T0 + 10 * MIN, MIN, [
+      { o: 114.99, h: 115.2, l: 114.9, c: 115.1 },
+      { o: 115.1, h: 115.6, l: 115.0, c: 115.5 },
+      { o: 115.5, h: 116.1, l: 115.4, c: 116.0 } // target touch
+    ]);
+    appendCandles(dir, '5m', toStoreCandles('BTC', candles5m));
+    appendCandles(dir, '1m', toStoreCandles('BTC', candles1m));
+    appendCalls(dir, [candCaptureRow('BTC', T0, [slimCand({ id: cid, tf: '5m', dir: 'long', state: 'proto', breakout: 114.95, invalidation: 114.71, measuredTarget: 116.00 })])]);
+    pathsDataDir(dir, T0 + 60 * MIN);
+    const first = shadowDataDir(dir, T0 + 60 * MIN);
+    assert(existsSync(shadowOutcomesFile(dir)) && existsSync(shadowSummaryFile(dir)), 'both files written');
+    assertEqual(first.rows.length, 1, 'one shadow-outcomes row for the tightened candidate');
+    assertEqual(first.rows[0].shadow.outcome, 'tp1', 'walked through the store to tp1');
+    assertEqual(first.summary.shadow.overall.n, 1, 'summary counts the one published shadow entry');
+    const again = shadowDataDir(dir, T0 + 120 * MIN);
+    assertEqual(JSON.stringify(again.rows), JSON.stringify(first.rows), 'rerun stable once resolved');
+    assertEqual(readJsonl(shadowOutcomesFile(dir)).length, first.rows.length, 'stored rows match');
+  });
+
+  await test('page: breakout-shadow tile renders with ids and the empty state from an empty data dir', () => {
+    const dir = tmp();
+    const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
+    const html = readFileSync(htmlFile, 'utf8');
+    for (const id of ['breakout-shadow-section', 'breakout-shadow-empty']) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    assert(html.includes(NO_SHADOW), 'empty state text');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'one provisional tag per section (shadow tile included)');
+    assert(html.indexOf('id="path-calibration-section"') < html.indexOf('id="breakout-shadow-section"'), 'placed next to path calibration in the performance zone');
+    const scripts = html.match(/<script\b[^>]*>/gi) || [];
+    assertEqual(scripts.filter((t) => !/type="application\/json"/.test(t)).length, 1, 'still exactly one executable inline script');
+  });
+
+  function shadowLegStats(n, wins, losses, open, winRate, expectancy, maxLosingStreak) {
+    return { n, wins, losses, open, winRate, expectancy, maxLosingStreak };
+  }
+
+  await test('page: breakout-shadow tile shows TOO FEW CALLS under n=30 and lists last entries', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const summary = {
+      generatedAt: iso(T0), n: 3,
+      shadow: {
+        overall: shadowLegStats(3, 1, 2, 0, 0.3333, 0.3333, 2),
+        byChase: { highElevated: shadowLegStats(2, 1, 1, 0, 0.5, 1, 1), lowUnknown: shadowLegStats(1, 0, 1, 0, 0, -1, 1) }
+      },
+      retest: {
+        overall: shadowLegStats(0, 0, 0, 0, null, null, 0),
+        byChase: { highElevated: shadowLegStats(0, 0, 0, 0, null, null, 0), lowUnknown: shadowLegStats(0, 0, 0, 0, null, null, 0) }
+      }
+    };
+    writeJson(shadowSummaryFile(dataDir), summary);
+    const shadowRows = [{
+      candidateId: 'BTC:5m:long:x', symbol: 'BTC', tf: '5m', direction: 'long', breakoutAt: T0, retestAt: null,
+      chase: 'high', chaseSource: 'engine',
+      shadow: { entry: 100, stop: 99, tp1: 104, grossRR: 4, netRR: 3.8, outcome: 'tp1', r: 4, resolvedAt: T0 + 10 * MIN, minutes: 10 },
+      retest: null, status: 'resolved', computedAt: iso(T0)
+    }];
+    writeJsonl(shadowOutcomesFile(dataDir), shadowRows);
+    const { htmlFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="breakout-shadow-summary-table"'), 'summary table renders');
+    assert(html.includes(SHADOW_TOO_FEW), 'n=3 < 30 -> too few calls shown');
+    assert(html.includes('id="breakout-shadow-list-table"'), 'last-entries list renders');
+    assert(html.includes('>BTC<'), 'row shows symbol');
+    assert(html.includes('>tp1<'), 'row shows outcome');
+    assertEqual((html.match(/class="prov-tag"/g) || []).length, (html.match(/<section /g) || []).length, 'still one provisional tag per section');
+  });
+
+  await test('page: breakout-shadow tile shows numeric win rate once a stat reaches n=SHADOW_MIN_N', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const summary = {
+      generatedAt: iso(T0), n: 30,
+      shadow: { overall: shadowLegStats(30, 15, 15, 0, 0.5, 0.1, 3), byChase: { highElevated: shadowLegStats(0, 0, 0, 0, null, null, 0), lowUnknown: shadowLegStats(0, 0, 0, 0, null, null, 0) } },
+      retest: { overall: shadowLegStats(0, 0, 0, 0, null, null, 0), byChase: { highElevated: shadowLegStats(0, 0, 0, 0, null, null, 0), lowUnknown: shadowLegStats(0, 0, 0, 0, null, null, 0) } }
+    };
+    writeJson(shadowSummaryFile(dataDir), summary);
+    const { htmlFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('50%'), 'win rate shown numerically at n=30, not TOO FEW CALLS');
+    assert(!html.includes(SHADOW_TOO_FEW), 'nothing in this fixture is below the threshold');
   });
 
   await test('parseArgs: --data default ./data, --out default ./docs', () => {

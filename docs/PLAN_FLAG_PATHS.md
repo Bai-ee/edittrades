@@ -1,7 +1,7 @@
 # T4 — Flag paths: measured scenario weights at the moment a flag tightens
 
 Last updated: 2026-09-24
-Status: P0, P1, P2 done 2026-09-24 (P0 results: `docs/FLAG_PATHS_BASE_RATES.md`; P1 `pathOutlook` in schema 1.19.0; P2 SCENARIO block in `docs/GPT_INSTRUCTIONS.md`). P3–P4 not approved.
+Status: P0–P4 done 2026-09-24. P0 results `docs/FLAG_PATHS_BASE_RATES.md`; P1 `pathOutlook` (schema 1.19.0); P2 SCENARIO block; P3 tracker calibration (`#path-calibration-section`); P4 in **shadow mode** only (`breakoutEntry`, schema 1.20.0, never a trade instruction): replay says do not promote (`docs/BREAKOUT_ENTRY_SHADOW.md`).
 Branch: `upgrade-signal-engine`. Tracker repo: `../edittrades-tracker`.
 
 ## Problem (SOL, 2026-09-24 ~04:51Z)
