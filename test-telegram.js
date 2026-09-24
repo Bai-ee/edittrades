@@ -4,7 +4,8 @@
  * dedup, data/mark persistence and rate limit, heartbeat), command and /log parsing (the
  * /log body must validate against the journal schema), api/telegram-webhook.js (method,
  * secret 403, allowlist silence, commands, /log through the journal's own append path)
- * and api/telegram-cron.js (401, 503 reasons, send-once under overlapping runs), plus
+ * and api/telegram-cron.js (401, 503 reasons, send-once under overlapping runs), alert
+ * levels (good/setup/watch), WATCH dedup + cooldown, Chicago quiet hours (DST), plus
  * isolation: no execution, signing or wallet-writing import anywhere reachable.
  * All HTTP (Bot API, Blob) is an in-memory fake; no network.
  *
@@ -19,6 +20,8 @@ import {
   escapeHtml, fmtPrice, chunkMessage, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSymbolBlock, formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatSetupLine,
   formatGoodAlert, emptyState, parseState, diffAlerts, createBotClient, inQuietHours, COMMANDS,
+  formatWatchAlert, formatAlertPrefs, parseAlertsArgs, parseQuietSpec, normalizePrefs, applyPrefsChange, chicagoHour,
+  WATCH_COOLDOWN_MS, WATCH_RECENT_IDS, DEFAULT_QUIET_HOURS,
   HEALTH_PERSIST_MS, HEALTH_REPEAT_MS, HEARTBEAT_WRITE_MS, MAX_MESSAGE_CHARS, TELEGRAM_STATE_PATH
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
@@ -104,6 +107,17 @@ function badSym() {
     }
   };
 }
+
+const TD_REC = { supports: ['td:bull:3/4'], opposes: [], unknowns: [] };
+function cand(id, candState = 'forming', extra = {}) {
+  return { candidateId: id, type: 'flag', timeframe: '3m', direction: 'long', state: candState, breakoutLevel: 84466.1, invalidation: 84331.6, measuredRR: 2.43, ...extra };
+}
+/** A WATCH-class symbol carrying flag candidates (default: one forming BTC 3m long). */
+function formSym(cands = [cand('BTC:3m:long:2026-09-24T14:00:00.000Z')], setup = null) {
+  const w = watchSym(setup);
+  return { ...w, candidateSetups: cands, flagRecommendation: { ...w.flagRecommendation, ...TD_REC } };
+}
+const withPrefs = (level, quiet = { ...DEFAULT_QUIET_HOURS }) => ({ ...emptyState(), prefs: { level, quiet } });
 
 function payload({ BTC = goodSym(), ETH = watchSym(), SOL = badSym(), closedThrough = '2026-09-24T14:05:00.000Z', dataStatus = 'complete' } = {}) {
   return {
@@ -356,6 +370,161 @@ async function run() {
     assertEqual(a.state.alerts.today, a.alerts.length, 'reset then counted');
   });
 
+
+  console.log('\nalert levels, watch, quiet hours');
+
+  await test('level gating per class: good = GOOD only, setup adds SETUP, watch adds WATCH; health always', () => {
+    const p = payload({ ETH: formSym([cand('ETH:3m:long:a')], setupEth) });
+    const kinds = (level) => diffAlerts(withPrefs(level), p, T0).alerts.map((a) => a.kind).sort().join(',');
+    assertEqual(kinds('good'), 'GOOD', 'good');
+    assertEqual(kinds('setup'), 'GOOD,SETUP', 'setup');
+    assertEqual(kinds('watch'), 'GOOD,SETUP,WATCH', 'watch');
+    assertEqual(diffAlerts(emptyState(), p, T0).state.prefs.level, 'setup', 'default level is setup');
+    // SETUP held back at level good is still remembered: raising the level does not replay it.
+    const a = diffAlerts(withPrefs('good'), p, T0);
+    const b = diffAlerts({ ...a.state, prefs: { ...a.state.prefs, level: 'setup' } }, p, T0 + MIN);
+    assertEqual(b.alerts.filter((x) => x.kind === 'SETUP').length, 0, 'no replay');
+    // GOOD ENDED and MARK still send at level good.
+    const ended = diffAlerts(a.state, payload({ BTC: { ...badSym(), mark: markOk }, ETH: formSym([], setupEth) }), T0 + 2 * MIN);
+    assert(ended.alerts.some((x) => x.kind === 'GOOD_ENDED'), 'GOOD ENDED at level good');
+    let st = withPrefs('good');
+    const noMark = () => payload({ ETH: watchSym(null, { price: null, driftBps: null, status: 'unavailable' }) });
+    for (const m of [0, 5]) { const r = diffAlerts(st, noMark(), T0 + m * MIN); st = r.state; if (m === 5) assert(r.alerts.some((x) => x.kind === 'MARK'), 'MARK at level good'); }
+  });
+
+  await test('WATCH line format; proto/failed/expired/confirmed never alert; TRIGGERING line', () => {
+    assertEqual(formatWatchAlert('BTC', cand('x'), TD_REC), 'WATCH · BTC 3m LONG forming · break 84,466.10 / void 84,331.60 · 2.4R · td:bull:3/4', 'forming');
+    assertEqual(formatWatchAlert('BTC', cand('x', 'triggering'), TD_REC), 'TRIGGERING · BTC 3m LONG triggering · break 84,466.10 / void 84,331.60 · 2.4R · td:bull:3/4', 'triggering');
+    assertEqual(formatWatchAlert('ETH', cand('x', 'forming', { direction: 'short', measuredRR: null }), { supports: [] }), 'WATCH · ETH 3m SHORT forming · break 84,466.10 / void 84,331.60 · R n/a', 'no td, no R');
+    const other = ['proto', 'failed', 'expired', 'confirmed'].map((st, i) => cand(`BTC:3m:long:o${i}`, st));
+    const r = diffAlerts(withPrefs('watch'), payload({ BTC: formSym(other) }), T0);
+    assertEqual(r.alerts.filter((x) => x.kind === 'WATCH' || x.kind === 'TRIGGERING').length, 0, 'only forming/triggering');
+    assert(!r.alerts.some((x) => x.chart), 'no chart on watch');
+  });
+
+  await test('WATCH dedup by candidateId, 15-min per-symbol cooldown, triggering passes the cooldown once', () => {
+    const A = cand('BTC:3m:long:A');
+    const B = cand('BTC:5m:long:B', 'forming', { timeframe: '5m' });
+    const run = (st, cands, m, sym = 'BTC') => diffAlerts(st, payload({ BTC: sym === 'BTC' ? formSym(cands) : watchSym(), ETH: sym === 'ETH' ? formSym(cands) : watchSym() }), T0 + m * MIN);
+    const w = (r) => r.alerts.filter((x) => x.kind === 'WATCH' || x.kind === 'TRIGGERING').map((x) => `${x.kind}:${x.text.split(' · ')[1]}`).join('|');
+    const r0 = run(withPrefs('watch'), [A, B], 0);
+    assertEqual(w(r0), 'WATCH:BTC 3m LONG forming', 'first candidate alerts, second held by cooldown in the same run');
+    const r1 = run(r0.state, [A, B], 1);
+    assertEqual(w(r1), '', 'A deduped, B still cooling');
+    const r2 = run(r1.state, [{ ...A, state: 'triggering' }, B], 2);
+    assertEqual(w(r2), 'TRIGGERING:BTC 3m LONG triggering', 'triggering passes the cooldown');
+    const r3 = run(r2.state, [{ ...A, state: 'triggering' }, B], 3);
+    assertEqual(w(r3), '', 'triggering passes only once');
+    const r4 = run(r3.state, [{ ...A, state: 'forming' }, B], 16);
+    assertEqual(w(r4), '', 'cooldown restarted at the TRIGGERING alert (min 2)');
+    const r5 = run(r4.state, [A, B], 17.1);
+    assertEqual(w(r5), 'WATCH:BTC 5m LONG forming', 'B alerts once the cooldown ends; A never repeats');
+    // Cooldown is per symbol: ETH is not held by BTC's cooldown.
+    const eth = diffAlerts(r5.state, payload({ BTC: formSym([A, B]), ETH: formSym([cand('ETH:3m:long:E')]) }), T0 + 18 * MIN);
+    assertEqual(w(eth), 'WATCH:ETH 3m LONG forming', 'per-symbol cooldown');
+    // A new id first seen triggering alerts TRIGGERING, under the cooldown.
+    const t0 = run(withPrefs('watch'), [cand('BTC:1m:long:T', 'triggering', { timeframe: '1m' })], 0);
+    assertEqual(w(t0), 'TRIGGERING:BTC 1m LONG triggering', 'new triggering');
+    assertEqual(WATCH_COOLDOWN_MS, 15 * MIN, 'cooldown');
+  });
+
+  await test('WATCH memory rolls at 200 ids and survives parseState; level setup tracks nothing', () => {
+    let st = withPrefs('watch');
+    for (let i = 0; i < 205; i++) st = diffAlerts(st, payload({ BTC: formSym([cand(`BTC:3m:long:${i}`)]) }), T0 + i * 16 * MIN).state;
+    assertEqual(st.watch.ids.length, WATCH_RECENT_IDS, 'rolling 200');
+    assertEqual(st.watch.ids[0].id, 'BTC:3m:long:5', 'oldest dropped');
+    assertEqual(parseState(JSON.stringify(st)).watch.ids.length, 200, 'round trip');
+    const s2 = diffAlerts(withPrefs('setup'), payload({ BTC: formSym() }), T0).state;
+    assertEqual(s2.watch.ids.length, 0, 'no watch tracking below level watch');
+  });
+
+  await test('quiet hours: America/Chicago wall clock every day, CDT and CST, weekend, wrap, off', () => {
+    const q = { ...DEFAULT_QUIET_HOURS };
+    assertEqual(JSON.stringify(q), '{"start":1,"end":5}', 'default 01-05');
+    // CDT (UTC-5), Wed 2026-07-15: 07:30Z = 02:30 local quiet; 10:30Z = 05:30 local not quiet.
+    assertEqual(chicagoHour(Date.parse('2026-07-15T07:30:00Z')), 2, 'CDT hour');
+    assert(inQuietHours(q, Date.parse('2026-07-15T07:30:00Z')), 'CDT 02:30 quiet');
+    assert(!inQuietHours(q, Date.parse('2026-07-15T10:30:00Z')), 'CDT 05:30 not quiet');
+    assert(!inQuietHours(q, Date.parse('2026-07-15T05:30:00Z')), 'CDT 00:30 not quiet');
+    // CST (UTC-6), Thu 2026-01-15: 10:30Z = 04:30 local quiet (would be 05:30 under CDT).
+    assertEqual(chicagoHour(Date.parse('2026-01-15T10:30:00Z')), 4, 'CST hour');
+    assert(inQuietHours(q, Date.parse('2026-01-15T10:30:00Z')), 'CST 04:30 quiet');
+    assert(inQuietHours(q, Date.parse('2026-01-15T07:00:00Z')), 'CST 01:00 quiet (start inclusive)');
+    assert(!inQuietHours(q, Date.parse('2026-01-15T11:00:00Z')), 'CST 05:00 not quiet (end exclusive)');
+    // Weekend: Sat 2026-09-26 02:00 CDT and Sun 2026-01-18 03:00 CST are quiet too.
+    assert(inQuietHours(q, Date.parse('2026-09-26T07:00:00Z')), 'Saturday quiet');
+    assert(inQuietHours(q, Date.parse('2026-01-18T09:00:00Z')), 'Sunday quiet');
+    // Wrap past midnight and the string form; off.
+    assert(inQuietHours('22-06', Date.parse('2026-07-16T04:00:00Z')) && !inQuietHours('22-06', Date.parse('2026-07-16T12:00:00Z')), 'wrap');
+    assert(!inQuietHours(null, Date.parse('2026-07-15T07:30:00Z')), 'off');
+    assert(!inQuietHours(q, T0), 'T0 (09:05 CDT) not quiet');
+  });
+
+  await test('/alerts parsing: show, levels, quiet HH-HH / off / show, errors', () => {
+    const j = (args) => JSON.stringify(parseAlertsArgs(args));
+    assertEqual(j([]), '{"action":"show"}', 'show');
+    assertEqual(j(['WATCH']), '{"action":"level","level":"watch"}', 'level');
+    assertEqual(j(['quiet']), '{"action":"quiet_show"}', 'quiet show');
+    assertEqual(j(['quiet', 'off']), '{"action":"quiet_off"}', 'off');
+    assertEqual(j(['quiet', '01-05']), '{"action":"quiet_set","quiet":{"start":1,"end":5}}', 'set');
+    assertEqual(j(['quiet', '22-24']), '{"action":"quiet_set","quiet":{"start":22,"end":0}}', '24 = midnight');
+    for (const bad of [['loud'], ['quiet', '5-5'], ['quiet', '25-3'], ['quiet', 'late'], ['good', 'setup'], ['quiet', '1-5', 'x']]) assertEqual(parseAlertsArgs(bad).action, 'error', `error ${bad}`);
+    assertEqual(parseQuietSpec('0-24'), null, '0-24 is equal ends');
+    assert(COMMANDS.includes('alerts'), 'alerts is a command');
+    assertEqual(parseCommand('/alerts quiet 01-05').args.join(' '), 'quiet 01-05', 'command args');
+  });
+
+  await test('prefs persist in state: normalize, apply, parseState keeps off, diffAlerts carries prefs', () => {
+    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5}}', 'garbage -> defaults');
+    const off = parseState(applyPrefsChange(null, { quiet: null }));
+    assertEqual(off.prefs.quiet, null, 'off persists as null');
+    const lv = parseState(applyPrefsChange(JSON.stringify({ ...emptyState(), symbols: { BTC: { goodIds: ['k'] } } }), { level: 'watch' }));
+    assertEqual(`${lv.prefs.level}|${lv.symbols.BTC.goodIds[0]}`, 'watch|k', 'level saved, alert memory kept');
+    const d = diffAlerts(withPrefs('good', null), payload(), T0);
+    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null}', 'diff keeps prefs');
+    assert(formatAlertPrefs(d.state.prefs).includes('Alert level: <b>good</b>') && formatAlertPrefs(d.state.prefs).includes('Quiet hours: off'), 'prefs text');
+  });
+
+  await test('webhook /alerts: shows, saves level and quiet in telegram/state.json; /status and /help show them', async () => {
+    const blob = fakeBlob();
+    const show = await hook({ text: '/alerts', blob });
+    assert(show.tg.calls[0].text.includes('Alert level: <b>setup</b>') && show.tg.calls[0].text.includes('01:00–05:00 America/Chicago, every day'), show.tg.calls[0].text);
+    const set = await hook({ text: '/alerts watch', blob });
+    assert(set.tg.calls[0].text.startsWith('Saved.') && set.tg.calls[0].text.includes('<b>watch</b>'), set.tg.calls[0].text);
+    await hook({ text: '/alerts quiet 22-06', blob });
+    let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6}}', 'persisted');
+    const q = await hook({ text: '/alerts quiet', blob });
+    assertEqual(q.tg.calls[0].text, 'Quiet hours: 22:00–06:00 America/Chicago, every day (alerts arrive silently)', 'quiet show');
+    await hook({ text: '/alerts quiet off', blob });
+    st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    assertEqual(st.prefs.quiet, null, 'off persisted');
+    const status = await hook({ text: '/status', blob });
+    assert(status.tg.calls[0].text.includes('Alert level: watch') && status.tg.calls[0].text.includes('Quiet hours: off'), status.tg.calls[0].text);
+    const bad = await hook({ text: '/alerts loud', blob });
+    assert(bad.tg.calls[0].text.startsWith('Usage: /alerts'), bad.tg.calls[0].text);
+    const help = await hook({ text: '/help' });
+    for (const f of ['/alerts good|setup|watch', '/alerts quiet HH-HH', '/alerts quiet off']) assert(help.tg.calls[0].text.includes(f), `help missing ${f}`);
+  });
+
+  await test('cron: reads level from state (watch sends the WATCH line); quiet hours send silently, never drop', async () => {
+    const blob = fakeBlob();
+    await blob.put(TELEGRAM_STATE_PATH, JSON.stringify(withPrefs('watch')), { allowOverwrite: false });
+    const build = async () => payload({ ETH: formSym([cand('ETH:3m:long:W')]) });
+    const tg = fakeTelegram();
+    const r = await cron({ blob, tg, build });
+    assert(tg.calls.some((c) => c.text && c.text.startsWith('WATCH · ETH 3m LONG forming')), JSON.stringify(tg.calls.map((c) => c.text && c.text.slice(0, 40))));
+    assert(tg.calls.every((c) => c.silent === false || c.silent === undefined), 'T0 (09:05 CDT) is loud');
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.level, 'watch', 'cron keeps prefs');
+    assertEqual(r.res.body.silent, false, 'silent flag');
+    const night = Date.parse('2026-09-26T07:00:00Z'); // Saturday 02:00 CDT
+    const tq = fakeTelegram();
+    const rq = await cron({ tg: tq, nowMs: night, build: async () => payload({ closedThrough: new Date(night - 30_000).toISOString() }) });
+    const msgs = tq.calls.filter((c) => c.method === 'sendMessage');
+    assert(msgs.length > 0 && msgs.every((c) => c.silent === true), 'sent, silently');
+    assertEqual(`${rq.res.body.silent}|${tq.calls.filter((c) => c.method === 'sendPhoto').length}`, 'true|2', 'photos still sent');
+  });
+
   console.log('\ncommands');
 
   await test('parseCommand: bot suffix, case, args, unknown; no trade commands exist', () => {
@@ -370,7 +539,7 @@ async function run() {
     assertEqual(parseJournalN(undefined), 10, 'default');
     assertEqual(parseAllowedIds(' 1, x, 22 ,').join(), '1,22', 'ids');
     assert(isAllowed(22, ['1', '22']) && !isAllowed(3, ['1']) && !isAllowed(null, ['1']), 'allow');
-    assert(inQuietHours('22-7', Date.parse('2026-09-24T23:00:00Z')) && !inQuietHours('22-7', Date.parse('2026-09-24T12:00:00Z')) && !inQuietHours('', T0), 'quiet hours');
+    assert(!inQuietHours('', T0) && !inQuietHours(null, T0), 'no quiet hours -> never quiet');
   });
 
   await test('/log text maps to the journal schema (took=open, closed=close, skipped=skip, else note)', () => {

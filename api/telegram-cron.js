@@ -5,7 +5,10 @@
  * Builds the context once, compares it with the last alert state in Blob
  * `telegram/state.json` (lib/telegram.js diffAlerts) and sends only transitions: NEW GOOD
  * (with the plan timeframe's chart), NEW SETUP, GOOD ended, and data / mark problems that
- * last over 5 minutes (repeated at most every 30 minutes). Nothing changed -> nothing sent.
+ * last over 5 minutes (repeated at most every 30 minutes), and at alert level `watch` new
+ * forming/triggering flag candidates. Nothing changed -> nothing sent. The owner's alert
+ * level and quiet hours live in the same state (`prefs`, set with /alerts); during quiet
+ * hours (America/Chicago, every day) alerts send with disable_notification, never dropped.
  *
  * Idempotent under overlapping runs: the new state is written with the blob ETag
  * (ifMatch) BEFORE anything is sent. A run that loses the write race re-reads the
@@ -84,11 +87,13 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const nowMs = now();
 
   let alerts = [];
+  let prefs = null;
   let written = false;
   try {
     const out = await updateBlob({ get, put }, TELEGRAM_STATE_PATH, 'application/json', (text) => {
       const diff = diffAlerts(parseState(text), compact, nowMs);
       alerts = diff.alerts;
+      prefs = diff.state.prefs;
       return diff.changed ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
@@ -98,7 +103,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   }
 
   const bot = createBotClient({ token: env.TELEGRAM_BOT_TOKEN, fetchImpl });
-  const silent = inQuietHours(env.TELEGRAM_QUIET_HOURS, nowMs);
+  const silent = inQuietHours(prefs && prefs.quiet, nowMs);
   let sent = 0;
   let failed = 0;
   for (const alert of alerts) {
@@ -117,6 +122,6 @@ export async function handleTelegramCron(req, res, deps = {}) {
   }
 
   const kinds = alerts.map((a) => `${a.kind}${a.symbol ? `:${a.symbol}` : ''}`);
-  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} stateWritten=${written}`);
-  return res.status(200).json({ ok: true, alerts: alerts.length, kinds, sent, failed, stateWritten: written });
+  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} silent=${silent} stateWritten=${written}`);
+  return res.status(200).json({ ok: true, alerts: alerts.length, kinds, sent, failed, silent, stateWritten: written });
 }

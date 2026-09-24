@@ -4,7 +4,8 @@
  *
  * Read commands plus journal logging, answered with the Bot API (lib/telegram.js).
  * Read-only toward the engine: it builds the same context as /api/scalp-context and the
- * MCP tool, and writes only journal lines through api/journal.js's own append path. It
+ * MCP tool, and writes only journal lines through api/journal.js's own append path and
+ * the owner's alert prefs (`/alerts`) into the cron's `telegram/state.json`. It
  * never imports or reaches an execution, signing or wallet-writing module, and there is
  * no /buy, /sell, /open or /close command.
  *
@@ -20,12 +21,12 @@ import { put as blobPut, get as blobGet } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { validateJournalEntry } from '../lib/journalSchema.js';
-import { readBlob } from '../lib/blobJsonl.js';
+import { readBlob, updateBlob } from '../lib/blobJsonl.js';
 import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
-  parseState, escapeHtml, TELEGRAM_STATE_PATH
+  parseState, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet
 } from '../lib/telegram.js';
 
 function safeCompare(a, b) {
@@ -204,6 +205,25 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           const { duplicate } = await appendRecord(store, checked.record);
           await reply(`[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''}`);
         }
+      }
+    } else if (cmd === 'alerts') {
+      const a = parseAlertsArgs(parsed.args);
+      if (a.action === 'error') await reply(escapeHtml(a.message));
+      else if (!hasStore) await reply('Alert settings store unavailable.');
+      else if (a.action === 'show' || a.action === 'quiet_show') {
+        const blob = await readBlob(get, TELEGRAM_STATE_PATH);
+        const prefs = parseState(blob ? blob.text : null).prefs;
+        await reply(a.action === 'show' ? formatAlertPrefs(prefs) : `Quiet hours: ${fmtQuiet(prefs.quiet)}`);
+      } else {
+        // Same ETag-guarded update as the cron, so a concurrent cron run cannot lose it.
+        const change = a.action === 'level' ? { level: a.level } : { quiet: a.action === 'quiet_off' ? null : a.quiet };
+        let prefs = null;
+        await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => {
+          const next = applyPrefsChange(text, change);
+          prefs = parseState(next).prefs;
+          return next;
+        });
+        await reply(`Saved.\n${formatAlertPrefs(prefs)}`);
       }
     } else if (cmd === 'testalert') {
       const payload = await build();

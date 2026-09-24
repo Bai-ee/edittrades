@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-24 — Telegram alert levels + quiet hours (not deployed)
+
+- `/alerts good|setup|watch` (default `setup`; `watch` adds one-line WATCH/TRIGGERING for new forming/triggering flags, deduped over 200 ids, 15-min per-symbol cooldown) and `/alerts quiet HH-HH|off` (default 01-05 America/Chicago, every day, silent not dropped), saved in `telegram/state.json` `prefs`; `TELEGRAM_QUIET_HOURS` retired. Notification-only: no engine, threshold, schema or config change.
+
 ## 2026-09-24 — T-1 Telegram alerts + read commands (branch `upgrade-signal-engine`, not deployed)
 
 Plan: `docs/PLAN_TELEGRAM.md` (owner-approved 2026-09-24). Read-only toward the engine and
