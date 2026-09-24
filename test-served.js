@@ -119,9 +119,9 @@ function mockRes() {
   };
 }
 
-async function callHandler({ query = {}, method = 'GET', auth = `Bearer ${API_KEY}`, build, record }) {
+async function callHandler({ query = {}, method = 'GET', auth = `Bearer ${API_KEY}`, build, record, extraHeaders = {} }) {
   const res = mockRes();
-  const headers = auth ? { authorization: auth } : {};
+  const headers = { ...(auth ? { authorization: auth } : {}), ...extraHeaders };
   await quiet(() => handleScalpContext({ method, url: '/api/scalp-context', query, headers, on() {} }, res, { build, record }));
   return res;
 }
@@ -253,6 +253,15 @@ async function main() {
   console.log('\nhandler');
 
   const build = async () => JSON.parse(JSON.stringify(payload()));
+
+  await test('tracker client header: 200 with the same body, nothing recorded', async () => {
+    const seen = [];
+    const res = await callHandler({ build, record: async (p) => { seen.push(p); }, extraHeaders: { 'x-edittrades-client': 'tracker' } });
+    const ref = await callHandler({ build, record: async () => {} });
+    assertEqual(res.statusCode, 200, 'status');
+    assertEqual(seen.length, 0, 'record calls');
+    assertEqual(JSON.stringify(stripRequestId(res.body)), JSON.stringify(stripRequestId(ref.body)), 'same body');
+  });
 
   await test('JSON 200 records once with the unfiltered payload, even with ?compact=1&symbols=BTC', async () => {
     const seen = [];

@@ -183,7 +183,11 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
 
     // Served-call recording (T3): the unfiltered payload, so compact/include/symbols
     // filters never hide the plan. Capped and swallowed; the response below is unchanged.
-    try { await record(payload); } catch { /* recording never affects the response */ }
+    // The tracker's own cron GET (X-EditTrades-Client: tracker) is not a served call.
+    const fromTracker = String((req.headers && req.headers['x-edittrades-client']) || '').toLowerCase() === 'tracker';
+    if (!fromTracker) {
+      try { await record(payload); } catch { /* recording never affects the response */ }
+    }
 
     console.log(`[ScalpContext] requestId=${requestId} status=200 durationMs=${Date.now() - startedAt} symbols=${symbolsCount} warnings=${warningsCount}`);
     return res.status(200).json({

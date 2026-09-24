@@ -300,7 +300,8 @@ async function main() {
   const url = typeof opts.url === 'string' ? opts.url : DEFAULT_URL;
 
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
+    // TRACKER_CLIENT_HEADER: the engine skips served-call recording for its own tracker (T3).
+    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json', 'X-EditTrades-Client': 'tracker' },
     signal: AbortSignal.timeout(60_000)
   });
   if (!res.ok) throw new Error(`scalp-context returned HTTP ${res.status}`);

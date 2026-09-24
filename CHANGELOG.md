@@ -8,6 +8,7 @@
 - **Refactors (behaviour-identical):** journal Blob helpers moved to `lib/blobJsonl.js`; tracker row builder and sensitive-key strip moved to `scripts/tracker/records.js` (`collect.js` re-exports).
 - **Tracker:** `pullServed` adds served rows to `data/calls/` as `source: 'served'` (cron duplicates dropped); `dims.source`; served rows scored like cron, excluded from run/capture-health counts; page `#activity-served-row`, call-log Via column, `Via` equity filter.
 - **Tests:** new `test:served` (18); `test:tracker` 31 → 42; `test:journal` 17.
+- **Follow-up:** the tracker's own cron GET sends `X-EditTrades-Client: tracker` and is not recorded as a served call (it was adding a Blob write per run and could label a routine capture "chat"). `test:served` 18 → 19.
 
 ## 2026-09-22 — Scalp context engine (branch `upgrade-signal-engine`)
 
