@@ -296,6 +296,36 @@ async function run() {
     assertEqual(plan.reasonCode, 'room_at_entry', 'reasonCode');
   });
 
+  await test('owner decision 4b: a zone touching entry on a FARTHER geometry timeframe never triggers room_at_entry (long + short mirror)', () => {
+    // longCandidate/shortCandidate are 1m -> own mapped geometry timeframe is 15m
+    // (geometryTimeframeFor). A zone on 4h (farther) that happens to sit on the entry
+    // price must not reject the plan outright - only the candidate's own 15m read does.
+    for (const [candidateFn, dir] of [[longCandidate, 'long'], [shortCandidate, 'short']]) {
+      const key = dir === 'long' ? 'horizontalResistanceZones' : 'horizontalSupportZones';
+      const geometryContext = { '4h': { [key]: [{ low: 995, high: 1005 }] } };
+      const plan = buildFlagTradePlan(baseParams({ candidate: candidateFn(), geometryContext, candles: levelCandles(dir, 'retest'), geometryClosedThrough: FRESH_15M }));
+      assert(plan.reasonCode !== 'room_at_entry', `${dir}: a 4h-only zone on entry must not reject the plan (decision 4b)`);
+    }
+  });
+
+  await test('owner decision 4b: the TP1 cap still reads every geometry timeframe, including a farther one (long + short mirror)', () => {
+    // Same farther-timeframe (4h) zone as above, but ahead of entry (not touching it) -
+    // the TP1 cap (nearestEdge) is explicitly NOT rescoped by decision 4b; a major level
+    // on any timeframe still caps the measured-move target ("major S/R overrides").
+    const longPlan = buildFlagTradePlan(baseParams({
+      candidate: longCandidate({ invalidation: 998 }),
+      geometryContext: { '4h': { horizontalResistanceZones: [{ low: 1020, high: 1025 }], horizontalSupportZones: [] } },
+      candles: levelCandles('long', 'retest')
+    }));
+    assertEqual(longPlan.tp1, 1020, 'a 4h zone ahead still caps TP1');
+    const shortPlan = buildFlagTradePlan(baseParams({
+      candidate: shortCandidate({ invalidation: 1002 }),
+      geometryContext: { '4h': { horizontalSupportZones: [{ low: 975, high: 980 }], horizontalResistanceZones: [] } },
+      candles: levelCandles('short', 'retest')
+    }));
+    assertEqual(shortPlan.tp1, 980, 'a 4h zone ahead still caps TP1 (short)');
+  });
+
   await test('nearest-level cap: a zone between entry and measured target caps TP1, TP2 keeps the rest (long)', () => {
     // Tighter stop (2) than the baseline fixture so R:R still clears 3 after the cap.
     const candidate = longCandidate({ invalidation: 998 });

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-09-24 — Owner decision 4b: `room_at_entry` scoped to the candidate's own geometry timeframe (branch `upgrade-signal-engine`)
+
+`docs/OWNER_DECISIONS_2026-09-24.md`. Answers the A7 open item from the Step A gate
+report: `lib/flagTradePlan.js`'s `nearestRoomAhead` reads two different things from
+geometry, now scoped differently on purpose -
+- `touchesEntry` (hard `room_at_entry` rejection) - now the candidate's own mapped
+  geometry timeframe only (`geometryTimeframeFor(candidate.timeframe)`), same scoping
+  decision 4a already gave the qualifier's `room:blocked`. A zone on a farther timeframe
+  (e.g. 4h) sitting on the entry price can no longer reject a 1m/3m/5m flag's plan
+  outright.
+- `nearestEdge` (the TP1 cap) - **unchanged**, still scans every geometry timeframe. A
+  4h level ahead is exactly the kind of major S/R the owner's "major S/R overrides" rule
+  means to cap a target at; decision 4a never scoped this.
+
+No config or schema change (behavior only, no field added/removed). Tests:
+`test:flagplan` 51 → 53 (two new mirrored cases: a farther-timeframe zone on entry no
+longer rejects; the TP1 cap still reads a farther timeframe). Full gate green.
+
 ## 2026-09-24 — T6 completion plan Step A: review-pass fixes (branch `upgrade-signal-engine`)
 
 `docs/PLAN_T6_COMPLETION_V2.md` (reviewer-consolidated, overrides T6 sequencing). Fix
