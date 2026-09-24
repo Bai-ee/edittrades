@@ -50,7 +50,7 @@ import {
 import { writeFileSync } from 'node:fs';
 import {
   renderChangelogPage, parseChangelog, renderMarkdown, renderInline, isNew, groupFields,
-  NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS
+  NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS, NO_BOARD, BOARD_BREAKPOINT, boardModel, layoutBoard
 } from './scripts/tracker/changelog-page.js';
 import { buildChangelog, latestVersions } from './scripts/tracker/build-changelog.js';
 
@@ -1990,19 +1990,23 @@ async function run() {
     assertEqual(parseChangelog('').length, 0, 'empty changelog');
   });
 
-  await test('changelog page: renders the pipeline, modules, NEW tags, outputs and consistency strip from a map fixture', () => {
+  await test('changelog page: renders the board, module list, NEW tags, outputs and consistency strip from a map fixture', () => {
     const html = renderChangelogPage({
       map: MAP_FIXTURE, changelog: CHANGELOG_FIXTURE, nowMs: NOW,
       verify: { checkedAt: '2026-09-20T10:00:00.000Z', files: 89, ok: true },
       versions: { schemaVersion: '1.23.0', configVersion: '2026.09.24-4', capturedAt: '2026-09-20T11:50:00.000Z' }
     });
-    assertEqual((html.match(/class="pipe-stage"/g) || []).length, 2, 'off-path stage is not in the pipeline');
-    assertEqual((html.match(/class="pipe-arrow"/g) || []).length, 1, 'one arrow between two stages');
-    assert(html.includes('id="pipeline-stage-delivery-branch"') && html.includes('<span>MCP</span>'), 'delivery branches to REST / MCP / journal');
-    assert(html.includes('01 · Market data') && html.includes('2 modules · 1 new'), 'stage label + module count + new count');
-    assertEqual((html.match(/class="new-tag"/g) || []).length, 2, 'NEW on pythMark and scalpContext only');
-    assert(html.includes('id="pipeline-stage-market-data-marketdata" data-new="false"'), 'old module has no NEW');
-    assert(html.includes('id="pipeline-stage-market-data-pythmark-publishes"') && html.includes('<li class="chip in">price</li>'), 'publishes/consumes chips');
+    assert(html.includes('id="map-board-wide"') && html.includes('id="map-board-narrow"'), 'both board layouts');
+    assert(html.includes(`@media (min-width:${BOARD_BREAKPOINT}px){.board-wide{display:block}.board-narrow{display:none}}`), 'CSS picks one layout');
+    assert(html.includes('id="board-card-marketdata"') && html.includes('id="board-card-pythmark"') && html.includes('id="board-card-scalpcontext"'), 'module cards');
+    assert(!html.includes('board-card-levels'), 'off-path module not on the board');
+    assert(html.includes('id="board-flow-marketdata-scalpcontext"'), 'map flow drawn as a line');
+    assert(html.includes('id="board-flow-lane-market-data-scalpcontext"') === false, 'lane with an explicit engine flow gets no lane drop');
+    assert(html.includes('id="board-card-output-rest-payload"') && html.includes('id="board-flow-scalpcontext-output-rest-payload"'), 'fallback outputs from map.outputs, fed by the engine');
+    assert(html.includes('id="board-card-pythmark" data-card="pythMark" data-new="true"') && html.includes('id="board-card-marketdata" data-card="marketData" data-new="false"'), 'NEW only within NEW_DAYS');
+    assertEqual((html.match(/class="new-tag"/g) || []).length, 2, 'NEW on pythMark and scalpContext only in the module list');
+    assert(html.includes('id="map-module-market-data-pythmark-publishes"') && html.includes('<li class="chip in">price</li>'), 'publishes/consumes chips in the module list');
+    assert(html.includes('href="#map-board-zone">Board<'), 'nav says Board');
     assert(html.includes('tests test:mark'), 'tests listed');
     assert(html.includes('id="map-offpath-legacy-tile"') && html.includes('Old levels.'), 'off-path modules in their own tile');
     assert(html.includes('id="map-output-rest-payload-tile"'), 'output tile');
@@ -2013,7 +2017,9 @@ async function run() {
     assert(html.includes('Schema 1.22.0 → 1.23.0'), 'changelog delta chip');
     assert(html.indexOf('Newer entry') < html.indexOf('Older entry'), 'timeline newest first');
     assert(html.includes('&lt;raw&gt; &amp; code'), 'fenced code escaped');
-    assert(!/<script/i.test(html), 'no scripts on the page');
+    const scripts = html.match(/<script>[\s\S]*?<\/script>/g) || [];
+    assertEqual(scripts.length, 1, 'one inline script (board highlight only)');
+    assert(scripts[0].split('\n').length <= 60 && !/fetch|XMLHttpRequest|src=/.test(scripts[0]), 'highlight script is small and offline');
     assert(html.includes('prefers-color-scheme: dark'), 'both color schemes');
     assert(html.includes('href="index.html"') && html.includes('href="how-to.html"'), 'nav to the other pages');
   });
@@ -2026,7 +2032,8 @@ async function run() {
   await test('changelog page: empty map / changelog / verify / capture render bracketed empty states', () => {
     const html = renderChangelogPage({ map: null, changelog: '', nowMs: NOW });
     for (const s of [NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE]) assert(html.includes(s), `shows ${s}`);
-    assert(!html.includes('class="pipe-stage"'), 'no stages');
+    assert(html.includes(NO_BOARD) && !html.includes('<svg class="board') && !html.includes('<script>'), 'empty map -> [NO MAP YET], no board, no script');
+    assertEqual(boardModel(null, NOW), null, 'no model without a map');
     const bad = renderChangelogPage({ map: { stages: [] }, changelog: CHANGELOG_FIXTURE, nowMs: NOW });
     assert(bad.includes(NO_MAP), 'a map without stages counts as empty');
   });
@@ -2053,6 +2060,30 @@ async function run() {
     const map = JSON.parse(readFileSync('docs/ARCHITECTURE_MAP.json', 'utf8'));
     const html = renderChangelogPage({ map, changelog: readFileSync('CHANGELOG.md', 'utf8'), nowMs: NOW });
     for (const m of map.stages.flatMap((s) => s.modules)) assert(html.includes(`>${m.path.replace(/&/g, '&amp;')} · since`), `module ${m.path} rendered`);
+    const slugOf = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    for (const s of map.stages) {
+      for (const m of s.modules) {
+        const on = [`id="board-card-${slugOf(m.name)}"`, `id="board-narrow-card-${slugOf(m.name)}"`].map((id) => html.includes(id));
+        assert(s.offPath ? !on[0] && !on[1] : on[0] && on[1], `${m.name} ${s.offPath ? 'off' : 'on'} the board in both layouts`);
+      }
+    }
+    for (const x of map.board.sources) assert(html.includes(`id="board-card-source-${x.id}"`), `source ${x.id} card`);
+    for (const x of map.board.outputs) assert(html.includes(`id="board-card-output-${x.id}"`) && html.includes(`id="board-flow-scalpcontext-output-${x.id}"`), `output ${x.id} card + engine line`);
+    for (const x of map.board.consumers) assert(html.includes(`id="board-card-consumer-${x.id}"`), `consumer ${x.id} card`);
+    assert(html.includes('id="board-flow-consumer-tracker-output-calls"') && html.includes('class="flow tier-loop"'), 'tracker loops back to Calls, dotted');
+    const model = boardModel(map, NOW);
+    for (const fl of map.flows) assert(model.flows.some((x) => x.from === fl.from && x.to === fl.to), `map flow ${fl.from}->${fl.to} is on the board`);
+    for (const mode of ['wide', 'narrow']) {
+      const lay = layoutBoard(model, mode);
+      assertEqual(lay.lines.length, model.flows.length, `${mode}: every flow routed`);
+      const prefix = mode === 'wide' ? 'board-' : 'board-narrow-';
+      for (const fl of model.flows) assert(html.includes(`id="${prefix}${fl.id}"`), `${mode}: line ${fl.id}`);
+      for (const l of lay.lines) assert(l.pts.length >= 2 && l.pts.every(([x, y]) => x >= 0 && x <= lay.W && y >= 0 && y <= lay.H), `${mode}: ${l.id} stays inside the board`);
+      for (const l of lay.lines) for (let i = 1; i < l.pts.length; i++) assert(l.pts[i][0] === l.pts[i - 1][0] || l.pts[i][1] === l.pts[i - 1][1], `${mode}: ${l.id} is orthogonal`);
+    }
+    const ids = [...html.matchAll(/ id="([^"]+)"/g)].map((mm) => mm[1]);
+    assertEqual(ids.length, new Set(ids).size, 'DOM ids are unique across both layouts');
+    for (const t of ['CLOSED CANDLES', 'CLASS + REASONS', 'PLAN']) assert(html.includes(`>${t}</text>`), `bus label ${t}`);
     const dir = tmp();
     buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), NOW);
     for (const f of ['index.html', 'how-to.html']) assert(readFileSync(path.join(dir, 'docs', f), 'utf8').includes('href="changelog.html"'), `${f} links to the system map`);

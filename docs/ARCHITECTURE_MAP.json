@@ -4,6 +4,7 @@
   "stages": [
     {
       "id": "market-data",
+      "kind": "feature",
       "title": "Market data",
       "purpose": "Pulls closed candles, the Pyth mark and the wallet balance, and checks the data is fresh.",
       "modules": [
@@ -15,6 +16,7 @@
     },
     {
       "id": "indicators-geometry",
+      "kind": "feature",
       "title": "Indicators & geometry",
       "purpose": "Turns candles into EMAs, Stoch RSI, ATR, swings, zones, diagonals and channels.",
       "modules": [
@@ -27,6 +29,7 @@
     },
     {
       "id": "pattern-detection",
+      "kind": "feature",
       "title": "Pattern detection",
       "purpose": "Finds momentum flags and coils, tracks their lifecycle and labels each one.",
       "modules": [
@@ -37,6 +40,7 @@
     },
     {
       "id": "bias-topdown",
+      "kind": "feature",
       "title": "Bias & top-down",
       "purpose": "Says which way each higher timeframe leans and whether a setup trades with or against it.",
       "modules": [
@@ -46,6 +50,7 @@
     },
     {
       "id": "trade-plan",
+      "kind": "feature",
       "title": "Trade plan",
       "purpose": "Turns one confirmed flag into exact entry, stop, targets and R:R, or a reason not to trade.",
       "modules": [
@@ -59,6 +64,7 @@
     },
     {
       "id": "recommendation",
+      "kind": "feature",
       "title": "Recommendation",
       "purpose": "Grades the plan GOOD / WATCH / BAD with reasons and a measured-history outlook.",
       "modules": [
@@ -69,6 +75,7 @@
     },
     {
       "id": "delivery",
+      "kind": "engine",
       "title": "Delivery",
       "purpose": "Packs everything into one payload and serves it over REST and MCP; records served calls and your journal.",
       "modules": [
@@ -87,6 +94,7 @@
     },
     {
       "id": "tracker",
+      "kind": "consumer",
       "title": "Tracker",
       "purpose": "Captures calls every 10 minutes, scores them on later candles and publishes this site.",
       "modules": [
@@ -116,6 +124,7 @@
     },
     {
       "id": "gpt",
+      "kind": "consumer",
       "title": "GPT",
       "purpose": "Tells the Custom GPT how to read the payload and answer you.",
       "modules": [
@@ -168,29 +177,29 @@
     }
   ],
   "flows": [
-    { "from": "marketData", "to": "indicators", "label": "closed candles" },
-    { "from": "indicators", "to": "geometry", "label": "EMAs, ATR" },
-    { "from": "geometry", "to": "patternDetector", "label": "zones" },
-    { "from": "patternDetector", "to": "patternLifecycle", "label": "candidateSetups" },
-    { "from": "patternLifecycle", "to": "biasMatrix", "label": "snapped candidates" },
-    { "from": "biasMatrix", "to": "candidateQualifier", "label": "4h lean" },
-    { "from": "freshness", "to": "flagTradePlan", "label": "freshness gate" },
-    { "from": "candidateQualifier", "to": "flagTradePlan", "label": "qualified flags" },
+    { "from": "marketData", "to": "indicators", "label": "closed candles", "tier": "live" },
+    { "from": "indicators", "to": "geometry", "label": "EMAs, ATR", "tier": "live" },
+    { "from": "geometry", "to": "patternDetector", "label": "zones", "tier": "live" },
+    { "from": "patternDetector", "to": "patternLifecycle", "label": "candidateSetups", "tier": "live" },
+    { "from": "patternLifecycle", "to": "biasMatrix", "label": "snapped candidates", "tier": "live" },
+    { "from": "biasMatrix", "to": "candidateQualifier", "label": "4h lean", "tier": "live" },
+    { "from": "freshness", "to": "flagTradePlan", "label": "freshness gate", "tier": "live" },
+    { "from": "candidateQualifier", "to": "flagTradePlan", "label": "qualified flags", "tier": "live" },
     { "from": "walletTracker", "to": "riskEngine", "label": "margin" },
-    { "from": "flagTradePlan", "to": "flagRecommendation", "label": "plan" },
+    { "from": "flagTradePlan", "to": "flagRecommendation", "label": "plan", "tier": "live" },
     { "from": "modelEvidence", "to": "flagRecommendation", "label": "21/200 evidence" },
-    { "from": "flagRecommendation", "to": "scalpContext", "label": "class + reasons" },
+    { "from": "flagRecommendation", "to": "scalpContext", "label": "class + reasons", "tier": "live" },
     { "from": "pathOutlook", "to": "scalpContext", "label": "outlook" },
-    { "from": "scalpContext", "to": "scalp-context (REST)", "label": "payload" },
-    { "from": "scalpContext", "to": "editTradesMcp", "label": "payload" },
+    { "from": "scalpContext", "to": "scalp-context (REST)", "label": "payload", "tier": "live" },
+    { "from": "scalpContext", "to": "editTradesMcp", "label": "payload", "tier": "live" },
     { "from": "scalp-context (REST)", "to": "servedCalls", "label": "served calls" },
     { "from": "journal (REST)", "to": "blobJsonl", "label": "journal lines" },
     { "from": "scalp-context (REST)", "to": "collect", "label": "every 10 min" },
     { "from": "collect", "to": "score", "label": "captures + candles" },
     { "from": "score", "to": "aggregate", "label": "outcomes" },
     { "from": "aggregate", "to": "build-page", "label": "numbers" },
-    { "from": "scalp-context (REST)", "to": "GPT instructions", "label": "Action call" },
-    { "from": "editTradesMcp", "to": "GPT instructions", "label": "MCP call" }
+    { "from": "scalp-context (REST)", "to": "GPT instructions", "label": "Action call", "tier": "live" },
+    { "from": "editTradesMcp", "to": "GPT instructions", "label": "MCP call", "tier": "live" }
   ],
   "outputs": [
     {
@@ -208,5 +217,37 @@
       "where": "tracker",
       "fields": ["capturedAt", "closedThrough", "schemaVersion", "configVersion", "dataStatus", "symbol", "price", "mark", "flagTradePlan", "flagRecommendation", "candidateSetups", "bias", "pathOutlook", "breakoutEntry", "outcomes.jsonl", "aggregates.json", "paths.jsonl", "calibration.json", "shadow.json", "vb-shadow.json", "alerts.jsonl"]
     }
-  ]
+  ],
+  "board": {
+    "engine": "scalpContext",
+    "engineTitle": "scalp-context build",
+    "lanes": [
+      { "stage": "market-data", "short": "Market", "label": "price · mark · account", "tier": "context" },
+      { "stage": "indicators-geometry", "short": "Indicators", "label": "timeframes · geometry", "tier": "context" },
+      { "stage": "pattern-detection", "short": "Pattern", "label": "candidates", "tier": "context" },
+      { "stage": "bias-topdown", "short": "Bias", "label": "bias · top-down", "tier": "context" },
+      { "stage": "trade-plan", "short": "Plan", "label": "plan · risk · strategies", "tier": "context" },
+      { "stage": "recommendation", "short": "Rec", "label": "class + reasons", "tier": "live" }
+    ],
+    "sources": [
+      { "id": "kraken", "title": "Kraken candles", "note": "Closed OHLC for BTC, ETH and SOL on every timeframe.", "feeds": ["marketData"], "label": "closed candles", "tier": "live" },
+      { "id": "bitfinex", "title": "Bitfinex fallback", "note": "The same candles when Kraken fails.", "feeds": ["marketData"], "label": "fallback", "tier": "context" },
+      { "id": "pyth", "title": "Pyth mark", "note": "The Hermes price the perps venue fills on.", "feeds": ["pythMark"], "label": "mark", "tier": "context" },
+      { "id": "wallet", "title": "Jupiter wallet read", "note": "Public address over Solana RPC, no keys.", "feeds": ["walletTracker"], "label": "margin", "tier": "context" },
+      { "id": "blob", "title": "Blob (journal / served)", "note": "Journal and served-call day files.", "feeds": ["journal (REST)", "collect"], "label": "journal · served", "tier": "context" }
+    ],
+    "outputs": [
+      { "id": "calls", "title": "Calls", "note": "flagRecommendation: GOOD / WATCH / BAD / NO DATA with reasons.", "delivery": ["REST", "MCP", "GPT", "Tracker"], "label": "class + reasons", "tier": "live" },
+      { "id": "plan", "title": "Trade plan", "note": "Entry, stop, TP1 / TP2 and gross + net R.", "delivery": ["REST", "MCP", "GPT", "Tracker"], "label": "plan", "tier": "live" },
+      { "id": "strategies", "title": "Strategies (legacy)", "note": "4h trend, 1h scalp, swing, micro-scalp.", "delivery": ["REST", "MCP", "GPT"], "label": "strategies", "tier": "legacy" },
+      { "id": "data", "title": "Data", "note": "Candles, mark, geometry, bias, top-down.", "delivery": ["REST", "MCP", "GPT", "Tracker"], "label": "context", "tier": "context" },
+      { "id": "journal", "title": "Journal", "note": "Trades you logged; never executed.", "delivery": ["REST", "GPT", "Tracker"], "label": "journal", "tier": "context" }
+    ],
+    "consumers": [
+      { "id": "gpt", "stage": "gpt", "title": "GPT", "note": "Custom GPT over the Action and MCP; answers you.", "chip": "GPT" },
+      { "id": "tracker", "stage": "tracker", "title": "Tracker", "note": "Captures every 10 min, scores on later candles, publishes this site.", "chip": "Tracker" }
+    ],
+    "loops": [{ "from": "tracker", "to": "calls", "label": "scored" }],
+    "legacy": ["strategy", "breakoutEntry"]
+  }
 }

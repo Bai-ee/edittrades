@@ -23,8 +23,7 @@ export const PAGE_CSS = `:root{
 :root[data-theme="dark"]{--black:#000000;--surface:#0E0E0E;--border:#222222;--border-visible:#3A3A3A;--seg-empty:#262626;--text-disabled:#6E6E6E;--text-secondary:#A3A3A3;--text-primary:#E8E8E8;--text-display:#FFFFFF;color-scheme:dark}
 @media (min-width:760px){:root{--tile-pad:var(--sp-5);--grid-gap:var(--sp-4);--zone-gap:var(--sp-8)}}
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
-@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+html{-webkit-text-size-adjust:100%;scroll-behavior:auto}
 body{margin:0;background:var(--black);color:var(--text-primary);font:400 var(--fs-body)/1.5 var(--grotesk)}
 main{max-width:1120px;margin:0 auto;padding:0 var(--sp-4)}
 h1,h2,h3,h4{text-wrap:balance}
@@ -40,9 +39,8 @@ dl,dd{margin:0}
 .edge-strip + .jump-nav{margin-top:0}
 footer.edge-strip{border-top:1px solid var(--border);margin-top:var(--zone-gap);padding-bottom:var(--sp-6)}
 
-/* jump nav: sticky, horizontally scrollable on phones */
-.jump-nav{position:sticky;top:0;z-index:var(--z-sticky);display:flex;gap:var(--sp-2);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:0 calc(-1 * var(--sp-4));padding:var(--sp-3) var(--sp-4);background:var(--black);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
-.jump-nav::-webkit-scrollbar{display:none}
+/* jump nav: sticky, wraps onto more rows on phones; anchor jumps are instant */
+.jump-nav{position:sticky;top:0;z-index:var(--z-sticky);display:flex;flex-wrap:wrap;gap:var(--sp-2);margin:0 calc(-1 * var(--sp-4));padding:var(--sp-3) var(--sp-4);background:var(--black);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 .jump-nav a{flex:0 0 auto;display:inline-flex;align-items:center;min-height:36px;padding:0 var(--sp-3);border:1px solid var(--border-visible);border-radius:999px;color:var(--text-primary);text-decoration:none;white-space:nowrap;transition:background-color .2s cubic-bezier(.25,1,.5,1),color .2s cubic-bezier(.25,1,.5,1)}
 .jump-nav a:hover{border-color:var(--text-display)}
 .jump-nav a.is-page{background:var(--text-display);border-color:var(--text-display);color:var(--black)}
