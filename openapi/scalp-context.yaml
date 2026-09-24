@@ -265,7 +265,7 @@ components:
           description: What the user said, verbatim. Required.
     JournalRecord:
       type: object
-      description: A stored journal line (the input fields plus server-stamped id, receivedAt, schemaVersion).
+      description: A stored journal line (the input fields plus server-stamped id, receivedAt, schemaVersion, source).
       properties:
         id:
           type: string
@@ -303,6 +303,9 @@ components:
           $ref: "#/components/schemas/JournalEngineRef"
         text:
           type: string
+        source:
+          type: [string, "null"]
+          description: Server-stamped origin; "telegram" for lines logged from the Telegram bot, null otherwise. Not accepted as input.
     JournalPostResult:
       type: object
       properties:

@@ -60,6 +60,14 @@
       "dest": "/api/journal.js"
     },
     {
+      "src": "/api/telegram-webhook/?",
+      "dest": "/api/telegram-webhook.js"
+    },
+    {
+      "src": "/api/telegram-cron/?",
+      "dest": "/api/telegram-cron.js"
+    },
+    {
       "src": "/api/mcp/?",
       "dest": "/api/scalp-context.js?__mcp=1"
     },
@@ -70,6 +78,12 @@
     {
       "src": "/(.*)",
       "dest": "/public/$1"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/telegram-cron",
+      "schedule": "* * * * *"
     }
   ],
   "git": {

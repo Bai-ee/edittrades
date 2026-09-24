@@ -31,12 +31,17 @@
  * to data/calls/ as capture rows with source 'served' (appendServedCalls: a close already
  * captured by cron is dropped). Same strip and fail-closed re-check. A failed pull warns.
  *
- * Usage: node collect.js [--data ./data] [--url <scalp-context url>] [--journal-base <url>] [--no-journal] [--no-served]
+ * Telegram alerts (T-1, docs/PLAN_TELEGRAM.md): pullTelegramStatus fetches
+ * telegram/state.json from the same Blob base and writes data/telegram-status.json with
+ * only the cron heartbeat and alert counters (telegramStatusFromState whitelist) for the
+ * page's Status "Alerts" fact. A failed pull warns; it never fails the run.
+ *
+ * Usage: node collect.js [--data ./data] [--url <scalp-context url>] [--journal-base <url>] [--no-journal] [--no-served] [--no-telegram]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, appendCalls, appendServedCalls, appendCandles, appendWallet, appendJournal, readAllCalls, CANDLE_TIMEFRAMES } from './store.js';
+import { parseArgs, appendCalls, appendServedCalls, appendCandles, appendWallet, appendJournal, readAllCalls, writeJson, telegramStatusFile, CANDLE_TIMEFRAMES } from './store.js';
 import { stripSensitive, findSensitiveKeys, recordsFromPayload, servedKey } from './records.js';
 
 // Row building lives in records.js (shared with the engine's served-calls recorder).
@@ -281,6 +286,40 @@ export async function pullServed(dataDir, base, fetchImpl = fetch, nowMs = Date.
   return { days: days.length, ...result };
 }
 
+// ---------------------------------------------------------------- Telegram alerts (T-1)
+
+const isoOrNull = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : null);
+const shortWord = (v) => (typeof v === 'string' && /^[A-Z_]{1,20}$/.test(v) ? v : null);
+
+/**
+ * The only Telegram fields the tracker keeps: cron heartbeat, today's alert count and the
+ * last alert's time/symbol/kind. Everything else in the state (ids, reasons) is dropped.
+ */
+export function telegramStatusFromState(state) {
+  const s = state && typeof state === 'object' ? state : {};
+  const alerts = s.alerts && typeof s.alerts === 'object' ? s.alerts : {};
+  const last = alerts.last && typeof alerts.last === 'object' ? alerts.last : null;
+  return {
+    cronLastRunAt: isoOrNull(s.cron && s.cron.lastRunAt),
+    alertsDay: typeof alerts.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(alerts.day) ? alerts.day : null,
+    alertsToday: Number.isInteger(alerts.today) && alerts.today >= 0 ? alerts.today : 0,
+    lastAlert: last && isoOrNull(last.at) ? { at: isoOrNull(last.at), symbol: shortWord(last.symbol), kind: shortWord(last.kind) } : null
+  };
+}
+
+/**
+ * Pull telegram/state.json into data/telegram-status.json (whitelisted). 404 -> no file
+ * written, returns null.
+ */
+export async function pullTelegramStatus(dataDir, base, fetchImpl = fetch, nowMs = Date.now()) {
+  const res = await fetchImpl(`${base}/telegram/state.json?t=${nowMs}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`telegram HTTP ${res.status}`);
+  const status = telegramStatusFromState(JSON.parse(await res.text()));
+  writeJson(telegramStatusFile(dataDir), status);
+  return status;
+}
+
 /** Write one payload's calls and candles into `dataDir`. */
 export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const rows = recordsFromPayload(payload, capturedAtMs);
@@ -331,10 +370,21 @@ async function main() {
       console.warn(`[tracker:collect] served pull failed: ${err.message}`);
     }
   }
+  let telegram = 'off';
+  const telegramBase = opts['no-telegram'] ? null : resolveJournalBase(opts);
+  if (telegramBase) {
+    try {
+      const t = await pullTelegramStatus(opts.data, telegramBase);
+      telegram = t ? `cron ${t.cronLastRunAt || 'never'}, ${t.alertsToday} alert(s) on ${t.alertsDay || '-'}` : 'none yet';
+    } catch (err) {
+      telegram = 'failed';
+      console.warn(`[tracker:collect] telegram pull failed: ${err.message}`);
+    }
+  }
   console.log(`[tracker:collect] closedThrough=${result.closedThrough} symbols=${result.symbols.join(',')} `
     + `calls +${result.calls.added} (dup ${result.calls.duplicates}) `
     + `candles 1m +${result.candles['1m']} 5m +${result.candles['5m']} 15m +${result.candles['15m']} `
-    + `wallet +${result.wallet} (${result.walletStatus}) journal ${journal} served ${served}`);
+    + `wallet +${result.wallet} (${result.walletStatus}) journal ${journal} served ${served} telegram ${telegram}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -56,8 +56,11 @@ function safeCompare(a, b) {
 
 // ---------------------------------------------------------------- blob store
 
-/** Append `record` to its day file unless its id is already stored. */
-async function appendRecord(store, record) {
+/**
+ * Append `record` to its day file unless its id is already stored. Exported so the
+ * Telegram bot's /log (api/telegram-webhook.js) writes through this exact path.
+ */
+export async function appendRecord(store, record) {
   const day = journalDay(record.receivedAt);
   const prevDay = new Date(Date.parse(`${day}T00:00:00Z`) - DAY_MS).toISOString().slice(0, 10);
   const prev = await readBlob(store.get, journalDayPath(prevDay));
@@ -81,8 +84,8 @@ async function appendRecord(store, record) {
   return { duplicate: false, day };
 }
 
-/** Last `limit` records, newest first (by receivedAt). */
-async function readRecent(store, limit) {
+/** Last `limit` records, newest first (by receivedAt). Exported for the Telegram bot's /journal. */
+export async function readRecent(store, limit) {
   const manifestBlob = await readBlob(store.get, JOURNAL_MANIFEST_PATH);
   let manifest = null;
   try { manifest = manifestBlob ? JSON.parse(manifestBlob.text) : null; } catch { manifest = null; }

@@ -240,6 +240,13 @@ export function readWallet(dataDir) {
   return readJsonl(walletFile(dataDir)).sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
 }
 
+// ---------------------------------------------------------------- Telegram alerts (T-1)
+
+/** Whitelisted Telegram alert status pulled from Blob telegram/state.json (collect.js). */
+export function telegramStatusFile(dataDir) {
+  return path.join(dataDir, 'telegram-status.json');
+}
+
 // ---------------------------------------------------------------- journal (T2)
 
 export function journalDir(dataDir) {

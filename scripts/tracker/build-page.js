@@ -30,7 +30,7 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, ensureDir, readJsonl, readJson, readWallet, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
+import { parseArgs, ensureDir, readJsonl, readJson, readWallet, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile } from './store.js';
 import { aggregateDataDir } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
@@ -565,6 +565,26 @@ function v3ShadowBody(summary, rows) {
  * @param {{outcomes?: Array<Object>, wallet?: Array<Object>}} [data] - raw outcome rows and
  *   wallet.jsonl rows for the charts (both optional; empty charts render their empty state)
  */
+/**
+ * Status "Alerts" fact (T-1 Telegram, docs/PLAN_TELEGRAM.md): last alert, alerts today and
+ * the Telegram cron's heartbeat age, from data/telegram-status.json (collect.js). The cron
+ * saves its heartbeat at most every 10 minutes, so the age reads up to ~10 min high.
+ * @param {Object|null} tg - telegramStatusFromState output, or null before the first pull
+ * @param {number} nowMs
+ * @returns {string} one status-fact <div>
+ */
+export function alertsFact(tg, nowMs) {
+  const none = !tg || (!tg.lastAlert && !tg.cronLastRunAt);
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+  const count = tg && tg.alertsDay === today ? tg.alertsToday : 0;
+  const cronMs = tg && tg.cronLastRunAt ? Date.parse(tg.cronLastRunAt) : NaN;
+  const cronText = Number.isFinite(cronMs) ? `TELEGRAM CRON ${Math.max(0, Math.round((nowMs - cronMs) / 60_000))} MIN AGO` : 'TELEGRAM CRON NOT SEEN';
+  const main = none ? '[NO ALERTS YET]'
+    : tg.lastAlert ? `${tg.lastAlert.kind || 'ALERT'}${tg.lastAlert.symbol ? ` ${tg.lastAlert.symbol}` : ''} · ${count} today` : `[NO ALERTS YET] · ${count} today`;
+  return `<div class="status-fact" id="system-alerts-fact"><dt>Alerts</dt><dd id="system-alerts-last">${esc(main)}</dd>`
+    + `<dd class="fact-sub" id="system-alerts-sub">${esc(tg && tg.lastAlert ? `${time(tg.lastAlert.at)} · ${cronText}` : cronText)}</dd></div>`;
+}
+
 export function renderHtml(agg, data = {}) {
   const t = agg.tiles;
   const nowMs = Date.parse(agg.generatedAt);
@@ -678,6 +698,7 @@ export function renderHtml(agg, data = {}) {
     + `<div class="status-fact" id="system-last-run-fact"><dt>Last run</dt><dd id="system-last-run-age">${esc(status.mins === null ? 'none yet' : `${status.mins} min ago`)}</dd><dd class="fact-sub" id="system-last-run-time">${esc(time(t.lastCapture))}</dd></div>`
     + `<div class="status-fact" id="system-next-run-fact"><dt>Next run</dt><dd id="system-next-run">${esc(next ? `in ${Math.max(1, Math.ceil((next - nowMs) / 60_000))} min` : dash)}</dd><dd class="fact-sub">EVERY 10 MIN · :07 :17 … :57 UTC</dd></div>`
     + `<div class="status-fact" id="system-runs-fact"><dt>Runs · 24 h</dt><dd id="system-runs-24h">${runs24h} / ${expected24h || dash}</dd><dd class="fact-sub">${act.runs} since ${esc(act.firstRun ? act.firstRun.slice(0, 10) : dash)}</dd></div>`
+    + alertsFact(data.telegram || null, nowMs)
     + `</dl>`
     + `<div class="heartbeat-wrap" id="system-heartbeat-wrap"><div class="heartbeat" id="system-heartbeat" style="grid-template-columns:repeat(${HEARTBEAT_SLOTS},1fr)" role="img" aria-label="${slotsHit} of ${expectedSlots} half-hour slots in the last 24 hours had a run">${beats}</div>`
     + `<div class="heartbeat-axis" id="system-heartbeat-axis"><span>24 H AGO</span><span class="heartbeat-key"><i class="on"></i>RUN <i class="miss"></i>MISSED</span><span>BUILT ${esc(time(agg.generatedAt).slice(11))}</span></div></div>`;
@@ -898,6 +919,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   writeFileSync(htmlFile, renderHtml(agg, {
     outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir),
     journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir)),
+    telegram: readJson(telegramStatusFile(dataDir), null),
     paths: readJsonl(pathsFile(dataDir)), calibration: readJson(calibrationFile(dataDir), null),
     shadowOutcomes: readJsonl(shadowOutcomesFile(dataDir)), shadowSummary: readJson(shadowSummaryFile(dataDir), null),
     v3ShadowOutcomes: readJsonl(v3ShadowOutcomesFile(dataDir)), v3ShadowSummary: readJson(v3ShadowSummaryFile(dataDir), null)

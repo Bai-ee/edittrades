@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-09-24 — T-1 Telegram alerts + read commands (branch `upgrade-signal-engine`, not deployed)
+
+Plan: `docs/PLAN_TELEGRAM.md` (owner-approved 2026-09-24). Read-only toward the engine and
+never execution: no engine rule, threshold, schema (1.24.0) or config (2026.09.24-5) change.
+
+- `api/telegram-webhook.js` (new, `POST /api/telegram-webhook`): secret header
+  (`TELEGRAM_WEBHOOK_SECRET`, else 403), owner allowlist (`TELEGRAM_ALLOWED_USER_IDS`, else
+  200 and silence). Commands `/signals`, `/why SYM`, `/flags [SYM]`, `/chart SYM TF`,
+  `/wallet`, `/journal [n]`, `/status`, `/log text`, `/testalert`, `/help`. No trade commands.
+- `api/telegram-cron.js` (new, `GET /api/telegram-cron`, `vercel.json` `crons` every
+  minute, `CRON_SECRET` bearer): one build per run; alerts only on transitions (NEW GOOD with
+  chart, NEW SETUP, GOOD ended, data or mark problems over 5 min, repeated at most every
+  30 min). State in Blob `telegram/state.json`, claimed with the ETag before sending.
+- `lib/telegram.js` (new): pure formatters (GPT FORMAT lines incl. the SETUP line), the alert
+  state machine (dedup by candidate id), Bot API client (HTML, chunked under 4,000 chars,
+  5 s timeout, never throws).
+- `api/journal.js`: `appendRecord`/`readRecent` exported so `/log` and `/journal` use the
+  exact REST path. `lib/journalSchema.js`: records gain a server-stamped `source`
+  (`"telegram"` from the bot, `null` from the GPT Action; never read from the body).
+- Tracker: `collect.js` pulls `telegram/state.json` into a whitelisted
+  `data/telegram-status.json`; the Status section gains an "Alerts" fact (last alert, alerts
+  today, cron age; `[NO ALERTS YET]` before the first alert).
+- `vercel.json`: routes for both functions before the catch-all, `crons` entry.
+- Docs: connector doc endpoint/env/verify/test tables, `DOCUMENTATION_INDEX.md`,
+  `ARCHITECTURE_MAP.json` (Delivery stage, `TELEGRAM` delivery chip on Calls and Trade plan),
+  `openapi/scalp-context.yaml` `JournalRecord.source`.
+
+Tests: new `test:telegram` 32; `test:journal` 19, `test:mcp` 52 unchanged. Owner steps: set
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_WEBHOOK_SECRET`, `CRON_SECRET`;
+register the webhook with `secret_token`; `/start` then `/status`.
+
 ## 2026-09-24 — D-variant revised: minRR 2.5 live, net gate off, 3R shadow (branch `upgrade-signal-engine`)
 
 Owner decision, supersedes D-variant (`docs/OWNER_DECISIONS_2026-09-24.md`): lean toward
