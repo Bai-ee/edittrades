@@ -295,7 +295,9 @@ async function run() {
     const froms = [...api.matchAll(/from\s+['"]([^'"]+)['"]/g)].map((m) => m[1]).sort();
     assertEqual(froms.join(), "../lib/journalSchema.js,@vercel/blob,crypto", 'imports');
     const src = readFileSync(new URL('./api/journal.js', import.meta.url), 'utf8');
-    for (const env of ['SOLANA_PRIVATE_KEY', 'SCALP_CONTEXT_API_KEY', 'TRADE_EXECUTION_API_KEY', 'SOLANA_RPC_URL']) assert(!src.includes(`env.${env}`), `reads ${env}`);
+    // SCALP_CONTEXT_API_KEY is read on purpose: one ChatGPT Action carries one bearer for
+    // every operation, so the journal accepts the Action's key as well as its own.
+    for (const env of ['SOLANA_PRIVATE_KEY', 'TRADE_EXECUTION_API_KEY', 'SOLANA_RPC_URL']) assert(!src.includes(`env.${env}`), `reads ${env}`);
   });
 
   await test('MCP route: no journal import, no journal tool', () => {
