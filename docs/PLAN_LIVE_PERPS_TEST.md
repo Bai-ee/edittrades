@@ -33,3 +33,24 @@ Go/no-go: all of T1–T5 pass twice; then raise caps by owner decision only.
 
 ## Out of scope
 Auto-execution, spot swaps, anything GPT/MCP-triggered, raising caps.
+
+## Owner runbook (2026-09-25) — env, deploy, T1
+The orchestrator session cannot write Vercel env or deploy (permission classifier), so the owner runs these from the repo root. Values are piped, never echoed. Master switch is `TRADE_EXECUTION_ENABLED` (gates.js), not `EXECUTION_ENABLED`.
+
+```bash
+# 1. wallet + RPC (values from local .env, never printed)
+grep '^SOLANA_PRIVATE_KEY=' .env | cut -d= -f2- | npx vercel env add SOLANA_PRIVATE_KEY production --sensitive
+grep '^SOLANA_RPC_URL=' .env     | cut -d= -f2- | npx vercel env add SOLANA_RPC_URL production --sensitive
+# 2. PIN: type your own 6+ digit PIN in place of <PIN>
+printf '%s' '<PIN>' | npx vercel env add EXECUTION_PIN production --sensitive
+# 3. gates + tiny caps (dry first; flip EXECUTION_MODE to live only for T2+)
+for kv in TRADE_EXECUTION_ENABLED=true EXECUTION_MODE=dry EXECUTION_OWNER_IDS=<your telegram user id> \
+  EXECUTION_MAX_SIZE_USD=20 EXECUTION_MAX_LEVERAGE=2 EXECUTION_MAX_LOSS_USD_PER_TRADE=2 \
+  EXECUTION_MAX_DAILY_LOSS_USD=6 EXECUTION_MAX_OPEN_POSITIONS=1 EXECUTION_MAX_ENTRY_DRIFT_BPS=15 \
+  JUPITER_SIMULATE_ONLY=true; do printf '%s' "${kv#*=}" | npx vercel env add "${kv%%=*}" production; done
+# 4. deploy HEAD (f140f33 or later) and verify
+npx vercel --prod --yes
+```
+T1 (dry): in Telegram `/order SOL long size 20 lev 2 sl <mark-1.5%> tp <mark+3%>` → ticket → confirm with PIN → DRY OK card, audit line in `/status`.
+T1b: set `EXECUTION_MODE=live` (keep `JUPITER_SIMULATE_ONLY=true`), redeploy, repeat → simulation card, nothing sent.
+T2+: set `JUPITER_SIMULATE_ONLY=false`, redeploy, run T2–T5 from the protocol above. `/kill` at any point stops everything.
