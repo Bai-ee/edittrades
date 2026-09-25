@@ -168,6 +168,7 @@ function fakeBlob() {
 /** Fake Bot API: records every call (method, chat, text or multipart), answers ok. */
 function fakeTelegram({ fail = false, failMethods = [] } = {}) {
   const calls = [];
+  let msgSeq = 1000;
   const fetchImpl = async (url, init) => {
     const m = String(url).match(/\/bot([^/]+)\/(\w+)$/);
     const entry = { tokenOk: m && m[1] === TOKEN, method: m ? m[2] : null };
@@ -187,6 +188,9 @@ function fakeTelegram({ fail = false, failMethods = [] } = {}) {
     calls.push(entry);
     if (fail) throw Object.assign(new Error('network down'), { name: 'TypeError' });
     if (failMethods.includes(entry.method)) return new Response(JSON.stringify({ ok: false, description: 'Bad Request: message can\'t be deleted' }), { status: 400 });
+    // T-3 F: sendMessage returns an incrementing message_id (editMessageText target); the
+    // real Bot API always includes one.
+    if (entry.method === 'sendMessage') { entry.messageId = ++msgSeq; return new Response(JSON.stringify({ ok: true, result: { message_id: entry.messageId } }), { status: 200 }); }
     return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
   };
   return { calls, fetchImpl };
@@ -1902,7 +1906,7 @@ async function run() {
   }
   const xpayload = (call) => payload({ BTC: goodRiskSym(call) });
   const chainPos = { positionId: POS_ID, market: 'BTCUSDT', symbol: 'BTC', direction: 'long', sizeUsd: 50, collateralUsd: 16.67, leverage: 3, entryPrice: 84600, markPrice: 84650, liquidationPrice: 57000, unrealizedPnlUsd: 0.03 };
-  function mockExecutor({ mode = 'dry', preflight = null, positions = [chainPos], withPrepare = true, killOk = true } = {}) {
+  function mockExecutor({ mode = 'dry', preflight = null, positions = [chainPos], withPrepare = true, killOk = true, openOutcome = null } = {}) {
     const calls = [];
     const orders = new Map();
     const ex = {
@@ -1920,6 +1924,19 @@ async function run() {
         if (!o) return { ok: false, mode, reasons: ['ticket_not_found'], error: 'ticket_not_found' };
         orders.delete(nonce);
         if (o.action !== 'open') return mode === 'dry' ? { ok: true, mode, dryRunId: 'dry_close_1', reasons: [] } : { ok: true, mode, txSignature: '5closeSigAAAAAAAAAAAA', reasons: [] };
+        // T-3 F: opt-in phase simulation (openOutcome), so tests can exercise the live
+        // phase card (submitted -> filled -> stops attached -> verified) and the
+        // emergency-close path through the real webhook handler. Existing tests that
+        // don't set openOutcome see no phase calls at all (unchanged behavior).
+        if (mode === 'live' && openOutcome && typeof ctx.onPhase === 'function') {
+          await ctx.onPhase('submitted', { symbol: o.symbol, direction: o.direction, sizeUsd: o.sizeUsd, leverage: o.leverage });
+          if (openOutcome === 'fill_failed') return { ok: false, mode, reasons: ['fill_failed', 'timeout'], error: 'fill_failed', cancelled: true };
+          await ctx.onPhase('filled', { fillPrice: 84612 });
+          if (openOutcome === 'emergency') return { ok: false, mode, reasons: ['stops_failed', 'emergency_closed'], error: 'stops_attach_failed', emergencyClose: { ok: true, attempt: 1, txSignature: '5emergencySigAAAAAAAAA' } };
+          if (openOutcome === 'emergency_fail') return { ok: false, mode, reasons: ['stops_failed', 'emergency_close_failed', 'kill_engaged'], error: 'emergency_close_failed', emergencyClose: { ok: false, attempts: 25 } };
+          await ctx.onPhase('stops_attached', {});
+          await ctx.onPhase('verified', {});
+        }
         return mode === 'dry' ? { ok: true, mode: 'dry', dryRunId: 'dry_0123456789abcdef', order: o, reasons: [] }
           : { ok: true, mode: 'live', txSignature: '5sigLiveABCDEFGHIJKLMNOPQRS', position: { positionId: POS_ID, symbol: 'BTC', direction: 'long', sizeUsd: o.sizeUsd, leverage: o.leverage, stop: o.stop, tp1: o.tp1 }, order: { ...o, expectedFill: 84605 }, reasons: [] };
       },
@@ -1943,14 +1960,14 @@ async function run() {
     const update = { update_id: updateSeq++, message: { message_id: o.messageId ?? 77, from: { id: OWNER }, chat: { id: OWNER, type: 'private' }, text: o.text } };
     const res = mockRes();
     const { logs } = await quiet(() => handleTelegramWebhook({ method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) }, res, deps(o)));
-    return { res, tg: o.tg, blob: o.blob, logs, sent: o.tg.calls.filter((c) => c.method === 'sendMessage') };
+    return { res, tg: o.tg, blob: o.blob, logs, sent: o.tg.calls.filter((c) => c.method === 'sendMessage'), edited: o.tg.calls.filter((c) => c.method === 'editMessageText') };
   }
   async function xtap(o) {
     o.blob = o.blob || fakeBlob(); o.tg = o.tg || fakeTelegram();
     const update = { update_id: updateSeq++, callback_query: { id: `cbq${updateSeq}`, from: { id: OWNER }, message: { message_id: 9, chat: { id: OWNER, type: 'private' } }, data: o.data } };
     const res = mockRes();
     const { logs } = await quiet(() => handleTelegramWebhook({ method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) }, res, deps(o)));
-    return { res, tg: o.tg, blob: o.blob, logs, sent: o.tg.calls.filter((c) => c.method === 'sendMessage') };
+    return { res, tg: o.tg, blob: o.blob, logs, sent: o.tg.calls.filter((c) => c.method === 'sendMessage'), edited: o.tg.calls.filter((c) => c.method === 'editMessageText') };
   }
   const lastText = (r) => (r.sent.length ? r.sent[r.sent.length - 1].text : '');
   const lastMarkup = (r) => (r.sent.length ? r.sent[r.sent.length - 1].replyMarkup : null);
@@ -2049,6 +2066,79 @@ async function run() {
     assert(t.startsWith('✅ FILLED · ₿ <b>BTC 5m ▲ LONG</b>') && t.includes('84,605.00') && t.includes('PosPDA…1111') && t.includes('tx 5sigLi…PQRS') && t.includes('Tracking on'), t);
     const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
     assert(st.tracked.some((x) => x.candidateId === GOOD_ID && x.took === true), 'live fill: tracked as took');
+  });
+
+  await test('T-3 F live open phases: one message sent then edited in place through filled -> stops attached -> verified -> FILLED', async () => {
+    const ex = mockExecutor({ mode: 'live', openOutcome: 'ok' });
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    assertEqual(r.sent.length, 1, 'exactly one sendMessage: the first phase card');
+    assert(r.sent[0].text.startsWith('⏳ OPENING') && r.sent[0].text.includes('submitted ✔'), r.sent[0].text);
+    assertEqual(r.edited.length, 4, 'three phase edits (filled, stops attached, verified) + the terminal result edit');
+    assert(r.edited.every((c) => c.messageId === r.sent[0].messageId), 'every edit targets the phase card message');
+    assert(r.edited[0].text.includes('filled @') && r.edited[0].text.includes('84,612.00'), r.edited[0].text);
+    assert(r.edited[1].text.includes('stops attached ✔') && !r.edited[1].text.includes('verified ✔'), r.edited[1].text);
+    assert(r.edited[2].text.startsWith('✅ OPENED') && r.edited[2].text.includes('verified ✔'), r.edited[2].text);
+    assert(r.edited[3].text.startsWith('✅ FILLED · ₿ <b>BTC 5m ▲ LONG</b>'), r.edited[3].text);
+    assert(execLines(blob).some((l) => l.event === 'filled'), 'the terminal edit is still logged as an EXEC line');
+  });
+
+  await test('T-3 F live open: stops-attach failure edits the SAME message into a 🛑 EMERGENCY CLOSE card', async () => {
+    const ex = mockExecutor({ mode: 'live', openOutcome: 'emergency' });
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    assertEqual(r.sent.length, 1, 'one initial phase card');
+    const last = r.edited.at(-1);
+    assert(last.messageId === r.sent[0].messageId, 'edited the phase card, not a new message');
+    assert(last.text.startsWith('🛑 EMERGENCY CLOSE'), last.text);
+    assert(last.text.includes('closed at market') && !last.text.includes('KILL'), last.text);
+    assert(execLines(blob).some((l) => l.event === 'emergency_close'), 'logged as emergency_close');
+  });
+
+  await test('T-3 F live open: emergency close itself failing -> card flags KILL ENGAGED and manual check', async () => {
+    const ex = mockExecutor({ mode: 'live', openOutcome: 'emergency_fail' });
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    const last = r.edited.at(-1);
+    assert(last.text.startsWith('🛑 EMERGENCY CLOSE'), last.text);
+    assert(last.text.includes('kill') && last.text.includes('ENGAGED'), last.text);
+    assert(last.text.includes('could NOT be closed'), last.text);
+  });
+
+  await test('T-3 F live open: a plain fill failure (waitForFill timeout) is NOT rendered as an emergency card', async () => {
+    const ex = mockExecutor({ mode: 'live', openOutcome: 'fill_failed' });
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    assertEqual(r.sent.length, 1, 'one initial phase card');
+    const last = r.edited.at(-1);
+    assert(last.text.includes('NOT DONE'), last.text);
+    assert(!last.text.includes('EMERGENCY'), 'a timed-out fill is not an emergency close');
+  });
+
+  await test('T-3 F dry-run open: no phase card at all (dry mode has no phases), unchanged from the pre-T-3-F single-send behavior', async () => {
+    const ex = mockExecutor({ mode: 'dry', openOutcome: 'ok' }); // openOutcome only applies in live mode
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    assertEqual(r.sent.length, 1, 'one sendMessage: the result card itself');
+    assertEqual(r.edited.length, 0, 'no edits: there was never a phase card to edit');
+    assert(r.sent[0].text.startsWith('🧪 DRY RUN OK'), r.sent[0].text);
+  });
+
+  await test('T-3 F /positions: stops line shows SL / TP presence per position, or ⚠ none', async () => {
+    const withStops = { ...chainPos, stop: 84390, tp: 85146 };
+    const r = await xhook({ text: '/positions', executor: mockExecutor({ positions: [withStops] }) });
+    assert(lastText(r).includes('stops') && lastText(r).includes('SL ✔ TP ✔'), lastText(r));
+    const partial = { ...chainPos, stop: 84390 };
+    delete partial.tp;
+    const r2 = await xhook({ text: '/positions', executor: mockExecutor({ positions: [partial] }) });
+    assert(lastText(r2).includes('SL ✔ TP ✗'), lastText(r2));
+    const r3 = await xhook({ text: '/positions', executor: mockExecutor({ positions: [chainPos] }) }); // chainPos carries no stop/tp
+    assert(lastText(r3).includes('⚠ none'), lastText(r3));
   });
 
   await test('/confirm: wrong PIN -> ❌ PIN (auto-kill message on the 3rd), deleted, never echoed; malformed -> usage; Cancel consumes the ticket via cancelTicket, never confirms', async () => {

@@ -57,7 +57,7 @@ import {
   EXPIRED_REPLY, TRACK_MAX, formatMarket, fmtTag, fmtLvl, RULE,
   EXEC_OFF_REPLY, ORDER_USAGE, CONFIRM_USAGE, STOPS_USAGE, EXEC_TICKETS_PATH, EXEC_TICKET_TTL_MS, isOpenReady, withOpenButton, execCaps, execMode,
   orderIntentFromPlan, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
-  formatResultCard, formatConfirmFail, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
+  formatResultCard, formatConfirmFail, formatOpenPhaseCard, formatEmergencyCloseCard, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
   formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
@@ -307,9 +307,13 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   /** ctx.mark for preflight: the payload symbol's mark plus the Kraken close (executor picks mark when ok). */
   const markCtx = (symbol, s) => (s && typeof s === 'object' ? { symbol, status: s.mark && s.mark.status ? s.mark.status : 'unavailable', price: s.mark ? s.mark.price ?? null : null, close: typeof s.price === 'number' ? s.price : null } : null);
   let execSeq = 0;
-  /** Reply, then log the message as a kind EXEC line (best effort, never throws). */
-  const execSend = async (text, markup, meta = {}) => {
-    const r = await reply(text, markup || menuKeyboard());
+  /**
+   * Reply (or, with `editMessageId`, edit that message in place -- T-3 F: the live open
+   * phase card's terminal edit), then log the message as a kind EXEC line (best effort,
+   * never throws).
+   */
+  const execSend = async (text, markup, meta = {}, editMessageId = null) => {
+    const r = editMessageId ? await bot.editMessageText(chatId, editMessageId, text, { replyMarkup: markup || null }) : await reply(text, markup || menuKeyboard());
     if (hasStore) {
       try {
         await recordTelegramLogs({ alerts: [execLogLine({ id: `exec_${requestId}_${execSeq++}`, sentAtMs: now(), text, delivered: Boolean(r && r.ok), ...meta })] }, { store, env, nowMs: now() });
@@ -475,12 +479,33 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
             else await execSend(formatManageResult(r, taken), null, { ...meta, event: `done_${taken.action}` });
           }
         } else {
-          let r;
-          try { r = await ex.confirm(nonce, pin, ctx()); } catch (err) { r = { ok: false, error: `confirm failed (${errName(err)})` }; }
           const tk = t || {};
+          // T-3 F: in live mode, the phase card is sent once (on `submitted`) and then
+          // edited in place for every later phase; dry mode has no phases (skip straight
+          // to the result card).
+          const status0 = await safeStatus();
+          const mode0 = execMode(status0);
+          let phaseMessageId = null;
+          const onPhase = mode0 === 'live' ? async (phase, info) => {
+            const text = formatOpenPhaseCard(phase, { symbol: tk.symbol, direction: tk.direction, sizeUsd: tk.sizeUsd, leverage: tk.leverage, ...info }, { mode: mode0, timeframe: tk.timeframe });
+            try {
+              if (phaseMessageId === null) {
+                const sent = await bot.sendMessage(chatId, text, { replyMarkup: null });
+                phaseMessageId = sent && typeof sent.message_id === 'number' ? sent.message_id : null;
+              } else {
+                await bot.editMessageText(chatId, phaseMessageId, text);
+              }
+            } catch (err) { log('exec', ` reason=phase_card_${errName(err)}`); }
+          } : undefined;
+          let r;
+          try { r = await ex.confirm(nonce, pin, ctx({ onPhase })); } catch (err) { r = { ok: false, error: `confirm failed (${errName(err)})` }; }
           const meta = { symbol: tk.symbol || null, timeframe: tk.timeframe || null, direction: tk.direction || null, candidateId: tk.candidateId || null, entry: tk.entry, stop: tk.stop, tp1: tk.tp1, mode: r && r.mode };
-          if (!r || r.ok !== true) await execSend(formatConfirmFail(r), null, { ...meta, event: 'confirm_failed' });
-          else {
+          const reasons = Array.isArray(r && r.reasons) ? r.reasons : [];
+          const emergencyClosed = reasons.includes('emergency_closed') || reasons.includes('emergency_close_failed');
+          if (!r || r.ok !== true) {
+            const text = emergencyClosed ? formatEmergencyCloseCard(r, { symbol: tk.symbol, direction: tk.direction }, { mode: meta.mode, timeframe: tk.timeframe }) : formatConfirmFail(r);
+            await execSend(text, null, { ...meta, event: emergencyClosed ? 'emergency_close' : 'confirm_failed' }, phaseMessageId);
+          } else {
             // Auto-track the candidate (the executor journals; no second journal write). Only a
             // live fill marks it taken; a dry run is tracked only.
             let tracking = null;
@@ -489,7 +514,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
               tracking = !out ? false : out.result === 'full' ? 'full' : true;
             }
             if (hasStore) await tickets.take(nonce);
-            await execSend(formatResultCard(r, tk, { tracking }), null, { ...meta, event: r.mode === 'dry' ? 'dry_ok' : 'filled' });
+            await execSend(formatResultCard(r, tk, { tracking }), null, { ...meta, event: r.mode === 'dry' ? 'dry_ok' : 'filled' }, phaseMessageId);
           }
         }
       }

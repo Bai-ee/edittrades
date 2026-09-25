@@ -605,6 +605,23 @@ async function run() {
     k.jupiter.positions = [openPos];
     has((await k.ex.updateStops('PosAAA', 84600, null, PIN, ctx)).reasons, 'kill_switch', 'kill');
   });
+  await test('T-3 F listPositions: attaches stop/tp from the most recent execution open/adjust journal record (F4 "/positions" stops line)', async () => {
+    const { ex, jupiter, store } = setup();
+    jupiter.positions = [{ ...openPos, positionId: 'PosBBB' }];
+    const before = await ex.listPositions();
+    eq(before.positions[0].stop, undefined, 'no journal record yet -> no stop attached');
+    const openRow = { id: 'x_open1', kind: 'open', source: 'execution', stop: 84200, tp1: 85000, execRef: { positionIdHash: idHash('PosBBB') } };
+    store.files.set('journal/2026-09-25.jsonl', { text: `${JSON.stringify(openRow)}\n`, etag: '"j1"' });
+    const after = await ex.listPositions();
+    eq(after.positions[0].stop, 84200, 'stop from the open record');
+    eq(after.positions[0].tp, 85000, 'tp from the open record (tp1 field)');
+    // A later adjust supersedes the open record.
+    const adjustRow = { id: 'x_adj1', kind: 'adjust', source: 'execution', stop: 84600, tp1: 86000, execRef: { positionIdHash: idHash('PosBBB') } };
+    store.files.set('journal/2026-09-25.jsonl', { text: `${JSON.stringify(openRow)}\n${JSON.stringify(adjustRow)}\n`, etag: '"j2"' });
+    const latest = await ex.listPositions();
+    eq(latest.positions[0].stop, 84600, 'the later adjust wins');
+    eq(latest.positions[0].tp, 86000, 'the later adjust tp wins');
+  });
   await test('kill / arm: owner only; arm needs PIN; env kill survives arm', async () => {
     const { ex } = setup({ env: baseEnv({ EXECUTION_KILL: 'true' }) });
     has((await ex.kill({ userId: 5 })).reasons, 'not_owner', 'stranger kill');
