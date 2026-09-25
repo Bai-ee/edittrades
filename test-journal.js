@@ -294,6 +294,17 @@ async function run() {
     assertEqual(seen, '"fresh"', 'head etag wins over the get etag');
   });
 
+  await test('stale body guard: when head() etag differs from get() etag, the body is re-fetched from the blob URL before change() runs', async () => {
+    const get = async () => ({ stream: new Response('{"n":1}').body, blob: { etag: '"old"', url: 'https://blob.example/x.json' } });
+    const head = async () => ({ etag: '"new"', url: 'https://blob.example/x.json' });
+    const fetchImpl = async (url) => ({ ok: true, text: async () => (url.includes('nocache=') ? '{"n":2}' : '{"n":1}') });
+    let wrote = null; let ifMatch = null;
+    const put = async (_p, body, opts) => { wrote = body; ifMatch = opts.ifMatch; return { url: 'u' }; };
+    await updateBlob({ get, put, head, fetchImpl }, 'x.json', 'application/json', (text) => JSON.stringify({ n: JSON.parse(text).n + 1 }));
+    assertEqual(wrote, '{"n":3}', 'change() saw the fresh body (n=2), not the stale one');
+    assertEqual(ifMatch, '"new"', 'write guarded by the fresh etag');
+  });
+
   await test('T6 completion plan A4: isOverwriteConflict recognizes BlobAccessError; updateBlob gives up after WRITE_ATTEMPTS', async () => {
     assert(isOverwriteConflict({ name: 'BlobAccessError' }), 'name match');
     assert(isOverwriteConflict({ name: 'Error', message: 'This blob already exists, use allowOverwrite: true' }), 'message match');
