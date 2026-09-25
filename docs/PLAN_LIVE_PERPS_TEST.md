@@ -1,0 +1,35 @@
+# T-3 F — Make live Jupiter perp trades work, then test on the real wallet with tiny caps
+
+Last updated: 2026-09-25. Owner-approved direction: "good enough to start placing live perp trades".
+Baseline: 8e98eae. Builders exist (open with SL/TP, close, update-stops, quote, capacity, build/simulate/send split, position read). NOT done: executor live wiring (`LIVE_CAPABILITIES` all false), keeper-fill two-phase open, transaction landing (rebroadcast/EXPIRED), live test.
+
+## Blockers, in order
+1. **Keeper fill is asynchronous.** On Perps v2 `buildOpenPosition` submits an *increase position request*; a keeper fills it seconds later. The SL/TP trigger requests reference the filled position, so they cannot ride in the same transaction reliably. Two-phase open is required: submit → wait for fill → attach stops → verify.
+2. **Naked-position risk.** If phase 2 (attach stops) fails, the account holds a position with no stop. The executor must close it immediately (market decrease) and alert; if the close also fails, kill + alert + keep retrying the close every 5 s for 2 min.
+3. **Transaction landing.** One send is not enough on Solana. Adopt the proven pattern: rebroadcast the identical signed bytes every 2 s while status is unknown; declare EXPIRED only when finalized block height > lastValidBlockHeight and a fresh signature lookup finds nothing; exactly-once apply guarded by the action id before any journal/audit write.
+4. **Executor wiring.** Live open/close/update call the builders: build → simulate (refuse on error) → send with landing → observe → audit each phase → journal only on confirmed fill.
+
+## Build (single Sonnet pass, code-only, tests mocked; no network in tests)
+F1 `services/jupiterPerps.js`: `landTransaction(signedTx, connection, { rebroadcastEveryMs: 2000, observePollMs: 1000, maxWaitMs: 90000 })` → `{ status: 'confirmed'|'expired'|'failed', signature, slot, err, logs }` using getSignatureStatuses + getBlockHeight vs lastValidBlockHeight. `sendSigned` uses it.
+F2 `services/jupiterPerps.js`: `waitForFill(positionRequestPDA, positionPDA, connection, { pollMs: 1000, maxWaitMs: 60000 })` → `{ filled: true, position }` when the request account is closed/executed and the position account shows size > 0; `{ filled: false, reason }` on timeout or rejection (request account shows rejected/cancelled). Keep the request cancel builder if the IDL has one (`cancel` unfilled request on timeout) and use it.
+F3 `lib/execution/executor.js` live paths:
+   - open: preflight → build increase request (no stops) → simulate → land → waitForFill → build trigger requests (SL, TP) → simulate → land each → verify via getPerpPositions + trigger request accounts → audit `phase` events (submitted, filled, stops_attached, verified). On any stops failure: `buildClosePosition` full → land → audit `emergency_close`; on close failure: kill switch on + Telegram alert + retry close every 5 s up to 2 min. Journal `open` only after `verified` (fill price from the position account).
+   - close / update: build → simulate → land → verify → journal `close`/`adjust`.
+   - `LIVE_CAPABILITIES` → { openWithStops: true, close: true, update: true } once the above exists; keep `live_*_unsupported` only for anything not implemented.
+   - Exactly-once: an `actionId` per ticket; a terminal-state record in Blob `execution/actions.json` guarded by ETag; a retry/crash cannot re-send or double-journal.
+F4 Telegram (lib/telegram.js, api/telegram-webhook.js): result card shows phases live: `submitted → filled @price → stops attached → verified` updating one message (editMessageText) as events arrive from the webhook's await; on emergency close a 🛑 card; `/positions` shows on-chain SL/TP presence per position (`stops: SL ✔ TP ✔` or `⚠ none`).
+F5 Tests: landing state machine (dropped → rebroadcast → confirmed; expired path; exactly-once), waitForFill states, two-phase open happy path, stops-failure → emergency close, close failure → kill + alert, exactly-once actionId, executor live wiring with mocked builders/connection, Telegram phase card. All suites green; `test:execution`, `test:jupiter`, `test:telegram` counts reported.
+F6 Docs: docs/PLAN_TELEGRAM_EXECUTION.md "Live flow" section; connector doc env rows (`EXECUTION_MODE=live` prerequisites); CHANGELOG.
+
+## Live test protocol (owner + orchestrator, after F1–F6 are reviewed and deployed)
+Prereqs the owner sets in Vercel: `SOLANA_PRIVATE_KEY` (the trading wallet; funded with a small stable balance), `SOLANA_RPC_URL` (paid RPC strongly recommended), `EXECUTION_PIN`. Orchestrator sets: `EXECUTION_ENABLED=true`, `EXECUTION_MODE=live`, `EXECUTION_OWNER_IDS`, caps `EXECUTION_MAX_SIZE_USD=20`, `EXECUTION_MAX_LEVERAGE=2`, `EXECUTION_MAX_LOSS_USD_PER_TRADE=2`, `EXECUTION_MAX_DAILY_LOSS_USD=6`, `EXECUTION_MAX_OPEN_POSITIONS=1`, `JUPITER_SIMULATE_ONLY=false`.
+T1 Dry: `/order SOL long size 20 lev 2 sl <mark-1.5%> tp <mark+3%>` in `EXECUTION_MODE=dry` → ticket → confirm → DRY OK; audit line present. (Also run once with `JUPITER_SIMULATE_ONLY=true` in live mode: simulation logs, nothing sent.)
+T2 Live open: same order in live → phases card reaches `verified`; check `/positions` shows the position with SL ✔ TP ✔; check the tx on Solscan; journal `open` present with fill price; tracker shows the trade.
+T3 Live update: `/stops` move SL to breakeven → verify on chain.
+T4 Live close 50 % then close rest → journal closes with R; `/positions` empty; audit complete.
+T5 Failure drill: start an open, `/kill` during phase 1 → confirm no send after kill; then `/arm`.
+T6 Naked-position drill (simulated in tests only; NOT live): covered by F5.
+Go/no-go: all of T1–T5 pass twice; then raise caps by owner decision only.
+
+## Out of scope
+Auto-execution, spot swaps, anything GPT/MCP-triggered, raising caps.
