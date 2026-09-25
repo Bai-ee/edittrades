@@ -1,5 +1,12 @@
 > **Superseded 2026-09-24 by `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`** (Steps A/B/C = T6 Phases 0/1/5). Kept for reference; do not execute from this file.
 
+> **STATUS 2026-09-24 (owner):** Step A is done (`scripts/replay-rules.js`, `docs/GOOD_QUALITY_REPLAY.md`, commit 885f405).
+> **Step B is SUPERSEDED — do not implement.** Owner decisions 2026-09-24: gross minRR 2.5 live, net gate OFF
+> (`flagPlan.minNetRR: null`, net R published as information), 3R as a shadow comparator, testing window NOT restarted
+> (2026-09-23 → 2026-10-07, thresholds frozen until 2026-10-08). See `docs/OWNER_DECISIONS_2026-09-24.md` and
+> `docs/PLAN_T6_COMPLETION_V2.md`. Step C may run as research after 2026-10-01 against the live rules.
+
+
 # (former T5) — GOOD call quality: net-of-cost gate, higher-timeframe flags, path-informed gating
 
 Last updated: 2026-09-24
