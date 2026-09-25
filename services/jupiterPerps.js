@@ -1,58 +1,86 @@
 /**
  * Jupiter Perpetuals API Integration
- * Handles perpetual futures trading via Jupiter Perps on Solana
- * Supports leverage up to 200x
- * 
- * Uses jup-perps-client library for on-chain program interaction
+ * Handles perpetual futures trading via Jupiter Perps on Solana (Perps v2 program).
+ * Supports leverage up to 200x.
+ *
+ * Uses jup-perps-client library (patched, see patches/) for on-chain program interaction:
+ * codama-generated IDL instruction builders, account encoders/decoders.
+ *
+ * T-3 D (docs/PLAN_TELEGRAM_EXECUTION.md): side enum fix, custody-by-mint resolution, real
+ * on-chain SL/TP placement, real close/update, real quote/capacity, and a strict
+ * build/simulate/send separation. Every "build*" function below only builds an unsigned
+ * transaction message; nothing in this module broadcasts except `sendSigned`, the single
+ * exported send path. `JUPITER_SIMULATE_ONLY=true` makes `sendSigned` simulate instead of
+ * sending. `openPerpPosition` / `closePerpPosition` / `updatePerpPosition` keep their
+ * original simple signatures (the frozen executor contract, PLAN.md "Contract between
+ * agents") but now build -> simulate -> refuse on simulation error -> sendSigned internally.
  */
 
 // Use CommonJS wrapper to work around ES module compatibility issues
 import jupPerpsClient from './jup-perps-wrapper.cjs';
-import { 
+import {
   createSolanaRpc,
   createTransactionMessage,
+  setTransactionMessageFeePayer,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   appendTransactionMessageInstruction,
   signTransactionMessageWithSigners,
   sendAndConfirmTransactionFactory,
+  compileTransaction,
   pipe,
   address,
-  getAddressEncoder,
 } from '@solana/kit';
 import { getBase64EncodedWireTransaction } from '@solana/transactions';
 import { getConnection, getWallet } from './walletManager.js';
-import { PublicKey } from '@solana/web3.js';
-import { 
-  getAssociatedTokenAddressSync, 
-  ASSOCIATED_TOKEN_PROGRAM_ID, 
+import { PublicKey, SystemProgram, ComputeBudgetProgram } from '@solana/web3.js';
+import {
+  getAssociatedTokenAddressSync,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token';
+import { randomInt } from 'crypto';
 import nacl from 'tweetnacl';
 import 'dotenv/config';
 
 // Extract needed exports from wrapper
-const { 
-  fetchPool, 
-  fetchCustody, 
+const {
+  fetchPool,
+  fetchCustody,
   fetchPerpetuals,
   PERPETUALS_PROGRAM_ADDRESS,
-  getInstantIncreasePositionInstruction,
+  Side,
+  RequestType,
   getCreateIncreasePositionMarketRequestInstruction,
+  getCreateDecreasePositionRequest2Instruction,
+  getCreateDecreasePositionMarketRequestInstruction,
+  getUpdateDecreasePositionRequest2Instruction,
 } = jupPerpsClient;
 
 // Jupiter Perps Pool Address (mainnet)
 const JUPITER_PERPS_POOL = '5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq';
 
+// Event Authority PDA (from jup-perps-client constants.ts) required on every program ix.
+const EVENT_AUTHORITY = '37hJBDnntwqhGbK7L6M1bLyvccj4u55CCUiLPdYkiqBN';
+
 // Perpetuals account address (derived PDA)
 // Seeds: [b"perpetuals", pool]
 const PERPETUALS_ACCOUNT_SEED = Buffer.from('perpetuals');
 
-// Create RPC connection
+// Create RPC connection (@solana/kit rpc; used for every on-chain read/build/simulate/send
+// below). services/walletManager.js's getConnection() returns a @solana/web3.js Connection,
+// used only for its own getBalance() helper -- unrelated to this module's rpc client.
 const rpc = createSolanaRpc(
   process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
 );
+
+const USD_DECIMALS = 1_000_000;
+const TRADED = Object.freeze(['BTC', 'ETH', 'SOL']);
+const isPosNum = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const n6 = (v) => Number(v) / USD_DECIMALS;
+const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+const tokenAmountToUsd = (amount, decimals) => Number(amount) / 10 ** (Number.isFinite(decimals) ? decimals : 6);
 
 /**
  * Derive Position PDA
@@ -69,7 +97,7 @@ async function derivePositionPDA(owner, pool, custody, collateralCustody, side) 
   const programId = new PublicKey(PERPETUALS_PROGRAM_ADDRESS);
   const sideBuffer = Buffer.allocUnsafe(1);
   sideBuffer.writeUInt8(side, 0);
-  
+
   const seeds = [
     Buffer.from('position'),
     owner.toBuffer(),
@@ -78,7 +106,7 @@ async function derivePositionPDA(owner, pool, custody, collateralCustody, side) 
     collateralCustody.toBuffer(),
     sideBuffer,
   ];
-  
+
   const [pda, bump] = PublicKey.findProgramAddressSync(seeds, programId);
   return [pda, bump];
 }
@@ -95,15 +123,15 @@ async function derivePositionPDA(owner, pool, custody, collateralCustody, side) 
  */
 async function derivePositionRequestPDA(position, counter = 0, requestChange = "increase") {
   const programId = new PublicKey(PERPETUALS_PROGRAM_ADDRESS);
-  
+
   // Counter must be in LITTLE ENDIAN format (not big endian!)
   const counterBuffer = Buffer.allocUnsafe(8);
   counterBuffer.writeBigUInt64LE(BigInt(counter), 0); // Little endian!
-  
+
   // RequestChange: [1] for increase, [2] for decrease (not 0/1!)
   const requestChangeEnum = requestChange === "increase" ? [1] : [2];
   const requestChangeBuffer = Buffer.from(requestChangeEnum);
-  
+
   // Seeds: [b"position_request", position, counter (le), requestChange]
   const seeds = [
     Buffer.from('position_request'),
@@ -111,7 +139,7 @@ async function derivePositionRequestPDA(position, counter = 0, requestChange = "
     counterBuffer,        // Counter in LITTLE ENDIAN format
     requestChangeBuffer,  // [1] for increase, [2] for decrease
   ];
-  
+
   const [pda, bump] = PublicKey.findProgramAddressSync(seeds, programId);
   return [pda, bump];
 }
@@ -123,815 +151,22 @@ async function derivePositionRequestPDA(position, counter = 0, requestChange = "
  */
 async function derivePerpetualsPDA() {
   const programId = new PublicKey(PERPETUALS_PROGRAM_ADDRESS);
-  
+
   // Perpetuals account is a singleton, derived with just [b"perpetuals"]
   const seeds = [
     PERPETUALS_ACCOUNT_SEED,
   ];
-  
+
   const [pda, bump] = PublicKey.findProgramAddressSync(seeds, programId);
   return [pda, bump];
 }
 
-// Perp markets mapping (symbol to market address)
-const PERP_MARKETS = {
-  'BTCUSDT': null, // To be populated with actual market addresses
-  'ETHUSDT': null,
-  'SOLUSDT': null,
-};
-
-/**
- * Get available perpetual markets
- * @returns {Promise<Object>} Available markets
- */
-export async function getPerpMarkets() {
-  try {
-    console.log('[JupiterPerps] Getting available perpetual markets...');
-    
-    // Fetch pool to get actual custody information
-    const pool = await fetchPool(rpc, JUPITER_PERPS_POOL);
-    console.log('[JupiterPerps] Pool fetched:', pool.data.name);
-    console.log('[JupiterPerps] Number of custodies:', pool.data.custodies.length);
-    
-    // Build markets object from pool custodies
-    const markets = {};
-    const symbolMap = {
-      0: 'SOLUSDT', // Typically SOL is first
-      1: 'BTCUSDT', // Then BTC
-      2: 'ETHUSDT', // Then ETH
-    };
-    
-    for (let i = 0; i < pool.data.custodies.length; i++) {
-      const custodyAddress = pool.data.custodies[i];
-      if (!custodyAddress) continue;
-      
-      try {
-        const custody = await fetchCustody(rpc, custodyAddress);
-        const symbol = symbolMap[i] || `MARKET_${i}`;
-        
-        markets[symbol] = {
-          symbol,
-          custodyAddress,
-          tokenMint: custody.data.mint,
-          decimals: custody.data.decimals,
-          maxLeverage: 200, // Jupiter Perps supports up to 200x
-          minMargin: 0.01, // Minimum margin in USD
-          assetsOwned: custody.data.assets.owned.toString(),
-        };
-      } catch (error) {
-        console.warn(`[JupiterPerps] Could not fetch custody ${i}:`, error.message);
-      }
-    }
-    
-    console.log('[JupiterPerps] ✅ Markets retrieved:', Object.keys(markets).length);
-    return markets;
-  } catch (error) {
-    console.error('[JupiterPerps] ❌ Error getting markets:', error.message);
-    throw new Error(`Failed to get perpetual markets: ${error.message}`);
-  }
-}
-
-/**
- * Check custody capacity for a given market
- * @param {string} market - Market symbol (e.g., 'BTCUSDT', 'ETHUSDT', 'SOLUSDT')
- * @param {number} requiredSize - Required position size in USD
- * @returns {Promise<Object>} Capacity information with current assets and availability status
- */
-export async function checkCustodyCapacity(market, requiredSize) {
-  try {
-    console.log('[JupiterPerps] Checking custody capacity...');
-    console.log('[JupiterPerps] Market:', market);
-    console.log('[JupiterPerps] Required size:', requiredSize, 'USD');
-    
-    // Fetch pool to get custody addresses
-    const pool = await fetchPool(rpc, JUPITER_PERPS_POOL);
-    
-    // Map symbol to custody index
-    const custodyIndexMap = {
-      'SOLUSDT': 0, // SOL is typically first custody
-      'BTCUSDT': 1, // BTC
-      'ETHUSDT': 2, // ETH
-    };
-    
-    const custodyIndex = custodyIndexMap[market] ?? 0;
-    const custodyAddress = pool.data.custodies[custodyIndex];
-    
-    if (!custodyAddress) {
-      throw new Error(`Custody not found for market: ${market} at index ${custodyIndex}`);
-    }
-    
-    // Fetch custody data
-    const custody = await fetchCustody(rpc, custodyAddress);
-    const currentAssets = custody.data.assets.owned 
-      ? Number(custody.data.assets.owned) / 1_000_000 
-      : 0;
-    
-    console.log('[JupiterPerps] Custody address:', custodyAddress);
-    console.log('[JupiterPerps] Current assets (USD):', currentAssets.toFixed(2));
-    console.log('[JupiterPerps] Required size (USD):', requiredSize.toFixed(2));
-    
-    // Note: The actual limit isn't exposed in the account data,
-    // but we can monitor the current state and provide information
-    // The protocol will enforce the limit during simulation
-    
-    return {
-      market,
-      custodyAddress,
-      currentAssets,
-      requiredSize,
-      custodyData: custody.data,
-      // We can't determine available capacity without the limit value,
-      // but we can provide current state for monitoring
-      note: 'Actual capacity limit is enforced by the protocol. Current assets shown for reference.'
-    };
-  } catch (error) {
-    console.error('[JupiterPerps] Error checking custody capacity:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Get perpetual position quote
- * @param {string} market - Market symbol (e.g., 'BTCUSDT')
- * @param {string} direction - 'long' or 'short'
- * @param {number} size - Position size in USD
- * @param {number} leverage - Leverage multiplier (1-200)
- * @returns {Promise<Object>} Quote with margin requirements, fees, etc.
- */
-export async function getPerpQuote(market, direction, size, leverage = 1) {
-  try {
-    console.log('[JupiterPerps] Getting perpetual quote...');
-    console.log('[JupiterPerps] Market:', market);
-    console.log('[JupiterPerps] Direction:', direction);
-    console.log('[JupiterPerps] Size:', size, 'USD');
-    console.log('[JupiterPerps] Leverage:', leverage, 'x');
-    
-    // Validate leverage
-    if (leverage < 1 || leverage > 200) {
-      throw new Error('Leverage must be between 1x and 200x');
-    }
-    
-    // Safety checks
-    if (leverage > 10) {
-      console.warn('[JupiterPerps] ⚠️  High leverage warning:', leverage, 'x');
-    }
-    
-    // Validate margin requirements (minimum margin check)
-    const minMargin = 0.01; // $0.01 USD minimum
-    const marginRequired = size / leverage;
-    if (marginRequired < minMargin) {
-      throw new Error(`Margin required ($${marginRequired.toFixed(2)}) is below minimum ($${minMargin})`);
-    }
-    
-    // Calculate margin required
-    const notionalSize = size;
-    
-    // Fetch pool data to get custody information
-    try {
-      const pool = await fetchPool(rpc, JUPITER_PERPS_POOL);
-      console.log('[JupiterPerps] Pool fetched:', pool.data.name);
-      console.log('[JupiterPerps] Number of custodies:', pool.data.custodies.length);
-      console.log('[JupiterPerps] AUM USD: $' + (Number(pool.data.aumUsd) / 1_000_000).toLocaleString());
-    } catch (error) {
-      console.warn('[JupiterPerps] Could not fetch pool data:', error.message);
-    }
-    
-    const quote = {
-      market,
-      direction,
-      size: notionalSize,
-      leverage,
-      marginRequired,
-      estimatedFees: notionalSize * 0.001, // 0.1% fee estimate
-      fundingRate: 0.0001, // 0.01% funding rate (placeholder)
-      liquidationPrice: null, // To be calculated based on entry price and leverage
-    };
-    
-    console.log('[JupiterPerps] ✅ Quote received');
-    console.log('[JupiterPerps] Margin required:', marginRequired, 'USD');
-    
-    return quote;
-  } catch (error) {
-    console.error('[JupiterPerps] ❌ Error getting quote:', error.message);
-    throw new Error(`Failed to get perpetual quote: ${error.message}`);
-  }
-}
-
-/**
- * Open a perpetual position
- * @param {string} market - Market symbol
- * @param {string} direction - 'long' or 'short'
- * @param {number} size - Position size in USD
- * @param {number} leverage - Leverage multiplier (1-200)
- * @param {number} stopLoss - Stop loss price (optional)
- * @param {number} takeProfit - Take profit price (optional)
- * @returns {Promise<Object>} Execution result with position ID and signature
- */
-export async function openPerpPosition(market, direction, size, leverage = 1, stopLoss = null, takeProfit = null) {
-  try {
-    console.log('[JupiterPerps] ===== Opening Perpetual Position =====');
-    console.log('[JupiterPerps] Market:', market);
-    console.log('[JupiterPerps] Direction:', direction);
-    console.log('[JupiterPerps] Size:', size, 'USD');
-    console.log('[JupiterPerps] Leverage:', leverage, 'x');
-    console.log('[JupiterPerps] Stop Loss:', stopLoss);
-    console.log('[JupiterPerps] Take Profit:', takeProfit);
-    
-    // Validate inputs
-    if (leverage < 1 || leverage > 200) {
-      throw new Error('Leverage must be between 1x and 200x');
-    }
-    
-    if (direction !== 'long' && direction !== 'short') {
-      throw new Error('Direction must be "long" or "short"');
-    }
-    
-    // Safety checks
-    const marginRequired = size / leverage;
-    const minMargin = 0.01; // $0.01 USD minimum
-    
-    if (marginRequired < minMargin) {
-      throw new Error(`Insufficient margin: $${marginRequired.toFixed(2)} required, minimum is $${minMargin}`);
-    }
-    
-    if (leverage > 10) {
-      console.warn('[JupiterPerps] ⚠️  HIGH LEVERAGE WARNING:', leverage, 'x leverage significantly increases liquidation risk');
-    }
-    
-    // Check custody capacity before proceeding
-    // This provides visibility into current custody state
-    try {
-      const capacityInfo = await checkCustodyCapacity(market, size);
-      console.log('[JupiterPerps] Capacity check complete:', {
-        market: capacityInfo.market,
-        currentAssets: `$${capacityInfo.currentAssets.toFixed(2)}`,
-        requiredSize: `$${capacityInfo.requiredSize.toFixed(2)}`
-      });
-    } catch (capacityError) {
-      console.warn('[JupiterPerps] ⚠️  Could not check capacity, continuing anyway:', capacityError.message);
-    }
-    
-    // Get quote first
-    const quote = await getPerpQuote(market, direction, size, leverage);
-    
-    // Get wallet and connection
-    const wallet = getWallet();
-    const connection = getConnection();
-    const walletAddress = wallet.publicKey.toBase58();
-    
-    // Missing wallet initialization - fix
-    if (!wallet) {
-      throw new Error('Wallet not initialized');
-    }
-    
-    console.log('[JupiterPerps] Wallet address:', walletAddress);
-    console.log('[JupiterPerps] Fetching pool data...');
-    
-    // Fetch pool to get custody addresses
-    const pool = await fetchPool(rpc, JUPITER_PERPS_POOL);
-    console.log('[JupiterPerps] Pool fetched:', pool.data.name);
-    console.log('[JupiterPerps] Number of custodies:', pool.data.custodies.length);
-    
-    // Map symbol to custody index (simplified - may need adjustment based on actual pool structure)
-    const custodyIndexMap = {
-      'SOLUSDT': 0, // SOL is typically first custody
-      'BTCUSDT': 1, // BTC
-      'ETHUSDT': 2, // ETH
-    };
-    
-    const custodyIndex = custodyIndexMap[market] ?? 0;
-    const custodyAddress = pool.data.custodies[custodyIndex];
-    
-    if (!custodyAddress) {
-      throw new Error(`Custody not found for market: ${market} at index ${custodyIndex}`);
-    }
-    
-    console.log('[JupiterPerps] Using custody:', custodyAddress);
-    
-    // Fetch custody details
-    const custody = await fetchCustody(rpc, custodyAddress);
-    console.log('[JupiterPerps] Custody token mint:', custody.data.mint);
-    console.log('[JupiterPerps] Custody decimals:', custody.data.decimals);
-    console.log('[JupiterPerps] Assets owned:', custody.data.assets.owned.toString());
-    
-    // Log custody information
-    // Note: amountLimit may be in permissions or calculated dynamically
-    // The limit is enforced by the program, so we log what we can see
-    const currentUsd = custody.data.assets.owned 
-      ? (Number(custody.data.assets.owned) / 1_000_000).toFixed(2)
-      : 'unknown';
-    
-    console.log('[JupiterPerps] Current assets (USD):', currentUsd);
-    
-    // Check permissions structure for limits (if available)
-    if (custody.data.permissions) {
-      console.log('[JupiterPerps] Permissions:', JSON.stringify(custody.data.permissions, null, 2));
-    }
-    
-    // Note: The actual limit is enforced by the program and may not be exposed in the account data
-    // The CustodyAmountLimit error will be caught during simulation with a helpful message
-    console.log('[JupiterPerps] ⚠️  Note: Custody limits are enforced by the protocol. ' +
-                'If limit is exceeded, you will receive a clear error message with details.');
-    
-    // Convert size to smallest units (USD with 6 decimals)
-    const sizeUsdDelta = BigInt(Math.floor(size * 1_000_000));
-    
-    console.log('[JupiterPerps] Building position transaction...');
-    console.log('[JupiterPerps] Size USD Delta:', sizeUsdDelta.toString());
-    console.log('[JupiterPerps] Side:', direction);
-    console.log('[JupiterPerps] Leverage:', leverage, 'x');
-    
-    // Convert direction to side (0 = long, 1 = short)
-    const side = direction === 'long' ? 0 : 1;
-    
-    // Get collateral custody - try USDT first (usually has more capacity), fallback to USDC
-    // USDC mint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
-    // USDT mint: Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB
-    const usdcMint = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-    const usdtMint = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
-    
-    // Find USDT custody first (index 4, usually has more capacity)
-    let collateralCustodyAddress = null;
-    for (let idx = 4; idx < pool.data.custodies.length; idx++) {
-      try {
-        const custody = await fetchCustody(rpc, pool.data.custodies[idx]);
-        if (custody.data.mint === usdtMint) {
-          collateralCustodyAddress = pool.data.custodies[idx];
-          console.log('[JupiterPerps] ✅ Using USDT collateral (more capacity available)');
-          break;
-        }
-      } catch (error) {
-        // Continue searching
-      }
-    }
-    
-    // If USDT not found, try USDC (index 3)
-    if (!collateralCustodyAddress) {
-      for (let idx = 3; idx < pool.data.custodies.length; idx++) {
-        try {
-          const custody = await fetchCustody(rpc, pool.data.custodies[idx]);
-          if (custody.data.mint === usdcMint) {
-            collateralCustodyAddress = pool.data.custodies[idx];
-            console.log('[JupiterPerps] Using USDC collateral (USDT not available)');
-            break;
-          }
-        } catch (error) {
-          // Continue searching
-        }
-      }
-    }
-    
-    // Final fallback to index 3 (USDC)
-    if (!collateralCustodyAddress) {
-      collateralCustodyAddress = pool.data.custodies[3];
-      console.log('[JupiterPerps] Using fallback collateral (index 3)');
-    }
-    
-    const collateralCustodyPubkey = new PublicKey(collateralCustodyAddress);
-    
-    // Fetch collateral custody data to get mint address (we'll reuse this later)
-    const collateralCustodyData = await fetchCustody(rpc, collateralCustodyAddress);
-    const collateralSymbol = collateralCustodyData.data.mint === usdtMint ? 'USDT' : 'USDC';
-    console.log(`[JupiterPerps] Collateral Custody (${collateralSymbol}):`, collateralCustodyPubkey.toBase58());
-    console.log(`[JupiterPerps] Collateral mint:`, collateralCustodyData.data.mint);
-    
-    // Derive PDAs
-    console.log('[JupiterPerps] Deriving PDAs...');
-    const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
-    const custodyPubkey = new PublicKey(custodyAddress);
-    const ownerPubkey = wallet.publicKey;
-    
-    // Position PDA includes collateralCustody in seeds
-    const [positionPDA, positionBump] = await derivePositionPDA(ownerPubkey, poolPubkey, custodyPubkey, collateralCustodyPubkey, side);
-    console.log('[JupiterPerps] Position PDA:', positionPDA.toBase58(), 'bump:', positionBump);
-    
-    // Fetch perpetuals account - it's a singleton account (one for entire program)
-    // Derived with seeds: [b"perpetuals"]
-    const [perpetualsPDA, perpetualsBump] = await derivePerpetualsPDA();
-    
-    // Position Request PDA - based on official example
-    // Seeds: [b"position_request", position, counter (little endian), requestChange]
-    // RequestChange: "increase" = [1], "decrease" = [2]
-    // Counter must be in LITTLE ENDIAN format
-    const requestCounter = Math.floor(Math.random() * 1_000_000_000); // Random counter for uniqueness
-    const requestChange = "increase"; // Opening/increasing position
-    const [positionRequestPDA, positionRequestBump] = await derivePositionRequestPDA(positionPDA, requestCounter, requestChange);
-    console.log('[JupiterPerps] Position Request PDA:', positionRequestPDA.toBase58(), 'bump:', positionRequestBump);
-    console.log('[JupiterPerps] Using counter:', requestCounter, '(little endian), requestChange:', requestChange);
-    console.log('[JupiterPerps] Perpetuals PDA:', perpetualsPDA.toBase58(), 'bump:', perpetualsBump);
-    
-    // Verify the perpetuals account exists
-    try {
-      const perpetualsAccount = await fetchPerpetuals(rpc, perpetualsPDA.toBase58());
-      console.log('[JupiterPerps] ✅ Perpetuals account found and initialized');
-      console.log('[JupiterPerps]   Pools:', perpetualsAccount.data.pools.length);
-      console.log('[JupiterPerps]   Admin:', perpetualsAccount.data.admin);
-    } catch (error) {
-      throw new Error(`Perpetuals account not found at ${perpetualsPDA.toBase58()}: ${error.message}`);
-    }
-    
-    // Collateral custody already fetched above for position PDA derivation
-    
-    // Get price feed accounts from custody
-    const custodyOracle = custody.data.oracle;
-    const custodyDovesPriceAccount = custodyOracle?.oracleAccount ? new PublicKey(custodyOracle.oracleAccount) : null;
-    const custodyPythnetPriceAccount = null; // May need separate lookup
-    
-    console.log('[JupiterPerps] Custody Oracle Account:', custodyDovesPriceAccount?.toBase58() || 'Not found');
-    
-    // Get collateral oracle (reuse the collateral custody data we already fetched)
-    const collateralOracle = collateralCustodyData.data.oracle;
-    const collateralDovesPriceAccount = collateralOracle?.oracleAccount ? new PublicKey(collateralOracle.oracleAccount) : null;
-    
-    // Build instruction using createIncreasePositionMarketRequest
-    // This creates a position request that keepers will fulfill (request-fulfillment model)
-    console.log('[JupiterPerps] Building position market request instruction...');
-    
-    const programId = new PublicKey(PERPETUALS_PROGRAM_ADDRESS);
-    
-    // Get associated token account for collateral (USDT or USDC, whichever was selected)
-    const collateralMint = new PublicKey(collateralCustodyData.data.mint);
-    const fundingAccount = getAssociatedTokenAddressSync(
-      collateralMint,
-      ownerPubkey,
-      false, // allowOwnerOffCurve
-    );
-    console.log(`[JupiterPerps] Funding Account (${collateralSymbol} ATA):`, fundingAccount.toBase58());
-    
-    // Position Request ATA - associated token account for the positionRequest PDA
-    // This holds the input tokens that will be swapped and used as collateral
-    const inputMint = new PublicKey(collateralCustodyData.data.mint);
-    const positionRequestAta = getAssociatedTokenAddressSync(
-      inputMint,
-      positionRequestPDA,
-      true, // allowOwnerOffCurve (PDA can own token accounts)
-    );
-    console.log('[JupiterPerps] Position Request ATA:', positionRequestAta.toBase58());
-    
-    // Get perpetuals account
-    const perpetualsAccount = perpetualsPDA;
-    
-    const instructionData = getCreateIncreasePositionMarketRequestInstruction({
-      owner: ownerPubkey.toBase58(),
-      fundingAccount: fundingAccount.toBase58(), // USDC token account
-      perpetuals: perpetualsAccount.toBase58(),
-      pool: poolPubkey.toBase58(),
-      position: positionPDA.toBase58(),
-      positionRequest: positionRequestPDA.toBase58(),
-      positionRequestAta: positionRequestAta.toBase58(), // ATA for positionRequest PDA
-      custody: custodyPubkey.toBase58(),
-      collateralCustody: collateralCustodyPubkey.toBase58(),
-      inputMint: collateralCustodyData.data.mint, // USDT or USDC mint (whichever was selected)
-      referral: null, // Optional
-      tokenProgram: TOKEN_PROGRAM_ID.toBase58(), // Token Program ID
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(), // Associated Token Program ID
-      eventAuthority: '37hJBDnntwqhGbK7L6M1bLyvccj4u55CCUiLPdYkiqBN', // Event Authority PDA (from constants.ts)
-      program: PERPETUALS_PROGRAM_ADDRESS, // Program ID
-      sizeUsdDelta: sizeUsdDelta,
-      collateralTokenDelta: BigInt(Math.floor(quote.marginRequired * 1_000_000)), // Margin in smallest units
-      side: side,
-      priceSlippage: BigInt(100), // 1% slippage tolerance (in basis points)
-      jupiterMinimumOut: null, // Optional
-      counter: BigInt(requestCounter), // Counter must match PDA derivation
-    }, {
-      programAddress: PERPETUALS_PROGRAM_ADDRESS,
-    });
-    
-    console.log('[JupiterPerps] Instruction built successfully');
-    console.log('[JupiterPerps] Number of accounts:', instructionData.accounts.length);
-    console.log('[JupiterPerps] Program ID:', instructionData.programAddress);
-    
-    // Check if funding account exists, create if needed
-    console.log('[JupiterPerps] Checking funding account existence...');
-    let preInstructions = [];
-    
-    try {
-      const fundingAccountInfo = await rpc.getAccountInfo(fundingAccount.toBase58(), {
-        commitment: 'confirmed',
-      }).send();
-      
-      if (!fundingAccountInfo.value) {
-        console.log(`[JupiterPerps] Funding account (${collateralSymbol} ATA) does not exist, creating...`);
-        const createFundingAccountIx = createAssociatedTokenAccountIdempotentInstruction(
-          ownerPubkey,      // payer
-          fundingAccount,   // ata
-          ownerPubkey,      // owner
-          collateralMint,  // mint
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        );
-        preInstructions.push(createFundingAccountIx);
-        console.log(`[JupiterPerps] ✅ Added instruction to create ${collateralSymbol} funding account`);
-      } else {
-        console.log(`[JupiterPerps] ✅ Funding account (${collateralSymbol} ATA) already exists`);
-      }
-    } catch (error) {
-      console.warn('[JupiterPerps] ⚠️  Could not check funding account, will try to create idempotently:', error.message);
-      // Create idempotent instruction anyway (safe to include even if account exists)
-      const createFundingAccountIx = createAssociatedTokenAccountIdempotentInstruction(
-        ownerPubkey,
-        fundingAccount,
-        ownerPubkey,
-        collateralMint,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      );
-      preInstructions.push(createFundingAccountIx);
-    }
-    
-    // Check if positionRequestAta exists, create if needed
-    try {
-      const positionRequestAtaInfo = await rpc.getAccountInfo(positionRequestAta.toBase58(), {
-        commitment: 'confirmed',
-      }).send();
-      
-      if (!positionRequestAtaInfo.value) {
-        console.log('[JupiterPerps] Position Request ATA does not exist, creating...');
-        const createPositionRequestAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-          ownerPubkey,           // payer
-          positionRequestAta,     // ata
-          positionRequestPDA,      // owner (PDA)
-          inputMint,              // mint
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        );
-        preInstructions.push(createPositionRequestAtaIx);
-        console.log('[JupiterPerps] ✅ Added instruction to create Position Request ATA');
-      } else {
-        console.log('[JupiterPerps] ✅ Position Request ATA already exists');
-      }
-    } catch (error) {
-      console.warn('[JupiterPerps] ⚠️  Could not check Position Request ATA, will try to create idempotently:', error.message);
-      // Create idempotent instruction anyway
-      const createPositionRequestAtaIx = createAssociatedTokenAccountIdempotentInstruction(
-        ownerPubkey,
-        positionRequestAta,
-        positionRequestPDA,
-        inputMint,
-        TOKEN_PROGRAM_ID,
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      );
-      preInstructions.push(createPositionRequestAtaIx);
-    }
-    
-    if (preInstructions.length > 0) {
-      console.log(`[JupiterPerps] 📝 Added ${preInstructions.length} pre-instruction(s) for account creation`);
-    }
-    
-    // Build transaction using @solana/kit (preserves PDA signing information)
-    console.log('[JupiterPerps] Building transaction with @solana/kit...');
-    
-    // Create a signer from the Keypair
-    // @solana/kit expects signTransactions to return SignatureDictionary[]
-    // SignatureDictionary is Record<Address, SignatureBytes> - an object mapping addresses to signatures
-    const signerAddress = address(ownerPubkey.toBase58());
-    const walletSigner = {
-      address: signerAddress,
-      async signTransactions(transactions) {
-        // transactions is an array of TransactionMessage objects
-        return transactions.map(tx => {
-          // TransactionMessage has 'messageBytes' property
-          const messageBytes = tx.messageBytes || tx;
-          const message = Buffer.from(messageBytes);
-          // Use nacl to sign (same as @solana/web3.js Keypair uses internally)
-          const signature = nacl.sign.detached(message, wallet.secretKey);
-          // Return SignatureDictionary: { [address]: signatureBytes }
-          // This is what @solana/kit expects - an object mapping addresses to signatures
-          return {
-            [signerAddress]: signature
-          };
-        });
-      },
-      async signMessage(message) {
-        // message is Uint8Array
-        const msgBuffer = Buffer.from(message);
-        // Use nacl to sign
-        const signature = nacl.sign.detached(msgBuffer, wallet.secretKey);
-        // signMessage also returns SignatureDictionary
-        return {
-          [signerAddress]: signature
-        };
-      },
-    };
-    
-    // Get latest blockhash
-    const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
-    
-    // Convert pre-instructions from @solana/web3.js to @solana/kit format if needed
-    // For now, we'll add them as part of the transaction building
-    // Note: @solana/kit uses a different instruction format, so we may need to convert
-    // For simplicity, we'll add the account creation checks but the idempotent instructions
-    // should be handled by the program itself or we need to convert them
-    
-    // Convert pre-instructions from @solana/web3.js TransactionInstruction to @solana/kit format
-    // @solana/kit uses a different instruction structure
-    const kitPreInstructions = [];
-    for (const preIx of preInstructions) {
-      // Convert TransactionInstruction to @solana/kit instruction format
-      const kitInstruction = {
-        programAddress: address(preIx.programId.toBase58()),
-        accounts: preIx.keys.map(key => ({
-          address: address(key.pubkey.toBase58()),
-          role: key.isSigner 
-            ? (key.isWritable ? 'writableSigner' : 'readonlySigner')
-            : (key.isWritable ? 'writable' : 'readonly'),
-        })),
-        data: preIx.data,
-      };
-      kitPreInstructions.push(kitInstruction);
-    }
-    
-    // Build transaction message using @solana/kit
-    // Add pre-instructions first, then main instruction
-    let txBuilder = pipe(
-      createTransactionMessage({ version: 0 }),
-      (tx) => setTransactionMessageFeePayerSigner(walletSigner, tx),
-      (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
-    );
-    
-    // Add pre-instructions (account creation) if needed
-    for (const preIx of kitPreInstructions) {
-      txBuilder = appendTransactionMessageInstruction(preIx, txBuilder);
-    }
-    
-    // Add main instruction
-    const transactionMessage = appendTransactionMessageInstruction(instructionData, txBuilder);
-    
-    console.log('[JupiterPerps] Transaction message built');
-    console.log('[JupiterPerps] Signing transaction...');
-    
-    // Sign transaction
-    const signedTransaction = await signTransactionMessageWithSigners(transactionMessage, [walletSigner]);
-    
-    console.log('[JupiterPerps] Transaction signed');
-    console.log('[JupiterPerps] Sending transaction...');
-    
-    // Simulate transaction first to get detailed error information
-    console.log('[JupiterPerps] Simulating transaction...');
-    try {
-      // Serialize transaction to base64 wire format for simulation
-      const wireTransaction = getBase64EncodedWireTransaction(signedTransaction);
-      const simulation = await rpc.simulateTransaction(wireTransaction, {
-        commitment: 'confirmed',
-        sigVerify: false, // Can't use sigVerify with replaceRecentBlockhash
-        replaceRecentBlockhash: true,
-        encoding: 'base64',
-      }).send();
-      
-      if (simulation.value.err) {
-        console.error('[JupiterPerps] ❌ Simulation failed:');
-        // Handle BigInt serialization in error logging
-        const errorStr = simulation.value.err.toString ? simulation.value.err.toString() : String(simulation.value.err);
-        console.error('[JupiterPerps] Error:', errorStr);
-        if (simulation.value.logs) {
-          console.error('[JupiterPerps] Logs:');
-          simulation.value.logs.forEach(log => console.error('   ', log));
-          
-          // Check for CustodyAmountLimit error and provide helpful message
-          const logsStr = simulation.value.logs.join(' ');
-          if (logsStr.includes('CustodyAmountLimit') || logsStr.includes('6023')) {
-            const currentUsd = custody.data.assets.owned 
-              ? (Number(custody.data.assets.owned) / 1_000_000).toFixed(2)
-              : 'unknown';
-            
-            throw new Error(
-              `CustodyAmountLimit (Error 6023): The custody account has reached its capacity limit. ` +
-              `Current assets: $${currentUsd}, Requested: $${size.toFixed(2)}. ` +
-              `Please try a smaller position size or wait for capacity to become available. ` +
-              `For more information, see: https://dev.jup.ag/docs/perps/custody-account or ` +
-              `contact Jupiter support on Discord: https://discord.gg/jupiter`
-            );
-          }
-        }
-        throw new Error(`Transaction simulation failed: ${errorStr}`);
-      }
-      
-      console.log('[JupiterPerps] ✅ Simulation successful');
-      console.log('[JupiterPerps] Compute units used:', simulation.value.unitsConsumed?.toString() || 'N/A');
-    } catch (simError) {
-      // If simulation fails with CustodyAmountLimit (6023), re-throw to abort execution
-      // This prevents sending a transaction that will definitely fail
-      if (simError.message.includes('CustodyAmountLimit') || simError.message.includes('6023')) {
-        console.error('[JupiterPerps] ❌ Custody limit error detected - aborting transaction');
-        throw simError; // Re-throw to stop execution
-      }
-      // For other simulation errors, just log and continue (as before)
-      console.warn('[JupiterPerps] ⚠️  Simulation check failed, but continuing:', simError.message);
-    }
-    
-    // Send and confirm transaction
-    console.log('[JupiterPerps] Sending transaction...');
-    const sendAndConfirmTransaction = sendAndConfirmTransactionFactory({ rpc });
-    const signature = await sendAndConfirmTransaction(signedTransaction, { commitment: 'confirmed' });
-    
-    console.log('[JupiterPerps] ✅ Transaction sent and confirmed!');
-    console.log('[JupiterPerps] Signature:', signature);
-    
-    return {
-      success: true,
-      positionId: positionPDA.toBase58(),
-      signature: signature,
-      market,
-      direction,
-      size,
-      leverage,
-      marginRequired: quote.marginRequired,
-      notionalSize: quote.size,
-      liquidationPrice: quote.liquidationPrice,
-      stopLoss,
-      takeProfit,
-      explorerUrl: `https://solscan.io/tx/${signature}`,
-      positionPDA: positionPDA.toBase58(),
-      positionRequestPDA: positionRequestPDA.toBase58(),
-    };
-  } catch (error) {
-    console.error('[JupiterPerps] ===== Open Position Failed =====');
-    console.error('[JupiterPerps] Error:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Close a perpetual position
- * @param {string} positionId - Position ID to close
- * @param {number} size - Size to close (null for full close)
- * @returns {Promise<Object>} Execution result
- */
-export async function closePerpPosition(positionId, size = null) {
-  try {
-    console.log('[JupiterPerps] ===== Closing Perpetual Position =====');
-    console.log('[JupiterPerps] Position ID:', positionId);
-    console.log('[JupiterPerps] Size:', size || 'Full close');
-    
-    // Get wallet and connection
-    const wallet = getWallet();
-    const connection = getConnection();
-    
-    // TODO: Build and send close position transaction
-    // This will require:
-    // 1. Querying position details
-    // 2. Creating close instruction
-    // 3. Building, signing, and sending transaction
-    
-    const signature = 'placeholder_signature';
-    
-    console.log('[JupiterPerps] ✅ Position closed');
-    console.log('[JupiterPerps] Transaction signature:', signature);
-    
-    return {
-      success: true,
-      positionId,
-      signature,
-      sizeClosed: size || 'full',
-      explorerUrl: `https://solscan.io/tx/${signature}`,
-    };
-  } catch (error) {
-    console.error('[JupiterPerps] ❌ Error closing position:', error.message);
-    throw new Error(`Failed to close perpetual position: ${error.message}`);
-  }
-}
-
-/**
- * Update stop loss or take profit for a position
- * @param {string} positionId - Position ID
- * @param {number} stopLoss - New stop loss price (optional)
- * @param {number} takeProfit - New take profit price (optional)
- * @returns {Promise<Object>} Execution result
- */
-export async function updatePerpPosition(positionId, stopLoss = null, takeProfit = null) {
-  try {
-    console.log('[JupiterPerps] Updating position parameters...');
-    console.log('[JupiterPerps] Position ID:', positionId);
-    console.log('[JupiterPerps] Stop Loss:', stopLoss);
-    console.log('[JupiterPerps] Take Profit:', takeProfit);
-    
-    if (!stopLoss && !takeProfit) {
-      throw new Error('Must provide at least stopLoss or takeProfit');
-    }
-    
-    // TODO: Build and send update transaction
-    const signature = 'placeholder_signature';
-    
-    console.log('[JupiterPerps] ✅ Position updated');
-    
-    return {
-      success: true,
-      positionId,
-      signature,
-      stopLoss,
-      takeProfit,
-      explorerUrl: `https://solscan.io/tx/${signature}`,
-    };
-  } catch (error) {
-    console.error('[JupiterPerps] ❌ Error updating position:', error.message);
-    throw new Error(`Failed to update perpetual position: ${error.message}`);
-  }
-}
-
-// ------------------------------------------------------------ position read (T-3 A)
+// ------------------------------------------------------------ side enum + custody resolution
 //
-// On-chain Position PDA side seed is the program's Side enum (None=0, Long=1, Short=2),
-// see node_modules/jup-perps-client/dist/types/side.d.ts and the official PDA example.
+// On-chain program Side enum (node_modules/jup-perps-client/dist/types/side.d.ts):
+// None=0, Long=1, Short=2. The old code sent 0/1 for long/short (a short opened as a long).
+// POSITION_SIDE_SEED is the single source of truth for this value, used both for the
+// Position PDA seed and the increase-position instruction's `side` arg.
 export const POSITION_SIDE_SEED = Object.freeze({ long: 1, short: 2 });
 
 /** Mints of the traded assets and the stable collateral, used to find custodies by mint. */
@@ -952,11 +187,26 @@ export const DEFAULT_PERP_CUSTODIES = Object.freeze({
   USDT: '4vkNeXiYEUizLdrpdPS1eC2mccyM4NUPRtERrk6ZETkk',
 });
 
-const USD_DECIMALS = 1_000_000;
-const TRADED = Object.freeze(['BTC', 'ETH', 'SOL']);
+/** resolvePerpCustodies() result cache: rpcClient -> {ts, data}, 5 min TTL. */
+export const CUSTODY_CACHE_TTL_MS = 5 * 60 * 1000;
+const custodyCache = new WeakMap();
 
-/** {SOL, BTC, ETH, USDC, USDT} -> custody address, resolved from the pool by mint. */
-async function resolvePerpCustodies(rpcClient) {
+/**
+ * {SOL, BTC, ETH, USDC, USDT} -> custody address, resolved from the live pool by mint
+ * (fetchPool + fetchAllCustody through the injected connection), cached for
+ * CUSTODY_CACHE_TTL_MS per connection instance.
+ * @param {Object} rpcClient - @solana/kit rpc (tests inject a fake)
+ * @param {Object} [opts]
+ * @param {number} [opts.ttlMs] - override the cache TTL (0 disables caching)
+ * @param {boolean} [opts.forceRefresh]
+ * @returns {Promise<Object<string,string>>}
+ */
+export async function resolvePerpCustodies(rpcClient, opts = {}) {
+  const ttlMs = Number.isFinite(opts.ttlMs) ? opts.ttlMs : CUSTODY_CACHE_TTL_MS;
+  if (!opts.forceRefresh && ttlMs > 0) {
+    const cached = custodyCache.get(rpcClient);
+    if (cached && Date.now() - cached.ts < ttlMs) return cached.data;
+  }
   const pool = await fetchPool(rpcClient, JUPITER_PERPS_POOL);
   const custodies = await jupPerpsClient.fetchAllCustody(rpcClient, pool.data.custodies);
   const bySymbol = {};
@@ -965,8 +215,809 @@ async function resolvePerpCustodies(rpcClient) {
     const sym = symbolOfMint[String(c.data.mint)];
     if (sym) bySymbol[sym] = String(c.address);
   }
+  if (ttlMs > 0) custodyCache.set(rpcClient, { ts: Date.now(), data: bySymbol });
   return bySymbol;
 }
+
+/**
+ * Resolve + fetch the custody and collateral custody for a trade, validated against the
+ * live pool/custody accounts (throws if either mint isn't found in the fetched pool).
+ * Program rule: a long's collateral custody is the traded asset's own custody; a short's
+ * collateral custody is a stable custody (USDC preferred, USDT fallback).
+ * @param {Object} rpcClient
+ * @param {'BTC'|'ETH'|'SOL'} symbol
+ * @param {'long'|'short'} direction
+ * @param {Object} [opts] - forwarded to resolvePerpCustodies (ttlMs, forceRefresh)
+ */
+export async function resolveTradeCustodies(rpcClient, symbol, direction, opts = {}) {
+  if (!TRADED.includes(symbol)) throw new Error(`Unsupported symbol: ${symbol}`);
+  if (direction !== 'long' && direction !== 'short') throw new Error(`Unsupported direction: ${direction}`);
+  const custodies = await resolvePerpCustodies(rpcClient, opts);
+  const custodyAddress = custodies[symbol];
+  if (!custodyAddress) throw new Error(`Custody not found for ${symbol} (checked pool custodies by mint)`);
+  let collateralSymbol = direction === 'long' ? symbol : 'USDC';
+  let collateralCustodyAddress = custodies[collateralSymbol];
+  if (!collateralCustodyAddress && direction === 'short') {
+    collateralSymbol = 'USDT';
+    collateralCustodyAddress = custodies.USDT;
+  }
+  if (!collateralCustodyAddress) throw new Error(`Collateral custody not found for ${symbol} ${direction} (checked ${collateralSymbol})`);
+  const sameAccount = collateralCustodyAddress === custodyAddress;
+  const custody = await fetchCustody(rpcClient, custodyAddress);
+  const collateralCustody = sameAccount ? custody : await fetchCustody(rpcClient, collateralCustodyAddress);
+  return { symbol, direction, custodyAddress, collateralCustodyAddress, collateralSymbol, custody, collateralCustody };
+}
+
+/** 'btc' | 'BTCUSDT' | 'BTC-PERP' -> 'BTC' | 'ETH' | 'SOL', or null. */
+function symbolFromMarket(market) {
+  const m = typeof market === 'string' ? market.toUpperCase() : '';
+  const s = m.replace(/(-PERP|PERP|USDT|USDC|USD)$/, '');
+  return TRADED.includes(s) ? s : null;
+}
+
+// Perp markets mapping (legacy symbol -> market address; populated at runtime by getPerpMarkets)
+const PERP_MARKETS = {
+  'BTCUSDT': null,
+  'ETHUSDT': null,
+  'SOLUSDT': null,
+};
+
+/**
+ * Get available perpetual markets, resolved by mint (not custody index order).
+ * @param {Object} [opts]
+ * @returns {Promise<Object>} market symbol (e.g. 'BTCUSDT') -> market info
+ */
+export async function getPerpMarkets(opts = {}) {
+  const rpcClient = opts.connection || opts.rpc || rpc;
+  try {
+    const custodies = await resolvePerpCustodies(rpcClient, opts);
+    const markets = {};
+    for (const symbol of TRADED) {
+      const custodyAddress = custodies[symbol];
+      if (!custodyAddress) continue;
+      try {
+        const custody = await fetchCustody(rpcClient, custodyAddress);
+        const market = `${symbol}USDT`;
+        markets[market] = {
+          symbol,
+          market,
+          custodyAddress,
+          tokenMint: custody.data.mint,
+          decimals: custody.data.decimals,
+          // pricing.maxLeverage is a bps-like on-chain scale (Jupiter Perps IDL PricingParams);
+          // /10_000 approximates an x-leverage figure for display, not an exact protocol value.
+          maxLeverage: Number(custody.data.pricing.maxLeverage) / 10_000,
+          maxPositionSizeUsd: r2(n6(custody.data.maxPositionSizeUsd)),
+          assetsOwned: custody.data.assets.owned.toString(),
+          minMargin: 0.01,
+        };
+        PERP_MARKETS[market] = custodyAddress;
+      } catch (err) {
+        console.warn(`[JupiterPerps] Could not fetch custody for ${symbol}:`, err.message);
+      }
+    }
+    return markets;
+  } catch (error) {
+    throw new Error(`Failed to get perpetual markets: ${error.message}`);
+  }
+}
+
+/**
+ * Check custody capacity for a given market (real numeric headroom from the custody account:
+ * maxPositionSizeUsd minus current utilization), resolved by mint.
+ * @param {string} market
+ * @param {number} requiredSize - USD
+ * @param {Object} [opts] - opts.direction ('long'|'short', default 'long'), opts.connection
+ * @returns {Promise<Object>}
+ */
+export async function checkCustodyCapacity(market, requiredSize, opts = {}) {
+  const rpcClient = opts.connection || opts.rpc || rpc;
+  const symbol = symbolFromMarket(market);
+  if (!symbol) throw new Error(`Unsupported market: ${market}`);
+  const direction = opts.direction === 'short' ? 'short' : 'long';
+  const { custodyAddress, custody } = await resolveTradeCustodies(rpcClient, symbol, direction, opts);
+  const c = custody.data;
+  const maxUsd = n6(c.maxPositionSizeUsd);
+  // Utilization proxy (Custody.assets, jup-perps-client Assets type): guaranteedUsd is
+  // already USD for the asset (long) custody; a stable custody's locked amount is valued
+  // near 1:1 USD. This is a best-effort proxy -- the exact CustodyAmountLimit check is
+  // enforced on-chain and may reject a transaction this estimate would have allowed.
+  const usedUsd = c.isStable ? tokenAmountToUsd(c.assets.locked, c.decimals) : n6(c.assets.guaranteedUsd);
+  const currentAssets = n6(c.assets.owned);
+  const headroomUsd = maxUsd > 0 ? r2(maxUsd - usedUsd) : null;
+  return {
+    market,
+    symbol,
+    direction,
+    custodyAddress,
+    currentAssets: r2(currentAssets),
+    requiredSize,
+    maxPositionSizeUsd: r2(maxUsd),
+    usedUsd: r2(usedUsd),
+    headroomUsd,
+    availableUsd: headroomUsd,
+    custodyData: c,
+    note: headroomUsd === null
+      ? 'maxPositionSizeUsd not set on custody; capacity unknown'
+      : 'headroomUsd = maxPositionSizeUsd - current utilization (on-chain custody account data)'
+  };
+}
+
+/** Conservative liquidation price estimate (same model as decodePerpPositionAccount). */
+function estimateLiquidationPrice(entryPrice, leverage, direction, maintenanceMarginPct = 0.3) {
+  const liqDist = 1 / leverage - maintenanceMarginPct / 100;
+  if (!(liqDist > 0)) return null;
+  return r2(direction === 'long' ? entryPrice * (1 - liqDist) : entryPrice * (1 + liqDist));
+}
+
+/**
+ * Get a real perpetual quote: fees (open/close bps) and price impact from the on-chain
+ * custody account, and an estimated liquidation price when a mark price is supplied.
+ * @param {string} market
+ * @param {string} direction - 'long' or 'short'
+ * @param {number} size - USD
+ * @param {number} [leverage]
+ * @param {Object} [opts] - opts.markPrice (for liquidationPrice/expectedFillPrice), opts.connection
+ * @returns {Promise<Object>}
+ */
+export async function getPerpQuote(market, direction, size, leverage = 1, opts = {}) {
+  if (leverage < 1 || leverage > 200) throw new Error('Leverage must be between 1x and 200x');
+  const marginRequired = size / leverage;
+  if (marginRequired < 0.01) throw new Error(`Margin required ($${marginRequired.toFixed(2)}) is below minimum ($0.01)`);
+  if (direction !== 'long' && direction !== 'short') throw new Error('Direction must be "long" or "short"');
+  const rpcClient = opts.connection || opts.rpc || rpc;
+  const symbol = symbolFromMarket(market);
+  if (!symbol) throw new Error(`Unsupported market: ${market}`);
+
+  const { custody, custodyAddress, collateralCustodyAddress } = await resolveTradeCustodies(rpcClient, symbol, direction, opts);
+  const c = custody.data;
+  const openFeeBps = Number(c.increasePositionBps);
+  const closeFeeBps = Number(c.decreasePositionBps);
+  const buf = c.priceImpactBuffer;
+  // Price impact estimate bounded by priceImpactBuffer.maxFeeBps, scaled by feeFactor against
+  // size (Jupiter Perps IDL PriceImpactBuffer type). The exact curve isn't public; this is a
+  // best-effort estimate, not a placeholder constant.
+  const priceImpactBps = buf ? Math.min(Number(buf.maxFeeBps), (size * Number(buf.feeFactor)) / 1e10) : 0;
+  const estimatedFees = r2((size * openFeeBps) / 10_000 + (size * priceImpactBps) / 10_000);
+  // FundingRateState.hourlyFundingDbps is deci-bps (1 dbps = 1e-5 as a fraction).
+  const fundingRatePerHour = c.fundingRateState ? Number(c.fundingRateState.hourlyFundingDbps) / 1_000_000 : null;
+  const markPrice = isPosNum(opts.markPrice) ? opts.markPrice : null;
+  const liquidationPrice = markPrice ? estimateLiquidationPrice(markPrice, leverage, direction, opts.maintenanceMarginPct ?? 0.3) : null;
+
+  return {
+    market,
+    direction,
+    size,
+    leverage,
+    marginRequired: r2(marginRequired),
+    estimatedFees,
+    openFeeBps,
+    closeFeeBps,
+    priceImpactBps: r2(priceImpactBps),
+    fundingRatePerHour,
+    fundingRate: fundingRatePerHour, // legacy alias
+    markPrice,
+    expectedFillPrice: markPrice,
+    liquidationPrice,
+    custodyAddress,
+    collateralCustodyAddress,
+  };
+}
+
+// ------------------------------------------------------------ instruction helpers
+
+/** @solana/web3.js TransactionInstruction -> @solana/kit instruction. */
+function toKitInstruction(web3Ix) {
+  return {
+    programAddress: address(web3Ix.programId.toBase58()),
+    accounts: web3Ix.keys.map((key) => ({
+      address: address(key.pubkey.toBase58()),
+      role: key.isSigner
+        ? (key.isWritable ? 'writableSigner' : 'readonlySigner')
+        : (key.isWritable ? 'writable' : 'readonly'),
+    })),
+    data: web3Ix.data,
+  };
+}
+
+const DEFAULT_COMPUTE_UNIT_LIMIT = 300_000;
+const DEFAULT_PRIORITY_FEE_MICROLAMPORTS = 5_000;
+
+/** Compute-budget + priority-fee instructions, prepended to every built transaction. */
+function computeBudgetInstructions({ unitLimit = DEFAULT_COMPUTE_UNIT_LIMIT, priorityFeeMicroLamports = DEFAULT_PRIORITY_FEE_MICROLAMPORTS } = {}) {
+  return [
+    toKitInstruction(ComputeBudgetProgram.setComputeUnitLimit({ units: unitLimit })),
+    toKitInstruction(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports })),
+  ];
+}
+
+/**
+ * An idempotent ATA-create instruction when `ata` doesn't exist yet, else null. Existence is
+ * checked through the injected connection (mocked in tests); a failed check falls back to
+ * including the (safe, idempotent) create instruction, same as the pre-T-3-D code did.
+ */
+async function ensureAtaInstruction(connection, { payer, ata, owner, mint }) {
+  if (connection && typeof connection.getAccountInfo === 'function') {
+    try {
+      const info = await connection.getAccountInfo(ata.toBase58(), { commitment: 'confirmed' }).send();
+      if (info && info.value) return null;
+    } catch {
+      // fall through: include the create instruction idempotently
+    }
+  }
+  const ix = createAssociatedTokenAccountIdempotentInstruction(payer, ata, owner, mint, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID);
+  return toKitInstruction(ix);
+}
+
+function buildTransactionMessage(feePayerAddress, instructions, latestBlockhash) {
+  let msg = pipe(
+    createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageFeePayer(feePayerAddress, m),
+    (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+  );
+  for (const ix of instructions) msg = appendTransactionMessageInstruction(ix, msg);
+  return msg;
+}
+
+/** simulate(connection) for an unsigned transaction message: sigVerify:false, replaces the blockhash. */
+function makeSimulate(transactionMessage) {
+  return async (connection) => {
+    const rpcClient = connection || rpc;
+    const compiled = compileTransaction(transactionMessage);
+    const wireTransaction = getBase64EncodedWireTransaction(compiled);
+    const sim = await rpcClient.simulateTransaction(wireTransaction, {
+      commitment: 'confirmed', sigVerify: false, replaceRecentBlockhash: true, encoding: 'base64',
+    }).send();
+    return { err: sim.value.err ?? null, logs: sim.value.logs || [], unitsConsumed: sim.value.unitsConsumed ?? null };
+  };
+}
+
+/**
+ * The ONLY function in this module that broadcasts a transaction. Signs `transactionMessage`
+ * with `signer` (a @solana/kit TransactionSigner) and either sends+confirms it, or, when
+ * JUPITER_SIMULATE_ONLY=true, simulates it and returns without sending.
+ * @param {Object} transactionMessage - unsigned kit transaction message (a `build*` result's `.transaction`)
+ * @param {Object} signer - @solana/kit signer (see createKitSigner)
+ * @param {Object} [connection] - @solana/kit rpc; defaults to this module's rpc
+ * @returns {Promise<{simulated:boolean, signature?:string, logs?:string[], unitsConsumed?:number|null, err?:*}>}
+ */
+export async function sendSigned(transactionMessage, signer, connection) {
+  const rpcClient = connection || rpc;
+  const messageWithSigner = setTransactionMessageFeePayerSigner(signer, transactionMessage);
+  const signedTransaction = await signTransactionMessageWithSigners(messageWithSigner);
+  if (String(process.env.JUPITER_SIMULATE_ONLY).toLowerCase() === 'true') {
+    const wireTransaction = getBase64EncodedWireTransaction(signedTransaction);
+    const sim = await rpcClient.simulateTransaction(wireTransaction, {
+      commitment: 'confirmed', sigVerify: false, replaceRecentBlockhash: true, encoding: 'base64',
+    }).send();
+    return { simulated: true, logs: sim.value.logs || [], unitsConsumed: sim.value.unitsConsumed ?? null, err: sim.value.err ?? null };
+  }
+  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc: rpcClient });
+  const signature = await sendAndConfirm(signedTransaction, { commitment: 'confirmed' });
+  return { simulated: false, signature };
+}
+
+/** Wrap a @solana/web3.js Keypair as a @solana/kit signer (nacl-backed, same as the pre-T-3-D code). */
+export function createKitSigner(keypair) {
+  const signerAddress = address(keypair.publicKey.toBase58());
+  return {
+    address: signerAddress,
+    async signTransactions(transactions) {
+      return transactions.map((tx) => {
+        const messageBytes = tx.messageBytes || tx;
+        const message = Buffer.from(messageBytes);
+        const signature = nacl.sign.detached(message, keypair.secretKey);
+        return { [signerAddress]: signature };
+      });
+    },
+    async signMessage(message) {
+      const msgBuffer = Buffer.from(message);
+      const signature = nacl.sign.detached(msgBuffer, keypair.secretKey);
+      return { [signerAddress]: signature };
+    },
+  };
+}
+
+// ------------------------------------------------------------ build (no sign/send)
+
+/**
+ * Build (do not sign/send) a Jupiter Perps v2 open, with on-chain SL/TP.
+ *
+ * IDL instructions used (jup-perps-client, codama-generated):
+ *  - createIncreasePositionMarketRequest: opens/increases the position. This IDL version has
+ *    no SL/TP fields on the increase itself.
+ *  - createDecreasePositionRequest2 (requestType=Trigger): one per SL/TP, submitted in the
+ *    SAME transaction as the increase so they land atomically with the open. triggerPrice is
+ *    the stop/target; triggerAboveThreshold selects the crossing direction (true = execute
+ *    when price >= triggerPrice, false = execute when price <= triggerPrice): long SL=false,
+ *    long TP=true, short SL=true, short TP=false. entirePosition=true (SL/TP always closes
+ *    the whole position).
+ *
+ * @param {Object} p
+ * @param {string} p.market - e.g. 'BTCUSDT'
+ * @param {'long'|'short'} p.direction
+ * @param {number} p.sizeUsd
+ * @param {number} [p.leverage]
+ * @param {number|null} [p.stopLoss]
+ * @param {number|null} [p.takeProfit]
+ * @param {string} p.owner - base58 owner address (no signer needed to build)
+ * @param {Object} [p.connection] - @solana/kit rpc; defaults to this module's rpc
+ * @returns {Promise<{transaction:Object, meta:Object, simulate:Function, send:Function}>}
+ */
+export async function buildOpenPosition({ market, direction, sizeUsd, leverage = 1, stopLoss = null, takeProfit = null, owner, connection } = {}) {
+  const rpcClient = connection || rpc;
+  if (direction !== 'long' && direction !== 'short') throw new Error('direction must be "long" or "short"');
+  if (!isPosNum(sizeUsd)) throw new Error('sizeUsd must be > 0');
+  if (!(leverage >= 1 && leverage <= 200)) throw new Error('leverage must be between 1x and 200x');
+  if (!owner) throw new Error('owner (base58 address) is required');
+  const symbol = symbolFromMarket(market);
+  if (!symbol) throw new Error(`Unsupported market: ${market}`);
+
+  const side = POSITION_SIDE_SEED[direction]; // program Side enum: None=0, Long=1, Short=2
+  const { custodyAddress, collateralCustodyAddress, custody, collateralCustody } = await resolveTradeCustodies(rpcClient, symbol, direction);
+
+  const ownerPubkey = new PublicKey(owner);
+  const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
+  const custodyPubkey = new PublicKey(custodyAddress);
+  const collateralCustodyPubkey = new PublicKey(collateralCustodyAddress);
+  const [positionPDA] = await derivePositionPDA(ownerPubkey, poolPubkey, custodyPubkey, collateralCustodyPubkey, side);
+  const [perpetualsPDA] = await derivePerpetualsPDA();
+
+  const increaseCounter = randomInt(1, 2 ** 31 - 1);
+  const [positionRequestPDA] = await derivePositionRequestPDA(positionPDA, increaseCounter, 'increase');
+
+  const collateralMint = new PublicKey(collateralCustody.data.mint);
+  const fundingAccount = getAssociatedTokenAddressSync(collateralMint, ownerPubkey, false);
+  const positionRequestAta = getAssociatedTokenAddressSync(collateralMint, positionRequestPDA, true);
+
+  const marginRequired = sizeUsd / leverage;
+  const sizeUsdDelta = BigInt(Math.floor(sizeUsd * USD_DECIMALS));
+  const collateralTokenDelta = BigInt(Math.floor(marginRequired * USD_DECIMALS));
+
+  const increaseIx = getCreateIncreasePositionMarketRequestInstruction({
+    owner: ownerPubkey.toBase58(),
+    fundingAccount: fundingAccount.toBase58(),
+    perpetuals: perpetualsPDA.toBase58(),
+    pool: poolPubkey.toBase58(),
+    position: positionPDA.toBase58(),
+    positionRequest: positionRequestPDA.toBase58(),
+    positionRequestAta: positionRequestAta.toBase58(),
+    custody: custodyAddress,
+    collateralCustody: collateralCustodyAddress,
+    inputMint: collateralCustody.data.mint,
+    referral: null,
+    tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+    eventAuthority: EVENT_AUTHORITY,
+    program: PERPETUALS_PROGRAM_ADDRESS,
+    sizeUsdDelta,
+    collateralTokenDelta,
+    side,
+    priceSlippage: BigInt(100), // 1% slippage tolerance (bps)
+    jupiterMinimumOut: null,
+    counter: BigInt(increaseCounter),
+  }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
+
+  const preInstructions = [];
+  const fundingAtaIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: fundingAccount, owner: ownerPubkey, mint: collateralMint });
+  if (fundingAtaIx) preInstructions.push(fundingAtaIx);
+  const positionRequestAtaIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: positionRequestAta, owner: positionRequestPDA, mint: collateralMint });
+  if (positionRequestAtaIx) preInstructions.push(positionRequestAtaIx);
+
+  // Custody's dedicated Doves oracle account vs. its primary oracle account (typically the
+  // Pythnet feed). jup-perps-client's Custody decoder exposes both separately (dovesOracle,
+  // oracle.oracleAccount); this mapping is a documented assumption pending official IDL docs.
+  const custodyDovesPriceAccount = String(custody.data.dovesOracle);
+  const custodyPythnetPriceAccount = custody.data.oracle?.oracleAccount ? String(custody.data.oracle.oracleAccount) : PublicKey.default.toBase58();
+
+  const triggerIxs = [];
+  const triggers = {};
+  const addTrigger = async (kind, triggerPrice, triggerAboveThreshold) => {
+    const counter = randomInt(1, 2 ** 31 - 1);
+    const [reqPDA] = await derivePositionRequestPDA(positionPDA, counter, 'decrease');
+    const reqAta = getAssociatedTokenAddressSync(collateralMint, reqPDA, true);
+    const ataIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: reqAta, owner: reqPDA, mint: collateralMint });
+    if (ataIx) preInstructions.push(ataIx);
+    const ix = getCreateDecreasePositionRequest2Instruction({
+      owner: ownerPubkey.toBase58(),
+      receivingAccount: fundingAccount.toBase58(),
+      perpetuals: perpetualsPDA.toBase58(),
+      pool: poolPubkey.toBase58(),
+      position: positionPDA.toBase58(),
+      positionRequest: reqPDA.toBase58(),
+      positionRequestAta: reqAta.toBase58(),
+      custody: custodyAddress,
+      custodyDovesPriceAccount,
+      custodyPythnetPriceAccount,
+      collateralCustody: collateralCustodyAddress,
+      desiredMint: collateralCustody.data.mint,
+      referral: null,
+      tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+      systemProgram: SystemProgram.programId.toBase58(),
+      eventAuthority: EVENT_AUTHORITY,
+      program: PERPETUALS_PROGRAM_ADDRESS,
+      collateralUsdDelta: BigInt(0),
+      sizeUsdDelta,
+      requestType: RequestType.Trigger,
+      priceSlippage: BigInt(100),
+      jupiterMinimumOut: null,
+      triggerPrice: BigInt(Math.floor(triggerPrice * USD_DECIMALS)),
+      triggerAboveThreshold,
+      entirePosition: true,
+      counter: BigInt(counter),
+    }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
+    triggerIxs.push(ix);
+    triggers[kind] = { positionRequestId: reqPDA.toBase58(), counter, triggerPrice, triggerAboveThreshold };
+  };
+
+  if (isPosNum(stopLoss)) await addTrigger('stopLoss', stopLoss, direction === 'long' ? false : true);
+  if (isPosNum(takeProfit)) await addTrigger('takeProfit', takeProfit, direction === 'long' ? true : false);
+
+  const { value: latestBlockhash } = await rpcClient.getLatestBlockhash().send();
+  const instructions = [...computeBudgetInstructions(), ...preInstructions, increaseIx, ...triggerIxs];
+  const transactionMessage = buildTransactionMessage(address(ownerPubkey.toBase58()), instructions, latestBlockhash);
+
+  return {
+    transaction: transactionMessage,
+    meta: {
+      positionId: positionPDA.toBase58(),
+      positionRequestId: positionRequestPDA.toBase58(),
+      custody: custodyAddress,
+      collateralCustody: collateralCustodyAddress,
+      counter: increaseCounter,
+      side,
+      triggers,
+    },
+    simulate: makeSimulate(transactionMessage),
+    send: (signer, conn) => sendSigned(transactionMessage, signer, conn || rpcClient),
+  };
+}
+
+/**
+ * Build (do not sign/send) a full or partial close.
+ *
+ * IDL instruction used: createDecreasePositionMarketRequest (immediate market decrease;
+ * `entirePosition: true` closes the whole position, ignoring sizeUsdDelta).
+ *
+ * @param {Object} p
+ * @param {string} p.positionId - Position PDA (base58)
+ * @param {string} p.market
+ * @param {'long'|'short'} p.direction
+ * @param {number|null} [p.sizeUsd] - USD to close; null/omitted = full close
+ * @param {number|null} [p.collateralUsd] - current position collateral, for a proportional partial-close withdrawal
+ * @param {number|null} [p.positionSizeUsd] - current position size, for a proportional partial-close withdrawal
+ * @param {string} p.owner
+ * @param {Object} [p.connection]
+ */
+export async function buildClosePosition({ positionId, market, direction, sizeUsd = null, collateralUsd = null, positionSizeUsd = null, owner, connection } = {}) {
+  const rpcClient = connection || rpc;
+  if (!positionId) throw new Error('positionId is required');
+  if (!owner) throw new Error('owner (base58 address) is required');
+  if (direction !== 'long' && direction !== 'short') throw new Error('direction must be "long" or "short"');
+  const symbol = symbolFromMarket(market);
+  if (!symbol) throw new Error(`Unsupported market: ${market}`);
+
+  const { custodyAddress, collateralCustodyAddress, collateralCustody } = await resolveTradeCustodies(rpcClient, symbol, direction);
+  const ownerPubkey = new PublicKey(owner);
+  const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
+  const positionPDA = new PublicKey(positionId);
+  const [perpetualsPDA] = await derivePerpetualsPDA();
+  const collateralMint = new PublicKey(collateralCustody.data.mint);
+  const ownerAta = getAssociatedTokenAddressSync(collateralMint, ownerPubkey, false);
+
+  const entirePosition = !isPosNum(sizeUsd);
+  const counter = randomInt(1, 2 ** 31 - 1);
+  const [positionRequestPDA] = await derivePositionRequestPDA(positionPDA, counter, 'decrease');
+  const positionRequestAta = getAssociatedTokenAddressSync(collateralMint, positionRequestPDA, true);
+
+  const sizeUsdDelta = BigInt(Math.floor((entirePosition ? (positionSizeUsd || 0) : sizeUsd) * USD_DECIMALS));
+  const collateralUsdDelta = !entirePosition && isPosNum(collateralUsd) && isPosNum(positionSizeUsd)
+    ? BigInt(Math.floor(collateralUsd * (sizeUsd / positionSizeUsd) * USD_DECIMALS))
+    : BigInt(0);
+
+  const closeIx = getCreateDecreasePositionMarketRequestInstruction({
+    owner: ownerPubkey.toBase58(),
+    receivingAccount: ownerAta.toBase58(),
+    perpetuals: perpetualsPDA.toBase58(),
+    pool: poolPubkey.toBase58(),
+    position: positionPDA.toBase58(),
+    positionRequest: positionRequestPDA.toBase58(),
+    positionRequestAta: positionRequestAta.toBase58(),
+    custody: custodyAddress,
+    collateralCustody: collateralCustodyAddress,
+    desiredMint: collateralCustody.data.mint,
+    referral: null,
+    tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+    systemProgram: SystemProgram.programId.toBase58(),
+    eventAuthority: EVENT_AUTHORITY,
+    program: PERPETUALS_PROGRAM_ADDRESS,
+    collateralUsdDelta,
+    sizeUsdDelta,
+    priceSlippage: BigInt(100),
+    jupiterMinimumOut: null,
+    entirePosition,
+    counter: BigInt(counter),
+  }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
+
+  const preInstructions = [];
+  const ataIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: positionRequestAta, owner: positionRequestPDA, mint: collateralMint });
+  if (ataIx) preInstructions.push(ataIx);
+  const ownerAtaIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: ownerAta, owner: ownerPubkey, mint: collateralMint });
+  if (ownerAtaIx) preInstructions.push(ownerAtaIx);
+
+  const { value: latestBlockhash } = await rpcClient.getLatestBlockhash().send();
+  const instructions = [...computeBudgetInstructions(), ...preInstructions, closeIx];
+  const transactionMessage = buildTransactionMessage(address(ownerPubkey.toBase58()), instructions, latestBlockhash);
+
+  return {
+    transaction: transactionMessage,
+    meta: { positionId, positionRequestId: positionRequestPDA.toBase58(), counter, entirePosition, sizeUsd: entirePosition ? null : sizeUsd },
+    simulate: makeSimulate(transactionMessage),
+    send: (signer, conn) => sendSigned(transactionMessage, signer, conn || rpcClient),
+  };
+}
+
+/**
+ * Build (do not sign/send) new SL/TP trigger requests for an existing position ("update
+ * stops = create/replace trigger requests"). Any previously pending trigger request from the
+ * open (or an earlier update) is NOT cancelled by this call -- it remains outstanding
+ * on-chain until it executes or expires. Cancelling a specific pending request requires its
+ * positionRequest PDA/counter (see buildReplaceTriggerRequest, which updates one in place).
+ *
+ * IDL instruction used: createDecreasePositionRequest2 (requestType=Trigger), same
+ * semantics as the open's SL/TP triggers (see buildOpenPosition).
+ */
+export async function buildUpdateStops({ positionId, market, direction, stop = null, tp = null, positionSizeUsd = null, owner, connection } = {}) {
+  const rpcClient = connection || rpc;
+  if (!positionId) throw new Error('positionId is required');
+  if (!owner) throw new Error('owner (base58 address) is required');
+  if (direction !== 'long' && direction !== 'short') throw new Error('direction must be "long" or "short"');
+  if (!isPosNum(stop) && !isPosNum(tp)) throw new Error('stop or tp is required');
+  const symbol = symbolFromMarket(market);
+  if (!symbol) throw new Error(`Unsupported market: ${market}`);
+
+  const { custodyAddress, collateralCustodyAddress, custody, collateralCustody } = await resolveTradeCustodies(rpcClient, symbol, direction);
+  const ownerPubkey = new PublicKey(owner);
+  const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
+  const positionPDA = new PublicKey(positionId);
+  const [perpetualsPDA] = await derivePerpetualsPDA();
+  const collateralMint = new PublicKey(collateralCustody.data.mint);
+  const ownerAta = getAssociatedTokenAddressSync(collateralMint, ownerPubkey, false);
+  const custodyDovesPriceAccount = String(custody.data.dovesOracle);
+  const custodyPythnetPriceAccount = custody.data.oracle?.oracleAccount ? String(custody.data.oracle.oracleAccount) : PublicKey.default.toBase58();
+
+  const sizeUsdDelta = BigInt(Math.floor((positionSizeUsd || 0) * USD_DECIMALS));
+  const preInstructions = [];
+  const ixs = [];
+  const triggers = {};
+
+  const addTrigger = async (kind, triggerPrice, triggerAboveThreshold) => {
+    const counter = randomInt(1, 2 ** 31 - 1);
+    const [reqPDA] = await derivePositionRequestPDA(positionPDA, counter, 'decrease');
+    const reqAta = getAssociatedTokenAddressSync(collateralMint, reqPDA, true);
+    const ataIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: reqAta, owner: reqPDA, mint: collateralMint });
+    if (ataIx) preInstructions.push(ataIx);
+    const ix = getCreateDecreasePositionRequest2Instruction({
+      owner: ownerPubkey.toBase58(),
+      receivingAccount: ownerAta.toBase58(),
+      perpetuals: perpetualsPDA.toBase58(),
+      pool: poolPubkey.toBase58(),
+      position: positionPDA.toBase58(),
+      positionRequest: reqPDA.toBase58(),
+      positionRequestAta: reqAta.toBase58(),
+      custody: custodyAddress,
+      custodyDovesPriceAccount,
+      custodyPythnetPriceAccount,
+      collateralCustody: collateralCustodyAddress,
+      desiredMint: collateralCustody.data.mint,
+      referral: null,
+      tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+      systemProgram: SystemProgram.programId.toBase58(),
+      eventAuthority: EVENT_AUTHORITY,
+      program: PERPETUALS_PROGRAM_ADDRESS,
+      collateralUsdDelta: BigInt(0),
+      sizeUsdDelta,
+      requestType: RequestType.Trigger,
+      priceSlippage: BigInt(100),
+      jupiterMinimumOut: null,
+      triggerPrice: BigInt(Math.floor(triggerPrice * USD_DECIMALS)),
+      triggerAboveThreshold,
+      entirePosition: true,
+      counter: BigInt(counter),
+    }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
+    ixs.push(ix);
+    triggers[kind] = { positionRequestId: reqPDA.toBase58(), counter, triggerPrice, triggerAboveThreshold };
+  };
+
+  if (isPosNum(stop)) await addTrigger('stopLoss', stop, direction === 'long' ? false : true);
+  if (isPosNum(tp)) await addTrigger('takeProfit', tp, direction === 'long' ? true : false);
+
+  const { value: latestBlockhash } = await rpcClient.getLatestBlockhash().send();
+  const instructions = [...computeBudgetInstructions(), ...preInstructions, ...ixs];
+  const transactionMessage = buildTransactionMessage(address(ownerPubkey.toBase58()), instructions, latestBlockhash);
+
+  return {
+    transaction: transactionMessage,
+    meta: { positionId, triggers },
+    simulate: makeSimulate(transactionMessage),
+    send: (signer, conn) => sendSigned(transactionMessage, signer, conn || rpcClient),
+  };
+}
+
+/**
+ * Build (do not sign/send) an in-place update of ONE already-known pending trigger request
+ * (its positionRequest PDA / counter must already be known, e.g. from a prior
+ * buildOpenPosition/buildUpdateStops `meta.triggers` result) -- a true "replace" that doesn't
+ * leave the old request outstanding, unlike buildUpdateStops.
+ *
+ * IDL instruction used: updateDecreasePositionRequest2.
+ */
+export async function buildReplaceTriggerRequest({ positionId, positionRequestId, sizeUsdDelta, triggerPrice, market, direction, owner, connection } = {}) {
+  const rpcClient = connection || rpc;
+  if (!positionId || !positionRequestId) throw new Error('positionId and positionRequestId are required');
+  if (!owner) throw new Error('owner (base58 address) is required');
+  const symbol = symbolFromMarket(market);
+  if (!symbol) throw new Error(`Unsupported market: ${market}`);
+  const { custodyAddress, custody } = await resolveTradeCustodies(rpcClient, symbol, direction);
+  const ownerPubkey = new PublicKey(owner);
+  const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
+  const positionPDA = new PublicKey(positionId);
+  const [perpetualsPDA] = await derivePerpetualsPDA();
+  const custodyDovesPriceAccount = String(custody.data.dovesOracle);
+  const custodyPythnetPriceAccount = custody.data.oracle?.oracleAccount ? String(custody.data.oracle.oracleAccount) : PublicKey.default.toBase58();
+
+  const ix = getUpdateDecreasePositionRequest2Instruction({
+    owner: ownerPubkey.toBase58(),
+    perpetuals: perpetualsPDA.toBase58(),
+    pool: poolPubkey.toBase58(),
+    position: positionPDA.toBase58(),
+    positionRequest: positionRequestId,
+    custody: custodyAddress,
+    custodyDovesPriceAccount,
+    custodyPythnetPriceAccount,
+    sizeUsdDelta: BigInt(Math.floor((sizeUsdDelta || 0) * USD_DECIMALS)),
+    triggerPrice: BigInt(Math.floor(triggerPrice * USD_DECIMALS)),
+  }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
+
+  const { value: latestBlockhash } = await rpcClient.getLatestBlockhash().send();
+  const instructions = [...computeBudgetInstructions(), ix];
+  const transactionMessage = buildTransactionMessage(address(ownerPubkey.toBase58()), instructions, latestBlockhash);
+
+  return {
+    transaction: transactionMessage,
+    meta: { positionId, positionRequestId, triggerPrice },
+    simulate: makeSimulate(transactionMessage),
+    send: (signer, conn) => sendSigned(transactionMessage, signer, conn || rpcClient),
+  };
+}
+
+// ------------------------------------------------------------ legacy simple-signature API
+//
+// Kept for the frozen executor contract (docs/PLAN_TELEGRAM_EXECUTION.md "Contract between
+// agents"): openPerpPosition(market, direction, size, leverage, stop, tp),
+// closePerpPosition(positionId, size), updatePerpPosition(positionId, stop, tp). Each now
+// builds -> simulates -> refuses on simulation error -> sendSigned internally, using the
+// signing wallet from services/walletManager.js (same as before T-3 D).
+
+/**
+ * Open a perpetual position with on-chain SL/TP.
+ * @param {Object} [opts] - test injection points; never passed by the executor.
+ * @param {Object} [opts.connection] - @solana/kit rpc, defaults to this module's rpc
+ * @param {Object} [opts.wallet] - @solana/web3.js Keypair, defaults to walletManager.getWallet()
+ * @param {Object} [opts.signer] - @solana/kit signer, defaults to createKitSigner(wallet)
+ * @returns {Promise<Object>} Execution result with position ID and signature
+ */
+export async function openPerpPosition(market, direction, size, leverage = 1, stopLoss = null, takeProfit = null, opts = {}) {
+  const rpcClient = opts.connection || rpc;
+  const wallet = opts.wallet || getWallet();
+  if (!wallet) throw new Error('Wallet not initialized');
+  const owner = wallet.publicKey.toBase58();
+  const built = await buildOpenPosition({ market, direction, sizeUsd: size, leverage, stopLoss, takeProfit, owner, connection: rpcClient });
+  const sim = await built.simulate(rpcClient);
+  if (sim.err) {
+    const tail = sim.logs && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
+    throw new Error(`Transaction simulation failed: ${JSON.stringify(sim.err)}${tail}`);
+  }
+  const signer = opts.signer || createKitSigner(wallet);
+  const result = await built.send(signer, rpcClient);
+  if (result.simulated) {
+    return {
+      success: true, simulated: true, positionId: built.meta.positionId, signature: null,
+      logs: result.logs, unitsConsumed: result.unitsConsumed, market, direction, size, leverage,
+      stopLoss, takeProfit, triggers: built.meta.triggers,
+    };
+  }
+  return {
+    success: true,
+    positionId: built.meta.positionId,
+    signature: result.signature,
+    market, direction, size, leverage,
+    marginRequired: size / leverage,
+    stopLoss, takeProfit,
+    explorerUrl: `https://solscan.io/tx/${result.signature}`,
+    positionPDA: built.meta.positionId,
+    positionRequestPDA: built.meta.positionRequestId,
+    triggers: built.meta.triggers,
+  };
+}
+
+/**
+ * Close a perpetual position (full, or partial when `size` is given).
+ * @param {string} positionId
+ * @param {number|null} [size]
+ * @param {Object} [opts] - test injection points; never passed by the executor (see openPerpPosition)
+ * @returns {Promise<Object>}
+ */
+export async function closePerpPosition(positionId, size = null, opts = {}) {
+  const rpcClient = opts.connection || rpc;
+  const wallet = opts.wallet || getWallet();
+  if (!wallet) throw new Error('Wallet not initialized');
+  const owner = wallet.publicKey.toBase58();
+  const r = await getPerpPositions(owner, { rpc: rpcClient });
+  if (!r.ok) throw new Error(r.error || 'position read unavailable');
+  const p = r.positions.find((x) => x.positionId === positionId);
+  if (!p) throw new Error(`Position not found: ${positionId}`);
+  const built = await buildClosePosition({
+    positionId, market: p.market, direction: p.direction, sizeUsd: size,
+    collateralUsd: p.collateralUsd, positionSizeUsd: p.sizeUsd, owner, connection: rpcClient,
+  });
+  const sim = await built.simulate(rpcClient);
+  if (sim.err) {
+    const tail = sim.logs && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
+    throw new Error(`Transaction simulation failed: ${JSON.stringify(sim.err)}${tail}`);
+  }
+  const signer = opts.signer || createKitSigner(wallet);
+  const result = await built.send(signer, rpcClient);
+  if (result.simulated) {
+    return { success: true, simulated: true, positionId, signature: null, logs: result.logs, unitsConsumed: result.unitsConsumed, sizeClosed: size || 'full' };
+  }
+  return { success: true, positionId, signature: result.signature, sizeClosed: size || 'full', explorerUrl: `https://solscan.io/tx/${result.signature}` };
+}
+
+/**
+ * Update stop loss / take profit for a position (creates new trigger requests; see
+ * buildUpdateStops for the "doesn't cancel the old request" caveat).
+ * @param {string} positionId
+ * @param {number|null} [stopLoss]
+ * @param {number|null} [takeProfit]
+ * @param {Object} [opts] - test injection points; never passed by the executor (see openPerpPosition)
+ * @returns {Promise<Object>}
+ */
+export async function updatePerpPosition(positionId, stopLoss = null, takeProfit = null, opts = {}) {
+  if (!stopLoss && !takeProfit) throw new Error('Must provide at least stopLoss or takeProfit');
+  const rpcClient = opts.connection || rpc;
+  const wallet = opts.wallet || getWallet();
+  if (!wallet) throw new Error('Wallet not initialized');
+  const owner = wallet.publicKey.toBase58();
+  const r = await getPerpPositions(owner, { rpc: rpcClient });
+  if (!r.ok) throw new Error(r.error || 'position read unavailable');
+  const p = r.positions.find((x) => x.positionId === positionId);
+  if (!p) throw new Error(`Position not found: ${positionId}`);
+  const built = await buildUpdateStops({
+    positionId, market: p.market, direction: p.direction, stop: stopLoss, tp: takeProfit,
+    positionSizeUsd: p.sizeUsd, owner, connection: rpcClient,
+  });
+  const sim = await built.simulate(rpcClient);
+  if (sim.err) {
+    const tail = sim.logs && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
+    throw new Error(`Transaction simulation failed: ${JSON.stringify(sim.err)}${tail}`);
+  }
+  const signer = opts.signer || createKitSigner(wallet);
+  const result = await built.send(signer, rpcClient);
+  if (result.simulated) {
+    return { success: true, simulated: true, positionId, signature: null, logs: result.logs, unitsConsumed: result.unitsConsumed, stopLoss, takeProfit };
+  }
+  return { success: true, positionId, signature: result.signature, stopLoss, takeProfit, explorerUrl: `https://solscan.io/tx/${result.signature}` };
+}
+
+// ------------------------------------------------------------ position read (T-3 A)
+//
+// On-chain Position PDA side seed is the program's Side enum (None=0, Long=1, Short=2),
+// see node_modules/jup-perps-client/dist/types/side.d.ts and the official PDA example.
+// (POSITION_SIDE_SEED is defined above, shared with the open/close/update builders.)
 
 /**
  * Every Position PDA the wallet could own: each traded custody x side x collateral
@@ -995,9 +1046,6 @@ export async function derivePerpPositionCandidates(walletAddress, custodies = DE
   }
   return out;
 }
-
-const n6 = (v) => Number(v) / USD_DECIMALS;
-const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
 
 /**
  * Decode one Position account's bytes into the executor's position row. Pure.
@@ -1107,14 +1155,14 @@ export async function getPerpPositionDetails(positionId) {
   try {
     console.log('[JupiterPerps] Getting position details...');
     console.log('[JupiterPerps] Position ID:', positionId);
-    
+
     // TODO: Query position from on-chain program
     // This will require:
     // 1. Finding position account
     // 2. Parsing position data
     // 3. Calculating current P&L
     // 4. Getting margin health
-    
+
     const position = {
       positionId,
       market: null,
@@ -1130,7 +1178,7 @@ export async function getPerpPositionDetails(positionId) {
       stopLoss: null,
       takeProfit: null,
     };
-    
+
     console.log('[JupiterPerps] ✅ Position details retrieved');
     return position;
   } catch (error) {
@@ -1138,4 +1186,3 @@ export async function getPerpPositionDetails(positionId) {
     throw new Error(`Failed to get perpetual position details: ${error.message}`);
   }
 }
-

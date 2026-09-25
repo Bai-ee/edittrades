@@ -51,6 +51,7 @@
     "test:journal": "node test-journal.js",
     "test:telegram": "node test-telegram.js",
     "test:execution": "node test-execution.js",
+    "test:jupiter": "node test-jupiter-perps.js",
     "test:served": "node test-served.js",
     "test:paths": "node test-flag-paths.js",
     "test:replay-paths": "node test-replay-paths.js",

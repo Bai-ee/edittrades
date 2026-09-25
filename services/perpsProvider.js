@@ -236,8 +236,13 @@ async function getPositionsFromProvider(provider, walletAddress) {
       return await driftPerps.getDriftPositions(walletAddress);
     case 'mango':
       return await mangoPerps.getMangoPositions(walletAddress);
-    case 'jupiter':
-      return await jupiterPerps.getPerpPositions(walletAddress);
+    case 'jupiter': {
+      // getPerpPositions returns { ok, positions, error } (never throws); unwrap here so
+      // this provider keeps returning a plain array like the others.
+      const r = await jupiterPerps.getPerpPositions(walletAddress);
+      if (!r.ok) throw new Error(r.error || 'jupiter position read failed');
+      return r.positions;
+    }
     default:
       throw new Error(`Unknown provider: ${provider}`);
   }
