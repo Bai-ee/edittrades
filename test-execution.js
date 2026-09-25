@@ -798,6 +798,12 @@ async function run() {
     n.store.head = async () => { const e = new Error('nf'); e.name = 'BlobNotFoundError'; throw e; };
     eq((await n.ex.preflight(intent(), ctx)).ok, true, 'missing blob on get and head = not killed');
     eq(await readBlobFresh({ get: n.store.get, head: n.store.head }, 'nope.json'), null, 'readBlobFresh null');
+    // Live @vercel/blob head() throws a plain Error for a missing blob (2026-09-25: every order refused).
+    n.store.head = async () => { throw new Error('Vercel Blob: The requested blob does not exist'); };
+    eq((await n.ex.preflight(intent(), ctx)).ok, true, 'plain not-found Error from head = not killed');
+    eq(await readBlobFresh({ get: n.store.get, head: n.store.head }, 'nope.json'), null, 'readBlobFresh null on plain not-found Error');
+    n.store.head = async () => { throw new Error('Vercel Blob: something else broke'); };
+    has((await n.ex.preflight(intent(), ctx)).reasons, 'kill_state_unavailable', 'any other head error still fails closed');
   });
   await test('F4 custody headroom: over headroom refuses; no numbers -> live custody_unknown, dry warns', async () => {
     const a = setup({ jupiter: fakeJupiter({ checkCustodyCapacity: async () => ({ currentAssets: 10, headroomUsd: 100 }) }) });
