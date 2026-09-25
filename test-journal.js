@@ -279,6 +279,21 @@ async function run() {
     assert(result, 'second attempt returned a put result');
   });
 
+  await test('stale-cache guard: repeated ETag mismatches end in one unguarded overwrite (precondition only), never a permanent failure', async () => {
+    let guarded = 0; let forced = 0;
+    const get = async () => ({ stream: new Response('{"a":1}').body, blob: { etag: 'W/"stale"', url: 'u' } });
+    const put = async (_p, _b, opts) => { if (opts.ifMatch) { guarded++; const e = new Error('Vercel Blob: Precondition failed: ETag mismatch.'); e.name = 'BlobPreconditionFailedError'; throw e; } forced++; return { url: 'u' }; };
+    const out = await updateBlob({ get, put }, 'x.json', 'application/json', (text) => text + '\n');
+    assertEqual(guarded, WRITE_ATTEMPTS, 'guarded attempts first');
+    assertEqual(forced, 1, 'then exactly one unguarded overwrite');
+    assertEqual(out.forced, true, 'result flags the forced write');
+    const head = async () => ({ etag: '"fresh"' });
+    let seen = null;
+    const put2 = async (_p, _b, opts) => { seen = opts.ifMatch; return { url: 'u' }; };
+    await updateBlob({ get, put: put2, head }, 'x.json', 'application/json', (text) => text + '\n');
+    assertEqual(seen, '"fresh"', 'head etag wins over the get etag');
+  });
+
   await test('T6 completion plan A4: isOverwriteConflict recognizes BlobAccessError; updateBlob gives up after WRITE_ATTEMPTS', async () => {
     assert(isOverwriteConflict({ name: 'BlobAccessError' }), 'name match');
     assert(isOverwriteConflict({ name: 'Error', message: 'This blob already exists, use allowOverwrite: true' }), 'message match');

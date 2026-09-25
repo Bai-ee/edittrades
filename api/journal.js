@@ -17,7 +17,7 @@
  */
 
 import crypto from 'crypto';
-import { put as blobPut, get as blobGet } from '@vercel/blob';
+import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import {
   validateJournalEntry, journalDay, journalDayPath, parseJournalLines,
   JOURNAL_MANIFEST_PATH, MAX_RECORD_BYTES, byteLength
@@ -139,7 +139,7 @@ export default function handler(req, res) {
  * @param {Object} [deps.env] - process.env
  */
 export async function handleJournal(req, res, deps = {}) {
-  const { put = blobPut, get = blobGet, now = Date.now, env = process.env } = deps;
+  const { put = blobPut, get = blobGet, head = (deps.get || deps.put ? undefined : blobHead), now = Date.now, env = process.env } = deps;
   const requestId = crypto.randomUUID();
   const startedAt = Date.now();
   const log = (status, extra = '') => console.log(`[Journal] requestId=${requestId} method=${req.method} status=${status} durationMs=${Date.now() - startedAt}${extra}`);
@@ -176,7 +176,7 @@ export async function handleJournal(req, res, deps = {}) {
     log(503, ' store=unconfigured');
     return res.status(503).json({ error: 'Journal store unavailable' });
   }
-  const store = { put, get };
+  const store = { put, get, head };
 
   try {
     if (req.method === 'GET') {

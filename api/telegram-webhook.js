@@ -26,7 +26,7 @@
  */
 
 import crypto from 'crypto';
-import { put as blobPut, get as blobGet } from '@vercel/blob';
+import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { validateJournalEntry } from '../lib/journalSchema.js';
@@ -155,7 +155,7 @@ export async function sendFlagAlbums({ bot, chatId, payload, only = null, render
  */
 export async function handleTelegramWebhook(req, res, deps = {}) {
   const {
-    build = buildScalpContext, put = blobPut, get = blobGet, fetchImpl = globalThis.fetch,
+    build = buildScalpContext, put = blobPut, get = blobGet, head = (deps.get || deps.put ? undefined : blobHead), fetchImpl = globalThis.fetch,
     render = renderContextChart, now = Date.now, env = process.env
   } = deps;
   const requestId = crypto.randomUUID();
@@ -202,7 +202,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   // Every plain reply re-sends the persistent menu keyboard; inline pickers replace it.
   const reply = (text, markup = menuKeyboard()) => bot.sendMessage(chatId, text, { replyMarkup: markup });
   const hasStore = Boolean(deps.put || deps.get || env.BLOB_READ_WRITE_TOKEN);
-  const store = { put, get };
+  const store = { put, get, head };
   const secrets = [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.BLOB_READ_WRITE_TOKEN];
   const errMsg = (err) => ` reason=state_read_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`;
   /** State from Blob; never throws (read failure -> null, logged). Logs a reset/migration. */

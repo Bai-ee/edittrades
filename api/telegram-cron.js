@@ -29,7 +29,7 @@
  */
 
 import crypto from 'crypto';
-import { put as blobPut, get as blobGet } from '@vercel/blob';
+import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { renderContextChart } from '../lib/chartRender.js';
 import { updateBlob, readBlob } from '../lib/blobJsonl.js';
@@ -89,7 +89,7 @@ export default function handler(req, res) {
  */
 export async function handleTelegramCron(req, res, deps = {}) {
   const {
-    build = buildScalpContext, put = blobPut, get = blobGet, fetchImpl = globalThis.fetch,
+    build = buildScalpContext, put = blobPut, get = blobGet, head = (deps.get || deps.put ? undefined : blobHead), fetchImpl = globalThis.fetch,
     render = renderContextChart, now = Date.now, env = process.env
   } = deps;
   const requestId = crypto.randomUUID();
@@ -130,7 +130,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   let resetReason = null;
   let migratedFrom = null;
   try {
-    const out = await updateBlob({ get, put }, TELEGRAM_STATE_PATH, 'application/json', (text) => {
+    const out = await updateBlob({ get, put, head }, TELEGRAM_STATE_PATH, 'application/json', (text) => {
       const m = migrateState(text);
       resetReason = m.reset ? m.reason : null;
       migratedFrom = m.migrated ? m.fromVersion : null;
