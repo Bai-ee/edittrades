@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url';
 import { PublicKey } from '@solana/web3.js';
 import jupPerpsClient from './services/jup-perps-wrapper.cjs';
 import { createExecutor, checkIntent, baseSymbol } from './lib/execution/executor.js';
-import { readExecutionConfig, pinMatches, KILL_PATH, AUTO_KILL_MS } from './lib/execution/gates.js';
-import { redact, appendAudit, auditDayPath } from './lib/execution/audit.js';
+import { readExecutionConfig, pinMatches, KILL_PATH, AUTO_KILL_MS, autoKillUntil, recordWrongPin } from './lib/execution/gates.js';
+import { readBlobFresh } from './lib/blobJsonl.js';
+import { redact, appendAudit, auditDayPath, idHash } from './lib/execution/audit.js';
 import { TICKETS_PATH, consumeTicket, storeTicket } from './lib/execution/tickets.js';
 import { validateJournalEntry } from './lib/journalSchema.js';
 import {
@@ -89,7 +90,7 @@ function fakeJupiter(over = {}) {
     calls,
     positions: [],
     getPerpMarkets: async () => { calls.markets++; return { BTCUSDT: {}, ETHUSDT: {}, SOLUSDT: {} }; },
-    checkCustodyCapacity: async (market, size) => { calls.custody++; return { market, currentAssets: 1_000_000, requiredSize: size }; },
+    checkCustodyCapacity: async (market, size) => { calls.custody++; return { market, currentAssets: 1_000_000, headroomUsd: 500_000, requiredSize: size }; },
     getPerpQuote: async (market, direction, size, leverage) => { calls.quote++; return { market, direction, size, leverage, marginRequired: size / leverage, estimatedFees: size * 0.001, liquidationPrice: null }; },
     openPerpPosition: async (...args) => { calls.open.push(args); return { success: true, positionId: 'PosPda1111111111111111111111111111111111111', signature: '3xSig' + 'a'.repeat(80) }; },
     closePerpPosition: async (...args) => { calls.close.push(args); return { success: true, signature: 'placeholder_signature' }; },
@@ -100,19 +101,33 @@ function fakeJupiter(over = {}) {
   return j;
 }
 
-function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs = T0 } = {}) {
+/** Engine build fake: symbols.X.mark / price, mutable per test; counts builds. */
+function fakeMarket() {
+  const m = {
+    builds: 0,
+    symbols: {
+      BTC: { mark: { status: 'ok', price: 84600, driftBps: 1 }, price: 84610 },
+      ETH: { mark: { status: 'ok', price: 3000 }, price: 3001 },
+      SOL: { mark: { status: 'ok', price: 150 }, price: 150.1 }
+    }
+  };
+  m.build = async () => { m.builds++; if (m.fail) throw new Error('build down'); return { symbols: m.symbols }; };
+  return m;
+}
+
+function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs = T0, market = fakeMarket() } = {}) {
   const store = fakeBlob();
   const clock = { t: nowMs };
   const journal = [];
   let seq = 0;
   const ex = createExecutor({
-    env, jupiter, store, capabilities,
+    env, jupiter, store, capabilities, buildContext: market.build,
     wallet: { getAddress: async () => '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM' },
     appendJournal: async (record) => { journal.push(record); return { duplicate: false }; },
     now: () => clock.t,
     randomBytes: (n) => { seq++; return Buffer.alloc(n, seq); }
   });
-  return { ex, store, clock, journal, jupiter, env };
+  return { ex, store, clock, journal, jupiter, env, market };
 }
 
 const intent = (over = {}) => ({ symbol: 'BTC', direction: 'long', sizeUsd: 200, leverage: 5, entry: 84600, stop: 84390, tp1: 85146, planId: 'plan_abc', candidateId: 'cand_1', recClass: 'GOOD', source: 'telegram', ...over });
@@ -233,11 +248,11 @@ async function run() {
     has((await ex.preflight(intent({ direction: 'short' }), ctx)).reasons, 'stop_wrong_side', 'short stop below');
     eq((await ex.preflight(intent({ direction: 'short', stop: 84810, tp1: 84054 }), ctx)).ok, true, 'valid short');
   });
-  await test('stop cap 3% unless the plan says otherwise; caps and liquidation buffer', () => {
+  await test('stop cap 3% is absolute (planMaxStopPct ignored); caps and liquidation buffer', () => {
     const caps = readExecutionConfig(baseEnv()).caps;
     has(checkIntent(intent({ stop: 82000, sizeUsd: 50, leverage: 2 }), caps).reasons, 'stop_too_wide', '3.07% stop');
-    assert(!checkIntent(intent({ stop: 82000, sizeUsd: 50, leverage: 2, planMaxStopPct: 4 }), caps).reasons.includes('stop_too_wide'), 'plan cap 4%');
-    has(checkIntent(intent({ stop: 82000, sizeUsd: 50, leverage: 2, planMaxStopPct: 4, planId: null }), caps).reasons, 'stop_too_wide', 'plan cap needs planId');
+    has(checkIntent(intent({ stop: 82000, sizeUsd: 50, leverage: 2, planMaxStopPct: 4 }), caps).reasons, 'stop_too_wide', 'a plan cannot widen the 3% cap');
+    eq(checkIntent(intent(), caps).derived.stopCapPct, 3, 'cap 3');
     has(checkIntent(intent({ sizeUsd: 600 }), caps).reasons, 'size_over_cap', 'size');
     has(checkIntent(intent({ leverage: 11 }), caps).reasons, 'leverage_over_cap', 'leverage');
     has(checkIntent(intent({ stop: 83000, sizeUsd: 500, leverage: 2 }), { ...caps, maxLossUsdPerTrade: 10 }).reasons, 'loss_over_cap', 'loss $11.16 > $10');
@@ -353,7 +368,10 @@ async function run() {
     eq(journal[0].source, 'execution', 'source');
     eq(journal[0].engineRef.candidateId, 'cand_1', 'engineRef');
     const fill = auditRows(store).find((l) => l.event === 'fill');
-    eq(fill.txSignature, r.txSignature, 'txSignature kept in audit');
+    eq(fill.txSignatureHash, idHash(r.txSignature), 'tx signature hashed in audit');
+    eq(fill.positionIdHash, idHash(r.position.positionId), 'position id hashed in audit');
+    assert(!('txSignature' in fill) && !('positionId' in fill), 'no raw ids in audit');
+    assert(!store.all().includes(r.txSignature) && !store.all().includes(r.position.positionId), 'no full tx / position id anywhere in Blob');
     eq(fill.mode, 'live', 'audit live');
   });
   await test('live open failure: no journal, error audited without RPC URL', async () => {
@@ -479,6 +497,213 @@ async function run() {
   await test('journal accepts source execution; body cannot set it', () => {
     eq(validateJournalEntry({ text: 'x' }, { now: T0, newId: () => 'x_12345678', source: 'execution' }).record.source, 'execution', 'server source');
     eq(validateJournalEntry({ text: 'x', source: 'execution' }, { now: T0, newId: () => 'x_12345678' }).record.source, null, 'body ignored');
+  });
+
+  console.log('Review fixes 2026-09-25');
+  await test('F1 arm refuses during a wrong-PIN auto-kill without evaluating the PIN; counter not reset', async () => {
+    const { ex, store, jupiter } = setup();
+    jupiter.positions = [{ positionId: 'PosAAA', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84600, markPrice: 84800, liquidationPrice: 68000 }];
+    for (let i = 0; i < 3; i++) await ex.closePosition('PosAAA', null, '1111', ctx);
+    const k = JSON.parse(store.text(KILL_PATH));
+    eq(k.reason, 'wrong_pin_x3', 'auto-kill');
+    eq(k.wrongPin.count, 3, 'counter kept after the kill');
+    const before = store.text(KILL_PATH);
+    const a = await ex.arm(PIN, ctx);
+    eq(a.ok, false, 'right PIN refused');
+    has(a.reasons, 'auto_kill_active', 'reason');
+    has((await ex.arm('0000', ctx)).reasons, 'auto_kill_active', 'wrong PIN not evaluated either');
+    eq(store.text(KILL_PATH), before, 'no counter write, no clear');
+  });
+  await test('F1 each further 3 wrong PINs extend the auto-kill by 1 h; a manual kill is never downgraded', async () => {
+    eq(autoKillUntil(2, null, T0), null, '2 -> none');
+    eq(autoKillUntil(3, null, T0), T0 + AUTO_KILL_MS, '3 -> 1 h');
+    eq(autoKillUntil(6, T0 + AUTO_KILL_MS, T0), T0 + 2 * AUTO_KILL_MS, '6 -> extends');
+    const store = fakeBlob();
+    store.files.set(KILL_PATH, { text: JSON.stringify({ killed: true, reason: 'wrong_pin_x3', until: new Date(T0 + AUTO_KILL_MS).toISOString(), wrongPin: { count: 5, since: new Date(T0).toISOString() } }), etag: '"k"' });
+    const w = await recordWrongPin(store, T0 + 1000);
+    eq(w.count, 6, 'count 6');
+    eq(Date.parse(JSON.parse(store.text(KILL_PATH)).until), T0 + 2 * AUTO_KILL_MS, 'extended by 1 h');
+    const m = fakeBlob();
+    m.files.set(KILL_PATH, { text: JSON.stringify({ killed: true, reason: 'telegram', until: null, wrongPin: { count: 2, since: new Date(T0).toISOString() } }), etag: '"m"' });
+    await recordWrongPin(m, T0 + 1000);
+    const mk = JSON.parse(m.text(KILL_PATH));
+    eq(mk.reason, 'telegram', 'manual kill kept');
+    eq(mk.until, null, 'manual kill does not lapse');
+  });
+  await test('F1 wrong PIN counts in memory when the Blob write fails; 3rd kills this instance', async () => {
+    const { ex, store, jupiter } = setup();
+    jupiter.positions = [{ positionId: 'PosAAA', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84600, markPrice: 84800, liquidationPrice: 68000 }];
+    const warns = [];
+    const orig = console.warn;
+    console.warn = (...a) => warns.push(a.join(' '));
+    let last;
+    try {
+      store.failPut = true;
+      for (let i = 0; i < 3; i++) last = await ex.closePosition('PosAAA', null, '1111', ctx);
+    } finally { console.warn = orig; }
+    has(last.reasons, 'auto_killed', 'third wrong kills');
+    assert(warns.some((w) => w.includes('reason=pin_count_write_failed')), 'logged');
+    store.failPut = false;
+    has((await ex.preflight(intent(), ctx)).reasons, 'kill_switch', 'in-memory kill honored');
+    has((await ex.arm(PIN, ctx)).reasons, 'auto_kill_active', 'arm refused during in-memory kill');
+  });
+  await test('F2 fill = live mark; drift over 15 bps refuses; env override; Kraken close when mark not ok', async () => {
+    const s = setup();
+    const ok = await s.ex.preflight(intent(), ctx);
+    eq(ok.ok, true, `ok ${ok.reasons}`);
+    eq(ok.order.expectedFill, 84600, 'fill = mark');
+    eq(ok.order.fillSource, 'mark', 'source mark');
+    s.market.symbols.BTC.mark.price = 84750; // 17.7 bps
+    has((await s.ex.preflight(intent(), ctx)).reasons, 'fill_drift', 'drift refused');
+    const wide = setup({ env: baseEnv({ EXECUTION_MAX_ENTRY_DRIFT_BPS: '25' }) });
+    wide.market.symbols.BTC.mark.price = 84750;
+    eq((await wide.ex.preflight(intent(), ctx)).ok, true, 'env 25 bps allows');
+    const k = setup();
+    k.market.symbols.BTC.mark = { status: 'stale', price: 90000 };
+    k.market.symbols.BTC.price = 84605;
+    const r = await k.ex.preflight(intent(), ctx);
+    eq(r.order.fillSource, 'kraken_close', 'stale mark -> Kraken close');
+    eq(r.order.expectedFill, 84605, 'close price');
+    const f = setup();
+    f.market.fail = true;
+    has((await f.ex.preflight(intent(), ctx)).reasons, 'fill_unavailable', 'no fill refuses');
+  });
+  await test('F2 ctx.mark is used without a build; stop side / 3% cap / max loss re-checked at the fill', async () => {
+    const s = setup();
+    const r = await s.ex.preflight(intent(), { ...ctx, mark: { symbol: 'BTC', status: 'ok', price: 84605, close: 84610 } });
+    eq(r.ok, true, `ok ${r.reasons}`);
+    eq(s.market.builds, 0, 'no engine build');
+    eq(r.order.expectedFill, 84605, 'ctx mark');
+    const b = setup({ env: baseEnv({ EXECUTION_MAX_ENTRY_DRIFT_BPS: '1000' }) });
+    b.market.symbols.BTC.mark.price = 84380; // below the long stop 84390
+    has((await b.ex.preflight(intent(), ctx)).reasons, 'stop_wrong_side_at_fill', 'stop side at fill');
+    b.market.symbols.BTC.mark.price = 87100; // stop 84390 is 3.1% away
+    has((await b.ex.preflight(intent(), ctx)).reasons, 'stop_too_wide_at_fill', 'stop cap at fill');
+    const l = setup({ env: baseEnv({ EXECUTION_MAX_ENTRY_DRIFT_BPS: '1000', EXECUTION_MAX_LOSS_USD_PER_TRADE: '5' }) });
+    eq(checkIntent(intent({ sizeUsd: 500, leverage: 2 }), readExecutionConfig(l.env).caps).reasons.length, 0, 'passes at plan entry ($2.94)');
+    l.market.symbols.BTC.mark.price = 85100; // loss at fill ~$5.87 > $5
+    const lr = await l.ex.preflight(intent({ sizeUsd: 500, leverage: 2 }), ctx);
+    has(lr.reasons, 'loss_over_cap_at_fill', 'max loss at fill');
+    assert(lr.order.maxLossUsd > 5, 'order carries the worse (fill) max loss');
+  });
+  await test('F2 confirm re-prices: mark moves after the ticket -> fill_drift, nothing sent', async () => {
+    const { ex, market, journal } = setup();
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    market.symbols.BTC.mark.price = 84800;
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(r.ok, false, 'refused');
+    has(r.reasons, 'fill_drift', 'drift at confirm');
+    eq(journal.length, 0, 'nothing journaled');
+  });
+  await test('F3 kill read: head ETag mismatch -> fresh body; unresolved mismatch or head error -> killed', async () => {
+    const s = setup();
+    s.store.files.set(KILL_PATH, { text: JSON.stringify({ killed: false }), etag: '"old"' });
+    s.store.head = async () => ({ etag: '"new"', url: `${BASE}/${KILL_PATH}` });
+    s.store.fetchImpl = async () => new Response(JSON.stringify({ killed: true, reason: 'telegram' }));
+    has((await s.ex.preflight(intent(), ctx)).reasons, 'kill_switch', 'fresh body says killed');
+    s.store.fetchImpl = async () => { throw new Error('cdn down'); };
+    has((await s.ex.preflight(intent(), ctx)).reasons, 'kill_state_unavailable', 'unresolved mismatch fails closed');
+    s.store.head = async () => { throw new Error('head down'); };
+    has((await s.ex.preflight(intent(), ctx)).reasons, 'kill_state_unavailable', 'head error fails closed');
+    s.store.head = async () => ({ etag: '"old"', url: `${BASE}/${KILL_PATH}` });
+    eq((await s.ex.preflight(intent(), ctx)).ok, true, 'matching etag reads get body');
+    const n = setup();
+    n.store.head = async () => { const e = new Error('nf'); e.name = 'BlobNotFoundError'; throw e; };
+    eq((await n.ex.preflight(intent(), ctx)).ok, true, 'missing blob on get and head = not killed');
+    eq(await readBlobFresh({ get: n.store.get, head: n.store.head }, 'nope.json'), null, 'readBlobFresh null');
+  });
+  await test('F4 custody headroom: over headroom refuses; no numbers -> live custody_unknown, dry warns', async () => {
+    const a = setup({ jupiter: fakeJupiter({ checkCustodyCapacity: async () => ({ currentAssets: 10, headroomUsd: 100 }) }) });
+    has((await a.ex.preflight(intent(), ctx)).reasons, 'custody_capacity', '$200 > $100 headroom');
+    const noNums = () => fakeJupiter({ checkCustodyCapacity: async () => ({ market: 'BTCUSDT', currentAssets: 5_000_000, note: 'limit enforced by protocol' }) });
+    const d = await setup({ jupiter: noNums() }).ex.preflight(intent(), ctx);
+    eq(d.ok, true, `dry allowed ${d.reasons}`);
+    has(d.reasons, 'warn:custody_unknown', 'dry warns');
+    const l = await setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true }, jupiter: noNums() }).ex.preflight(intent(), ctx);
+    eq(l.ok, false, 'live refused');
+    has(l.reasons, 'custody_unknown', 'live reason');
+    const m = await setup({ jupiter: fakeJupiter({ checkCustodyCapacity: async () => ({ currentAssets: 900, maxAssets: 1000 }) }) }).ex.preflight(intent(), ctx);
+    has(m.reasons, 'custody_capacity', 'max - current = $100 < $200');
+  });
+  await test('F6 tickets store an owner hash and a position id hash, never the ids', async () => {
+    const { ex, store, jupiter } = setup();
+    jupiter.positions = [{ positionId: 'PosAAA', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84600, markPrice: 84800, liquidationPrice: 68000 }];
+    await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    const pc = await ex.prepareClose('PosAAA', null, ctx);
+    const tc = await ex.createTicket(pc.order, ctx);
+    const text = store.text(TICKETS_PATH);
+    assert(!text.includes(String(OWNER)), 'no Telegram user id');
+    assert(!text.includes('PosAAA'), 'no position id');
+    const doc = JSON.parse(text);
+    eq(doc.tickets[tc.nonce].ownerHash, idHash(String(OWNER)), 'owner hash');
+    eq(doc.tickets[tc.nonce].order.positionIdHash, idHash('PosAAA'), 'position hash');
+    eq((await ex.confirm(tc.nonce, PIN, ctx)).ok, true, 'close resolves the hash against the chain read');
+    assert(!store.all().includes('PosAAA') && !store.all().includes(String(OWNER)), 'no raw ids anywhere in Blob');
+  });
+  await test('F7 journal linkage: live open carries positionIdHash, fill, recClass, nonce; close links the open', async () => {
+    const sig = `5Real${'b'.repeat(80)}`;
+    const { ex, journal, jupiter, store } = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true, close: true },
+      jupiter: fakeJupiter({
+        openPerpPosition: async () => ({ success: true, positionId: 'PosLive1', signature: sig, fillPrice: 84612 }),
+        closePerpPosition: async () => ({ success: true, signature: sig })
+      })
+    });
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(r.ok, true, `open ${r.reasons}`);
+    const open = journal[0];
+    eq(open.entry, 84612, 'entry = venue fill');
+    eq(open.engineRef.recClass, 'GOOD', 'recClass');
+    eq(open.execRef.positionIdHash, idHash('PosLive1'), 'position hash');
+    eq(open.execRef.ticketNonce, t.nonce, 'ticket nonce');
+    eq(open.execRef.fillSource, 'venue', 'fill source');
+    store.files.set('journal/2026-09-25.jsonl', { text: `${JSON.stringify(open)}\n`, etag: '"j1"' });
+    jupiter.positions = [{ positionId: 'PosLive1', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84612, markPrice: 84700, liquidationPrice: 68000, unrealizedPnlUsd: 0.2 }];
+    const c = await ex.closePosition('PosLive1', null, PIN, ctx);
+    eq(c.ok, true, `close ${c.reasons}`);
+    const close = journal.at(-1);
+    eq(close.kind, 'close', 'close');
+    eq(close.execRef.openJournalId, open.id, 'links the open');
+    eq(close.execRef.positionIdHash, idHash('PosLive1'), 'position hash');
+  });
+  await test('F7 no venue fill price -> journal entry = expected fill (mark)', async () => {
+    const { ex, journal } = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true } });
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    eq((await ex.confirm(t.nonce, PIN, ctx)).ok, true, 'ok');
+    eq(journal[0].entry, 84600, 'mark');
+    eq(journal[0].execRef.fillSource, 'mark', 'source');
+  });
+  await test('F7 execRef only for source execution (GPT / Telegram records unchanged)', () => {
+    const body = { text: 'x', execRef: { ticketNonce: 'abcd1234' } };
+    const gpt = validateJournalEntry(body, { now: T0, newId: () => 'x_12345678' }).record;
+    assert(!('execRef' in gpt), 'GPT path ignores execRef');
+    eq(validateJournalEntry(body, { now: T0, newId: () => 'x_12345678', source: 'execution' }).record.execRef.ticketNonce, 'abcd1234', 'execution keeps it');
+    eq(validateJournalEntry({ text: 'x', execRef: { ticketNonce: 'bad nonce!' } }, { now: T0, newId: () => 'x_12345678', source: 'execution' }).ok, false, 'validated');
+  });
+  await test('F8 cancelTicket consumes the ticket without acting; owner only; audited', async () => {
+    const { ex, store, journal } = setup();
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    has((await ex.cancelTicket(t.nonce, { userId: 5 })).reasons, 'not_owner', 'stranger');
+    eq((await ex.cancelTicket(t.nonce, ctx)).ok, true, 'cancelled');
+    has((await ex.confirm(t.nonce, PIN, ctx)).reasons, 'nonce_used', 'confirm after cancel refused');
+    eq(journal.length, 0, 'nothing journaled');
+    eq(auditRows(store).filter((l) => l.event === 'cancel').length, 1, 'cancel audited');
+  });
+  await test('F9 nonceTail survives redaction even when it equals the PIN; other PIN echoes do not', () => {
+    const out = redact({ nonceTail: PIN, echoed: PIN, nonceTailBad: 'zz' }, baseEnv());
+    eq(out.nonceTail, PIN, 'nonceTail kept');
+    eq(out.echoed, '[redacted]', 'PIN echo redacted');
+    eq(redact({ nonceTail: FAKE_KEY }, baseEnv()).nonceTail, '[redacted]', 'non-hex tail not exempt');
+  });
+  await test('F5 RPC URL: walletManager logs only the host; no console line prints the raw URL', async () => {
+    const { rpcHostForLog } = await import('./services/walletManager.js');
+    eq(rpcHostForLog(FAKE_RPC), 'mainnet.helius-rpc.com', 'host only');
+    eq(rpcHostForLog('not a url'), 'invalid-url', 'invalid');
+    for (const f of ['services/walletManager.js', 'services/jupiterPerps.js', 'services/walletTracker.js', 'test-perps-connection.js']) {
+      const src = readFileSync(path.join(root, f), 'utf8');
+      assert(!/console\.[a-z]+\([^)]*\brpcUrl\b(?!\))/.test(src.replace(/rpcHostForLog\(rpcUrl\)/g, '')), `${f} logs rpcUrl`);
+    }
   });
 
   console.log('Positions read (services/jupiterPerps.js)');

@@ -303,7 +303,9 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
 
   // ---- execution helpers (only used by execution commands and /positions, /plan)
   const ex = parsed && parsed.known && (EXEC_CMDS.has(cmd) || cmd === 'positions' || cmd === 'plan') ? await resolveExecutor(env, deps) : null;
-  const ctx = () => ({ source: 'telegram', userId: String(fromId), chatId: String(chatId), nowMs: now(), requestId });
+  const ctx = (extra = {}) => ({ source: 'telegram', userId: String(fromId), chatId: String(chatId), nowMs: now(), requestId, ...extra });
+  /** ctx.mark for preflight: the payload symbol's mark plus the Kraken close (executor picks mark when ok). */
+  const markCtx = (symbol, s) => (s && typeof s === 'object' ? { symbol, status: s.mark && s.mark.status ? s.mark.status : 'unavailable', price: s.mark ? s.mark.price ?? null : null, close: typeof s.price === 'number' ? s.price : null } : null);
   let execSeq = 0;
   /** Reply, then log the message as a kind EXEC line (best effort, never throws). */
   const execSend = async (text, markup, meta = {}) => {
@@ -332,15 +334,23 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       return taken;
     }
   };
-  /** Delete the owner's message (it may carry a PIN). Best effort. */
-  const deleteOwn = async () => { if (msg && msg.message_id !== undefined) await bot.deleteMessage(chatId, msg.message_id); };
+  /** Delete the owner's message (it may carry a PIN); on failure tell the owner to delete it. */
+  const deleteOwn = async () => {
+    if (!msg || msg.message_id === undefined) return;
+    let r = null;
+    try { r = await bot.deleteMessage(chatId, msg.message_id); } catch { r = null; }
+    if (!r || r.ok !== true) {
+      log('exec', ' reason=pin_message_delete_failed');
+      await reply('⚠️ Could not delete your PIN message — delete your PIN message manually.');
+    }
+  };
   /** Preflight -> refused card, or createTicket -> ticket card with Confirm / Cancel. */
-  const runOrder = async (intent, { timeframe = null, snap = null } = {}) => {
+  const runOrder = async (intent, { timeframe = null, snap = null, mark = null } = {}) => {
     const status = await safeStatus();
     const mode = execMode(status);
     const meta = { symbol: intent.symbol, timeframe, direction: intent.direction, candidateId: intent.candidateId || null, entry: intent.entry, stop: intent.stop, tp1: intent.tp1, mode };
     let pf;
-    try { pf = await ex.preflight(intent, ctx()); } catch (err) { pf = { ok: false, reasons: [`preflight failed (${errName(err)})`] }; }
+    try { pf = await ex.preflight(intent, ctx(mark ? { mark } : {})); } catch (err) { pf = { ok: false, reasons: [`preflight failed (${errName(err)})`] }; }
     if (!pf || pf.ok !== true) return execSend(formatRefusedCard(intent, pf && pf.reasons, { timeframe }), null, { ...meta, event: 'refused' });
     let ticket = null;
     try { ticket = await ex.createTicket(pf.order, ctx()); } catch (err) { log('exec', ` reason=ticket_${errName(err)}`); }
@@ -385,7 +395,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       try { ticket = await ex.createTicket(prep.order, ctx()); } catch (err) { log('exec', ` reason=ticket_${errName(err)}`); }
       if (!ticket || ticket.ok === false || typeof ticket.nonce !== 'string') return refused((ticket && ticket.reasons) || ['the ticket could not be created']);
       Object.assign(t, { nonce: ticket.nonce, viaExecutor: true, expiresAt: Number.isFinite(Date.parse(ticket.expiresAt)) ? ticket.expiresAt : t.expiresAt });
-      await tickets.put(t); // display data for the result card; the executor owns the nonce
+      // Display data for the result card; the executor owns the nonce and the position id
+      // (public Blob: the full position id is not stored here).
+      const { positionId: _omit, ...shown } = p;
+      await tickets.put({ ...t, position: shown });
     } else {
       t.nonce = crypto.randomBytes(4).toString('hex');
       if (!(await tickets.put(t))) return reply('The ticket could not be saved; try again in a minute.');
@@ -408,7 +421,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
         const built = orderIntentFromPlan(v, execCaps(await safeStatus(), env));
         if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || v.candidate.direction }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
-        else await runOrder(built.intent, { timeframe: tf, snap: built.snap });
+        else await runOrder(built.intent, { timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null) });
       }
     } else if (cmd === 'order') {
       const o = parseOrderArgs(parsed.args);
@@ -416,13 +429,17 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       else {
         // Market order: entry is the live mark (Kraken close when no mark); the executor quotes the fill.
         const payload = filterPayload(await build(), { compact: true });
-        const lp = livePrice(payload && payload.symbols ? payload.symbols[o.symbol] : null);
-        await runOrder({ symbol: o.symbol, direction: o.direction, sizeUsd: o.sizeUsd, leverage: o.leverage, entry: lp ? lp.price : null, stop: o.stop, tp1: o.tp1, source: 'telegram' });
+        const sym = payload && payload.symbols ? payload.symbols[o.symbol] : null;
+        const lp = livePrice(sym);
+        await runOrder({ symbol: o.symbol, direction: o.direction, sizeUsd: o.sizeUsd, leverage: o.leverage, entry: lp ? lp.price : null, stop: o.stop, tp1: o.tp1, source: 'telegram' }, { mark: markCtx(o.symbol, sym) });
       }
     } else if (cmd === 'xconfirm') {
       await execSend(confirmPrompt(parsed.nonce), null, { event: 'confirm_prompt' });
     } else if (cmd === 'xcancel') {
-      // The executor is not called; its ticket simply expires. A position ticket is dropped.
+      // Consume the executor ticket (single use, no action) and drop the Telegram-side one.
+      if (typeof ex.cancelTicket === 'function') {
+        try { await ex.cancelTicket(parsed.nonce, ctx()); } catch (err) { log('exec', ` reason=cancel_${errName(err)}`); }
+      }
       if (hasStore) await tickets.take(parsed.nonce);
       if (cq && cq.message && cq.message.message_id !== undefined) await bot.editMessageReplyMarkup(chatId, cq.message.message_id, { inline_keyboard: [] });
       await execSend('Cancelled. Nothing was sent.', null, { event: 'cancel' });
@@ -464,10 +481,11 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           const meta = { symbol: tk.symbol || null, timeframe: tk.timeframe || null, direction: tk.direction || null, candidateId: tk.candidateId || null, entry: tk.entry, stop: tk.stop, tp1: tk.tp1, mode: r && r.mode };
           if (!r || r.ok !== true) await execSend(formatConfirmFail(r), null, { ...meta, event: 'confirm_failed' });
           else {
-            // Auto-track the candidate like Took it (the executor journals; no second journal write).
+            // Auto-track the candidate (the executor journals; no second journal write). Only a
+            // live fill marks it taken; a dry run is tracked only.
             let tracking = null;
             if (tk.snap && tk.snap.candidateId && hasStore) {
-              const out = await writeState((text) => applyTrackChange(text, { action: 'track', entry: trackEntry({ ...tk.snap, symbol: tk.symbol }, now(), { took: true }) }, now()));
+              const out = await writeState((text) => applyTrackChange(text, { action: 'track', entry: trackEntry({ ...tk.snap, symbol: tk.symbol }, now(), { took: r.mode === 'live' }) }, now()));
               tracking = !out ? false : out.result === 'full' ? 'full' : true;
             }
             if (hasStore) await tickets.take(nonce);

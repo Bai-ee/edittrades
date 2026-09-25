@@ -11,6 +11,11 @@ import 'dotenv/config';
 let wallet = null;
 let connection = null;
 
+/** Host of an RPC URL for logs (never the path or query, which can carry an API key). */
+export function rpcHostForLog(url) {
+  try { return new URL(url).host || 'unknown-host'; } catch { return 'invalid-url'; }
+}
+
 /**
  * Get or create wallet keypair from environment variable
  * @returns {Keypair} Solana keypair
@@ -78,7 +83,7 @@ export function getConnection() {
 
   const rpcUrl = process.env.SOLANA_RPC_URL || clusterApiUrl('mainnet-beta');
   
-  console.log('[WalletManager] Connecting to Solana RPC:', rpcUrl);
+  console.log('[WalletManager] Connecting to Solana RPC host:', rpcHostForLog(rpcUrl));
   
   connection = new Connection(rpcUrl, 'confirmed');
   

@@ -17,7 +17,9 @@ async function testPerpsConnection() {
     
     // Create RPC connection
     const rpcUrl = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
-    console.log('📡 RPC URL:', rpcUrl);
+    let rpcHost = 'invalid-url';
+    try { rpcHost = new URL(rpcUrl).host; } catch { /* keep placeholder */ }
+    console.log('📡 RPC host:', rpcHost); // host only: the URL can carry an API key
     const rpc = createSolanaRpc(rpcUrl);
     
     // Test 1: Fetch Pool

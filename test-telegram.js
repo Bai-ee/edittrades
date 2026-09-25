@@ -34,7 +34,7 @@ import {
   RULE, MAX_CARD_CHARS, resolveRef, formatPlanCard, formatThesisCard, reasonPhrase, rMultiple, trackEntry, applyTrackChange, formatTrackingList, trackingKeyboard,
   diffTracked, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, candidateSnapshot, swapTrackButton, parseAlertTimeframes,
   TRACK_MAX, TRACK_TTL_MS, NUDGE_AFTER_MS, EXPIRED_REPLY, liveView, formatMarket, marketLean, formatHelp,
-  isOpenReady, parseOrderArgs, parseConfirmArgs
+  isOpenReady, parseOrderArgs, parseConfirmArgs, orderIntentFromPlan, formatTicketCard, EXEC_TICKETS_PATH
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor, config as webhookConfig } from './api/telegram-webhook.js';
@@ -166,7 +166,7 @@ function fakeBlob() {
 }
 
 /** Fake Bot API: records every call (method, chat, text or multipart), answers ok. */
-function fakeTelegram({ fail = false } = {}) {
+function fakeTelegram({ fail = false, failMethods = [] } = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     const m = String(url).match(/\/bot([^/]+)\/(\w+)$/);
@@ -186,6 +186,7 @@ function fakeTelegram({ fail = false } = {}) {
     }
     calls.push(entry);
     if (fail) throw Object.assign(new Error('network down'), { name: 'TypeError' });
+    if (failMethods.includes(entry.method)) return new Response(JSON.stringify({ ok: false, description: 'Bad Request: message can\'t be deleted' }), { status: 400 });
     return new Response(JSON.stringify({ ok: true, result: {} }), { status: 200 });
   };
   return { calls, fetchImpl };
@@ -1927,7 +1928,8 @@ async function run() {
       async listPositions() { calls.push(['listPositions']); return positions === null ? { ok: false, positions: [], error: 'wallet_unavailable' } : { ok: true, positions, error: null }; },
       async status() { calls.push(['status']); return { ok: true, enabled: true, mode, kill: { active: false, source: null }, caps: { maxSizeUsd: 50, maxLeverage: 3, maxLossUsdPerTrade: 5, maxDailyLossUsd: 15, maxOpenPositions: 2 }, dailyLossUsd: 1.25, openCount: 1, walletMarginUsd: 120.5 }; },
       async kill(ctx, reason) { calls.push(['kill', ctx, reason]); return killOk ? { ok: true, reasons: [] } : { ok: false, reasons: ['kill_write_failed'] }; },
-      async arm(pin, ctx) { calls.push(['arm', pin]); return pin === PIN ? { ok: true, reasons: [], envKillStill: false } : { ok: false, reasons: ['pin_wrong'] }; }
+      async arm(pin, ctx) { calls.push(['arm', pin]); return pin === PIN ? { ok: true, reasons: [], envKillStill: false } : { ok: false, reasons: ['pin_wrong'] }; },
+      async cancelTicket(nonce, ctx) { calls.push(['cancelTicket', nonce, ctx]); const had = orders.delete(nonce); return had ? { ok: true, reasons: [] } : { ok: false, reasons: ['nonce_unknown'] }; }
     };
     if (withPrepare) {
       ex.prepareClose = async (positionId, sizeUsd, ctx) => { calls.push(['prepareClose', positionId, sizeUsd]); return { ok: true, reasons: [], order: { action: 'close', mode, positionId, symbol: 'BTC', direction: 'long', sizeUsd, positionSizeUsd: 50 } }; };
@@ -2029,7 +2031,7 @@ async function run() {
     assert(t.startsWith('🧪 DRY RUN OK · ₿ <b>BTC 5m ▲ LONG</b>'), t);
     for (const f of ['price', '84,600.00', '$50.00 · 3x', 'n/a (dry run)', '84,390.00', '85,146.00', 'dry-run id', 'Tracking on']) assert(t.includes(f), `result missing ${f}`);
     const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
-    assert(st.tracked.some((x) => x.candidateId === GOOD_ID && x.took === true), 'auto-tracked like Took it');
+    assert(st.tracked.some((x) => x.candidateId === GOOD_ID && x.took === false), 'dry run: tracked only, never took');
     assert(![...blob.files.keys()].some((k) => k.startsWith('journal/')), 'no second journal write (the executor journals)');
     for (const c of r.tg.calls.concat(p.tg.calls)) assert(!String(c.text || '').includes(PIN), 'PIN never echoed');
     for (const l of execLines(blob)) assert(!JSON.stringify(l).includes(PIN), 'PIN never logged');
@@ -2045,9 +2047,11 @@ async function run() {
     const t = lastText(r);
     printed.push(['filled', t]);
     assert(t.startsWith('✅ FILLED · ₿ <b>BTC 5m ▲ LONG</b>') && t.includes('84,605.00') && t.includes('PosPDA…1111') && t.includes('tx 5sigLi…PQRS') && t.includes('Tracking on'), t);
+    const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    assert(st.tracked.some((x) => x.candidateId === GOOD_ID && x.took === true), 'live fill: tracked as took');
   });
 
-  await test('/confirm: wrong PIN -> ❌ PIN (auto-kill message on the 3rd), deleted, never echoed; malformed -> usage; Cancel never calls the executor', async () => {
+  await test('/confirm: wrong PIN -> ❌ PIN (auto-kill message on the 3rd), deleted, never echoed; malformed -> usage; Cancel consumes the ticket via cancelTicket, never confirms', async () => {
     const ex = mockExecutor();
     const blob = fakeBlob();
     await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
@@ -2061,6 +2065,8 @@ async function run() {
     const n = ex.calls.filter((c) => c[0] === 'confirm').length;
     const c = await xtap({ data: `xno:${NONCE}`, executor: ex, blob });
     assert(lastText(c) === 'Cancelled. Nothing was sent.' && ex.calls.filter((x) => x[0] === 'confirm').length === n, 'cancel');
+    const cc = ex.calls.find((x) => x[0] === 'cancelTicket');
+    assert(cc && cc[1] === NONCE && cc[2].userId === String(OWNER), 'executor.cancelTicket(nonce, ctx)');
     assertEqual(JSON.stringify(parseConfirmArgs(['a1b2c3d4', '1234'])), '{"nonce":"a1b2c3d4","pin":"1234"}', 'parse');
     assertEqual(parseConfirmArgs(['a1b2c3d4', '12']).pin, null, 'short pin');
     assertEqual(parseConfirmArgs(['bad nonce!', '1234']).nonce, null, 'bad nonce');
@@ -2137,6 +2143,52 @@ async function run() {
     assert(lastText(aw).startsWith('❌ <b>PIN</b>'), lastText(aw));
     const m = await xhook({ text: '/mode', executor: ex });
     assert(lastText(m).includes('DRY RUN') && lastText(m).includes('env-only'), lastText(m));
+  });
+
+  await test('review 2026-09-25: isOpenReady needs class GOOD and GET IN NOW; the intent carries recClass', () => {
+    const v = resolveRef(GOOD_REF, xpayload(), null);
+    assert(isOpenReady(v), 'GOOD + GET IN NOW');
+    assertEqual(orderIntentFromPlan(v, {}).intent.recClass, 'GOOD', 'recClass in the intent');
+    const noCall = (() => { const p = xpayload(); delete p.symbols.BTC.flagRecommendation.action; return p; })();
+    assert(!isOpenReady(resolveRef(GOOD_REF, noCall, null)), 'missing call is not ready');
+    const watch = (() => { const p = xpayload(); p.symbols.BTC.flagRecommendation.class = 'WATCH'; return p; })();
+    const wv = resolveRef(GOOD_REF, watch, null);
+    assert(wv && !isOpenReady(wv), 'WATCH + GET IN NOW is not ready');
+    assert(orderIntentFromPlan(wv, {}).error.includes('GOOD'), 'refused before preflight');
+  });
+
+  await test('review 2026-09-25: Open and /order pass ctx.mark (payload mark + Kraken close) to preflight', async () => {
+    const ex = mockExecutor();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex });
+    const m = ex.calls.find((c) => c[0] === 'preflight')[2].mark;
+    assert(m && m.symbol === 'BTC' && typeof m.status === 'string' && m.close === 84600, JSON.stringify(m));
+    const ex2 = mockExecutor();
+    await xhook({ text: '/order BTC long size 50 lev 3 sl 84390 tp 85146', executor: ex2 });
+    const m2 = ex2.calls.find((c) => c[0] === 'preflight')[2].mark;
+    assert(m2 && m2.symbol === 'BTC' && m2.close === 84600, JSON.stringify(m2));
+  });
+
+  await test('review 2026-09-25: a failed PIN-message delete tells the owner to delete it manually (/confirm and /arm)', async () => {
+    const ex = mockExecutor();
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob, tg: fakeTelegram({ failMethods: ['deleteMessage'] }) });
+    assert(r.sent.some((c) => String(c.text).includes('delete your PIN message manually')), 'confirm warns');
+    assert(r.sent.every((c) => !String(c.text).includes(PIN)), 'PIN never echoed');
+    const a = await xhook({ text: `/arm ${PIN}`, executor: ex, tg: fakeTelegram({ failMethods: ['deleteMessage'] }) });
+    assert(a.sent.some((c) => String(c.text).includes('delete your PIN message manually')), 'arm warns');
+    const ok = await xhook({ text: `/arm ${PIN}`, executor: ex });
+    assert(!ok.sent.some((c) => String(c.text).includes('manually')), 'no warning when the delete works');
+  });
+
+  await test('review 2026-09-25: position tickets on the public Blob hold no full position id; ticket card shows warn: reasons', async () => {
+    const ex = mockExecutor();
+    const blob = fakeBlob();
+    await xtap({ data: `xclose:${POS_REF}`, executor: ex, blob });
+    const text = blob.files.get(EXEC_TICKETS_PATH).text;
+    assert(!text.includes(POS_ID) && text.includes(POS_REF), 'ref kept, id dropped');
+    const card = formatTicketCard({ symbol: 'BTC', direction: 'long' }, { ok: true, reasons: ['warn:custody_unknown'], order: { symbol: 'BTC', direction: 'long', sizeUsd: 50, leverage: 3, expectedFill: 84600, stop: 84390, tp1: 85146 } }, { nonce: NONCE, expiresAt: new Date(T0 + 60_000).toISOString() }, { mode: 'dry', nowMs: T0 });
+    assert(card.includes('⚠️ custody_unknown'), card);
   });
 
   await test('Execution off: disabled env or missing module -> every execution command / button replies `Execution off`, executor untouched; /positions unchanged', async () => {
