@@ -35,7 +35,7 @@ import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
-  parseState, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet,
+  migrateState, parseHealth, errText, TELEGRAM_HEALTH_PATH, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet,
   parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot,
   collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS
 } from '../lib/telegram.js';
@@ -203,6 +203,20 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   const reply = (text, markup = menuKeyboard()) => bot.sendMessage(chatId, text, { replyMarkup: markup });
   const hasStore = Boolean(deps.put || deps.get || env.BLOB_READ_WRITE_TOKEN);
   const store = { put, get };
+  const secrets = [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.BLOB_READ_WRITE_TOKEN];
+  const errMsg = (err) => ` reason=state_read_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`;
+  /** State from Blob; never throws (read failure -> null, logged). Logs a reset/migration. */
+  const readState = async () => {
+    try {
+      const blob = await readBlob(get, TELEGRAM_STATE_PATH);
+      const m = migrateState(blob ? blob.text : null);
+      if (m.reset) log('state', ` reason=state_reset cause=${m.reason}`);
+      return m.state;
+    } catch (err) {
+      log('state', errMsg(err));
+      return null;
+    }
+  };
   let parsed;
   if (cq) {
     await bot.answerCallbackQuery(cq.id); // promptly, before any build
@@ -253,10 +267,12 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     } else if (cmd === 'status') {
       const payload = filterPayload(await build(), { compact: true });
       let state = null;
+      let health = null;
       if (hasStore) {
-        try { const blob = await readBlob(get, TELEGRAM_STATE_PATH); state = parseState(blob ? blob.text : null); } catch { state = null; }
+        state = await readState();
+        try { const blob = await readBlob(get, TELEGRAM_HEALTH_PATH); health = parseHealth(blob ? blob.text : null); } catch (err) { log('health', errMsg(err)); health = null; }
       }
-      await reply(formatStatus(payload, state, now()));
+      await reply(formatStatus(payload, state, now(), health));
     } else if (cmd === 'chart') {
       let request;
       try {
@@ -300,26 +316,41 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       if (a.action === 'error') await reply(escapeHtml(a.message));
       else if (!hasStore) await reply('Alert settings store unavailable.');
       else if (a.action === 'show' || a.action === 'quiet_show') {
-        const blob = await readBlob(get, TELEGRAM_STATE_PATH);
-        const prefs = parseState(blob ? blob.text : null).prefs;
+        const state = await readState();
+        if (!state) {
+          await reply('Alert settings could not be read; try again in a minute.');
+          log(200, ` cmd=${via}${cmd}`);
+          return res.status(200).json({ ok: true });
+        }
+        const prefs = state.prefs;
         if (a.action === 'show') await reply(formatAlertPrefs(prefs), alertsKeyboard());
         else await reply(`Quiet hours: ${fmtQuiet(prefs.quiet)}`);
       } else {
         // Same ETag-guarded update as the cron, so a concurrent cron run cannot lose it.
         const change = a.action === 'level' ? { level: a.level } : { quiet: a.action === 'quiet_off' ? null : a.quiet };
         let prefs = null;
-        await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => {
-          const next = applyPrefsChange(text, change);
-          prefs = parseState(next).prefs;
-          return next;
-        });
-        await reply(`Saved.\n${formatAlertPrefs(prefs)}`, alertsKeyboard());
+        let resetCause = null;
+        let saved = true;
+        try {
+          await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => {
+            const m = migrateState(text);
+            resetCause = m.reset ? m.reason : null;
+            const next = applyPrefsChange(text, change);
+            prefs = migrateState(next).state.prefs;
+            return next;
+          });
+        } catch (err) {
+          saved = false;
+          log('state', ` reason=state_write_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`);
+        }
+        if (resetCause) log('state', ` reason=state_reset cause=${resetCause}`);
+        if (saved) await reply(`Saved.\n${formatAlertPrefs(prefs)}`, alertsKeyboard());
+        else await reply('Alert settings could not be saved; try again in a minute.');
       }
     } else if (cmd === 'button_log') {
       if (!hasStore) await reply('Journal store unavailable.');
       else {
-        let state = null;
-        try { const blob = await readBlob(get, TELEGRAM_STATE_PATH); state = parseState(blob ? blob.text : null); } catch { state = null; }
+        const state = await readState();
         let snap = findButtonSnapshot(state, null, parsed.symbol, parsed.ref);
         if (!snap) snap = findButtonSnapshot(null, filterPayload(await build(), { compact: true }), parsed.symbol, parsed.ref);
         if (!snap) await reply(`That ${escapeHtml(parsed.symbol)} plan is no longer on file. Use /log to journal it by hand.`);
@@ -346,7 +377,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     }
     log(200, ` cmd=${via}${cmd || 'none'}`);
   } catch (err) {
-    log(200, ` cmd=${via}${cmd || 'none'} error=${JSON.stringify(String(err && err.name ? err.name : 'Error'))}`);
+    log(200, ` cmd=${via}${cmd || 'none'} error=${JSON.stringify(String(err && err.name ? err.name : 'Error'))} msg=${JSON.stringify(errText(err, secrets))}`);
     await reply('Something failed on the server; try again in a minute.');
   }
   return res.status(200).json({ ok: true });

@@ -27,7 +27,8 @@ import {
   LIVE_FLAG_STATES, MAX_FLAG_CHARTS, MAX_MEDIA_GROUP, formatBreakoutAlert, BREAKOUT_RECENT_IDS,
   MENU_ROWS, parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, shortRef, tradeButtonRow, signalsKeyboard,
   parseCallbackData, MAX_CALLBACK_BYTES, BUTTON_MEMORY, ALLOWED_UPDATES,
-  HEALTH_PERSIST_MS, HEALTH_REPEAT_MS, HEARTBEAT_WRITE_MS, MAX_MESSAGE_CHARS, TELEGRAM_STATE_PATH
+  HEALTH_PERSIST_MS, HEALTH_REPEAT_MS, HEARTBEAT_WRITE_MS, MAX_MESSAGE_CHARS, TELEGRAM_STATE_PATH,
+  migrateState, STATE_VERSION, TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, CRON_FAIL_ALERT_AFTER, CRON_FAIL_REPEAT_MS
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, config as webhookConfig } from './api/telegram-webhook.js';
@@ -844,6 +845,130 @@ async function run() {
     assertEqual(`${down.res.statusCode}|${down.res.body.sent}|${down.res.body.failed > 0}`, '200|0|true', 'send failures counted');
     const client = createBotClient({ token: '', fetchImpl: async () => { throw new Error('never'); } });
     assertEqual((await client.sendMessage(1, 'x')).error, 'token_missing', 'no token -> no call');
+  });
+
+  console.log('\nstate versioning + cron health');
+
+  /** A pre-versioning (v1) state: what the previous deploy wrote - no stateVersion, no prefs/watch/buttons. */
+  const toV1 = (st) => {
+    const v1 = JSON.parse(JSON.stringify(st));
+    delete v1.stateVersion; delete v1.prefs; delete v1.watch; delete v1.buttons;
+    for (const k of Object.keys(v1.symbols)) delete v1.symbols[k].breakoutIds;
+    return v1;
+  };
+  const kindsOf = (d) => d.alerts.map((a) => `${a.kind}:${a.symbol}`).join();
+
+  await test('state v1 (no stateVersion, no prefs) migrates to v2 and produces the same alerts as the current state', async () => {
+    const first = diffAlerts(emptyState(), payload(), T0).state;
+    const v1 = toV1(first);
+    const m = migrateState(JSON.stringify(v1));
+    assertEqual(`${m.fromVersion}|${m.migrated}|${m.reset}|${m.state.stateVersion}`, `1|true|false|${STATE_VERSION}`, 'migration flags');
+    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 } }), 'default prefs');
+    assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
+    const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
+    const fromV1 = diffAlerts(m.state, next, T0 + MIN);
+    const fromCurrent = diffAlerts({ ...first, buttons: {}, symbols: { ...first.symbols, BTC: { ...first.symbols.BTC, breakoutIds: [] } } }, next, T0 + MIN);
+    assertEqual(kindsOf(fromV1), kindsOf(fromCurrent), 'same alerts');
+    assert(kindsOf(fromV1).includes('SETUP:ETH') && !kindsOf(fromV1).includes('GOOD:BTC'), `dedup memory carried: ${kindsOf(fromV1)}`);
+    assertEqual(fromV1.state.stateVersion, STATE_VERSION, 'write stamps stateVersion');
+    assertEqual(JSON.parse(applyPrefsChange(JSON.stringify(v1), { level: 'good' })).stateVersion, STATE_VERSION, '/alerts write stamps stateVersion');
+    const withUnknown = migrateState(JSON.stringify({ ...v1, futureField: { x: 1 } }));
+    assertEqual(JSON.stringify(withUnknown.state.futureField), '{"x":1}', 'unknown fields kept');
+  });
+
+  await test('parseState never throws: corrupt JSON / wrong type reset; malformed parts default', async () => {
+    for (const [text, reason] of [['{not json', 'unparseable'], ['[]', 'wrong_type'], ['42', 'wrong_type'], ['"x"', 'wrong_type'], ['null', 'wrong_type']]) {
+      const m = migrateState(text);
+      assertEqual(`${m.reset}|${m.reason}|${m.state.stateVersion}`, `true|${reason}|${STATE_VERSION}`, text);
+    }
+    assertEqual(migrateState(null).reset, false, 'no blob is a first run, not a reset');
+    const weird = JSON.stringify({ symbols: { BTC: 5, ETH: { goodIds: 'x', setupIds: [1, 'a'] } }, health: 'x', alerts: { last: 3, today: 'many' }, watch: { ids: 'x', lastAt: 7 }, cron: 'y', prefs: { level: 'loud', quiet: 'z' }, buttons: [] });
+    const st = parseState(weird);
+    assertEqual(`${Object.keys(st.symbols).join()}|${st.symbols.ETH.goodIds.length}|${st.symbols.ETH.setupIds.join()}|${st.alerts.last}|${st.alerts.today}|${st.prefs.level}`, 'ETH|0|a|null|0|setup', 'sanitized');
+    const d = diffAlerts(st, payload(), T0);
+    assert(d.alerts.some((a) => a.kind === 'GOOD'), 'diff runs on the sanitized state');
+  });
+
+  await test('cron: v1 state in Blob migrates (written, stamped, logged); corrupt state resets with reason=state_reset', async () => {
+    const first = diffAlerts(emptyState(), payload(), T0).state;
+    const blob = fakeBlob();
+    await blob.put(TELEGRAM_STATE_PATH, JSON.stringify(toV1(first)), { allowOverwrite: true });
+    const tg = fakeTelegram();
+    const r = await cron({ blob, tg, nowMs: T0 + MIN });
+    assertEqual(`${r.res.statusCode}|${r.res.body.stateWritten}`, '200|true', 'migrated state written');
+    assertEqual(tg.calls.filter((c) => c.text && c.text.includes('NEW GOOD')).length, 0, 'no replay of the remembered GOOD');
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).stateVersion, STATE_VERSION, 'stamped');
+    assert(r.logs.some((l) => l.includes('reason=state_migrated from=1')), 'migration logged');
+    const bad = fakeBlob();
+    await bad.put(TELEGRAM_STATE_PATH, '{"symbols": {', { allowOverwrite: true });
+    const r2 = await cron({ blob: bad });
+    assertEqual(r2.res.statusCode, 200, 'corrupt state does not stop the cron');
+    assert(r2.logs.some((l) => l.includes('reason=state_reset cause=unparseable')), r2.logs.join('\n'));
+    assertEqual(JSON.parse(bad.files.get(TELEGRAM_STATE_PATH).text).stateVersion, STATE_VERSION, 'fresh state written');
+    const h = await hook({ text: '/alerts watch', blob: bad });
+    assert(h.tg.calls[0].text.startsWith('Saved.'), '/alerts works on a reset state');
+  });
+
+  await test('health counter: increments on failure, resets on success, no write while healthy', async () => {
+    let h = parseHealth('garbage');
+    assertEqual(h.failures, 0, 'garbage -> empty');
+    const r0 = nextCronHealth(h, { ok: true }, T0);
+    assertEqual(`${r0.write}|${r0.message}`, 'false|null', 'healthy: no write');
+    for (let i = 1; i <= 2; i++) {
+      const r = nextCronHealth(h, { ok: false, reason: 'state_write_Error' }, T0 + i * MIN);
+      assertEqual(`${r.health.failures}|${r.message}`, `${i}|null`, `failure ${i}`);
+      h = r.health;
+    }
+    assertEqual(h.since, new Date(T0 + MIN).toISOString(), 'since = first failure');
+    const ok = nextCronHealth(h, { ok: true }, T0 + 3 * MIN);
+    assertEqual(`${ok.health.failures}|${ok.message}|${ok.write}|${ok.health.lastReason}`, '0|null|true|state_write_Error', 'reset, no RECOVERED below 3, reason kept');
+  });
+
+  await test('health alert: FAILING on the 3rd consecutive failure only, then hourly; RECOVERED once', async () => {
+    let h = parseHealth(null);
+    const msgs = [];
+    const step = (outcome, t) => { const r = nextCronHealth(h, outcome, t); h = r.health; msgs.push(r.message); return r; };
+    for (let i = 0; i < 5; i++) step({ ok: false, reason: 'state_write_Error' }, T0 + i * MIN);
+    assertEqual(msgs.map((m) => (m ? 'M' : '-')).join(''), '--M--', 'third only');
+    assert(msgs[2].includes('ALERTS CRON FAILING') && msgs[2].includes('state_write_Error') && msgs[2].includes('since 14:05 UTC'), msgs[2]);
+    assertEqual(step({ ok: false, reason: 'x' }, T0 + 2 * MIN + CRON_FAIL_REPEAT_MS - 1).message, null, 'under an hour');
+    assert(step({ ok: false, reason: 'x' }, T0 + 2 * MIN + CRON_FAIL_REPEAT_MS).message.includes('FAILING'), 'hourly repeat');
+    const rec = step({ ok: true }, T0 + 2 * CRON_FAIL_REPEAT_MS);
+    assert(rec.message.includes('ALERTS CRON RECOVERED'), 'recovered');
+    assertEqual(step({ ok: true }, T0 + 2 * CRON_FAIL_REPEAT_MS + MIN).message, null, 'recovered once');
+    assertEqual(CRON_FAIL_ALERT_AFTER, 3, 'threshold');
+  });
+
+  await test('cron: state write failing -> 503 with error text logged, health blob counts (overwrite, no ETag), alert on 3rd, recovered; /status shows it', async () => {
+    const blob = fakeBlob();
+    const realPut = blob.put;
+    const healthOpts = [];
+    let broken = true;
+    blob.put = async (pathname, body, opts) => {
+      if (pathname === TELEGRAM_STATE_PATH && broken) throw Object.assign(new Error(`store rejected write for ${TOKEN}`), { name: 'Error' });
+      if (pathname === TELEGRAM_HEALTH_PATH) healthOpts.push(opts);
+      return realPut(pathname, body, opts);
+    };
+    const tg = fakeTelegram();
+    const runs = [];
+    for (let i = 0; i < 4; i++) runs.push(await cron({ blob, tg, nowMs: T0 + i * MIN }));
+    assertEqual(runs.map((r) => r.res.statusCode).join(), '503,503,503,503', 'status');
+    const line = runs[0].logs.find((l) => l.includes('status=503'));
+    assert(line.includes('reason=state_write_Error msg="store rejected write for [redacted]"'), line);
+    assert(!runs.flatMap((r) => r.logs).join('\n').includes(TOKEN), 'token never logged');
+    assert(healthOpts.every((o) => o.allowOverwrite === true && !o.ifMatch), 'health: overwrite, no ETag');
+    const failing = tg.calls.filter((c) => c.text && c.text.includes('ALERTS CRON FAILING'));
+    assertEqual(failing.map((c) => c.chatId).sort().join(), `${OWNER},444`, 'one FAILING per allowed user');
+    assertEqual(parseHealth(blob.files.get(TELEGRAM_HEALTH_PATH).text).failures, 4, 'counter');
+    const st = await hook({ text: '/status', blob });
+    assert(st.tg.calls[0].text.includes('Cron failures: 4 in a row · last failure: state_write_Error'), st.tg.calls[0].text);
+    broken = false;
+    const ok = await cron({ blob, tg, nowMs: T0 + 5 * MIN });
+    assertEqual(ok.res.statusCode, 200, 'recovers');
+    assertEqual(tg.calls.filter((c) => c.text && c.text.includes('ALERTS CRON RECOVERED')).length, 2, 'RECOVERED once per user');
+    await cron({ blob, tg, nowMs: T0 + 6 * MIN });
+    assertEqual(tg.calls.filter((c) => c.text && c.text.includes('ALERTS CRON RECOVERED')).length, 2, 'not repeated');
+    assertEqual(errText(new Error('x'.repeat(500))).length, 200, 'msg capped at 200');
   });
 
   console.log('\ntracker');
