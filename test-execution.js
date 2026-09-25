@@ -84,18 +84,67 @@ function baseEnv(over = {}) {
   };
 }
 
+/**
+ * T-3 F: closePerpPosition's fake mutates `j.positions` (shrinks or removes the matching
+ * row) so a subsequent on-chain "verify" read in the SAME test sees the post-close state,
+ * without the test itself needing to hand-simulate two different chain snapshots.
+ */
 function fakeJupiter(over = {}) {
-  const calls = { open: [], close: [], update: [], quote: 0, custody: 0, markets: 0, positions: 0 };
+  const calls = {
+    open: [], close: [], update: [], quote: 0, custody: 0, markets: 0, positions: 0,
+    buildOpen: [], waitForFill: [], buildStops: [], buildClose: [], cancel: []
+  };
   const j = {
     calls,
     positions: [],
     getPerpMarkets: async () => { calls.markets++; return { BTCUSDT: {}, ETHUSDT: {}, SOLUSDT: {} }; },
     checkCustodyCapacity: async (market, size) => { calls.custody++; return { market, currentAssets: 1_000_000, headroomUsd: 500_000, requiredSize: size }; },
     getPerpQuote: async (market, direction, size, leverage) => { calls.quote++; return { market, direction, size, leverage, marginRequired: size / leverage, estimatedFees: size * 0.001, liquidationPrice: null }; },
+    // legacy simple-signature wrappers: still the live close/update path (T-3 F only
+    // rewired `open`; close/update land through the same sendSigned -> landTransaction).
     openPerpPosition: async (...args) => { calls.open.push(args); return { success: true, positionId: 'PosPda1111111111111111111111111111111111111', signature: '3xSig' + 'a'.repeat(80) }; },
-    closePerpPosition: async (...args) => { calls.close.push(args); return { success: true, signature: 'placeholder_signature' }; },
-    updatePerpPosition: async (...args) => { calls.update.push(args); return { success: true, signature: 'placeholder_signature' }; },
+    closePerpPosition: async (positionId, sizeUsd) => {
+      calls.close.push([positionId, sizeUsd]);
+      const idx = j.positions.findIndex((p) => p.positionId === positionId);
+      if (idx !== -1) {
+        if (sizeUsd && j.positions[idx].sizeUsd > sizeUsd) j.positions[idx] = { ...j.positions[idx], sizeUsd: j.positions[idx].sizeUsd - sizeUsd };
+        else j.positions.splice(idx, 1);
+      }
+      return { success: true, signature: '3xCloseSig' + 'a'.repeat(76) };
+    },
+    updatePerpPosition: async (...args) => { calls.update.push(args); return { success: true, signature: '3xUpdateSig' + 'a'.repeat(75) }; },
     getPerpPositions: async () => { calls.positions++; return { ok: true, positions: j.positions, error: null }; },
+    // T-3 F: two-phase live open (build/land/waitForFill/attach-stops), used by executeOpen.
+    buildOpenPosition: async (o) => {
+      calls.buildOpen.push(o);
+      return {
+        meta: { positionId: 'PosPda1111111111111111111111111111111111111', positionRequestId: 'ReqPda111111111111111111111111111111111111', triggers: {} },
+        simulate: async () => ({ err: null }),
+        send: async () => ({ signature: '3xOpenSig' + 'a'.repeat(76), simulated: false }),
+      };
+    },
+    waitForFill: async (reqPda, posPda) => {
+      calls.waitForFill.push([reqPda, posPda]);
+      return { filled: true, position: { positionId: posPda, sizeUsd: 200, entryPrice: 84612, direction: 'long', symbol: 'BTC' } };
+    },
+    buildUpdateStops: async (o) => {
+      calls.buildStops.push(o);
+      return {
+        meta: { triggers: { stopLoss: { positionRequestId: 'SlReq11111111111111111111111111111111111111' }, takeProfit: { positionRequestId: 'TpReq11111111111111111111111111111111111111' } } },
+        simulate: async () => ({ err: null }),
+        send: async () => ({ signature: '3xStopsSig' + 'a'.repeat(75), simulated: false }),
+      };
+    },
+    buildClosePosition: async (o) => {
+      calls.buildClose.push(o);
+      return { meta: { positionId: o.positionId }, simulate: async () => ({ err: null }), send: async () => ({ signature: '3xEmergencySig' + 'a'.repeat(71), simulated: false }) };
+    },
+    buildCancelIncreaseRequest: async (o) => {
+      calls.cancel.push(o);
+      return { simulate: async () => ({ err: null }), send: async () => ({ signature: '3xCancelSig' + 'a'.repeat(74), simulated: false }) };
+    },
+    fetchAccountsExist: async (addrs) => addrs.map(() => true),
+    createKitSigner: () => ({ fakeSigner: true }),
     ...over
   };
   return j;
@@ -115,19 +164,23 @@ function fakeMarket() {
   return m;
 }
 
-function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs = T0, market = fakeMarket() } = {}) {
+function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs = T0, market = fakeMarket(), onAlert } = {}) {
   const store = fakeBlob();
   const clock = { t: nowMs };
   const journal = [];
+  const alerts = [];
   let seq = 0;
   const ex = createExecutor({
     env, jupiter, store, capabilities, buildContext: market.build,
     wallet: { getAddress: async () => '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM' },
+    signer: { fakeSigner: true }, // T-3 F: skip walletManager/createKitSigner in tests
+    sleep: async (ms) => { clock.t += ms; }, // T-3 F: instant retry loops, still advances now()
+    onAlert: onAlert || (async (text, meta) => { alerts.push({ text, meta }); }),
     appendJournal: async (record) => { journal.push(record); return { duplicate: false }; },
     now: () => clock.t,
     randomBytes: (n) => { seq++; return Buffer.alloc(n, seq); }
   });
-  return { ex, store, clock, journal, jupiter, env, market };
+  return { ex, store, clock, journal, jupiter, env, market, alerts };
 }
 
 const intent = (over = {}) => ({ symbol: 'BTC', direction: 'long', sizeUsd: 200, leverage: 5, entry: 84600, stop: 84390, tp1: 85146, planId: 'plan_abc', candidateId: 'cand_1', recClass: 'GOOD', source: 'telegram', ...over });
@@ -276,9 +329,9 @@ async function run() {
     const f = setup({ jupiter: fakeJupiter({ getPerpMarkets: async () => ({ SOLUSDT: {} }) }) });
     has((await f.ex.preflight(intent(), ctx)).reasons, 'market_unavailable', 'market');
   });
-  await test('live mode refuses until on-chain SL/TP exists (capability gate)', async () => {
-    has((await setup({ env: baseEnv({ EXECUTION_MODE: 'live' }) }).ex.preflight(intent(), ctx)).reasons, 'live_sl_tp_unsupported', 'live default');
-    eq((await setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true } }).ex.preflight(intent(), ctx)).ok, true, 'live with capability');
+  await test('live mode: openWithStops is on by default (T-3 F); the gate still exists and can be forced off', async () => {
+    eq((await setup({ env: baseEnv({ EXECUTION_MODE: 'live' }) }).ex.preflight(intent(), ctx)).ok, true, 'live default now passes (LIVE_CAPABILITIES.openWithStops = true)');
+    has((await setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: false } }).ex.preflight(intent(), ctx)).reasons, 'live_sl_tp_unsupported', 'forcing the capability off still refuses');
   });
 
   console.log('Tickets and confirm');
@@ -357,16 +410,27 @@ async function run() {
     has((await ex.confirm(t.nonce, PIN, ctx)).reasons, 'kill_switch', 'refused');
     eq(JSON.parse(store.text(TICKETS_PATH)).tickets[t.nonce].usedAt, null, 'unused');
   });
-  await test('live confirm (capability on): openPerpPosition(market, dir, size, lev, stop, tp1), journal open', async () => {
-    const { ex, journal, jupiter, store } = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true } });
+  const filledPos = { positionId: 'PosPda1111111111111111111111111111111111111', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84612 };
+  await test('T-3 F live open happy path: two-phase (build no-stops -> land -> waitForFill -> attach stops -> verify), all four phase audits, journal only after verified', async () => {
+    const { ex, journal, jupiter, store } = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }) });
+    jupiter.positions = [filledPos]; // chain state once the keeper has filled + stops landed
     const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
     const r = await ex.confirm(t.nonce, PIN, ctx);
     eq(r.ok, true, `ok ${r.reasons}`);
     eq(r.mode, 'live', 'mode');
-    eq(JSON.stringify(jupiter.calls.open[0]), JSON.stringify(['BTCUSDT', 'long', 200, 5, 84390, 85146]), 'open args');
+    eq(jupiter.calls.open.length, 0, 'the legacy single-shot openPerpPosition is never called');
+    eq(jupiter.calls.buildOpen[0].stopLoss, null, 'the increase is built WITHOUT stops');
+    eq(jupiter.calls.buildOpen[0].takeProfit, null, 'the increase is built WITHOUT stops');
+    eq(jupiter.calls.waitForFill.length, 1, 'waitForFill polled once (mocked to resolve immediately)');
+    eq(jupiter.calls.buildStops[0].stop, 84390, 'stops built from the order SL');
+    eq(jupiter.calls.buildStops[0].tp, 85146, 'stops built from the order TP1');
+    eq(r.fillPrice, 84612, 'fill price comes from waitForFill\'s on-chain read, not the pre-fill estimate');
     eq(journal[0].kind, 'open', 'journal open');
     eq(journal[0].source, 'execution', 'source');
+    eq(journal[0].entry, 84612, 'journaled entry = venue fill');
     eq(journal[0].engineRef.candidateId, 'cand_1', 'engineRef');
+    const phases = auditRows(store).filter((l) => l.event === 'phase').map((l) => l.phase);
+    eq(JSON.stringify(phases), JSON.stringify(['submitted', 'landed', 'filled', 'stops_attached', 'verified']), 'every phase audited in order');
     const fill = auditRows(store).find((l) => l.event === 'fill');
     eq(fill.txSignatureHash, idHash(r.txSignature), 'tx signature hashed in audit');
     eq(fill.positionIdHash, idHash(r.position.positionId), 'position id hashed in audit');
@@ -374,8 +438,11 @@ async function run() {
     assert(!store.all().includes(r.txSignature) && !store.all().includes(r.position.positionId), 'no full tx / position id anywhere in Blob');
     eq(fill.mode, 'live', 'audit live');
   });
-  await test('live open failure: no journal, error audited without RPC URL', async () => {
-    const { ex, journal, store } = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true }, jupiter: fakeJupiter({ openPerpPosition: async () => { throw new Error(`simulation failed at ${FAKE_RPC} key ${FAKE_KEY}`); } }) });
+  await test('T-3 F live open: simulation failure before any land, no journal, error audited without RPC URL', async () => {
+    const { ex, journal, store } = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({ buildOpenPosition: async () => ({ meta: {}, simulate: async () => ({ err: `boom at ${FAKE_RPC} key ${FAKE_KEY}` }), send: async () => { throw new Error('must not be reached'); } }) })
+    });
     const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
     const r = await ex.confirm(t.nonce, PIN, ctx);
     eq(r.ok, false, 'failed');
@@ -384,6 +451,79 @@ async function run() {
     const all = store.all();
     assert(!all.includes('fake-rpc-secret') && !all.includes(FAKE_KEY), 'no secrets in blob');
     assert(!String(r.error).includes('fake-rpc-secret'), 'no RPC URL in result');
+  });
+  await test('T-3 F live open: waitForFill timeout cancels the unfilled increase request, nothing journaled', async () => {
+    const { ex, journal, jupiter, store } = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({ waitForFill: async () => ({ filled: false, reason: 'timeout' }) })
+    });
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(r.ok, false, 'not ok');
+    has(r.reasons, 'fill_failed', 'reason');
+    has(r.reasons, 'timeout', 'timeout reason surfaced');
+    eq(r.cancelled, true, 'the unfilled increase request was cancelled');
+    eq(jupiter.calls.cancel.length, 1, 'buildCancelIncreaseRequest called on timeout');
+    eq(journal.length, 0, 'never opened, never journaled');
+    const phase = auditRows(store).find((l) => l.event === 'phase' && l.phase === 'fill_failed');
+    eq(phase.reason, 'timeout', 'fill_failed phase audited with the reason');
+  });
+  await test('T-3 F live open: waitForFill rejected does not attempt a cancel (nothing to cancel)', async () => {
+    const { ex, jupiter } = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({ waitForFill: async () => ({ filled: false, reason: 'rejected' }) })
+    });
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    has(r.reasons, 'rejected', 'rejected surfaced');
+    eq(jupiter.calls.cancel.length, 0, 'no cancel attempted for an already-rejected request');
+  });
+  await test('T-3 F live open: stops-attach failure triggers an emergency close; open never counts as ok', async () => {
+    const { ex, journal, jupiter, store } = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({ buildUpdateStops: async () => { throw new Error('stops build failed'); } })
+    });
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(r.ok, false, 'never ok');
+    has(r.reasons, 'stops_failed', 'stops failed');
+    has(r.reasons, 'emergency_closed', 'emergency close ran');
+    eq(r.emergencyClose.ok, true, 'emergency close succeeded');
+    eq(jupiter.calls.buildClose.length, 1, 'one emergency close built');
+    eq(journal.length, 0, 'never journaled as open');
+    const emergency = auditRows(store).find((l) => l.event === 'emergency_close' && l.ok === true);
+    assert(emergency, 'emergency_close audited');
+  });
+  await test('T-3 F live open: emergency close itself failing engages the kill switch, alerts, retries every 5s up to 2 min', async () => {
+    const { ex, jupiter, store, clock, alerts } = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({
+        buildUpdateStops: async () => { throw new Error('stops build failed'); },
+        buildClosePosition: async () => ({ meta: {}, simulate: async () => ({ err: null }), send: async () => { throw new Error('close send failed'); } }),
+      })
+    });
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(r.ok, false, 'not ok');
+    has(r.reasons, 'emergency_close_failed', 'emergency close failed');
+    has(r.reasons, 'kill_engaged', 'kill engaged');
+    assert(r.emergencyClose.attempts > 1, `retried more than once (attempts=${r.emergencyClose.attempts})`);
+    eq(clock.t - T0, 2 * 60_000, 'retried for exactly EMERGENCY_CLOSE_MAX_MS (fake sleep advances the clock)');
+    const kill = JSON.parse(store.text(KILL_PATH));
+    eq(kill.reason, 'emergency_close_failed', 'kill switch engaged with the emergency-close reason');
+    assert(alerts.length >= 2, `at least a kill-engaged alert and a final-failure alert (got ${alerts.length})`);
+  });
+  await test('T-3 F exactly-once: a prior terminal actionId result is replayed verbatim, nothing rebuilt or resent', async () => {
+    const { ex, store, jupiter } = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }) });
+    const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
+    const priorResult = { ok: true, mode: 'live', txSignature: 'PreviouslyLandedSig', position: { positionId: 'PosPda1111111111111111111111111111111111111' }, fillPrice: 84600, journal: 'x_previous', reasons: [] };
+    // Simulate a crash-recovery scenario: this actionId already reached a terminal state
+    // (e.g. the process crashed after recording it but before the caller saw the result).
+    store.files.set('execution/actions.json', { text: `${JSON.stringify({ schemaVersion: 'execution-actions-1', actions: { [`open_${t.nonce}`]: priorResult } })}\n`, etag: '"a1"' });
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(JSON.stringify(r), JSON.stringify(priorResult), 'the recorded terminal result is returned verbatim');
+    eq(jupiter.calls.buildOpen.length, 0, 'nothing was rebuilt');
+    eq(jupiter.calls.waitForFill.length, 0, 'nothing was resent/awaited again');
   });
 
   console.log('Close and update');
@@ -413,16 +553,46 @@ async function run() {
     const tu = await ex.createTicket(pu.order, ctx);
     eq((await ex.confirm(tu.nonce, PIN, ctx)).ok, true, 'update confirmed');
   });
-  await test('live close / update refuse (unsupported) and never accept a placeholder signature', async () => {
-    const live = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }) });
+  await test('live close / update: capability off refuses; a placeholder signature is still rejected (capability on by default, T-3 F)', async () => {
+    const live = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { close: false, update: false } });
     live.jupiter.positions = [openPos];
     has((await live.ex.closePosition('PosAAA', null, PIN, ctx)).reasons, 'live_close_unsupported', 'close');
     has((await live.ex.updateStops('PosAAA', 84600, null, PIN, ctx)).reasons, 'live_update_unsupported', 'update');
-    const forced = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { close: true, update: true } });
+    const forced = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({
+        closePerpPosition: async () => ({ success: true, signature: 'placeholder_signature' }),
+        updatePerpPosition: async () => ({ success: true, signature: 'placeholder_signature' }),
+      })
+    });
     forced.jupiter.positions = [openPos];
     has((await forced.ex.closePosition('PosAAA', null, PIN, ctx)).reasons, 'close_failed', 'placeholder close rejected');
     has((await forced.ex.updateStops('PosAAA', 84600, null, PIN, ctx)).reasons, 'update_failed', 'placeholder update rejected');
     eq(forced.journal.length, 0, 'nothing journaled');
+  });
+  await test('T-3 F live close / update: verify after send -- a close/update that lands but does not reflect on chain is rejected before journaling', async () => {
+    const noVerifyClose = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      // closePerpPosition returns a real signature but (unlike the default fake) does NOT
+      // remove/shrink the position -- simulating a send that landed without taking effect.
+      jupiter: fakeJupiter({ closePerpPosition: async () => ({ success: true, signature: '3xRealButNoEffect' + 'a'.repeat(63) }) })
+    });
+    noVerifyClose.jupiter.positions = [openPos];
+    const c = await noVerifyClose.ex.closePosition('PosAAA', null, PIN, ctx);
+    has(c.reasons, 'close_failed', 'close rejected when it does not verify on chain');
+    eq(noVerifyClose.journal.length, 0, 'nothing journaled');
+
+    const updateJupiter = fakeJupiter();
+    updateJupiter.updatePerpPosition = async (positionId) => {
+      const idx = updateJupiter.positions.findIndex((p) => p.positionId === positionId);
+      if (idx !== -1) updateJupiter.positions.splice(idx, 1); // simulates the update accidentally closing the position
+      return { success: true, signature: '3xRealButNoEffect' + 'a'.repeat(63) };
+    };
+    const noVerifyUpdate = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), jupiter: updateJupiter });
+    noVerifyUpdate.jupiter.positions = [openPos];
+    const u = await noVerifyUpdate.ex.updateStops('PosAAA', 84600, null, PIN, ctx);
+    has(u.reasons, 'update_failed', 'update rejected when the position no longer verifies on chain');
+    eq(noVerifyUpdate.journal.length, 0, 'nothing journaled');
   });
   await test('updateStops: side checks vs mark, liquidation, kill', async () => {
     const { ex, jupiter } = setup();
@@ -454,7 +624,7 @@ async function run() {
     eq(s.caps.maxOpenPositions, 2, 'caps');
     eq(s.dailyLossUsd, 0, 'loss');
     eq(s.openCount, 1, 'open');
-    eq(s.liveCapabilities.openWithStops, false, 'caps flag');
+    eq(s.liveCapabilities.openWithStops, true, 'caps flag (T-3 F: on by default)');
     assert(!JSON.stringify(s).includes(PIN), 'no PIN');
   });
 
@@ -640,15 +810,15 @@ async function run() {
     eq((await ex.confirm(tc.nonce, PIN, ctx)).ok, true, 'close resolves the hash against the chain read');
     assert(!store.all().includes('PosAAA') && !store.all().includes(String(OWNER)), 'no raw ids anywhere in Blob');
   });
-  await test('F7 journal linkage: live open carries positionIdHash, fill, recClass, nonce; close links the open', async () => {
-    const sig = `5Real${'b'.repeat(80)}`;
+  await test('F7 journal linkage: live open carries positionIdHash, fill, recClass, nonce, actionId; close links the open', async () => {
     const { ex, journal, jupiter, store } = setup({
-      env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true, close: true },
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
       jupiter: fakeJupiter({
-        openPerpPosition: async () => ({ success: true, positionId: 'PosLive1', signature: sig, fillPrice: 84612 }),
-        closePerpPosition: async () => ({ success: true, signature: sig })
+        buildOpenPosition: async () => ({ meta: { positionId: 'PosLive1', positionRequestId: 'ReqLive1', triggers: {} }, simulate: async () => ({ err: null }), send: async () => ({ signature: `5Real${'b'.repeat(80)}`, simulated: false }) }),
+        waitForFill: async () => ({ filled: true, position: { positionId: 'PosLive1', sizeUsd: 200, entryPrice: 84612 } }),
       })
     });
+    jupiter.positions = [{ positionId: 'PosLive1', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84612 }];
     const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
     const r = await ex.confirm(t.nonce, PIN, ctx);
     eq(r.ok, true, `open ${r.reasons}`);
@@ -658,6 +828,7 @@ async function run() {
     eq(open.execRef.positionIdHash, idHash('PosLive1'), 'position hash');
     eq(open.execRef.ticketNonce, t.nonce, 'ticket nonce');
     eq(open.execRef.fillSource, 'venue', 'fill source');
+    assert(open.execRef.actionId === `open_${t.nonce}`, `actionId recorded (got ${open.execRef.actionId})`);
     store.files.set('journal/2026-09-25.jsonl', { text: `${JSON.stringify(open)}\n`, etag: '"j1"' });
     jupiter.positions = [{ positionId: 'PosLive1', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84612, markPrice: 84700, liquidationPrice: 68000, unrealizedPnlUsd: 0.2 }];
     const c = await ex.closePosition('PosLive1', null, PIN, ctx);
@@ -667,12 +838,17 @@ async function run() {
     eq(close.execRef.openJournalId, open.id, 'links the open');
     eq(close.execRef.positionIdHash, idHash('PosLive1'), 'position hash');
   });
-  await test('F7 no venue fill price -> journal entry = expected fill (mark)', async () => {
-    const { ex, journal } = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), capabilities: { openWithStops: true } });
+  await test('T-3 F journal entry always uses the on-chain fill from waitForFill, never the pre-fill mark estimate', async () => {
+    const { ex, journal, jupiter } = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({ waitForFill: async (reqPda, posPda) => ({ filled: true, position: { positionId: posPda, sizeUsd: 200, entryPrice: 84811 } }) }) // differs from the pre-fill mark (84600)
+    });
+    jupiter.positions = [{ positionId: 'PosPda1111111111111111111111111111111111111', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84811 }];
     const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
-    eq((await ex.confirm(t.nonce, PIN, ctx)).ok, true, 'ok');
-    eq(journal[0].entry, 84600, 'mark');
-    eq(journal[0].execRef.fillSource, 'mark', 'source');
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(r.ok, true, `ok ${r.reasons}`);
+    eq(journal[0].entry, 84811, 'entry = the actual on-chain fill, not the 84600 pre-fill mark');
+    eq(journal[0].execRef.fillSource, 'venue', 'fill source is always venue for a two-phase open');
   });
   await test('F7 execRef only for source execution (GPT / Telegram records unchanged)', () => {
     const body = { text: 'x', execRef: { ticketNonce: 'abcd1234' } };
