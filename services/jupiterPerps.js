@@ -366,16 +366,23 @@ export async function checkCustodyCapacity(market, requiredSize, opts = {}) {
   const direction = opts.direction === 'short' ? 'short' : 'long';
   const { custodyAddress, custody } = await resolveTradeCustodies(rpcClient, symbol, direction, opts);
   const c = custody.data;
-  const maxUsd = n6(c.maxPositionSizeUsd);
-  // resolveTradeCustodies always returns the traded asset's own custody here (BTC/ETH/SOL,
-  // never USDC/USDT), for both directions -- Custody.assets.globalShortSizes exists
-  // precisely so short exposure is also tracked on this same custody. guaranteedUsd is
-  // already USD (Custody.assets, jup-perps-client Assets type). This is a best-effort
-  // utilization proxy -- the exact CustodyAmountLimit check is enforced on-chain and may
-  // reject a transaction this estimate would have allowed.
-  const usedUsd = n6(c.assets.guaranteedUsd);
+  // Two independent on-chain limits, both on the traded asset's own custody (BTC/ETH/SOL,
+  // never USDC/USDT; resolveTradeCustodies returns that custody for both directions):
+  //   1. maxPositionSizeUsd - cap for ONE position.
+  //   2. pricing.maxGlobalLongSizes vs assets.guaranteedUsd (longs) or
+  //      pricing.maxGlobalShortSizes vs assets.globalShortSizes (shorts) - pool-wide cap
+  //      vs pool-wide utilization.
+  // Headroom is the smaller of the two. (Before 2026-09-25 this subtracted the POOL's
+  // utilization from the PER-POSITION cap: SOL showed $10M - $35M = negative headroom and
+  // every order refused custody_capacity.) All values are USD scaled 1e6. Best-effort:
+  // the exact CustodyAmountLimit check is enforced on-chain.
+  const perPositionCapUsd = n6(c.maxPositionSizeUsd);
+  const poolCapUsd = n6(direction === 'short' ? c.pricing.maxGlobalShortSizes : c.pricing.maxGlobalLongSizes);
+  const usedUsd = n6(direction === 'short' ? c.assets.globalShortSizes : c.assets.guaranteedUsd);
   const currentAssets = n6(c.assets.owned);
-  const headroomUsd = maxUsd > 0 ? r2(maxUsd - usedUsd) : null;
+  const poolHeadroomUsd = poolCapUsd > 0 ? poolCapUsd - usedUsd : null;
+  const candidates = [perPositionCapUsd > 0 ? perPositionCapUsd : null, poolHeadroomUsd].filter((v) => v !== null);
+  const headroomUsd = candidates.length ? r2(Math.min(...candidates)) : null;
   return {
     market,
     symbol,
@@ -383,14 +390,16 @@ export async function checkCustodyCapacity(market, requiredSize, opts = {}) {
     custodyAddress,
     currentAssets: r2(currentAssets),
     requiredSize,
-    maxPositionSizeUsd: r2(maxUsd),
+    maxPositionSizeUsd: r2(perPositionCapUsd),
+    poolCapUsd: r2(poolCapUsd),
     usedUsd: r2(usedUsd),
+    poolHeadroomUsd: poolHeadroomUsd === null ? null : r2(poolHeadroomUsd),
     headroomUsd,
     availableUsd: headroomUsd,
     custodyData: c,
     note: headroomUsd === null
-      ? 'maxPositionSizeUsd not set on custody; capacity unknown'
-      : 'headroomUsd = maxPositionSizeUsd - current utilization (on-chain custody account data)'
+      ? 'neither maxPositionSizeUsd nor the pool cap is set on custody; capacity unknown'
+      : 'headroomUsd = min(maxPositionSizeUsd, pool cap - pool utilization) (on-chain custody account data)'
   };
 }
 

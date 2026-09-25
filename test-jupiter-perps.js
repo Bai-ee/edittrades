@@ -102,14 +102,14 @@ const FAKE_BLOCKHASH = bs58.encode(Buffer.alloc(32, 7));
 const { CREATE_INCREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR, CREATE_DECREASE_POSITION_REQUEST2_DISCRIMINATOR, CREATE_DECREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR } = jupPerpsClient;
 const hasDiscriminator = (ix, disc) => ix.data && ix.data.length >= 8 && Buffer.from(ix.data.slice(0, 8)).equals(Buffer.from(disc));
 const optionValue = (opt) => (opt && opt.__option === 'Some' ? opt.value : null);
-function encCustody({ mint, decimals = 6, isStable = false, maxPositionSizeUsd = 5_000_000_000_000n, owned = 10_000_000_000_000n, locked = 0n, guaranteedUsd = 1_000_000_000_000n }) {
+function encCustody({ mint, decimals = 6, isStable = false, maxPositionSizeUsd = 5_000_000_000_000n, owned = 10_000_000_000_000n, locked = 0n, guaranteedUsd = 1_000_000_000_000n, maxGlobalLongSizes = 0n, maxGlobalShortSizes = 0n, globalShortSizes = 0n }) {
   return jupPerpsClient.getCustodyEncoder().encode({
     pool: POOL, mint, tokenAccount: mint, decimals, isStable,
     oracle: { oracleAccount: ORACLE_PLACEHOLDER, oracleType: 2, maxPriceError: 0n, maxPriceAgeSec: 600 },
-    pricing: { tradeImpactFeeScalar: 0n, buffer: 0n, swapSpread: 0n, maxLeverage: 500_000n, maxGlobalLongSizes: 0n, maxGlobalShortSizes: 0n },
+    pricing: { tradeImpactFeeScalar: 0n, buffer: 0n, swapSpread: 0n, maxLeverage: 500_000n, maxGlobalLongSizes, maxGlobalShortSizes },
     permissions: { allowSwap: true, allowAddLiquidity: true, allowRemoveLiquidity: true, allowIncreasePosition: true, allowDecreasePosition: true, allowCollateralWithdrawal: true, allowLiquidatePosition: true },
     targetRatioBps: 0n,
-    assets: { feesReserves: 0n, owned, locked, guaranteedUsd, globalShortSizes: 0n, globalShortAveragePrices: 0n },
+    assets: { feesReserves: 0n, owned, locked, guaranteedUsd, globalShortSizes, globalShortAveragePrices: 0n },
     fundingRateState: { cumulativeInterestRate: 0n, lastUpdate: 0n, hourlyFundingDbps: 100n },
     bump: 255, tokenAccountBump: 255, increasePositionBps: 10n, decreasePositionBps: 10n, maxPositionSizeUsd,
     dovesOracle: ORACLE_PLACEHOLDER,
@@ -122,7 +122,8 @@ function encCustody({ mint, decimals = 6, isStable = false, maxPositionSizeUsd =
 const CUSTODY_BYTES = {
   [C.BTC]: encCustody({ mint: PERP_MINTS.BTC, decimals: 8 }),
   [C.ETH]: encCustody({ mint: PERP_MINTS.ETH, decimals: 8 }),
-  [C.SOL]: encCustody({ mint: PERP_MINTS.SOL, decimals: 9 }),
+  // SOL mirrors mainnet shape (2026-09-25): per-position cap $10M, pool long cap $240M with $35M used, short cap $112M with $13M used.
+  [C.SOL]: encCustody({ mint: PERP_MINTS.SOL, decimals: 9, maxPositionSizeUsd: 10_000_000_000_000n, guaranteedUsd: 35_000_000_000_000n, maxGlobalLongSizes: 240_000_000_000_000n, maxGlobalShortSizes: 112_000_000_000_000n, globalShortSizes: 13_000_000_000_000n }),
   [C.USDC]: encCustody({ mint: PERP_MINTS.USDC, decimals: 6, isStable: true }),
   [C.USDT]: encCustody({ mint: PERP_MINTS.USDT, decimals: 6, isStable: true }),
 };
@@ -694,18 +695,27 @@ async function main() {
     assert(threw2, 'below-minimum margin rejected');
   });
 
-  await test('checkCustodyCapacity: numeric headroom = maxPositionSizeUsd - current utilization on the asset custody (both directions track exposure there: Custody.assets.globalShortSizes exists precisely for short exposure on the same custody)', async () => {
+  await test('checkCustodyCapacity: headroom = min(per-position cap, pool cap - pool utilization); pool cap 0 -> per-position cap alone; long uses guaranteedUsd, short uses globalShortSizes', async () => {
     const rpc = fakeRpc();
+    // BTC fixture: no pool caps set -> only maxPositionSizeUsd applies (NOT max - pool usage).
     const long = await checkCustodyCapacity('BTCUSDT', 500, { connection: rpc, direction: 'long' });
     eq(long.maxPositionSizeUsd, 5_000_000, 'maxPositionSizeUsd from the fixture custody (5e12 / 1e6)');
-    eq(long.usedUsd, 1_000_000, 'usedUsd = guaranteedUsd for the (non-stable) asset custody');
-    eq(long.headroomUsd, 4_000_000, 'headroom = max - used');
+    eq(long.usedUsd, 1_000_000, 'usedUsd = guaranteedUsd for a long');
+    eq(long.poolHeadroomUsd, null, 'pool cap unset -> pool headroom unknown');
+    eq(long.headroomUsd, 5_000_000, 'headroom = per-position cap when the pool cap is unset');
     eq(long.availableUsd, long.headroomUsd, 'availableUsd alias matches headroomUsd');
     assert(typeof long.currentAssets === 'number', 'currentAssets present for executor compat');
-
-    const short = await checkCustodyCapacity('BTCUSDT', 500, { connection: rpc, direction: 'short' });
-    eq(short.custodyAddress, C.BTC, 'capacity is checked against the asset custody for both directions');
-    eq(short.headroomUsd, long.headroomUsd, 'same custody data -> same headroom regardless of direction');
+    // SOL fixture mirrors mainnet: the old formula gave 10M - 35M < 0 and refused every order.
+    const sol = await checkCustodyCapacity('SOLUSDT', 20, { connection: rpc, direction: 'long' });
+    eq(sol.maxPositionSizeUsd, 10_000_000, 'SOL per-position cap');
+    eq(sol.poolHeadroomUsd, 205_000_000, 'SOL pool headroom = 240M - 35M');
+    eq(sol.headroomUsd, 10_000_000, 'SOL headroom = min(10M, 205M)');
+    assert(sol.headroomUsd >= 20, 'a $20 order fits');
+    const solShort = await checkCustodyCapacity('SOLUSDT', 20, { connection: rpc, direction: 'short' });
+    eq(solShort.custodyAddress, C.SOL, 'capacity is checked against the asset custody for both directions');
+    eq(solShort.usedUsd, 13_000_000, 'short uses globalShortSizes');
+    eq(solShort.poolHeadroomUsd, 99_000_000, 'short pool headroom = 112M - 13M');
+    eq(solShort.headroomUsd, 10_000_000, 'short headroom = min(10M, 99M)');
   });
 
   await test('getPerpMarkets: resolves BTC/ETH/SOL by mint from the fixture pool, keyed by market symbol', async () => {
