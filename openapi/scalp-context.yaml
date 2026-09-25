@@ -1105,6 +1105,10 @@ components:
           type: string
         setup:
           $ref: "#/components/schemas/SetupTier"
+        action:
+          $ref: "#/components/schemas/ReadinessAction"
+        room:
+          $ref: "#/components/schemas/RoomAhead"
         policyVersion:
           type: string
         trace:
@@ -1193,10 +1197,74 @@ components:
           type: string
         setup:
           $ref: "#/components/schemas/SetupTier"
+        action:
+          $ref: "#/components/schemas/ReadinessAction"
+        room:
+          $ref: "#/components/schemas/RoomAhead"
         policyVersion:
           type: string
         trace:
           type: object
+    ReadinessAction:
+      type: object
+      description: >-
+        Schema 1.25.0 (delivery pass). The readiness call, derived only from fields the
+        record already carries - never a new gate, never changes class. GET IN NOW:
+        class GOOD (etaMin 0, at = asOf). BE READY: a conditional live plan, else a
+        SETUP - etaMin/at = the next close of that plan's/setup's timeframe after asOf
+        (the symbol's 1m closedThrough; e.g. 5m, asOf 01:12 -> 01:15, etaMin 3), note =
+        its entryCondition. WAIT: a no-plan WATCH naming a forming/triggering
+        candidate - eta to that candidate's next close, note = changeConditions[0].text.
+        STAND DOWN: everything else (BAD with no setup, DATA_UNAVAILABLE, WATCH with
+        nothing forming) - etaMin/at null, note = the remedy or change condition.
+        Copy verbatim; never recompute.
+      properties:
+        call:
+          type: string
+          enum: [GET IN NOW, BE READY, WAIT, STAND DOWN]
+        etaMin:
+          type: [integer, "null"]
+        at:
+          type: [string, "null"]
+          format: date-time
+        note:
+          type: [string, "null"]
+      required:
+        - call
+        - etaMin
+        - at
+        - note
+    RoomAhead:
+      type: [object, "null"]
+      description: >-
+        Schema 1.25.0 (delivery pass). Room from entry to the first level ahead for the
+        live ready/conditional plan, else the SETUP, else a rejected plan that still has
+        entry/stop/TP1 (e.g. rr_below_min); null otherwise. levelPrice is TP1: the TP1
+        cap zone edge when capped (toLevel tp1_cap, levelSource "<geometry tf>
+        resistance|support"), else the measured target (toLevel measured_target,
+        levelSource "measured move"). pts = |levelPrice - entry|; r = pts / |entry -
+        stop| (gross R vs the stop). Copy verbatim; never recompute.
+      properties:
+        toLevel:
+          type: string
+          enum: [tp1_cap, measured_target]
+        levelPrice:
+          type: number
+        levelSource:
+          type: string
+        pts:
+          type: number
+        r:
+          type: [number, "null"]
+        stop:
+          type: number
+      required:
+        - toLevel
+        - levelPrice
+        - levelSource
+        - pts
+        - r
+        - stop
     SetupTier:
       description: >-
         Schema 1.24.0 (T6 completion plan C2). The best still-conditional attempt in

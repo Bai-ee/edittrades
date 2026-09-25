@@ -4,7 +4,7 @@
  * Run: node test-flag-recommendation.js
  */
 
-import { buildFlagRecommendation, compactRecommendation, selectWatchCandidate } from './lib/flagRecommendation.js';
+import { buildFlagRecommendation, compactRecommendation, selectWatchCandidate, nextCloseEta, roomAhead } from './lib/flagRecommendation.js';
 import { INTERVAL_MS } from './services/scalpContext.js';
 
 let passed = 0;
@@ -364,6 +364,65 @@ async function run() {
     const r = buildFlagRecommendation({ symbol: 'BTC', asOf: AS_OF, dataStatus: 'complete', flagTradePlan: readyPlan(), evidence: evidence(), topDown: topDown(), cfg: { decisionWeights: { readiness: 0, pattern: 20, topDown: 15, maContext: 10, channel: 10, divergence: 10 } } });
     const readiness = r.factorStates.find((f) => f.code === 'score_readiness');
     assertEqual(readiness.state, 0, 'readiness contributes 0 with weight 0');
+  });
+
+  // Delivery pass (schema 1.25.0): readiness call + room line.
+  await test('1.25.0 nextCloseEta: 01:12 closed on 5m -> 01:15 (3 min); on a boundary -> a full interval; bad input -> nulls', () => {
+    assertEqual(JSON.stringify(nextCloseEta('2026-09-24T01:12:00.000Z', '5m')), JSON.stringify({ etaMin: 3, at: '2026-09-24T01:15:00.000Z' }), '5m');
+    assertEqual(JSON.stringify(nextCloseEta('2026-09-24T01:15:00.000Z', '5m')), JSON.stringify({ etaMin: 5, at: '2026-09-24T01:20:00.000Z' }), 'boundary');
+    assertEqual(nextCloseEta('2026-09-24T01:12:00.000Z', '3m').etaMin, 3, '3m: 01:12 -> 01:15');
+    assertEqual(nextCloseEta('2026-09-24T01:13:00.000Z', '3m').etaMin, 2, '3m: 01:13 -> 01:15');
+    assertEqual(nextCloseEta('2026-09-24T01:12:00.000Z', '1m').etaMin, 1, '1m');
+    assertEqual(JSON.stringify(nextCloseEta(null, '5m')), JSON.stringify({ etaMin: null, at: null }), 'no asOf');
+    assertEqual(JSON.stringify(nextCloseEta('2026-09-24T01:12:00.000Z', '1w')), JSON.stringify({ etaMin: null, at: null }), 'unknown tf');
+  });
+
+  await test('1.25.0 action: GET IN NOW / BE READY (conditional) / BE READY (setup on BAD) / STAND DOWN (BAD, DATA_UNAVAILABLE) - long + short mirror', () => {
+    for (const direction of ['long', 'short']) {
+      const good = rec({ plan: readyPlan({ direction }) });
+      assertEqual(good.action.call, 'GET IN NOW', `${direction}: GOOD`);
+      assertEqual(good.action.etaMin, 0, `${direction}: eta 0`);
+      assertEqual(good.action.at, AS_OF, `${direction}: at asOf`);
+      const cond = rec({ plan: readyPlan({ direction, status: 'conditional', reasonCode: 'awaiting_retest' }) });
+      assertEqual(JSON.stringify(cond.action), JSON.stringify({ call: 'BE READY', etaMin: 1, at: '2026-09-23T12:01:00.000Z', note: 'closed candle retests 1000 and holds at or above it' }), `${direction}: conditional -> BE READY on 1m`);
+      const setup = { candidateId: 'BTC:5m:x', timeframe: '5m', direction, entry: 1000, stop: direction === 'long' ? 990 : 1010, tp1: direction === 'long' ? 1040 : 960, grossRR: 4, netRR: 3, entryCondition: 'trigger sentence' };
+      const badSetup = rec({ plan: readyPlan({ direction, status: 'rejected', reasonCode: 'chase', tp1: null, setup }) });
+      assertEqual(badSetup.class, 'BAD', `${direction}: class stays BAD`);
+      assertEqual(JSON.stringify(badSetup.action), JSON.stringify({ call: 'BE READY', etaMin: 5, at: '2026-09-23T12:05:00.000Z', note: 'trigger sentence' }), `${direction}: setup -> BE READY on 5m`);
+      const bad = rec({ plan: readyPlan({ direction, status: 'rejected', reasonCode: 'rr_below_min', grossRR: 2.4 }) });
+      assertEqual(JSON.stringify([bad.action.call, bad.action.etaMin, bad.action.at]), JSON.stringify(['STAND DOWN', null, null]), `${direction}: BAD no setup`);
+      assert(/measured move is >= 2.5R/.test(bad.action.note), `${direction}: note = remedy, got ${bad.action.note}`);
+    }
+    const na = rec({ dataStatus: 'unavailable' });
+    assertEqual(JSON.stringify([na.action.call, na.action.etaMin, na.room]), JSON.stringify(['STAND DOWN', null, null]), 'DATA_UNAVAILABLE');
+    assertEqual(compactRecommendation(rec()).action.call, 'GET IN NOW', 'compact carries action');
+  });
+
+  await test('1.25.0 action: WAIT on a forming/triggering candidate, eta to its timeframe (long + short mirror)', () => {
+    for (const direction of ['long', 'short']) {
+      for (const [state, tf, eta] of [['forming', '3m', 3], ['triggering', '5m', 5]]) {
+        const c = { candidateId: `BTC:${tf}:${direction}:x`, type: 'flag', direction, state, timeframe: tf, confidence: 70, breakoutLevel: 1000, invalidation: direction === 'long' ? 990 : 1010 };
+        const r = buildFlagRecommendation({ symbol: 'BTC', asOf: '2026-09-23T12:00:00.000Z', dataStatus: 'complete', flagTradePlan: null, evidence: evidence({ flags: [] }), topDown: topDown(), candidates: [c] });
+        assertEqual(r.action.call, 'WAIT', `${direction} ${state}`);
+        assertEqual(r.action.etaMin, eta, `${direction} ${state}: eta`);
+        assert(r.action.note && r.action.note.startsWith(`${tf} close ${direction === 'long' ? 'above' : 'below'} 1,000.00`), `${direction}: note = change condition, got ${r.action.note}`);
+      }
+    }
+  });
+
+  await test('1.25.0 room: capped TP1 names the zone timeframe, uncapped is the measured move; pts and R vs stop (long + short mirror)', () => {
+    for (const direction of ['long', 'short']) {
+      const m = (p) => (direction === 'long' ? p : 2000 - p);
+      const zone = direction === 'long' ? { low: 1030, high: 1035 } : { low: 965, high: 970 };
+      const g = { '1h': { horizontalResistanceZones: direction === 'long' ? [zone] : [], horizontalSupportZones: direction === 'short' ? [zone] : [] } };
+      const cappedPlan = { direction, entry: 1000, stop: m(990), tp1: m(1030), tp2: m(1040) };
+      assertEqual(JSON.stringify(roomAhead(cappedPlan, g)), JSON.stringify({ toLevel: 'tp1_cap', levelPrice: m(1030), levelSource: `1h ${direction === 'long' ? 'resistance' : 'support'}`, pts: 30, r: 3, stop: m(990) }), `${direction}: capped`);
+      assertEqual(JSON.stringify(roomAhead({ direction, entry: 1000, stop: m(990), tp1: m(1040), tp2: null }, g)), JSON.stringify({ toLevel: 'measured_target', levelPrice: m(1040), levelSource: 'measured move', pts: 40, r: 4, stop: m(990) }), `${direction}: measured`);
+      assertEqual(roomAhead({ direction, entry: 1000, stop: m(990), tp1: null }, g), null, `${direction}: no TP1 -> null`);
+      const r = rec({ plan: readyPlan({ direction, stop: m(990), tp1: m(1040) }) });
+      assertEqual(r.room.r, 4, `${direction}: record room from the live plan`);
+    }
+    assertEqual(rec({ plan: null, ev: evidence({ flags: [] }) }).room, null, 'no plan/setup -> null');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

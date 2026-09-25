@@ -24,7 +24,7 @@ import {
   formatWatchAlert, formatAlertPrefs, parseAlertsArgs, parseQuietSpec, normalizePrefs, applyPrefsChange, chicagoHour,
   WATCH_COOLDOWN_MS, WATCH_RECENT_IDS, DEFAULT_QUIET_HOURS,
   collectLiveFlags, capFlagCharts, formatFlagLine, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, emaTailSeries, albumSeries,
-  LIVE_FLAG_STATES, MAX_FLAG_CHARTS, MAX_MEDIA_GROUP, formatBreakoutAlert, BREAKOUT_RECENT_IDS,
+  LIVE_FLAG_STATES, MAX_FLAG_CHARTS, MAX_MEDIA_GROUP, formatBreakoutAlert, BREAKOUT_RECENT_IDS, formatCall, formatRoomLine, formatReadinessLine,
   MENU_ROWS, parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, shortRef, tradeButtonRow, signalsKeyboard,
   parseCallbackData, MAX_CALLBACK_BYTES, BUTTON_MEMORY, ALLOWED_UPDATES,
   HEALTH_PERSIST_MS, HEALTH_REPEAT_MS, HEARTBEAT_WRITE_MS, MAX_MESSAGE_CHARS, TELEGRAM_STATE_PATH,
@@ -127,7 +127,7 @@ const withPrefs = (level, quiet = { ...DEFAULT_QUIET_HOURS }) => ({ ...emptyStat
 
 function payload({ BTC = goodSym(), ETH = watchSym(), SOL = badSym(), closedThrough = '2026-09-24T14:05:00.000Z', dataStatus = 'complete' } = {}) {
   return {
-    schemaVersion: '1.24.0', configVersion: '2026.09.24-5', generatedAt: '2026-09-24T14:05:20.000Z', closedThrough, dataStatus,
+    schemaVersion: '1.25.0', configVersion: '2026.09.24-5', generatedAt: '2026-09-24T14:05:20.000Z', closedThrough, dataStatus,
     account: { status: 'unavailable', reason: 'rpc down', margin: { usd: null }, holdingsUsd: null, gas: { sol: null }, performance: {} },
     symbols: { BTC, ETH, SOL }, warnings: []
   };
@@ -265,7 +265,7 @@ async function run() {
   await test('/signals: GOOD first, then the rest, then DATA; no GOOD -> below-threshold header', () => {
     const t = formatSignals(payload({ ETH: watchSym(setupEth) }), T0);
     assert(t.indexOf('BTC — LONG') < t.indexOf('ETH — NO TRADE') && t.indexOf('ETH — NO TRADE') < t.indexOf('SOL — NO TRADE'), 'order');
-    assert(t.includes('SETUP — ETH 3m SHORT') && t.includes('<b>DATA</b>') && t.includes('Schema/Config: 1.24.0 · 2026.09.24-5'), t);
+    assert(t.includes('SETUP — ETH 3m SHORT') && t.includes('<b>DATA</b>') && t.includes('Data: closed 14:05Z · complete · 1.25.0·2026.09.24-5') && !t.includes('Generated At') && !t.includes('Warnings:'), t);
     assert(!t.includes('below threshold'), 'GOOD present');
     const none = formatSignals(payload({ BTC: watchSym() }), T0);
     assert(none.startsWith('NO TRADE — BTC / ETH / SOL below threshold.'), none.slice(0, 80));
@@ -285,7 +285,7 @@ async function run() {
     assert(j.includes('14:00 UTC · open BTC long $84,600.00 / $84,390.00 / $85,100.00 — took it [tg]'), j);
     assertEqual(formatJournal([], T0), 'Journal is empty.', 'empty journal');
     const st = formatStatus(payload(), { ...emptyState(), cron: { lastRunAt: '2026-09-24T14:05:00Z' }, alerts: { day: '2026-09-24', today: 3, last: { at: '2026-09-24T13:00:00Z', symbol: 'BTC', kind: 'GOOD' } } }, T0);
-    for (const f of ['Schema/Config: 1.24.0 · 2026.09.24-5', 'Closed Through: 14:05 UTC (30s ago)', 'Data: complete', 'BTC: GOOD · Mark: $84,610.20', 'Last alert: GOOD BTC 13:00 UTC', 'Alerts today: 3', 'Cron last run: 14:05 UTC (30s ago']) assert(st.includes(f), `status missing ${f}\n${st}`);
+    for (const f of ['Schema/Config: 1.25.0 · 2026.09.24-5', 'Closed Through: 14:05 UTC (30s ago)', 'Data: complete', 'BTC: GOOD · Mark: $84,610.20', 'Last alert: GOOD BTC 13:00 UTC', 'Alerts today: 3', 'Cron last run: 14:05 UTC (30s ago']) assert(st.includes(f), `status missing ${f}\n${st}`);
   });
 
   await test('escapeHtml, fmtPrice, chunkMessage under 4,000 chars', () => {
@@ -304,6 +304,62 @@ async function run() {
     for (const f of ['NEW GOOD — BTC 5m LONG', 'Entry: $84,600.00', 'R:R gross 2.6R · net 2.1R', 'Changes if:', 'Mark: $84,610.20 (drift 1.2 bps)', 'Tracker: https://edittrades-tracker.vercel.app']) assert(t.includes(f), `missing ${f}`);
     const s = formatGoodAlert('BTC', goodSym(), payload(), { nowMs: T0, test: true });
     assert(s.startsWith('🧪 TEST — NOT A SIGNAL') && s.includes('SAMPLE GOOD'), s.slice(0, 60));
+  });
+
+  // Schema 1.25.0 delivery pass: readiness call + room line.
+  const ACT_GOOD = { call: 'GET IN NOW', etaMin: 0, at: '2026-09-24T14:05:00.000Z', note: '5m long ready: entry 84,600.00, stop 84,390.00, TP1 85,146.00' };
+  const ACT_READY = { call: 'BE READY', etaMin: 1, at: '2026-09-24T14:06:00.000Z', note: '3m close below 2601.5 then a retest that holds under it' };
+  const ACT_WAIT = { call: 'WAIT', etaMin: 1, at: '2026-09-24T14:06:00.000Z', note: '3m close above 84,466.10, then a retest that holds it, then plan ready' };
+  const ACT_DOWN = { call: 'STAND DOWN', etaMin: null, at: null, note: 'A new plan with at least 2.5R gross.' };
+  const ROOM_GOOD = { toLevel: 'tp1_cap', levelPrice: 85146, levelSource: '15m resistance', pts: 546, r: 2.6, stop: 84390 };
+  const ROOM_SETUP = { toLevel: 'measured_target', levelPrice: 2575, levelSource: 'measured move', pts: 26.5, r: 2.52, stop: 2612 };
+  const ROOM_BAD = { toLevel: 'measured_target', levelPrice: 151, levelSource: 'measured move', pts: 1, r: 1, stop: 149 };
+  const withRec = (sym, extra) => ({ ...sym, flagRecommendation: { ...sym.flagRecommendation, ...extra } });
+
+  await test('1.25.0: formatCall / formatRoomLine read action + room verbatim (eta only when > 0; null when absent)', () => {
+    assertEqual(formatCall(ACT_GOOD), 'GET IN NOW', 'good');
+    assertEqual(formatCall(ACT_READY), 'BE READY (1m)', 'ready');
+    assertEqual(formatCall({ ...ACT_WAIT, etaMin: 4 }), 'WAIT (4m)', 'wait');
+    assertEqual(formatCall(ACT_DOWN), 'STAND DOWN', 'down');
+    assertEqual(formatCall(null), null, 'absent');
+    assertEqual(formatRoomLine(ROOM_GOOD), 'Room: 546.00 to 85,146.00 (15m resistance) = 2.6R vs stop 84,390.00', 'long room');
+    assertEqual(formatRoomLine(ROOM_SETUP), 'Room: 26.50 to 2,575.00 (measured move) = 2.52R vs stop 2,612.00', 'short room');
+    assertEqual(formatRoomLine(null), null, 'no room');
+    assertEqual(formatReadinessLine(ACT_DOWN), 'STAND DOWN — A new plan with at least 2.5R gross.', 'readiness line');
+  });
+
+  await test('1.25.0 /signals: every asset line starts with its call; NO TRADE and SETUP lines carry Room; DATA is one line (+Warnings only when any)', () => {
+    const p = payload({
+      BTC: withRec(goodSym(), { action: ACT_GOOD, room: ROOM_GOOD }),
+      ETH: withRec(watchSym(setupEth), { action: ACT_READY, room: ROOM_SETUP }),
+      SOL: withRec(badSym(), { action: ACT_DOWN, room: ROOM_BAD })
+    });
+    const t = formatSignals(p, T0);
+    for (const f of ['<b>GET IN NOW — BTC — LONG — 5m</b>', '<b>BE READY (1m) — ETH — NO TRADE</b>', '<b>STAND DOWN — SOL — NO TRADE</b>',
+      'Info; never GO IN.\nRoom: 26.50 to 2,575.00 (measured move) = 2.52R vs stop 2,612.00',
+      'Room: 1.0000 to 151.00 (measured move) = 1R vs stop 149.00', 'Data: closed 14:05Z · complete · 1.25.0·2026.09.24-5']) assert(t.includes(f), `missing "${f}"\n${t}`);
+    assert(!t.includes('Room: 546.00'), 'GOOD block keeps the full plan form, no Room line');
+    assert(!/Generated At|Wallet Updated At|Warnings:/.test(t), 'no Generated At / Wallet Updated At / empty Warnings');
+    const warned = formatSignals({ ...p, warnings: ['1h stale'] }, T0);
+    assert(warned.includes('Warnings: 1h stale'), 'warnings line when non-empty');
+  });
+
+  await test('1.25.0 alerts: GOOD / SETUP / WATCH / TRIGGERING / BREAKOUT carry the readiness call and room line', () => {
+    const good = formatGoodAlert('BTC', withRec(goodSym(), { action: ACT_GOOD, room: ROOM_GOOD }), payload(), { nowMs: T0 });
+    assert(good.includes('GET IN NOW — 5m long ready') && good.includes('Room: 546.00 to 85,146.00 (15m resistance) = 2.6R vs stop 84,390.00'), good);
+    const recW = { ...TD_REC, action: ACT_WAIT, room: null };
+    const st = diffAlerts(withPrefs('watch'), payload({
+      BTC: withRec(formSym([cand('BTC:3m:long:2026-09-24T14:00:00.000Z'), cand('BTC:3m:long:2026-09-24T13:57:00.000Z', 'triggering'), cand('BTC:5m:long:2026-09-24T13:50:00.000Z', 'confirmed')]), recW),
+      ETH: withRec(watchSym(setupEth), { action: ACT_READY, room: ROOM_SETUP })
+    }), T0);
+    const byKind = (k) => st.alerts.filter((a) => a.kind === k);
+    const trig = formatWatchAlert('BTC', cand('x', 'triggering'), recW);
+    assertEqual(trig, 'TRIGGERING · BTC 3m LONG triggering · break 84,466.10 / void 84,331.60 · 2.4R · td:bull:3/4\nWAIT (1m) — 3m close above 84,466.10, then a retest that holds it, then plan ready', 'TRIGGERING carries the call');
+    for (const k of ['WATCH', 'BREAKOUT']) {
+      assert(byKind(k).length > 0 && byKind(k).every((a) => a.text.includes('\nWAIT (1m) — 3m close above 84,466.10')), `${k}: ${JSON.stringify(byKind(k).map((a) => a.text))}`);
+    }
+    const setup = byKind('SETUP')[0];
+    assert(setup && setup.text.includes('\nBE READY (1m) — 3m close below 2601.5') && setup.text.includes('\nRoom: 26.50 to 2,575.00 (measured move) = 2.52R vs stop 2,612.00'), setup && setup.text);
   });
 
   console.log('\nalert state machine');

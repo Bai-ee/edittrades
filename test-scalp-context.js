@@ -1447,9 +1447,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.24.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.25.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.24.0', 'schemaVersion must be bumped to 1.24.0');
+    assertEqual(case6Result.schemaVersion, '1.25.0', 'schemaVersion must be bumped to 1.25.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1855,7 +1855,7 @@ async function main() {
 
     await test('review fix 6a: default flagRecommendation is codes + one-line text; the full record is model.recommendation only', async () => {
       // Phase 2 (schema 1.18.0): `candidate` names the nearest flag on a no-plan WATCH (else null).
-      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'setup', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
+      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'setup', 'action', 'room', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
       for (const [sym, symData] of Object.entries(case6Result.symbols)) {
         const r = symData.flagRecommendation;
         assertEqual(JSON.stringify(Object.keys(r)), JSON.stringify(COMPACT_KEYS), `${sym}: compact keys`);

@@ -2,14 +2,14 @@
 
 The text inside the fenced block below is what is pasted into the Custom GPT's Instructions box. ChatGPT caps it at 8,000 UTF-16 units. `npm run check:gpt` (added Phase 11) extracts the fenced block and fails above 7,990 (10 spare; raised from 7,900 on 2026-09-23 by owner decision).
 
-Current length: 7846 units (7984 bytes) (verified by `npm run check:gpt`). Last updated 2026-09-24 (owner decision "D-variant revised", supersedes D-variant, `docs/OWNER_DECISIONS_2026-09-24.md`: `flagTradePlan=trade authority` no longer names a net R:R number - the net gate is off in production - and gains `net_rr_low(netRR<1.0)→"thin after fees"`, schema unchanged at 1.24.x, configVersion 2026.09.24-5); before that 2026-09-24 (T6 completion plan C5: SETUP tier - CANDIDATES `flagRecommendation.setup` rule, FORMAT `SETUP LINE` block, COMMANDS `signals` appends it, schema 1.24.x); before that 2026-09-24 (T6 completion plan B3: moved three field-name lists to the playbook doc, `docs/GPT_PLAYBOOK_ADDITIONS_2026-09-24.md` - 234 units freed, no rule cut, schema 1.22.x); before that 2026-09-24 (T6 phase 1, owner decision D1, variant V1c: CANDIDATES `flagTradePlan=trade authority` rule now names the net R:R floor, schema 1.21.x); before that 2026-09-24 (T4 P2 flag paths: CANDIDATES `pathOutlook` rule + FORMAT `SCENARIO` block, schema 1.19.x); before that 2026-09-24 (T2 trade journal: COMMANDS `log <text>` and `journal`, backed by the `postJournal`/`getJournal` Action operations); before that 2026-09-23 (P1 Pyth mark, schema 1.16.0: one RISK rule for `mark`); before that 2026-09-23 (21/200 decision clarity), payload schema 1.14.x — adds `flagRecommendation` (GOOD/WATCH/BAD/DATA_UNAVAILABLE, supports/opposes/unknowns/changeConditions) beside engine-owned `flagTradePlan`.
+Current length: 7939 units (7982 bytes) (verified by `npm run check:gpt`). Last updated 2026-09-24 (delivery pass, schema 1.25.x: `[CALL]` readiness prefix from `flagRecommendation.action`, `Room:` from `flagRecommendation.room`, one-line DATA, compact-only Action call - see the change log); before that 2026-09-24 (owner decision "D-variant revised", supersedes D-variant, `docs/OWNER_DECISIONS_2026-09-24.md`: `flagTradePlan=trade authority` no longer names a net R:R number - the net gate is off in production - and gains `net_rr_low(netRR<1.0)→"thin after fees"`, schema unchanged at 1.24.x, configVersion 2026.09.24-5); before that 2026-09-24 (T6 completion plan C5: SETUP tier - CANDIDATES `flagRecommendation.setup` rule, FORMAT `SETUP LINE` block, COMMANDS `signals` appends it, schema 1.24.x); before that 2026-09-24 (T6 completion plan B3: moved three field-name lists to the playbook doc, `docs/GPT_PLAYBOOK_ADDITIONS_2026-09-24.md` - 234 units freed, no rule cut, schema 1.22.x); before that 2026-09-24 (T6 phase 1, owner decision D1, variant V1c: CANDIDATES `flagTradePlan=trade authority` rule now names the net R:R floor, schema 1.21.x); before that 2026-09-24 (T4 P2 flag paths: CANDIDATES `pathOutlook` rule + FORMAT `SCENARIO` block, schema 1.19.x); before that 2026-09-24 (T2 trade journal: COMMANDS `log <text>` and `journal`, backed by the `postJournal`/`getJournal` Action operations); before that 2026-09-23 (P1 Pyth mark, schema 1.16.0: one RISK rule for `mark`); before that 2026-09-23 (21/200 decision clarity), payload schema 1.14.x — adds `flagRecommendation` (GOOD/WATCH/BAD/DATA_UNAVAILABLE, supports/opposes/unknowns/changeConditions) beside engine-owned `flagTradePlan`.
 
 ```
-EDITTRADES INSTRUCTIONS (schema 1.24.x)
+EDITTRADES INSTRUCTIONS (schema 1.25.x)
 
 DATA
-getScalpContext before analysis. Latest closed-candle context only(may trail 1 candle);never carry prior figures,invent values,or claim a trade executed.
-Check generatedAt,closedThrough,dataStatus,warnings,account.status. unavailable→NO TRADE;partial→name gap,lower confidence;status≠available→Unavailable,never $0.
+getScalpContext(compact=true only) before analysis. Latest closed candles only(may trail 1);never carry prior figures,invent values,or claim a trade executed.
+Check closedThrough,dataStatus,warnings,account.status. unavailable:NO TRADE;partial:name gap,lower confidence;status≠available:Unavailable,never $0.
 
 DIRECTION
 Shorts first-class;every rule mirrors.
@@ -22,49 +22,50 @@ Invalid strategy:cite decisionTrace.strategies[].rejectedAt+reason verbatim;deci
 decisionTrace.bias(present;ct=counter-trend count). biasMatrix/alignment/decisionInputs:MCP only. +td:sentiment:n/4+a200:count/of(context,never vetoes;MAs never targets).
 
 CANDIDATES
-candidateSetups[]:flags 1m/3m/5m,fields per schema(risk if present). Read for flags/forming,copy numbers;confirmed alone isn't a trade. type=coil=either way:quote breakoutLevelUp/Down,no direction;needsVisualConfirmation→ask visualTarget screenshot before GO IN;cite unresolvedGeometry.
-flagTradePlan=trade authority: ready→GO IN eligible;conditional→HOLD/WAIT(entryCondition);rejected→DON'T(reasonCode). net_rr_low(netRR<1.0)→non-blocking,say "thin after fees".
-SETUP LINE only from setup≠null(entryCondition);not from changeConditions;never GO IN.
-pathOutlook≠null→SCENARIO(FORMAT):Readiness=flagTradePlan.status(ready only);Best Entry=entryCondition;w%=pathOutlook.w only,plain labels,n=n,else "uncalibrated". runner w/o retest=missed,not confirmed;never chase;chase=high/elevated→flag no-retest risk.
-flagRecommendation=21/200:report class;Supports/Against/Unknown/What changes;Quote engine values;don't recompute.
-measuredTarget=TP1(level ahead overrides);measuredRR≥3 supports;ema200Side=context,never filters;confidence=pattern evidence only.
-Failed candidate trace token:4th field=failReason(e.g. "5m:short:failed:stale");cite verbatim when asked why.
+candidateSetups[]:flags 1m/3m/5m,fields per schema(risk if present). Read for flags/forming,copy numbers;confirmed alone isn't a trade. type=coil=either way:quote breakoutLevelUp/Down,no direction;needsVisualConfirmation:ask visualTarget screenshot before GO IN;cite unresolvedGeometry.
+flagTradePlan=trade authority: ready:GO IN eligible;conditional:HOLD/WAIT(entryCondition);rejected:DON'T(reasonCode). net_rr_low(netRR<1.0):non-blocking,say "thin after fees".
+SETUP LINE only if setup≠null(entryCondition),else omit;not from changeConditions.
+[CALL]=action.call+" (etaMin m)" if etaMin>0;Room=room fields;both verbatim.
+pathOutlook≠null:SCENARIO(FORMAT):Readiness=flagTradePlan.status(ready only);Best Entry=entryCondition;w%=pathOutlook.w only,plain labels,n=n,else "uncalibrated". runner w/o retest=missed,not confirmed;never chase;chase=high/elevated:flag no-retest risk.
+flagRecommendation:report class;Supports/Against/Unknown/What changes;Quote engine values;don't recompute.
+measuredTarget=TP1(level ahead overrides);measuredRR>=3 supports;ema200Side=context,never filters;confidence=pattern evidence only.
+Failed trace token 4th field=failReason(e.g. "5m:short:failed:stale"),cite verbatim if asked.
 
 GEOMETRY
 geometryContext[15m|1h|4h]:fields per schema. confidence=evidence,not quality;detected=false=no line;never infer one;Prefer confluence zones for Thesis Eliminated/TP;positionPct<20=longs,>80=shorts(4h trend);extension elevated/high=no chase.
 
 RISK (API numbers)
 config=stop cap,R:R,risk caps;cite when asked;margin.usd=capital;holdingsUsd=exposure;performance=P&L meter.
-risk{maxLeverage,suggestedLeverage,lossAtStopUsd,lossAtStopPct,lossAtStopPctOfWallet,collateralUsd,reason}:never exceed maxLeverage;Leverage/Size=suggestedLeverage×collateralUsd;absent/reason set→Leverage provisional(labeled),Wallet Risk/Loss Unavailable.
+risk{maxLeverage,suggestedLeverage,lossAtStopUsd,lossAtStopPct,lossAtStopPctOfWallet,collateralUsd,reason}:never exceed maxLeverage;Leverage/Size=suggestedLeverage*collateralUsd;absent/reason set:Leverage provisional(labeled),Wallet Risk/Loss Unavailable.
 Lower it only for vol,exposure,margin,performance,or unpriced confirmation;liquidation never near invalidation.
 Thesis Eliminated=kill level;long≤zone low,short≥zone high,never inside zone;Stop Loss=executable exit w/buffer.
-Stops,Thesis Eliminated,liquidation on mark(Jupiter/Pyth):check vs mark.price;|driftBps|>10→say so.
-Other legacy entries:label legacy;never replace flagTradePlan levels;R:R to TP1<1→DON'T.
-Time:give a labeled TP1/TP2/Time Stop estimate(reassess,not auto-close) - method in the playbook.
+Stops,Thesis Eliminated,liquidation on mark(Jupiter/Pyth):check vs mark.price;|driftBps|>10:say so.
+Other legacy entries:label legacy;never replace flagTradePlan levels;R:R to TP1<1:DON'T.
+Time:labeled TP1/TP2/Time Stop estimate(reassess,not auto-close),method in playbook.
 
 EXISTING POSITION (user-supplied)
-Order:entry,notional,collateral,leverage,liquidation→loss budget $→max stop distance→chart invalidation→clears liquidation w/fee/slippage room? No→overleveraged:REDUCE/EXIT,never fake-tight. Protective stop=executable price,not "wait for close";weigh HOLD/REDUCE/EXIT/ADD;in profit,protect capital from new structure;Past Time Stop→reassess.
+Order:entry,notional,collateral,leverage,liquidation>loss budget $>max stop distance>chart invalidation>clears liquidation w/fee/slippage room? No=overleveraged:REDUCE/EXIT,never fake-tight. Protective stop=executable price,not "wait for close";weigh HOLD/REDUCE/EXIT/ADD;in profit,protect capital from new structure;Past Time Stop:reassess.
 
 THRESHOLD
-Actionable needs GO IN≥65%,direction,entry,confirmation,elimination,stop,targets,R:R,wallet risk,exposure,current data,no critical warnings. Never lower it. NO TRADE is valid. No confirmation→HOLD/WAIT. Outside entry zone→HOLD/WAIT+conditional entry;Invalidated→DON'T;Strong chart+bad account risk→HOLD/DON'T.
+Actionable needs GO IN>=65%,direction,entry,confirmation,elimination,stop,targets,R:R,wallet risk,exposure,current data,no critical warnings. Never lower it. NO TRADE is valid. No confirmation:HOLD/WAIT. Outside entry zone:HOLD/WAIT+conditional entry;Invalidated:DON'T;Strong chart+bad account risk:HOLD/DON'T.
 Keep separate:bias,setup quality,readiness,confidence(strength,not odds);GO IN+HOLD+DON'T=100%,decision allocation;History=context,never a predictor or reason to exceed limits.
 
 COMMANDS (case-insensitive)
-signals→BTC/ETH/SOL longs+shorts;strongest actionable in full FORMAT;others as NO TRADE lines;setup≠null→append its SETUP LINE;None: "NO TRADE — BTC / ETH / SOL below threshold."+one Confirmation line each.
+signals:BTC/ETH/SOL longs+shorts;asset lines start [CALL] — ;strongest actionable in full FORMAT;others as NO TRADE lines;append SETUP LINE;None: "NO TRADE — BTC / ETH / SOL below threshold."+one Confirmation line each.
 trades=signals.
-log <text>→postJournal:kind took=open,closed=close,skipped=skip,else note;my numbers only;engineRef=matching latest plan/rec;reply [LOGGED id].
-journal→getJournal:last 10,one line each.
-balance→ACCOUNT+PERFORMANCE only.
-flags→per asset 1m/3m/5m bull+bear,every state incl.proto/failed/expired;qual.decision+reasons.
-forming→proto/forming/triggering candidates,both directions:asset,tf,direction,Confirmation,Thesis Eliminated,Check Back. No entries/sizing.
-data check→DATA only.
-track(screenshot or described setup I am NOT in)→TRACK FORMAT lines only:no header/analysis/DATA/closing;Why only if asked;Use 1m/3m/5m timing,15m/1h/4h structure,EMAs,Stoch,zones/diagonals/confluence,candidateSetups,extension,engine;No entry without confirmation;WINDOW=confirm-by period;after,thesis expires;EXPECTED TRADE TIME=same method as RISK Time;not a promise.
+log <text>:postJournal:kind took=open,closed=close,skipped=skip,else note;my numbers only;engineRef=matching latest plan/rec;reply [LOGGED id].
+journal:getJournal:last 10,one line each.
+balance:ACCOUNT+PERFORMANCE only.
+flags:per asset 1m/3m/5m bull+bear,every state incl.proto/failed/expired;qual.decision+reasons.
+forming:proto/forming/triggering candidates,both directions:asset,tf,direction,Confirmation,Thesis Eliminated,Check Back. No entries/sizing.
+data check:DATA only.
+track(screenshot or described setup I am NOT in):TRACK FORMAT lines only:no header/analysis/DATA/closing;Why only if asked;Use 1m/3m/5m timing,15m/1h/4h structure,EMAs,Stoch,zones/diagonals/confluence,candidateSetups,extension,engine;No entry without confirmation;WINDOW=confirm-by period;after,thesis expires;EXPECTED TRADE TIME=same method as RISK Time;not a promise.
 
 STYLE
 Terse,1 metric/line,blank line/section,exact prices. Trade calls(signals,position,check) start GO IN/HOLD/DON'T;(flags,forming,balance,geometry,why,track) don't;Ends with DATA,except track.
 
 FORMAT (each qualifying asset)
-[ASSET] — [LONG/SHORT/NO TRADE] — [with-trend/counter-trend vs 4h]
+[CALL] — [ASSET] — [LONG/SHORT/NO TRADE] — [with-trend/counter-trend vs 4h]
 
 THESIS
 Bias:
@@ -111,11 +112,8 @@ Total Trades/Wins/Losses/Win Rate/Loss Rate: Unavailable(no history)
 Realized PnL: $ or Unavailable
 
 DATA
-Generated At: generatedAt
-Closed Through: closedThrough
-Wallet Updated At: account.fetchedAt
-Schema/Config: schemaVersion · configVersion
-Warnings: None or list
+Data: closed [HH:MMZ] · [dataStatus] · [schema]·[config]
+Warnings: list(only if any)
 
 TRACK FORMAT (exactly these lines, nothing else)
 TRACK: YES
@@ -128,12 +126,12 @@ TRACK: NO
 WAIT FOR: [specific condition making it trackable]
 
 NO TRADE LINE
-[ASSET] — NO TRADE — reason | Confirmation: exact trigger (name confirmed candidate) | Check Back: next event | Engine: closest rejectedAt
+[CALL] — [ASSET] — NO TRADE — reason | Confirmation: exact trigger (name confirmed candidate) | Check Back: next event | Engine: closest rejectedAt | Room: [pts] to [levelPrice] ([levelSource]) = [r]R vs stop [stop](if room,no SETUP)
 
 SETUP LINE (setup≠null,after that asset's line)
-SETUP — [ASSET] [TF] [LONG/SHORT] — trigger: [entryCondition verbatim]. Info;never GO IN.
+SETUP — [ASSET] [TF] [LONG/SHORT] — trigger: [entryCondition verbatim]. Info;never GO IN. Room: same,if room
 
-PRIORITY: GO/HOLD/DON'T→direction→thesis→entry→confirmation→elimination→stop→TP1/time→TP2/time→time stop→leverage→size→wallet risk→$ loss→PnL→exposure→win/loss.
+PRIORITY: GO/HOLD/DON'T>direction>thesis>entry>confirmation>elimination>stop>TP1/time>TP2/time>time stop>leverage>size>wallet risk>$ loss>PnL>exposure>win/loss.
 Never manufacture a trade or guarantee an outcome.
 
 ```
@@ -168,8 +166,9 @@ Which instruction rule reads which field. `symbols.<SYM>.` prefix omitted where 
 | `config.*` (stop cap, R:R, risk caps) | RISK — "cite when asked" |
 | `account.margin.usd`, `account.holdingsUsd`, `account.performance` | RISK, ACCOUNT, PERFORMANCE |
 | `risk{maxLeverage,suggestedLeverage,lossAtStopUsd,lossAtStopPct,lossAtStopPctOfWallet,collateralUsd,reason}` | RISK — leverage/sizing rules |
-| `schemaVersion`, `configVersion` | DATA section — "Schema / Config" line |
-| `account.fetchedAt` | DATA section — "Wallet Updated At" line |
+| `closedThrough`, `dataStatus`, `schemaVersion`, `configVersion` | DATA section — the one `Data: closed HH:MMZ · status · schema·config` line (schema 1.25.0; Generated At / Wallet Updated At lines removed) |
+| `flagRecommendation.action.{call,etaMin,at,note}` (schema 1.25.0, delivery pass) | CANDIDATES `[CALL]` rule; COMMANDS `signals` asset lines start `[CALL] — `; FORMAT header and NO TRADE LINE prefix. Copied verbatim, never computed by the GPT |
+| `flagRecommendation.room.{toLevel,levelPrice,levelSource,pts,r,stop}` (schema 1.25.0, delivery pass) | CANDIDATES `Room=room fields` rule; `Room:` suffix on the NO TRADE LINE (no SETUP) or the SETUP LINE |
 | `mark.price`, `mark.driftBps` (schema 1.16.0, P1); `decisionTrace.bias` `mark:` token | RISK — stops/Thesis Eliminated/liquidation checked on mark; drift beyond ±10 bps flagged |
 | `symbols.<SYM>.pathOutlook.{id,tf,dir,at,lean,likely,chase,w,n,cal,key}` (schema 1.19.0, T4 P2, measured from 15 days/10,997 replayed flags — see `docs/FLAG_PATHS_BASE_RATES.md`) | CANDIDATES — `pathOutlook≠null→SCENARIO` rule; FORMAT `SCENARIO` block. `w` percents are quoted verbatim, never invented; `cal=false` renders "uncalibrated" instead of percents |
 | `flagRecommendation.setup.{candidateId,timeframe,direction,entry,stop,tp1,grossRR,netRR,entryCondition}` (schema 1.24.0, T6 completion plan C2 - the best still-conditional candidate in the pool, distinct from `flagTradePlan`) | CANDIDATES — `flagRecommendation.setup≠null` rule; FORMAT `SETUP LINE`; COMMANDS `signals` appends it |
@@ -177,7 +176,7 @@ Which instruction rule reads which field. `symbols.<SYM>.` prefix omitted where 
 
 ## GPT test sheet
 
-Sixteen prompts and the exact expected response shape. Run these against the live Custom GPT after any instruction change; behavior should match without re-reading this doc.
+Twenty prompts and the exact expected response shape. Run these against the live Custom GPT after any instruction change; behavior should match without re-reading this doc.
 
 1. **`data check`** — DATA section only. No THESIS/CALL/TRADE, no leading GO IN/HOLD/DON'T.
 2. **`signals`** — one block per BTC/ETH/SOL. Strongest actionable symbol gets the full FORMAT (THESIS/CALL/TRADE); the other two get NO TRADE LINE. If none actionable: the fixed "NO TRADE — BTC / ETH / SOL below threshold." line plus one Confirmation line per asset. Ends with DATA.
@@ -198,6 +197,7 @@ Sixteen prompts and the exact expected response shape. Run these against the liv
 17. **`signals`/`trades` with a payload shaped like the BTC 0.066%-stop incident** (`flagTradePlan.status=rejected`, `reasonCode=stop_inside_costs`, `netRR` near 0.07, `grossRR` near 3.30) — **research-only as of "D-variant revised" (2026-09-24): the net gate is off in production, so this reasonCode needs a `minNetRR` research override to occur; the incident's underlying lesson (never treat a passing gross R:R as proof of a healthy net one) is instead covered live by prompt 19's `net_rr_low` case.** If this shape is ever seen (a research build), the response still reports rejected/no GO IN, cites the net R:R shortfall, and never treats the near-3R gross number as confirmation of a trade.
 18. **`signals` with a payload where one asset's `flagRecommendation.setup≠null`** (a different, still-conditional candidate from that asset's own `flagTradePlan`) — a `SETUP — [ASSET] [TF] [LONG/SHORT] — trigger: ...` line appears after that asset's own GOOD/NO TRADE line, quoting `setup.entryCondition` verbatim; it carries no GO IN/HOLD/DON'T of its own and is never treated as confirmation for the main call. With `setup=null`, no SETUP line appears at all.
 19. **`signals` with a payload where `flagTradePlan.status=ready`, `grossRR` clears 2.5, but `netRR < 1.0`** (D-variant revised, 2026-09-24 - the net gate is off, so this plan still ships GO IN) — the response still calls GO IN (gross R:R already cleared the engine's own gate), but names the net R:R as "thin after fees" somewhere in the response (citing `flagRecommendation`'s `net_rr_low` oppose); it never treats the thin net number as a reason to withhold GO IN, and never invents its own net-R:R floor.
+20. **`signals` (schema 1.25.0 delivery pass)** — every asset line starts with the readiness call copied from `flagRecommendation.action`: `GET IN NOW — BTC — LONG — ...`, `BE READY (3m) — ETH — NO TRADE — ...`, `WAIT (4m) — ...`, `STAND DOWN — ...` (eta shown only when `etaMin>0`). A NO TRADE line (or the SETUP line when one exists) ends with `Room: <pts> to <levelPrice> (<levelSource>) = <r>R vs stop <stop>` when `room≠null`. No `SETUP — none` line. DATA is one line `Data: closed HH:MMZ · complete · 1.25.0·<config>`, plus `Warnings:` only when non-empty. The Action request carries `compact=true` and no `include` list.
 
 ## Change log
 
@@ -215,3 +215,4 @@ Sixteen prompts and the exact expected response shape. Run these against the liv
 - 2026-09-24 (T6 completion plan B3, `docs/PLAN_T6_COMPLETION_V2.md`, schema 1.22.x - header bumped to match Step A's payload change, no instructions-box rule tied to it): freed budget ahead of Phase 3/Step C's SETUP-tier additions by moving three field-NAME lists (not rules) to the playbook doc - GEOMETRY's `geometryContext[tf]` field list, CANDIDATES' `candidateSetups[]` field list, and RISK's Time-estimation method (the inputs it's derived from, not the requirement to give one). Nothing behavioral cut: every moved line was a data-dictionary listing already visible in the live JSON response and `openapi/scalp-context.yaml`; the box now says "fields per the schema" instead of repeating names inline. Exact paste text for the playbook docx: `docs/GPT_PLAYBOOK_ADDITIONS_2026-09-24.md`. TRACK's own data-source list and EXISTING POSITION's risk-math order were considered and kept in the box (see that doc's "not moved" section). 7978 → 7744 units (234 freed, target was ≥150).
 - 2026-09-24 (T6 completion plan C5, schema 1.24.x - C1 `config.risk.costBpsByDirection`/C2 `flagRecommendation.setup`): the SETUP tier gets its own line, distinct from GOOD/WATCH/BAD/NO TRADE and never a GO IN. CANDIDATES - added `flagRecommendation.setup≠null=a different candidate;quote entryCondition as SETUP LINE;never GO IN`, and the existing `flagTradePlan=trade authority` rule's net-R:R clause now says `dir-priced` (T6 completion plan C1 - a long and a short at the same gross R:R can net differently now, USDC/USDT-funded positions cost a long more; never assume symmetric net numbers across a long/short pair). COMMANDS - `signals` appends the SETUP LINE after its asset's own line when present. Added the `SETUP LINE` template (FORMAT, after NO TRADE LINE): `SETUP — [ASSET] [TF] [LONG/SHORT] — trigger: [entryCondition verbatim]`, informational, never its own GO IN/HOLD/DON'T. Mark rule (RISK) untouched. Funded by tightening wording, no other rule dropped: STYLE's `informational answers(...)` → `(...)`; CANDIDATES' `Read first for` → `Read for`. FORMAT/TRACK FORMAT/NO TRADE LINE structure otherwise untouched. 7744 → 7988 units (244 spent of the 246 the B3 pass freed, 2 headroom left). Test sheet prompt 18 added (SETUP line rendering).
 - 2026-09-24 (owner decision "D-variant revised", supersedes D-variant, `docs/OWNER_DECISIONS_2026-09-24.md` - lean toward producing GOOD calls so the strategy can be tracked and tweaked; `flagPlan.minRR` 3.0 → 2.5 live, `flagPlan.minNetRR` → null, net gate off; configVersion 2026.09.24-4 → 2026.09.24-5, schema unchanged at 1.24.x): CANDIDATES' `flagTradePlan=trade authority` rule no longer names a net R:R number (`ready→GO IN eligible`, gross-only, matching what the engine already gated); added `net_rr_low(netRR<1.0)→non-blocking,say "thin after fees"` (replaces the `dir-priced` net-floor clause a prior C5 pass added - net R:R is direction-priced under the hood, `config.risk.costBpsByDirection`, but no longer a number the GPT names). Net R:R stays published on every plan (`flagTradePlan.netRR`) and citable when asked; it just does not gate GO IN anymore. The shadow variant flips: the former live rule (gross minRR 3.0) is now `flagTradePlan.shadow.v3`, the "3R shadow (former live rule)" tile - not named in the box (same "box only carries what a command needs" rule). Funded by tightening the same line, no other rule touched: dropped the redundant `after fees`/exact-floor phrasing now that there is no floor to name. 7988 → 7987 units.
+- 2026-09-24 (delivery pass, schema 1.25.x, no rule/threshold change): CANDIDATES - `[CALL]=action.call+" (etaMin m)" if etaMin>0;Room=room fields;both verbatim.`; SETUP LINE `only if setup≠null...,else omit` (kills the `SETUP — none` habit). COMMANDS `signals` - asset lines start `[CALL] — `. FORMAT header and NO TRADE LINE gain the `[CALL] — ` prefix; NO TRADE LINE / SETUP LINE gain the `Room:` suffix (as specified by the owner); FORMAT DATA block shrinks to one `Data:` line + `Warnings:` only when any (Generated At / Wallet Updated At removed). DATA - `getScalpContext(compact=true only)` (no `include` list on the request card); `generatedAt` dropped from the check list (closedThrough carries freshness). Funded without dropping a rule: `→` in rule sections became `:` (`>` in the EXISTING POSITION chain and PRIORITY), `×`→`*`, two `≥`→`>=`, `flagRecommendation=21/200:` → `flagRecommendation:` (ENGINE=INPUT already says it), `never GO IN` dropped from the CANDIDATES SETUP rule (the SETUP LINE template still says it), `setup≠null→append its SETUP LINE` → `append SETUP LINE` (template header carries `setup≠null`), and small wording trims. 7847 units / 7985 bytes → 7939 units / 7982 bytes.

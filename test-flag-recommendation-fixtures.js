@@ -383,6 +383,42 @@ async function run() {
     }
   });
 
+  // Delivery pass (schema 1.25.0): readiness call + room on the acceptance fixtures.
+  await test('1.25.0: action + room across the fixtures (GOOD capped, forming WATCH, chase SETUP, rr_below_min, stale; long + short)', () => {
+    for (const dir of DIRS) {
+      const kind = dir === 'long' ? 'resistance' : 'support';
+      const capped = build(dir, { dir, p: plan(dir, { tp1: mir(dir, 1030), tp2: mir(dir, 1040), grossRR: 3, netRR: 2.1 }), g: geometry(dir, { zoneAt: 1030 }) });
+      assertEqual(JSON.stringify(compactRecommendation(capped).action), JSON.stringify({ call: 'GET IN NOW', etaMin: 0, at: AS_OF, note: `1m ${dir} ready: entry 1,000.00, stop ${dir === 'long' ? '990.00' : '1,010.00'}, TP1 ${dir === 'long' ? '1,030.00' : '970.00'}` }), `${dir}: GOOD action`);
+      assertEqual(JSON.stringify(compactRecommendation(capped).room), JSON.stringify({ toLevel: 'tp1_cap', levelPrice: mir(dir, 1030), levelSource: `15m ${kind}`, pts: 30, r: 3, stop: mir(dir, 990) }), `${dir}: capped room`);
+
+      const forming = candidate(dir, { candidateId: `BTC:3m:${dir}:2026-09-23T11:30:00.000Z`, timeframe: '3m', state: 'forming', confidence: 70, breakoutLevel: 84466.1, invalidation: dir === 'long' ? 84300 : 84632.2, measuredTarget: null, measuredRR: 3.5 });
+      const w = build(dir, { dir, p: null, c: [forming], ev: evidence(dir, { flags: [] }) });
+      assertEqual(w.action.call, 'WAIT', `${dir}: forming -> WAIT`);
+      assertEqual(w.action.etaMin, 3, `${dir}: 12:00 closed -> next 3m close 12:03`);
+      assertEqual(w.action.at, '2026-09-23T12:03:00.000Z', `${dir}: at`);
+      assertEqual(w.action.note, w.changeConditions[0].text, `${dir}: note = change condition`);
+      assertEqual(w.room, null, `${dir}: no plan/setup -> room null`);
+
+      const proto = build(dir, { dir, p: null, c: [candidate(dir, { state: 'proto' })], ev: evidence(dir, { flags: [] }) });
+      assertEqual(proto.action.call, 'STAND DOWN', `${dir}: proto only -> STAND DOWN`);
+
+      const setup = { candidateId: `BTC:5m:${dir}:chase`, timeframe: '5m', direction: dir, entry: 1000, stop: mir(dir, 990), tp1: mir(dir, 1040), grossRR: 4, netRR: 3.4, entryCondition: `wait for a 5m retest of 1,000.00 that holds ${dir === 'long' ? 'above' : 'below'} it` };
+      const chase = build(dir, { dir, p: plan(dir, { status: 'rejected', reasonCode: 'chase', tp1: null, grossRR: null, netRR: null, setup }), g: {} });
+      assertEqual(chase.class, 'BAD', `${dir}: class unchanged`);
+      assertEqual(JSON.stringify(chase.action), JSON.stringify({ call: 'BE READY', etaMin: 5, at: '2026-09-23T12:05:00.000Z', note: setup.entryCondition }), `${dir}: SETUP -> BE READY`);
+      assertEqual(JSON.stringify(chase.room), JSON.stringify({ toLevel: 'measured_target', levelPrice: mir(dir, 1040), levelSource: 'measured move', pts: 40, r: 4, stop: mir(dir, 990) }), `${dir}: setup room`);
+
+      const rr = build(dir, { dir, p: plan(dir, { status: 'rejected', reasonCode: 'rr_below_min', tp1: mir(dir, 1024), grossRR: 2.4, netRR: 1.9 }) });
+      assertEqual(rr.action.call, 'STAND DOWN', `${dir}: BAD no setup -> STAND DOWN`);
+      assertEqual(rr.action.etaMin, null, `${dir}: no eta`);
+      assertEqual(rr.room.r, 2.4, `${dir}: rejected plan room shows the short room`);
+
+      const stale = build(dir, { dir, p: null, fresh: freshness({ '1m': '2026-09-23T11:50:00.000Z' }) });
+      assertEqual(stale.class, 'DATA_UNAVAILABLE', `${dir}: stale`);
+      assertEqual(JSON.stringify([stale.action.call, stale.action.etaMin, stale.action.at, stale.room]), JSON.stringify(['STAND DOWN', null, null, null]), `${dir}: stale -> STAND DOWN, no room`);
+    }
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {
     console.log(`\nFailed: ${failures.join(', ')}`);
