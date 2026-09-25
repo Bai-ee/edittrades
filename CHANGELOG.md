@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-25 — Execution T-3 A: guarded Jupiter perp executor, tickets, audit, real position read (not deployed, nothing enabled)
+
+No env change, no deploy, no rule / schema / config change. MCP, the GPT Action and `services/scalpContext.js` never reach `lib/execution` (`test:execution` walks their imports).
+
+- `lib/execution/executor.js` (contract in `docs/PLAN_TELEGRAM_EXECUTION.md`): `preflight(intent, ctx)`, `createTicket(order, ctx)`, `confirm(nonce, pin, ctx)`, `closePosition(positionId, sizeUsd, pin, ctx)`, `updateStops(positionId, stop, tp, pin, ctx)`, `listPositions()`, `status()`, plus `prepareClose` / `prepareUpdate` (ticket orders for close / SL-TP), `kill(ctx)` and `arm(pin, ctx)`. Everything injected (`createExecutor(deps)`); signing modules load lazily past the gates. Never throws; every refusal returns `reasons[]`.
+- Gates (`lib/execution/gates.js`): `TRADE_EXECUTION_ENABLED`, `EXECUTION_MODE` (dry default), `EXECUTION_OWNER_IDS`, `EXECUTION_PIN` (constant-time; 3 wrong in 1 h → auto-kill 1 h), kill switch (env or Blob `execution/kill.json`; unreadable = killed) checked in preflight, confirm, close and update; caps size / leverage / loss per trade / daily loss (missing → refuse), open positions (default 2). Preflight also: SL + TP required and on the right side, stop ≤ 3% unless the plan sets its own cap, liquidation buffer (`riskEngine.maxLeverageForStop`), direction cost, then live daily loss, open positions, market, custody and quote (any unavailable → refuse).
+- Tickets (`lib/execution/tickets.js`): Blob `execution/tickets.json`, 8-hex nonce, 60 s, single use, ETag-guarded with no forced overwrite. Audit (`lib/execution/audit.js`): Blob `execution/YYYY-MM-DD.jsonl` + `execution/manifest.json`, every line redacted (key / seed / PIN / token / URL keys and values, long base58 / hex, byte arrays, live secret env values). Journal: dry → `note` "DRY order …", live → `open` / `close` / `adjust` with `source: 'execution'` (added to `lib/journalSchema.js` SOURCES) and engineRef.
+- Live capability gate: `openPerpPosition` does not place SL/TP on chain, and `closePerpPosition` / `updatePerpPosition` are placeholders, so live open / close / update refuse (`live_sl_tp_unsupported`, `live_close_unsupported`, `live_update_unsupported`) until they are implemented; a placeholder signature is never accepted.
+- `services/jupiterPerps.js` `getPerpPositions(wallet, opts)` is real: 18 Position PDAs (BTC/ETH/SOL × long/short × asset/USDC/USDT collateral, Side enum seeds 1/2), one `getMultipleAccounts`, decoded with the IDL decoder; returns `{ ok, positions, error }` and never throws. Liquidation price is an estimate (`liquidationPriceSource: 'estimate'`). New `test:execution` (42).
+
 ## 2026-09-25 — Tracking: Telegram sent-alert log and per-minute transition log, ingested by the tracker (not deployed)
 
 Logging only; no rule, threshold, schema or config change; no execution import; no new dependency. GPT instructions untouched (check:gpt unchanged).

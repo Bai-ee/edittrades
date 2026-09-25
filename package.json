@@ -50,6 +50,7 @@
     "test:archmap": "node test-architecture-map.js",
     "test:journal": "node test-journal.js",
     "test:telegram": "node test-telegram.js",
+    "test:execution": "node test-execution.js",
     "test:served": "node test-served.js",
     "test:paths": "node test-flag-paths.js",
     "test:replay-paths": "node test-replay-paths.js",

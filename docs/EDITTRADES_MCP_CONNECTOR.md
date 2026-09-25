@@ -248,6 +248,17 @@ Optional `chart: "BTC:1m"` tool arg / `?chart=BTC:1m` query returns exactly one 
 | `TELEGRAM_WEBHOOK_SECRET` | Must match the `secret_token` given to `setWebhook` (register with `allowed_updates: ["message","callback_query"]` so buttons arrive); missing → webhook 503 |
 | `CRON_SECRET` | Vercel Cron bearer for `/api/telegram-cron`; missing → cron 503 |
 | `TELEGRAM_QUIET_HOURS` | Retired (no longer read): quiet hours are set on the phone with `/alerts quiet HH-HH` (America/Chicago), stored in `telegram/state.json` `prefs` |
+| `TRADE_EXECUTION_ENABLED` | Master switch for execution (T-3, `lib/execution/`); anything but `true` → every order refused (`execution_disabled`). Not set in production |
+| `EXECUTION_MODE` | `dry` (default) or `live`; any other value refuses. Dry runs the full path but never signs. Live also refuses until on-chain SL/TP exists (`LIVE_CAPABILITIES` in `lib/execution/executor.js`) |
+| `EXECUTION_OWNER_IDS` | Comma list of Telegram user ids allowed to execute (separate from `TELEGRAM_ALLOWED_USER_IDS`); missing → refuse |
+| `EXECUTION_PIN` | 4–8 digits, required on every confirm / close / SL-TP change / `/arm`; compared constant-time, never logged; 3 wrong within 1 h → auto-kill 1 h |
+| `EXECUTION_KILL` | `true` → kill switch on (env kill; `/arm` cannot clear it). The Blob flag `execution/kill.json` (set by `/kill`) is the other kill |
+| `EXECUTION_MAX_SIZE_USD` | Per-order notional cap; missing → refuse |
+| `EXECUTION_MAX_LEVERAGE` | Per-order leverage cap; missing → refuse |
+| `EXECUTION_MAX_LOSS_USD_PER_TRADE` | Cap on size × stop % + direction cost; missing → refuse |
+| `EXECUTION_MAX_DAILY_LOSS_USD` | Cap on today's realized loss (journal closes) + this order's max loss; missing → refuse |
+| `EXECUTION_MAX_OPEN_POSITIONS` | Open on-chain positions allowed; default 2 |
+| `SOLANA_PRIVATE_KEY` | Signing key for the engine wallet (live execution only); loaded lazily past the gates, never logged or audited. Dry mode without it reads positions from `TRACKED_WALLET_ADDRESS` |
 
 Missing wallet vars → `account.status: disabled`, market data unaffected. Missing `PYTH_API_KEY` → every `mark.status: unavailable`, no Hermes request, market data unaffected.
 

@@ -928,32 +928,173 @@ export async function updatePerpPosition(positionId, stopLoss = null, takeProfit
   }
 }
 
+// ------------------------------------------------------------ position read (T-3 A)
+//
+// On-chain Position PDA side seed is the program's Side enum (None=0, Long=1, Short=2),
+// see node_modules/jup-perps-client/dist/types/side.d.ts and the official PDA example.
+export const POSITION_SIDE_SEED = Object.freeze({ long: 1, short: 2 });
+
+/** Mints of the traded assets and the stable collateral, used to find custodies by mint. */
+export const PERP_MINTS = Object.freeze({
+  SOL: 'So11111111111111111111111111111111111111112',
+  BTC: '3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh',
+  ETH: '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs',
+  USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  USDT: 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+});
+
+/** Published mainnet custody accounts (fallback when the pool cannot be read). */
+export const DEFAULT_PERP_CUSTODIES = Object.freeze({
+  SOL: '7xS2gz2bTp3fwCC7knJvUWTEU9Tycczu6VhJYKgi1wdz',
+  ETH: 'AQCGyheWPLeo6Qp9WpYS9m3Qj479t7R636N9ey1rEjEn',
+  BTC: '5Pv3gM9JrFFH883SWAhvJC9RPYmo8UNxuFtv5bMMALkm',
+  USDC: 'G18jKKXQwBbrHeiK3C9MRXhkHsLHf7XgCSisykV46EZa',
+  USDT: '4vkNeXiYEUizLdrpdPS1eC2mccyM4NUPRtERrk6ZETkk',
+});
+
+const USD_DECIMALS = 1_000_000;
+const TRADED = Object.freeze(['BTC', 'ETH', 'SOL']);
+
+/** {SOL, BTC, ETH, USDC, USDT} -> custody address, resolved from the pool by mint. */
+async function resolvePerpCustodies(rpcClient) {
+  const pool = await fetchPool(rpcClient, JUPITER_PERPS_POOL);
+  const custodies = await jupPerpsClient.fetchAllCustody(rpcClient, pool.data.custodies);
+  const bySymbol = {};
+  const symbolOfMint = Object.fromEntries(Object.entries(PERP_MINTS).map(([k, v]) => [v, k]));
+  for (const c of custodies) {
+    const sym = symbolOfMint[String(c.data.mint)];
+    if (sym) bySymbol[sym] = String(c.address);
+  }
+  return bySymbol;
+}
+
 /**
- * Get all open positions for a wallet
- * @param {string} walletAddress - Wallet public key (optional, uses default wallet if not provided)
- * @returns {Promise<Array>} Array of open positions
+ * Every Position PDA the wallet could own: each traded custody x side x collateral
+ * custody (the asset itself for longs, USDC/USDT for shorts; all three are tried for
+ * both sides so a position opened either way is found). Pure; same derivePositionPDA as
+ * openPerpPosition, with the program's Side enum as the side seed.
+ * @param {string} walletAddress
+ * @param {Object} custodies - {SOL, BTC, ETH, USDC, USDT} custody addresses
+ * @returns {Promise<Array<{address:string, symbol:string, direction:string, custody:string, collateralCustody:string}>>}
  */
-export async function getPerpPositions(walletAddress = null) {
+export async function derivePerpPositionCandidates(walletAddress, custodies = DEFAULT_PERP_CUSTODIES) {
+  const owner = new PublicKey(walletAddress);
+  const pool = new PublicKey(JUPITER_PERPS_POOL);
+  const out = [];
+  for (const symbol of TRADED) {
+    if (!custodies[symbol]) continue;
+    const custody = new PublicKey(custodies[symbol]);
+    for (const [direction, sideSeed] of Object.entries(POSITION_SIDE_SEED)) {
+      for (const coll of [symbol, 'USDC', 'USDT']) {
+        if (!custodies[coll]) continue;
+        const collateralCustody = new PublicKey(custodies[coll]);
+        const [pda] = await derivePositionPDA(owner, pool, custody, collateralCustody, sideSeed);
+        out.push({ address: pda.toBase58(), symbol, direction, custody: custody.toBase58(), collateralCustody: collateralCustody.toBase58() });
+      }
+    }
+  }
+  return out;
+}
+
+const n6 = (v) => Number(v) / USD_DECIMALS;
+const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+
+/**
+ * Decode one Position account's bytes into the executor's position row. Pure.
+ * `sizeUsd === 0` means a closed (empty) position account: returns null.
+ * liquidationPrice is an ESTIMATE (the account does not store it): the conservative
+ * riskEngine model, distance = collateral/size - maintenanceMarginPct/100.
+ * @param {Uint8Array} bytes
+ * @param {Object} o
+ * @param {string} o.positionId
+ * @param {Object<string,string>} [o.symbolByCustody] - custody address -> BTC|ETH|SOL
+ * @param {Object<string,number>} [o.markPrices] - BTC|ETH|SOL -> USD mark
+ * @param {number} [o.maintenanceMarginPct=0.3]
+ * @returns {Object|null}
+ */
+export function decodePerpPositionAccount(bytes, { positionId, symbolByCustody = {}, markPrices = {}, maintenanceMarginPct = 0.3 } = {}) {
+  const p = jupPerpsClient.getPositionDecoder().decode(bytes);
+  const sizeUsd = n6(p.sizeUsd);
+  if (!(sizeUsd > 0)) return null;
+  const direction = Number(p.side) === 1 ? 'long' : Number(p.side) === 2 ? 'short' : null;
+  if (!direction) return null;
+  const symbol = symbolByCustody[String(p.custody)] || null;
+  const entryPrice = n6(p.price);
+  const collateralUsd = n6(p.collateralUsd);
+  const liqDist = collateralUsd / sizeUsd - maintenanceMarginPct / 100;
+  const liquidationPrice = entryPrice > 0 && liqDist > 0
+    ? r2(direction === 'long' ? entryPrice * (1 - liqDist) : entryPrice * (1 + liqDist))
+    : null;
+  const mark = symbol && Number.isFinite(markPrices[symbol]) ? markPrices[symbol] : null;
+  const unrealizedPnlUsd = mark && entryPrice > 0
+    ? r2(sizeUsd * ((direction === 'long' ? mark - entryPrice : entryPrice - mark) / entryPrice))
+    : null;
+  const openSec = Number(p.openTime);
+  return {
+    positionId,
+    market: symbol ? `${symbol}USDT` : null,
+    symbol,
+    direction,
+    sizeUsd: r2(sizeUsd),
+    collateralUsd: r2(collateralUsd),
+    leverage: collateralUsd > 0 ? r2(sizeUsd / collateralUsd) : null,
+    entryPrice,
+    markPrice: mark,
+    liquidationPrice,
+    liquidationPriceSource: 'estimate',
+    unrealizedPnlUsd,
+    realisedPnlUsd: r2(n6(p.realisedPnlUsd)),
+    openedAt: openSec > 0 ? new Date(openSec * 1000).toISOString() : null,
+    collateralCustody: String(p.collateralCustody),
+  };
+}
+
+/**
+ * Open Jupiter perp positions for a wallet (BTC/ETH/SOL, long and short), read from
+ * chain in one getMultipleAccounts call.
+ *
+ * Never throws. Always returns `{ ok, positions, error }`:
+ *   ok:true  positions: [...] (empty array = no open position), error: null
+ *   ok:false positions: [],   error: short message (RPC/decode failure; NOT "no positions")
+ * @param {string|null} walletAddress - public address; null -> the signing wallet's address
+ * @param {Object} [opts]
+ * @param {Object} [opts.rpc] - @solana/kit rpc (tests pass a fake with getMultipleAccounts)
+ * @param {Object} [opts.custodies] - skip the pool read ({SOL,BTC,ETH,USDC,USDT} addresses)
+ * @param {Object<string,number>} [opts.markPrices] - for unrealizedPnlUsd
+ * @param {number} [opts.maintenanceMarginPct]
+ * @returns {Promise<{ok:boolean, positions:Array<Object>, error:string|null}>}
+ */
+export async function getPerpPositions(walletAddress = null, opts = {}) {
+  const rpcClient = opts.rpc || rpc;
   try {
-    console.log('[JupiterPerps] Getting open positions...');
-    
-    const wallet = getWallet();
-    const address = walletAddress || wallet.publicKey.toBase58();
-    console.log('[JupiterPerps] Wallet address:', address);
-    
-    // TODO: Query positions from on-chain program
-    // This will require:
-    // 1. Querying program accounts filtered by wallet
-    // 2. Parsing position data
-    // 3. Calculating P&L
-    
+    const owner = walletAddress || getWallet().publicKey.toBase58();
+    let custodies = opts.custodies || null;
+    if (!custodies) {
+      try { custodies = await resolvePerpCustodies(rpcClient); } catch { custodies = null; }
+      if (!custodies || TRADED.some((s) => !custodies[s])) custodies = { ...DEFAULT_PERP_CUSTODIES, ...(custodies || {}) };
+    }
+    const symbolByCustody = Object.fromEntries(TRADED.filter((s) => custodies[s]).map((s) => [custodies[s], s]));
+    const candidates = await derivePerpPositionCandidates(owner, custodies);
+    const res = await rpcClient.getMultipleAccounts(candidates.map((c) => address(c.address)), { encoding: 'base64', commitment: 'confirmed' }).send();
+    const values = res && Array.isArray(res.value) ? res.value : null;
+    if (!values) return { ok: false, positions: [], error: 'rpc returned no account list' };
     const positions = [];
-    
-    console.log('[JupiterPerps] ✅ Positions retrieved:', positions.length);
-    return positions;
+    values.forEach((acc, i) => {
+      if (!acc || !acc.data) return;
+      const raw = Array.isArray(acc.data) ? acc.data[0] : acc.data;
+      const bytes = typeof raw === 'string' ? Buffer.from(raw, 'base64') : raw;
+      const row = decodePerpPositionAccount(bytes, {
+        positionId: candidates[i].address,
+        symbolByCustody,
+        markPrices: opts.markPrices || {},
+        maintenanceMarginPct: Number.isFinite(opts.maintenanceMarginPct) ? opts.maintenanceMarginPct : 0.3,
+      });
+      if (row) positions.push(row);
+    });
+    return { ok: true, positions, error: null };
   } catch (error) {
-    console.error('[JupiterPerps] ❌ Error getting positions:', error.message);
-    throw new Error(`Failed to get perpetual positions: ${error.message}`);
+    const msg = String((error && error.message) || error || 'unknown error').replace(/https?:\/\/\S+/g, '[url]').slice(0, 200);
+    return { ok: false, positions: [], error: `position read failed: ${msg}` };
   }
 }
 
