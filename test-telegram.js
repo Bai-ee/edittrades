@@ -33,13 +33,14 @@ import {
   migrateState, STATE_VERSION, TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, CRON_FAIL_ALERT_AFTER, CRON_FAIL_REPEAT_MS,
   RULE, MAX_CARD_CHARS, resolveRef, formatPlanCard, formatThesisCard, reasonPhrase, rMultiple, trackEntry, applyTrackChange, formatTrackingList, trackingKeyboard,
   diffTracked, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, candidateSnapshot, swapTrackButton, parseAlertTimeframes,
-  TRACK_MAX, TRACK_TTL_MS, NUDGE_AFTER_MS, EXPIRED_REPLY, liveView, formatMarket, marketLean, formatHelp
+  TRACK_MAX, TRACK_TTL_MS, NUDGE_AFTER_MS, EXPIRED_REPLY, liveView, formatMarket, marketLean, formatHelp,
+  isOpenReady, parseOrderArgs, parseConfirmArgs
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
-import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, config as webhookConfig } from './api/telegram-webhook.js';
+import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor, config as webhookConfig } from './api/telegram-webhook.js';
 import { handleTelegramCron } from './api/telegram-cron.js';
 import { diffCandidates } from './lib/telegram.js';
-import { alertLogLine, verdictOf as logVerdictOf, textExcerpt, recordTelegramLogs, assertSafeRows, alertsDayPath, transitionsDayPath, ALERTS_MANIFEST_PATH, TRANSITIONS_MANIFEST_PATH } from './lib/telegramLog.js';
+import { execLogLine, alertLogLine, verdictOf as logVerdictOf, textExcerpt, recordTelegramLogs, assertSafeRows, alertsDayPath, transitionsDayPath, ALERTS_MANIFEST_PATH, TRANSITIONS_MANIFEST_PATH } from './lib/telegramLog.js';
 import { findSensitiveKeys } from './scripts/tracker/records.js';
 import { telegramStatusFromState, pullTelegramStatus } from './scripts/tracker/collect.js';
 import { alertsFact } from './scripts/tracker/build-page.js';
@@ -181,7 +182,7 @@ function fakeTelegram({ fail = false } = {}) {
       }
     } else {
       const b = JSON.parse(init.body);
-      Object.assign(entry, { chatId: String(b.chat_id), text: b.text, parseMode: b.parse_mode, silent: b.disable_notification, replyMarkup: b.reply_markup, callbackQueryId: b.callback_query_id });
+      Object.assign(entry, { chatId: String(b.chat_id), text: b.text, parseMode: b.parse_mode, silent: b.disable_notification, replyMarkup: b.reply_markup, callbackQueryId: b.callback_query_id, messageId: b.message_id });
     }
     calls.push(entry);
     if (fail) throw Object.assign(new Error('network down'), { name: 'TypeError' });
@@ -947,7 +948,7 @@ async function run() {
   await test('reply keyboard: persistent, resized, the four owner rows; on /start, /menu and every plain reply', async () => {
     const kb = menuKeyboard();
     assertEqual(JSON.stringify(kb.keyboard.map((r) => r.map((b) => b.text))), JSON.stringify(MENU_ROWS), 'rows');
-    assertEqual(JSON.stringify(MENU_ROWS), '[["Signals","Flags","Market"],["Why BTC","Why ETH","Why SOL"],["Charts","Wallet","Positions"],["Journal","Status","Alerts","Tracking"]]', 'owner layout');
+    assertEqual(JSON.stringify(MENU_ROWS), '[["Signals","Flags","Market"],["Why BTC","Why ETH","Why SOL"],["Charts","Wallet","Positions","Exec"],["Journal","Status","Alerts","Tracking"]]', 'owner layout');
     assert(kb.resize_keyboard === true && kb.is_persistent === true, 'flags');
     for (const text of ['/start', '/menu', '/help', '/status', '/wallet', 'hello']) {
       const r = await hook({ text });
@@ -958,7 +959,7 @@ async function run() {
 
   await test('menu labels map to commands (case-insensitive, exact label only)', async () => {
     const m = (t) => { const p = parseMenuLabel(t); return p ? `${p.cmd}${p.args.length ? ` ${p.args.join(' ')}` : ''}` : null; };
-    const want = { Signals: 'signals', Flags: 'flags', 'Why BTC': 'why BTC', 'Why ETH': 'why ETH', 'Why SOL': 'why SOL', Charts: 'charts', Wallet: 'wallet', Journal: 'journal', Status: 'status', Alerts: 'alerts', Positions: 'positions', Tracking: 'tracking', Market: 'market' };
+    const want = { Signals: 'signals', Flags: 'flags', 'Why BTC': 'why BTC', 'Why ETH': 'why ETH', 'Why SOL': 'why SOL', Charts: 'charts', Wallet: 'wallet', Journal: 'journal', Status: 'status', Alerts: 'alerts', Positions: 'positions', Tracking: 'tracking', Market: 'market', Exec: 'exec' };
     for (const label of MENU_ROWS.flat()) assertEqual(m(label), want[label], label);
     assertEqual(m('why btc'), 'why BTC', 'lower case');
     assertEqual(m('  SIGNALS '), 'signals', 'upper, padded');
@@ -1284,12 +1285,21 @@ async function run() {
   const BANNED = ['execute-trade', 'jupiterPerps', 'walletManager', 'tradeExecution', 'positionManager', 'jupiterSwap', 'perpsProvider', 'driftPerps', 'mangoPerps', 'jup-perps', '@solana/web3.js', 'bs58', 'bip39', 'ed25519-hd-key'];
   const importsOf = (rel) => [...readFileSync(path.join(root, rel), 'utf8').matchAll(/^\s*import\s[^;]*?from\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/gm)].map((m) => m[1] || m[2] || m[3]);
 
-  await test('the two Telegram functions and lib/telegram.js import no execution, signing or wallet-writing module', () => {
+  // T-3: the webhook is the one sanctioned door to lib/execution/executor.js, as a lazy
+  // import() only (resolveExecutor); the cron and lib/telegram.js never reach it.
+  const EXECUTOR_IMPORT = '../lib/execution/executor.js';
+  const staticImportsOf = (rel) => [...readFileSync(path.join(root, rel), 'utf8').matchAll(/^\s*import\s[^;]*?from\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]/gm)].map((m) => m[1] || m[2]);
+
+  await test('the two Telegram functions and lib/telegram.js import no execution, signing or wallet-writing module (webhook: executor via lazy import only)', () => {
     for (const f of ['api/telegram-webhook.js', 'api/telegram-cron.js', 'lib/telegram.js']) {
       const src = readFileSync(path.join(root, f), 'utf8');
       for (const mod of BANNED) assert(!importsOf(f).some((i) => i.includes(mod)), `${f} imports ${mod}`);
-      for (const env of ['SOLANA_PRIVATE_KEY', 'TRADE_EXECUTION_API_KEY', 'TRADE_EXECUTION_ENABLED', 'SOLANA_RPC_URL']) assert(!src.includes(env), `${f} references ${env}`);
+      for (const env of ['SOLANA_PRIVATE_KEY', 'TRADE_EXECUTION_API_KEY', 'SOLANA_RPC_URL', 'EXECUTION_PIN']) assert(!src.includes(env), `${f} references ${env}`);
+      assert(!staticImportsOf(f).some((i) => i.includes('execution/')), `${f} statically imports lib/execution`);
     }
+    assertEqual(importsOf('api/telegram-webhook.js').filter((i) => i.includes('execution/')).join(), EXECUTOR_IMPORT, 'webhook: one lazy executor import');
+    assert(!importsOf('api/telegram-cron.js').some((i) => i.includes('execution')), 'cron never imports execution');
+    assert(!readFileSync(path.join(root, 'lib/telegram.js'), 'utf8').includes('TRADE_EXECUTION_ENABLED'), 'lib/telegram.js has no execution gate');
     assertEqual(importsOf('lib/telegram.js').length, 0, 'lib/telegram.js is import-free');
   });
 
@@ -1301,6 +1311,8 @@ async function run() {
       if (seen.has(f)) continue;
       seen.add(f);
       for (const i of importsOf(f)) {
+        // The sanctioned execution door (webhook -> lib/execution) is walked separately (test-execution.js).
+        if (f === 'api/telegram-webhook.js' && i === EXECUTOR_IMPORT) continue;
         for (const mod of BANNED) assert(!i.includes(mod), `${f} imports ${i}`);
         if (!i.startsWith('.')) continue;
         const next = path.relative(root, path.resolve(path.dirname(path.join(root, f)), i));
@@ -1308,6 +1320,13 @@ async function run() {
       }
     }
     assert(seen.has('services/scalpContext.js') && seen.has('api/journal.js'), 'walked the context and journal');
+  });
+
+  await test('MCP, the GPT Action path and scalpContext never import the webhook or lib/execution', () => {
+    for (const f of ['lib/mcpHttp.js', 'services/editTradesMcp.js', 'services/scalpContext.js', 'api/scalp-context.js', 'lib/telegram.js', 'lib/telegramLog.js']) {
+      if (!existsSync(path.join(root, f))) continue;
+      assert(!importsOf(f).some((i) => /execution\/|telegram-webhook/.test(i)), `${f} reaches execution`);
+    }
   });
 
   await test('MCP route does not import the Telegram code; vercel.json routes both functions before the catch-all and runs the cron every minute', () => {
@@ -1862,6 +1881,292 @@ async function run() {
       const src = readFileSync(path.join(root, f), 'utf8');
       assert(!/execute-trade|jupiterPerps|walletManager|signTransaction|Keypair/.test(src), `${f} reaches execution`);
     }
+  });
+
+  console.log('\nexecution (T-3 B, mocked executor)');
+
+  const XENV = { ...ENV, TRADE_EXECUTION_ENABLED: 'true' };
+  const PIN = '4321';
+  const NONCE = 'a1b2c3d4';
+  const GOOD_ID = 'BTC:5m:long:2026-09-24T13:50:00.000Z';
+  const GOOD_REF = shortRef(GOOD_ID);
+  const POS_ID = 'PosPDA1111111111111111111111111111111111111';
+  const POS_REF = shortRef(POS_ID);
+  /** GOOD BTC with an engine risk block (suggested 5x x $40 = $200) and the readiness call. */
+  function goodRiskSym(call = 'GET IN NOW') {
+    const s = goodSym(GOOD_ID);
+    s.candidateSetups[0].risk = { maxLeverage: 20, suggestedLeverage: 5, collateralUsd: 40, lossAtStopUsd: 0.5, lossAtStopPctOfWallet: 0.4 };
+    s.flagRecommendation.action = { call, etaMin: null };
+    return s;
+  }
+  const xpayload = (call) => payload({ BTC: goodRiskSym(call) });
+  const chainPos = { positionId: POS_ID, market: 'BTCUSDT', symbol: 'BTC', direction: 'long', sizeUsd: 50, collateralUsd: 16.67, leverage: 3, entryPrice: 84600, markPrice: 84650, liquidationPrice: 57000, unrealizedPnlUsd: 0.03 };
+  function mockExecutor({ mode = 'dry', preflight = null, positions = [chainPos], withPrepare = true, killOk = true } = {}) {
+    const calls = [];
+    const orders = new Map();
+    const ex = {
+      calls,
+      async preflight(intent, ctx) {
+        calls.push(['preflight', intent, ctx]);
+        if (preflight) return preflight;
+        return { ok: true, reasons: [], quote: { venueFeesUsd: 0.07, marginRequiredUsd: 16.67 }, order: { action: 'open', mode, symbol: intent.symbol, direction: intent.direction, sizeUsd: intent.sizeUsd, leverage: intent.leverage, entry: intent.entry, expectedFill: intent.entry, stop: intent.stop, tp1: intent.tp1, feesUsd: 0.07, maxLossUsd: 0.12, candidateId: intent.candidateId || null } };
+      },
+      async createTicket(order, ctx) { calls.push(['createTicket', order, ctx]); const nonce = orders.size ? `b${orders.size}c2d3e4`.slice(0, 8) : NONCE; orders.set(nonce, order); return { ok: true, nonce, expiresAt: new Date(T0 + 60_000).toISOString(), summaryText: 'x' }; },
+      async confirm(nonce, pin, ctx) {
+        calls.push(['confirm', nonce, pin, ctx]);
+        if (pin !== PIN) return { ok: false, mode, reasons: calls.filter((c) => c[0] === 'confirm').length >= 3 ? ['pin_wrong', 'auto_killed'] : ['pin_wrong'], error: 'pin_wrong' };
+        const o = orders.get(nonce);
+        if (!o) return { ok: false, mode, reasons: ['ticket_not_found'], error: 'ticket_not_found' };
+        orders.delete(nonce);
+        if (o.action !== 'open') return mode === 'dry' ? { ok: true, mode, dryRunId: 'dry_close_1', reasons: [] } : { ok: true, mode, txSignature: '5closeSigAAAAAAAAAAAA', reasons: [] };
+        return mode === 'dry' ? { ok: true, mode: 'dry', dryRunId: 'dry_0123456789abcdef', order: o, reasons: [] }
+          : { ok: true, mode: 'live', txSignature: '5sigLiveABCDEFGHIJKLMNOPQRS', position: { positionId: POS_ID, symbol: 'BTC', direction: 'long', sizeUsd: o.sizeUsd, leverage: o.leverage, stop: o.stop, tp1: o.tp1 }, order: { ...o, expectedFill: 84605 }, reasons: [] };
+      },
+      async closePosition(positionId, sizeUsd, pin, ctx) { calls.push(['closePosition', positionId, sizeUsd, pin]); return pin === PIN ? { ok: true, mode, dryRunId: 'dry_close_2', reasons: [] } : { ok: false, mode, reasons: ['pin_wrong'], error: 'pin_wrong' }; },
+      async updateStops(positionId, stop, tp, pin, ctx) { calls.push(['updateStops', positionId, stop, tp, pin]); return { ok: true, mode, dryRunId: 'dry_upd_1', reasons: [] }; },
+      async listPositions() { calls.push(['listPositions']); return positions === null ? { ok: false, positions: [], error: 'wallet_unavailable' } : { ok: true, positions, error: null }; },
+      async status() { calls.push(['status']); return { ok: true, enabled: true, mode, kill: { active: false, source: null }, caps: { maxSizeUsd: 50, maxLeverage: 3, maxLossUsdPerTrade: 5, maxDailyLossUsd: 15, maxOpenPositions: 2 }, dailyLossUsd: 1.25, openCount: 1, walletMarginUsd: 120.5 }; },
+      async kill(ctx, reason) { calls.push(['kill', ctx, reason]); return killOk ? { ok: true, reasons: [] } : { ok: false, reasons: ['kill_write_failed'] }; },
+      async arm(pin, ctx) { calls.push(['arm', pin]); return pin === PIN ? { ok: true, reasons: [], envKillStill: false } : { ok: false, reasons: ['pin_wrong'] }; }
+    };
+    if (withPrepare) {
+      ex.prepareClose = async (positionId, sizeUsd, ctx) => { calls.push(['prepareClose', positionId, sizeUsd]); return { ok: true, reasons: [], order: { action: 'close', mode, positionId, symbol: 'BTC', direction: 'long', sizeUsd, positionSizeUsd: 50 } }; };
+      ex.prepareUpdate = async (positionId, stop, tp, ctx) => { calls.push(['prepareUpdate', positionId, stop, tp]); return { ok: true, reasons: [], order: { action: 'update', mode, positionId, symbol: 'BTC', direction: 'long', stop, tp } }; };
+    }
+    return ex;
+  }
+  const deps = (o) => ({ build: o.build || (async () => xpayload()), put: o.blob.put, get: o.blob.get, fetchImpl: o.tg.fetchImpl, render: fakeRender, now: () => o.nowMs ?? T0, env: o.env || XENV, ...(o.executor !== undefined ? { executor: o.executor } : {}), ...(o.importExecutor ? { importExecutor: o.importExecutor } : {}) });
+  async function xhook(o) {
+    o.blob = o.blob || fakeBlob(); o.tg = o.tg || fakeTelegram();
+    const update = { update_id: updateSeq++, message: { message_id: o.messageId ?? 77, from: { id: OWNER }, chat: { id: OWNER, type: 'private' }, text: o.text } };
+    const res = mockRes();
+    const { logs } = await quiet(() => handleTelegramWebhook({ method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) }, res, deps(o)));
+    return { res, tg: o.tg, blob: o.blob, logs, sent: o.tg.calls.filter((c) => c.method === 'sendMessage') };
+  }
+  async function xtap(o) {
+    o.blob = o.blob || fakeBlob(); o.tg = o.tg || fakeTelegram();
+    const update = { update_id: updateSeq++, callback_query: { id: `cbq${updateSeq}`, from: { id: OWNER }, message: { message_id: 9, chat: { id: OWNER, type: 'private' } }, data: o.data } };
+    const res = mockRes();
+    const { logs } = await quiet(() => handleTelegramWebhook({ method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) }, res, deps(o)));
+    return { res, tg: o.tg, blob: o.blob, logs, sent: o.tg.calls.filter((c) => c.method === 'sendMessage') };
+  }
+  const lastText = (r) => (r.sent.length ? r.sent[r.sent.length - 1].text : '');
+  const lastMarkup = (r) => (r.sent.length ? r.sent[r.sent.length - 1].replyMarkup : null);
+  const execLines = (blob) => { const f = blob.files.get(alertsDayPath('2026-09-24')); return f ? f.text.trim().split('\n').map((l) => JSON.parse(l)).filter((x) => x.kind === 'EXEC') : []; };
+  const printed = [];
+
+  await test('Open: only on a ready plan (GET IN NOW) and only with execution on — Plan card and cron GOOD alert', async () => {
+    const ex = mockExecutor();
+    const on = await xtap({ data: `plan:${GOOD_REF}`, executor: ex });
+    assert(allCallbackData(lastMarkup(on))[0] === `open:${GOOD_REF}`, JSON.stringify(lastMarkup(on)));
+    const off = await xtap({ data: `plan:${GOOD_REF}`, executor: ex, env: ENV });
+    assert(!allCallbackData(lastMarkup(off)).some((d) => d.startsWith('open:')), 'no Open when disabled');
+    const notReady = await xtap({ data: `plan:${GOOD_REF}`, executor: ex, build: async () => xpayload('BE READY') });
+    assert(!allCallbackData(lastMarkup(notReady)).some((d) => d.startsWith('open:')), 'no Open unless GET IN NOW');
+    const sol = await xtap({ data: `plan:${shortRef('SOL:1m:long:x')}`, executor: ex });
+    assert(!allCallbackData(lastMarkup(sol)).some((d) => d.startsWith('open:')), 'no Open on a rejected plan');
+    const c1 = await cron({ env: XENV, build: async () => xpayload() });
+    const good = c1.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
+    assert(good && allCallbackData(good.replyMarkup)[0] === `open:${GOOD_REF}`, 'cron GOOD has Open');
+    const c2 = await cron({ env: ENV, build: async () => xpayload() });
+    const good2 = c2.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
+    assert(good2 && !allCallbackData(good2.replyMarkup).some((d) => d.startsWith('open:')), 'cron GOOD without Open when disabled');
+    assert(isOpenReady(resolveRef(GOOD_REF, xpayload(), null)) && !isOpenReady(resolveRef(GOOD_REF, xpayload('WAIT'), null)), 'isOpenReady');
+    assert(ex.calls.every((c) => c[0] !== 'preflight'), 'plan cards never preflight');
+  });
+
+  await test('Open -> intent from the plan capped by caps -> preflight -> ticket card (mode, side, size, lev, fill, SL, TP1, max loss, fees, 60 s) + Confirm / Cancel; EXEC log line', async () => {
+    const ex = mockExecutor();
+    const r = await xtap({ data: `open:${GOOD_REF}`, executor: ex });
+    const pf = ex.calls.find((c) => c[0] === 'preflight');
+    const i = pf[1];
+    assert(i.symbol === 'BTC' && i.direction === 'long' && i.sizeUsd === 50 && i.leverage === 3 && i.entry === 84600 && i.stop === 84390 && i.tp1 === 85146 && i.tp2 === 85300 && i.candidateId === GOOD_ID && i.source === 'telegram', JSON.stringify(i));
+    assert(pf[2].userId === String(OWNER) && pf[2].source === 'telegram', 'ctx carries the owner');
+    const t = lastText(r);
+    printed.push(['ticket', t]);
+    assert(t.startsWith('⚡ ORDER · ₿ <b>BTC 5m ▲ LONG</b>\n🧪 <b>DRY RUN</b>'), t);
+    for (const f of ['side', 'LONG', 'size', '$50.00', 'lev', '3x', 'fill', '84,600.00', 'SL', '84,390.00', 'TP1', '85,146.00', 'max loss', '$0.12', 'fees', '~$0.07', `ticket <code>${NONCE}</code> · expires in 60 s`]) assert(t.includes(f), `ticket missing ${f}`);
+    assertEqual(allCallbackData(lastMarkup(r)).join(), `xok:${NONCE},xno:${NONCE}`, 'Confirm / Cancel');
+    const lines = execLines(r.blob);
+    assert(lines.length === 1 && lines[0].event === 'ticket' && lines[0].mode === 'dry' && lines[0].symbol === 'BTC' && lines[0].stop === 84390, JSON.stringify(lines));
+    assert(!/\$50\.00|3x|max loss|fees/.test(lines[0].text) && !findSensitiveKeys(lines[0]).length, lines[0].text);
+    // Uncapped when the caps allow the suggestion; live banner.
+    const big = mockExecutor({ mode: 'live' });
+    big.status = async () => ({ ok: true, mode: 'live', kill: { active: false }, caps: { maxSizeUsd: 500, maxLeverage: 10 } });
+    const r2 = await xtap({ data: `open:${GOOD_REF}`, executor: big });
+    const i2 = big.calls.find((c) => c[0] === 'preflight')[1];
+    assert(i2.sizeUsd === 200 && i2.leverage === 5 && lastText(r2).includes('🔴 <b>LIVE</b>'), JSON.stringify(i2));
+  });
+
+  await test('refused: preflight not ok -> ⛔ ORDER REFUSED with every reason, no ticket; unsized plan refused before preflight', async () => {
+    const ex = mockExecutor({ preflight: { ok: false, reasons: ['size_over_cap', 'kill_switch'], quote: null, order: null } });
+    const r = await xtap({ data: `open:${GOOD_REF}`, executor: ex });
+    const t = lastText(r);
+    printed.push(['refused', t]);
+    assert(t.startsWith('⛔ ORDER REFUSED · ₿ <b>BTC 5m ▲ LONG</b>') && t.includes('• size_over_cap') && t.includes('• kill_switch') && t.includes('Nothing was sent.'), t);
+    assert(!ex.calls.some((c) => c[0] === 'createTicket'), 'no ticket');
+    assertEqual(execLines(r.blob)[0].event, 'refused', 'logged');
+    const ex2 = mockExecutor();
+    const unsized = payload({ BTC: (() => { const s = goodRiskSym(); delete s.candidateSetups[0].risk; return s; })() });
+    const r2 = await xtap({ data: `open:${GOOD_REF}`, executor: ex2, build: async () => unsized });
+    assert(lastText(r2).includes('did not size this plan') && !ex2.calls.some((c) => c[0] === 'preflight'), lastText(r2));
+  });
+
+  await test('/confirm: Confirm tap prompts; /confirm NONCE PIN deletes the message, confirms, shows 🧪 DRY RUN OK, auto-tracks, no journal write; PIN never echoed', async () => {
+    const ex = mockExecutor();
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const p = await xtap({ data: `xok:${NONCE}`, executor: ex, blob });
+    assertEqual(lastText(p), `Reply: <code>/confirm ${NONCE} PIN</code> within 60 s. The message is deleted after use.`, 'prompt');
+    assert(!ex.calls.some((c) => c[0] === 'confirm'), 'tap does not confirm');
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob, messageId: 555 });
+    const del = r.tg.calls.find((c) => c.method === 'deleteMessage');
+    assert(del && del.messageId === 555 && del.chatId === String(OWNER), 'confirm message deleted');
+    const conf = ex.calls.find((c) => c[0] === 'confirm');
+    assert(conf[1] === NONCE && conf[2] === PIN && conf[3].userId === String(OWNER), 'executor.confirm(nonce, pin, ctx)');
+    const t = lastText(r);
+    printed.push(['dry', t]);
+    assert(t.startsWith('🧪 DRY RUN OK · ₿ <b>BTC 5m ▲ LONG</b>'), t);
+    for (const f of ['price', '84,600.00', '$50.00 · 3x', 'n/a (dry run)', '84,390.00', '85,146.00', 'dry-run id', 'Tracking on']) assert(t.includes(f), `result missing ${f}`);
+    const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    assert(st.tracked.some((x) => x.candidateId === GOOD_ID && x.took === true), 'auto-tracked like Took it');
+    assert(![...blob.files.keys()].some((k) => k.startsWith('journal/')), 'no second journal write (the executor journals)');
+    for (const c of r.tg.calls.concat(p.tg.calls)) assert(!String(c.text || '').includes(PIN), 'PIN never echoed');
+    for (const l of execLines(blob)) assert(!JSON.stringify(l).includes(PIN), 'PIN never logged');
+    assert(!r.logs.join('\n').includes(PIN), 'PIN never in logs');
+    assert(execLines(blob).some((l) => l.event === 'dry_ok'), 'result logged');
+  });
+
+  await test('/confirm live: ✅ FILLED with fill, size, position id, SL / TP1, tx', async () => {
+    const ex = mockExecutor({ mode: 'live' });
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    const t = lastText(r);
+    printed.push(['filled', t]);
+    assert(t.startsWith('✅ FILLED · ₿ <b>BTC 5m ▲ LONG</b>') && t.includes('84,605.00') && t.includes('PosPDA…1111') && t.includes('tx 5sigLi…PQRS') && t.includes('Tracking on'), t);
+  });
+
+  await test('/confirm: wrong PIN -> ❌ PIN (auto-kill message on the 3rd), deleted, never echoed; malformed -> usage; Cancel never calls the executor', async () => {
+    const ex = mockExecutor();
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const w = await xhook({ text: `/confirm ${NONCE} 9999`, executor: ex, blob });
+    assert(lastText(w).startsWith('❌ <b>PIN</b> — wrong PIN') && !lastText(w).includes('9999') && w.tg.calls.some((c) => c.method === 'deleteMessage'), lastText(w));
+    await xhook({ text: `/confirm ${NONCE} 9998`, executor: ex, blob });
+    const k = await xhook({ text: `/confirm ${NONCE} 9997`, executor: ex, blob });
+    assert(lastText(k).includes('auto-killed for 1 h'), lastText(k));
+    const u = await xhook({ text: `/confirm ${NONCE}`, executor: ex, blob });
+    assert(lastText(u).startsWith('Reply: /confirm NONCE PIN') && u.tg.calls.some((c) => c.method === 'deleteMessage'), lastText(u));
+    const n = ex.calls.filter((c) => c[0] === 'confirm').length;
+    const c = await xtap({ data: `xno:${NONCE}`, executor: ex, blob });
+    assert(lastText(c) === 'Cancelled. Nothing was sent.' && ex.calls.filter((x) => x[0] === 'confirm').length === n, 'cancel');
+    assertEqual(JSON.stringify(parseConfirmArgs(['a1b2c3d4', '1234'])), '{"nonce":"a1b2c3d4","pin":"1234"}', 'parse');
+    assertEqual(parseConfirmArgs(['a1b2c3d4', '12']).pin, null, 'short pin');
+    assertEqual(parseConfirmArgs(['bad nonce!', '1234']).nonce, null, 'bad nonce');
+  });
+
+  await test('/order: SYM long|short size lev sl tp all required (else usage, no preflight); entry = live mark; preflighted as sent', async () => {
+    assertEqual(JSON.stringify(parseOrderArgs('BTC long size 200 lev 5 sl 84390 tp 85146'.split(' '))), '{"ok":true,"symbol":"BTC","direction":"long","sizeUsd":200,"leverage":5,"stop":84390,"tp1":85146}', 'parse');
+    for (const bad of ['BTC long size 200 lev 5 sl 84390', 'BTC long size 200 lev 5 tp 85146', 'DOGE long size 200 lev 5 sl 1 tp 2', 'BTC up size 200 lev 5 sl 1 tp 2', 'BTC long size x lev 5 sl 1 tp 2']) assertEqual(parseOrderArgs(bad.split(' ')).ok, false, bad);
+    const ex = mockExecutor();
+    const u = await xhook({ text: '/order BTC long size 200 lev 5 sl 84390', executor: ex });
+    assert(lastText(u).startsWith('Usage: /order SYM long|short') && !ex.calls.some((c) => c[0] === 'preflight'), lastText(u));
+    const r = await xhook({ text: '/order btc short size 100 lev 2 sl 85000 tp 84000', executor: ex });
+    const i = ex.calls.find((c) => c[0] === 'preflight')[1];
+    assert(i.symbol === 'BTC' && i.direction === 'short' && i.sizeUsd === 100 && i.leverage === 2 && i.entry === 84610.2 && i.stop === 85000 && i.tp1 === 84000 && !i.candidateId, JSON.stringify(i));
+    assert(lastText(r).startsWith('⚡ ORDER · ₿ <b>BTC ▼ SHORT</b>'), lastText(r));
+  });
+
+  await test('/positions with execution on: chain positions (live PnL) + journal opens; Close / Close 50% / SL→BE / Set SL/TP each become a ticket + /confirm', async () => {
+    const ex = mockExecutor();
+    const blob = fakeBlob();
+    const r = await xhook({ text: '/positions', executor: ex, blob });
+    const t = lastText(r);
+    assert(t.includes('ON CHAIN · pos ' + POS_REF) && t.includes('57,000.00') && t.includes('+$0.03') && t.includes('<b>JOURNAL</b>') && t.includes('[NO OPEN TRADES]'), t);
+    assertEqual(allCallbackData(lastMarkup(r)).join(), [`xclose:${POS_REF}`, `xhalf:${POS_REF}`, `xbe:${POS_REF}`, `xstops:${POS_REF}`].join(), 'buttons');
+    const c = await xtap({ data: `xclose:${POS_REF}`, executor: ex, blob });
+    assert(lastText(c).startsWith('⚡ CLOSE · ₿ <b>BTC ▲ LONG</b>\n🧪 <b>DRY RUN</b>') && lastText(c).includes('100%'), lastText(c));
+    assert(ex.calls.some((x) => x[0] === 'prepareClose' && x[1] === POS_ID && x[2] === null), 'prepareClose full');
+    const nonce = allCallbackData(lastMarkup(c))[0].slice(4);
+    const done = await xhook({ text: `/confirm ${nonce} ${PIN}`, executor: ex, blob });
+    assert(lastText(done).startsWith('🧪 DRY RUN OK · CLOSED · ₿ <b>BTC ▲ LONG</b>'), lastText(done));
+    const h = await xtap({ data: `xhalf:${POS_REF}`, executor: ex, blob });
+    assert(ex.calls.some((x) => x[0] === 'prepareClose' && x[2] === 25) && lastText(h).includes('50% ($25.00)'), lastText(h));
+    await xtap({ data: `xbe:${POS_REF}`, executor: ex, blob });
+    assert(ex.calls.some((x) => x[0] === 'prepareUpdate' && x[1] === POS_ID && x[2] === 84600), 'SL -> BE = entry');
+    const s = await xtap({ data: `xstops:${POS_REF}`, executor: ex, blob });
+    assert(lastText(s).includes(`/stops ${POS_REF} sl PRICE tp PRICE`), lastText(s));
+    const st = await xhook({ text: `/stops ${POS_REF} sl 84500 tp 86000`, executor: ex, blob });
+    assert(ex.calls.some((x) => x[0] === 'prepareUpdate' && x[2] === 84500 && x[3] === 86000) && lastText(st).startsWith('⚡ SET SL/TP'), lastText(st));
+    const bad = await xhook({ text: `/stops ${POS_REF} sl 84500`, executor: ex, blob });
+    assert(lastText(bad).startsWith('Usage: /stops'), lastText(bad));
+    const gone = await xtap({ data: 'xclose:deadbeef', executor: ex, blob });
+    assert(lastText(gone).includes('no longer open'), lastText(gone));
+    const down = await xhook({ text: '/positions', executor: mockExecutor({ positions: null }), blob });
+    assert(lastText(down).includes('Chain read unavailable'), lastText(down));
+  });
+
+  await test('position tickets without prepare*: single-use Telegram nonce, closePosition(positionId, null, PIN)', async () => {
+    const ex = mockExecutor({ withPrepare: false });
+    const blob = fakeBlob();
+    const c = await xtap({ data: `xclose:${POS_REF}`, executor: ex, blob });
+    const nonce = allCallbackData(lastMarkup(c))[0].slice(4);
+    assert(/^[0-9a-f]{8}$/.test(nonce) && !ex.calls.some((x) => x[0] === 'createTicket'), nonce);
+    const d = await xhook({ text: `/confirm ${nonce} ${PIN}`, executor: ex, blob });
+    assert(ex.calls.some((x) => x[0] === 'closePosition' && x[1] === POS_ID && x[2] === null && x[3] === PIN) && lastText(d).includes('CLOSED'), lastText(d));
+    const again = await xhook({ text: `/confirm ${nonce} ${PIN}`, executor: ex, blob });
+    assert(ex.calls.filter((x) => x[0] === 'closePosition').length === 1, 'single use');
+    assert(!lastText(again).includes('CLOSED'), lastText(again));
+  });
+
+  await test('/exec card, /kill (no PIN) -> 🛑 KILLED, /arm PIN -> ✅ ARMED (message deleted), /mode is env-only', async () => {
+    const ex = mockExecutor();
+    const e = await xhook({ text: '/exec', executor: ex });
+    const t = lastText(e).replace(/ {2,}/g, " ");
+    for (const f of ['🧪 <b>EXEC</b> · DRY RUN', 'mode dry', 'kill off', 'max size $50.00', 'max lev 3x', 'loss/trade $5.00', 'loss/day $15.00', 'max open 2', 'loss today $1.25', 'open 1', 'margin $120.50']) assert(t.includes(f), `exec missing ${f}: ${t}`);
+    const x = await xhook({ text: 'Exec', executor: ex });
+    assert(lastText(x).includes('<b>EXEC</b>'), 'Exec label');
+    const k = await xhook({ text: '/kill', executor: ex });
+    assert(lastText(k).startsWith('🛑 <b>KILLED</b>') && ex.calls.some((c) => c[0] === 'kill' && c[1].userId === String(OWNER)), lastText(k));
+    const kf = await xhook({ text: '/kill', executor: mockExecutor({ killOk: false }) });
+    assert(lastText(kf).includes('KILL NOT SAVED'), lastText(kf));
+    const a = await xhook({ text: `/arm ${PIN}`, executor: ex, messageId: 91 });
+    assert(lastText(a).startsWith('✅ <b>ARMED</b>') && a.tg.calls.some((c) => c.method === 'deleteMessage' && c.messageId === 91) && !lastText(a).includes(PIN), lastText(a));
+    const aw = await xhook({ text: '/arm 0000', executor: ex });
+    assert(lastText(aw).startsWith('❌ <b>PIN</b>'), lastText(aw));
+    const m = await xhook({ text: '/mode', executor: ex });
+    assert(lastText(m).includes('DRY RUN') && lastText(m).includes('env-only'), lastText(m));
+  });
+
+  await test('Execution off: disabled env or missing module -> every execution command / button replies `Execution off`, executor untouched; /positions unchanged', async () => {
+    const ex = mockExecutor();
+    const cmds = ['/exec', '/kill', `/arm ${PIN}`, '/mode', '/order BTC long size 200 lev 5 sl 84390 tp 85146', `/confirm ${NONCE} ${PIN}`, `/stops ${POS_REF} sl 1 tp 2`];
+    for (const text of cmds) {
+      const r = await xhook({ text, executor: ex, env: ENV });
+      assertEqual(lastText(r), 'Execution off', text);
+      for (const c of r.tg.calls) assert(!String(c.text || '').includes(PIN), 'no PIN');
+    }
+    for (const data of [`open:${GOOD_REF}`, `xok:${NONCE}`, `xno:${NONCE}`, `xclose:${POS_REF}`]) assertEqual(lastText(await xtap({ data, executor: ex, env: ENV })), 'Execution off', data);
+    assertEqual(ex.calls.length, 0, 'executor never called');
+    const missing = await xhook({ text: '/exec', importExecutor: async () => { throw Object.assign(new Error('Cannot find module'), { code: 'ERR_MODULE_NOT_FOUND' }); } });
+    assertEqual(lastText(missing), 'Execution off', 'module missing');
+    const partial = await xhook({ text: '/exec', importExecutor: async () => ({ preflight() {} }) });
+    assertEqual(lastText(partial), 'Execution off', 'incomplete module');
+    const conf = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, env: ENV });
+    assert(conf.tg.calls.some((c) => c.method === 'deleteMessage'), 'a PIN is deleted even when off');
+    assertEqual(await resolveExecutor(ENV, { executor: ex }), null, 'env gate first');
+    assert(await resolveExecutor(XENV, { executor: ex }) === ex, 'enabled + complete');
+    const pos = await xhook({ text: '/positions', executor: ex, env: ENV });
+    assert(lastText(pos) === '[NO OPEN TRADES]', lastText(pos));
+  });
+
+  await test('help lists execution commands; EXEC is a sent-alert kind; card excerpts carry no sizing', () => {
+    const help = formatHelp();
+    for (const f of ['Open (on GOOD alerts and ready Plan cards)', '/confirm &lt;nonce&gt; &lt;PIN&gt;', '/order SYM long|short', '/exec', '/kill', '/arm', '/mode', 'DRY RUN']) assert(help.includes(f), `help missing ${f}`);
+    const line = execLogLine({ id: 'x', sentAtMs: T0, event: 'ticket', symbol: 'BTC', direction: 'long', mode: 'dry', text: '<code>size  $50.00\nlev   3x\nSL    84,390.00</code>' });
+    assert(line.kind === 'EXEC' && line.text.includes('SL') && !line.text.includes('$50.00') && !line.text.includes('3x'), JSON.stringify(line));
+    for (const [name, t] of printed) console.log(`\n    --- ${name} card ---\n${t.split('\n').map((l) => `    ${l}`).join('\n')}`);
   });
 
   console.log('\nsent-alert + transition logs');

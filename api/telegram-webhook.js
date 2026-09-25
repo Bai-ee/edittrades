@@ -4,10 +4,19 @@
  *
  * Read commands plus journal logging, answered with the Bot API (lib/telegram.js).
  * Read-only toward the engine: it builds the same context as /api/scalp-context and the
- * MCP tool, and writes only journal lines through api/journal.js's own append path and
- * the owner's alert prefs (`/alerts`) into the cron's `telegram/state.json`. It
- * never imports or reaches an execution, signing or wallet-writing module, and there is
- * no /buy, /sell, /open or /close command.
+ * MCP tool, and writes journal lines through api/journal.js's own append path and the
+ * owner's alert prefs (`/alerts`) into the cron's `telegram/state.json`.
+ *
+ * Execution (T-3, docs/PLAN_TELEGRAM_EXECUTION.md): Open / /order / /confirm / /stops /
+ * position buttons / /exec / /kill / /arm / /mode reach lib/execution/executor.js, and
+ * only through resolveExecutor: TRADE_EXECUTION_ENABLED must be 'true' and the module
+ * must load (a lazy import, so nothing else in this file pulls it in); otherwise every
+ * execution button and command answers `Execution off` and nothing else changes. The
+ * executor owns every gate (caps, kill, mode, nonce, PIN); this file only builds the
+ * intent, renders tickets and results, and deletes the owner's /confirm and /arm
+ * messages so the PIN does not stay in the chat. Position-action tickets (close / stops)
+ * are single-use Telegram-side nonces in `telegram/exec-tickets.json` (60 s). Every
+ * execution message is logged as a kind EXEC line (lib/telegramLog.js).
  *
  * Gates, in order: POST only (405); TELEGRAM_WEBHOOK_SECRET and TELEGRAM_BOT_TOKEN
  * configured (else 503 with a reason); `X-Telegram-Bot-Api-Secret-Token` equals the
@@ -45,8 +54,13 @@ import {
   collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS,
   resolveRef, formatPlanCard, formatThesisCard, tradeKeyboard, swapTrackButton, candidateSnapshot, trackEntry, applyTrackChange, formatTrackingList,
   trackingKeyboard, signalsSnapshots, applyButtonSnapshots, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, livePrice,
-  EXPIRED_REPLY, TRACK_MAX, formatMarket, fmtTag, fmtLvl
+  EXPIRED_REPLY, TRACK_MAX, formatMarket, fmtTag, fmtLvl, RULE,
+  EXEC_OFF_REPLY, ORDER_USAGE, CONFIRM_USAGE, STOPS_USAGE, EXEC_TICKETS_PATH, EXEC_TICKET_TTL_MS, isOpenReady, withOpenButton, execCaps, execMode,
+  orderIntentFromPlan, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
+  formatResultCard, formatConfirmFail, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
+  formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket
 } from '../lib/telegram.js';
+import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 
 // /flags renders up to 9 charts and sends several Bot API requests (5 s each at most)
 // after one build; 60 s keeps that inside the function limit (Pro allows it).
@@ -96,6 +110,29 @@ export function testAlertSample(payload) {
   const p = typeof btc.price === 'number' ? btc.price : 100000;
   const plan = { timeframe: '5m', direction: 'long', entry: p, stop: p * 0.995, tp1: p * 1.0125, grossRR: 2.5, netRR: 2.1 };
   return { symbol: 'BTC', sample: { ...btc, flagTradePlan: plan, flagRecommendation: { class: 'GOOD', changeConditions: [] } }, chart: { symbol: 'BTC', timeframe: '5m' } };
+}
+
+const EXECUTOR_FNS = Object.freeze(['preflight', 'createTicket', 'confirm', 'closePosition', 'updateStops', 'listPositions', 'status']);
+const validExecutor = (x) => (x && EXECUTOR_FNS.every((k) => typeof x[k] === 'function') ? x : null);
+/** Commands and buttons that need the executor (each answers `Execution off` without it). */
+const EXEC_CMDS = new Set(['open', 'order', 'confirm', 'stops', 'exec', 'kill', 'arm', 'mode', 'xconfirm', 'xcancel', 'xmanage']);
+
+/**
+ * The executor (docs/PLAN_TELEGRAM_EXECUTION.md "Contract between agents"), or null:
+ * TRADE_EXECUTION_ENABLED must be exactly 'true', and the module must load and export
+ * every contract function. `deps.executor` (tests) replaces the import; `deps.importExecutor`
+ * replaces the loader. Never throws.
+ */
+export async function resolveExecutor(env, deps = {}) {
+  if (!env || env.TRADE_EXECUTION_ENABLED !== 'true') return null;
+  if (Object.prototype.hasOwnProperty.call(deps, 'executor')) return validExecutor(deps.executor);
+  try {
+    const load = typeof deps.importExecutor === 'function' ? deps.importExecutor : () => import('../lib/execution/executor.js');
+    const m = await load();
+    return validExecutor(m && typeof m.preflight === 'function' ? m : m && m.default);
+  } catch {
+    return null;
+  }
 }
 
 /** Resolves `promise`, or rejects with a TimeoutError after `ms`. */
@@ -160,6 +197,8 @@ export async function sendFlagAlbums({ bot, chatId, payload, only = null, render
  * @param {Function} [deps.render=renderContextChart]
  * @param {Function} [deps.now] - () => ms
  * @param {Object} [deps.env] - process.env
+ * @param {Object} [deps.executor] - execution contract mock (tests); see resolveExecutor
+ * @param {Function} [deps.importExecutor] - loader for lib/execution/executor.js (tests)
  */
 export async function handleTelegramWebhook(req, res, deps = {}) {
   const {
@@ -262,9 +301,220 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   const cmd = parsed ? parsed.cmd : null;
   const via = cq ? 'cb:' : '';
 
+  // ---- execution helpers (only used by execution commands and /positions, /plan)
+  const ex = parsed && parsed.known && (EXEC_CMDS.has(cmd) || cmd === 'positions' || cmd === 'plan') ? await resolveExecutor(env, deps) : null;
+  const ctx = () => ({ source: 'telegram', userId: String(fromId), chatId: String(chatId), nowMs: now(), requestId });
+  let execSeq = 0;
+  /** Reply, then log the message as a kind EXEC line (best effort, never throws). */
+  const execSend = async (text, markup, meta = {}) => {
+    const r = await reply(text, markup || menuKeyboard());
+    if (hasStore) {
+      try {
+        await recordTelegramLogs({ alerts: [execLogLine({ id: `exec_${requestId}_${execSeq++}`, sentAtMs: now(), text, delivered: Boolean(r && r.ok), ...meta })] }, { store, env, nowMs: now() });
+      } catch { /* the log never blocks a reply */ }
+    }
+    return r;
+  };
+  const safeStatus = async () => { try { const st = await ex.status(); return st && st.ok !== false ? st : null; } catch { return null; } };
+  const errName = (err) => (err && err.name ? String(err.name).replace(/[^A-Za-z]/g, '').slice(0, 40) : 'Error');
+  const tickets = {
+    put: async (t) => {
+      try { await updateBlob(store, EXEC_TICKETS_PATH, 'application/json', (text) => putExecTicket(text, t, now())); return true; } catch (err) { log('exec', ` reason=ticket_write_${errName(err)}`); return false; }
+    },
+    find: async (nonce) => {
+      try { const b = await readBlob(get, EXEC_TICKETS_PATH); return findExecTicket(b ? b.text : null, nonce, now()); } catch { return null; }
+    },
+    take: async (nonce) => {
+      let taken = null;
+      try {
+        await updateBlob(store, EXEC_TICKETS_PATH, 'application/json', (text) => { const r = takeExecTicket(text, nonce, now()); taken = r.ticket; return r.ticket ? r.text : null; });
+      } catch (err) { log('exec', ` reason=ticket_take_${errName(err)}`); return null; }
+      return taken;
+    }
+  };
+  /** Delete the owner's message (it may carry a PIN). Best effort. */
+  const deleteOwn = async () => { if (msg && msg.message_id !== undefined) await bot.deleteMessage(chatId, msg.message_id); };
+  /** Preflight -> refused card, or createTicket -> ticket card with Confirm / Cancel. */
+  const runOrder = async (intent, { timeframe = null, snap = null } = {}) => {
+    const status = await safeStatus();
+    const mode = execMode(status);
+    const meta = { symbol: intent.symbol, timeframe, direction: intent.direction, candidateId: intent.candidateId || null, entry: intent.entry, stop: intent.stop, tp1: intent.tp1, mode };
+    let pf;
+    try { pf = await ex.preflight(intent, ctx()); } catch (err) { pf = { ok: false, reasons: [`preflight failed (${errName(err)})`] }; }
+    if (!pf || pf.ok !== true) return execSend(formatRefusedCard(intent, pf && pf.reasons, { timeframe }), null, { ...meta, event: 'refused' });
+    let ticket = null;
+    try { ticket = await ex.createTicket(pf.order, ctx()); } catch (err) { log('exec', ` reason=ticket_${errName(err)}`); }
+    if (!ticket || ticket.ok === false || typeof ticket.nonce !== 'string') return execSend(formatRefusedCard(intent, (ticket && ticket.reasons) || ['the order ticket could not be created'], { timeframe }), null, { ...meta, event: 'refused' });
+    const expiresAt = Number.isFinite(Date.parse(ticket.expiresAt)) ? ticket.expiresAt : new Date(now() + EXEC_TICKET_TTL_MS).toISOString();
+    if (hasStore) {
+      await tickets.put({
+        nonce: ticket.nonce, kind: 'order', expiresAt, symbol: intent.symbol, timeframe, direction: intent.direction,
+        entry: intent.entry ?? null, stop: intent.stop, tp1: intent.tp1, sizeUsd: intent.sizeUsd, leverage: intent.leverage,
+        fill: typeof (pf.order && pf.order.expectedFill) === 'number' ? pf.order.expectedFill : quoteFill(pf.quote),
+        candidateId: intent.candidateId || null, snap
+      });
+    }
+    return execSend(formatTicketCard(intent, pf, { ...ticket, expiresAt }, { mode, timeframe, nowMs: now() }), ticketKeyboard(ticket.nonce), { ...meta, event: 'ticket' });
+  };
+  /** Chain positions (normalized) or null when the read fails. */
+  const chainPositions = async () => { try { return normalizeChainPositions(await ex.listPositions()); } catch (err) { log('exec', ` reason=positions_${errName(err)}`); return null; } };
+  /**
+   * A position-action ticket (close / half / be / stops) -> Confirm / Cancel card. When the
+   * executor exposes prepareClose / prepareUpdate, its own nonce ticket is used (confirm
+   * runs through executor.confirm); otherwise a single-use Telegram-side nonce is stored
+   * and /confirm calls closePosition / updateStops with the PIN.
+   */
+  const manageTicket = async (action, p, { stop = null, tp = null } = {}) => {
+    if (!hasStore) return reply('Ticket store unavailable.');
+    const status = await safeStatus();
+    const mode = execMode(status);
+    const t = {
+      nonce: null, kind: 'manage', viaExecutor: false, action, expiresAt: new Date(now() + EXEC_TICKET_TTL_MS).toISOString(), position: p,
+      sizeUsd: action === 'half' && typeof p.sizeUsd === 'number' ? Math.round(p.sizeUsd * 50) / 100 : null,
+      stop: action === 'be' ? p.entry : stop, tp: action === 'be' ? p.tp : tp
+    };
+    const meta = { symbol: p.symbol, direction: p.direction, mode };
+    const refused = (reasons) => execSend(formatRefusedCard({ symbol: p.symbol, direction: p.direction }, reasons), null, { ...meta, event: 'refused' });
+    const close = action === 'close' || action === 'half';
+    const prepare = close ? ex.prepareClose : ex.prepareUpdate;
+    if (typeof prepare === 'function') {
+      let prep;
+      try { prep = close ? await ex.prepareClose(p.positionId, t.sizeUsd, ctx()) : await ex.prepareUpdate(p.positionId, t.stop, t.tp, ctx()); } catch (err) { prep = { ok: false, reasons: [`prepare failed (${errName(err)})`] }; }
+      if (!prep || prep.ok !== true) return refused(prep && prep.reasons);
+      let ticket = null;
+      try { ticket = await ex.createTicket(prep.order, ctx()); } catch (err) { log('exec', ` reason=ticket_${errName(err)}`); }
+      if (!ticket || ticket.ok === false || typeof ticket.nonce !== 'string') return refused((ticket && ticket.reasons) || ['the ticket could not be created']);
+      Object.assign(t, { nonce: ticket.nonce, viaExecutor: true, expiresAt: Number.isFinite(Date.parse(ticket.expiresAt)) ? ticket.expiresAt : t.expiresAt });
+      await tickets.put(t); // display data for the result card; the executor owns the nonce
+    } else {
+      t.nonce = crypto.randomBytes(4).toString('hex');
+      if (!(await tickets.put(t))) return reply('The ticket could not be saved; try again in a minute.');
+    }
+    return execSend(formatManageTicket(t, { mode, nowMs: now() }), ticketKeyboard(t.nonce), { ...meta, event: `ticket_${action}` });
+  };
+
   try {
     if (!parsed) {
       await reply(cq ? 'That button is no longer valid. Send /menu.' : 'Send /help for the command list.');
+    } else if (parsed.known && EXEC_CMDS.has(cmd) && !ex) {
+      if ((cmd === 'confirm' || cmd === 'arm') && parsed.args.length) await deleteOwn();
+      await execSend(EXEC_OFF_REPLY, null, { event: 'off' });
+    } else if (cmd === 'open') {
+      const payload = filterPayload(await build(), { compact: true });
+      const state = hasStore ? await readState() : null;
+      const v = resolveRef(parsed.ref, payload, state);
+      if (!v) await reply(EXPIRED_REPLY);
+      else {
+        const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
+        const built = orderIntentFromPlan(v, execCaps(await safeStatus(), env));
+        if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || v.candidate.direction }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
+        else await runOrder(built.intent, { timeframe: tf, snap: built.snap });
+      }
+    } else if (cmd === 'order') {
+      const o = parseOrderArgs(parsed.args);
+      if (!o.ok) await execSend(escapeHtml(ORDER_USAGE), null, { event: 'usage' });
+      else {
+        // Market order: entry is the live mark (Kraken close when no mark); the executor quotes the fill.
+        const payload = filterPayload(await build(), { compact: true });
+        const lp = livePrice(payload && payload.symbols ? payload.symbols[o.symbol] : null);
+        await runOrder({ symbol: o.symbol, direction: o.direction, sizeUsd: o.sizeUsd, leverage: o.leverage, entry: lp ? lp.price : null, stop: o.stop, tp1: o.tp1, source: 'telegram' });
+      }
+    } else if (cmd === 'xconfirm') {
+      await execSend(confirmPrompt(parsed.nonce), null, { event: 'confirm_prompt' });
+    } else if (cmd === 'xcancel') {
+      // The executor is not called; its ticket simply expires. A position ticket is dropped.
+      if (hasStore) await tickets.take(parsed.nonce);
+      if (cq && cq.message && cq.message.message_id !== undefined) await bot.editMessageReplyMarkup(chatId, cq.message.message_id, { inline_keyboard: [] });
+      await execSend('Cancelled. Nothing was sent.', null, { event: 'cancel' });
+    } else if (cmd === 'confirm') {
+      if (parsed.args.length) await deleteOwn(); // the PIN must not stay in the chat
+      const { nonce, pin } = parseConfirmArgs(parsed.args);
+      if (!nonce || !pin) await execSend(escapeHtml(CONFIRM_USAGE), null, { event: 'usage' });
+      else {
+        const t = hasStore ? await tickets.find(nonce) : null;
+        if (t && t.kind === 'manage' && t.viaExecutor) {
+          let r;
+          try { r = await ex.confirm(nonce, pin, ctx()); } catch (err) { r = { ok: false, error: `confirm failed (${errName(err)})` }; }
+          const p = t.position || {};
+          const meta = { symbol: p.symbol, direction: p.direction, mode: r && r.mode };
+          if (!r || r.ok !== true) await execSend(formatConfirmFail(r), null, { ...meta, event: 'confirm_failed' });
+          else {
+            await tickets.take(nonce);
+            await execSend(formatManageResult(r, t), null, { ...meta, event: `done_${t.action}` });
+          }
+        } else if (t && t.kind === 'manage') {
+          const taken = await tickets.take(nonce); // single use, before the executor runs
+          if (!taken) await execSend('That ticket expired or was used. Tap the position button again.', null, { event: 'expired' });
+          else {
+            const p = taken.position || {};
+            let r;
+            try {
+              r = taken.action === 'close' || taken.action === 'half'
+                ? await ex.closePosition(p.positionId, taken.action === 'half' ? taken.sizeUsd : null, pin, ctx())
+                : await ex.updateStops(p.positionId, taken.stop, taken.tp, pin, ctx());
+            } catch (err) { r = { ok: false, error: `failed (${errName(err)})` }; }
+            const meta = { symbol: p.symbol, direction: p.direction, mode: r && r.mode };
+            if (!r || r.ok !== true) await execSend(formatConfirmFail(r), null, { ...meta, event: 'confirm_failed' });
+            else await execSend(formatManageResult(r, taken), null, { ...meta, event: `done_${taken.action}` });
+          }
+        } else {
+          let r;
+          try { r = await ex.confirm(nonce, pin, ctx()); } catch (err) { r = { ok: false, error: `confirm failed (${errName(err)})` }; }
+          const tk = t || {};
+          const meta = { symbol: tk.symbol || null, timeframe: tk.timeframe || null, direction: tk.direction || null, candidateId: tk.candidateId || null, entry: tk.entry, stop: tk.stop, tp1: tk.tp1, mode: r && r.mode };
+          if (!r || r.ok !== true) await execSend(formatConfirmFail(r), null, { ...meta, event: 'confirm_failed' });
+          else {
+            // Auto-track the candidate like Took it (the executor journals; no second journal write).
+            let tracking = null;
+            if (tk.snap && tk.snap.candidateId && hasStore) {
+              const out = await writeState((text) => applyTrackChange(text, { action: 'track', entry: trackEntry({ ...tk.snap, symbol: tk.symbol }, now(), { took: true }) }, now()));
+              tracking = !out ? false : out.result === 'full' ? 'full' : true;
+            }
+            if (hasStore) await tickets.take(nonce);
+            await execSend(formatResultCard(r, tk, { tracking }), null, { ...meta, event: r.mode === 'dry' ? 'dry_ok' : 'filled' });
+          }
+        }
+      }
+    } else if (cmd === 'xmanage' || cmd === 'stops') {
+      const st = cmd === 'stops' ? parseStopsArgs(parsed.args) : null;
+      if (st && !st.ok) await execSend(escapeHtml(STOPS_USAGE), null, { event: 'usage' });
+      else {
+        const positions = await chainPositions();
+        const key = st ? st.pos : parsed.ref;
+        const p = positions ? positions.find((x) => x.ref === key || x.positionId === key) : null;
+        const action = st ? 'stops' : parsed.action;
+        if (!positions) await reply('Position read from chain failed; try again in a minute.');
+        else if (!p) await reply('That position is no longer open. /positions lists open ones.');
+        else if (action === 'stops' && !st) await execSend(`Reply: <code>/stops ${escapeHtml(p.ref)} sl PRICE tp PRICE</code> for ${fmtTag(p.symbol, null, p.direction)} (SL now ${fmtLvl(p.stop)}, TP now ${fmtLvl(p.tp)}).`, null, { event: 'stops_prompt', symbol: p.symbol, direction: p.direction });
+        else if (action === 'be' && typeof p.entry !== 'number') await reply('No entry price on chain for that position; use Set SL/TP.');
+        else if (action === 'half' && typeof p.sizeUsd !== 'number') await reply('No size on chain for that position; use Close.');
+        else await manageTicket(action, p, st ? { stop: st.stop, tp: st.tp } : {});
+      }
+    } else if (cmd === 'exec') {
+      const status = await safeStatus();
+      if (!status) await execSend('Execution status could not be read; try again in a minute.', null, { event: 'status_failed' });
+      else await execSend(formatExecStatus(status, env), null, { event: 'status', mode: execMode(status) });
+    } else if (cmd === 'mode') {
+      const status = await safeStatus();
+      await execSend(formatModeCard(status), null, { event: 'mode', mode: execMode(status) });
+    } else if (cmd === 'kill') {
+      let ok = false;
+      try {
+        const r = typeof ex.kill === 'function' ? await ex.kill(ctx(), 'telegram') : null;
+        ok = Boolean(r && r.ok === true);
+      } catch (err) { log('exec', ` reason=kill_${errName(err)}`); }
+      await execSend(ok ? formatKilled() : '⛔ <b>KILL NOT SAVED</b> — set EXECUTION_KILL=true in Vercel now.', null, { event: ok ? 'killed' : 'kill_failed' });
+    } else if (cmd === 'arm') {
+      if (parsed.args.length) await deleteOwn(); // the PIN must not stay in the chat
+      const pin = parsed.args.length === 1 && /^\d{4,8}$/.test(parsed.args[0]) ? parsed.args[0] : null;
+      if (!pin) await execSend('Usage: /arm PIN (4–8 digits; the message is deleted after use)', null, { event: 'usage' });
+      else if (typeof ex.arm !== 'function') await execSend('Arm is not available in this build; clear the kill flag in Blob or Vercel.', null, { event: 'arm_failed' });
+      else {
+        let r;
+        try { r = await ex.arm(pin, ctx()); } catch (err) { r = { ok: false, error: `arm failed (${errName(err)})` }; }
+        if (r && r.ok === true) await execSend(formatArmed(r), null, { event: 'armed' });
+        else await execSend(formatConfirmFail(r), null, { event: 'arm_failed' });
+      }
     } else if (!parsed.known) {
       await reply(`Unknown command /${escapeHtml(cmd)}. Send /help.`);
     } else if (cmd === 'help' || cmd === 'start') {
@@ -417,7 +667,8 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       if (!v) await reply(EXPIRED_REPLY);
       else {
         const tracked = Boolean(state && Array.isArray(state.tracked) && state.tracked.some((t) => t && t.ref === parsed.ref));
-        const kb = v.source === 'live' ? tradeKeyboard(v.symbol, v.candidate.timeframe, v.candidateId, { tracked }) : menuKeyboard();
+        let kb = v.source === 'live' ? tradeKeyboard(v.symbol, v.candidate.timeframe, v.candidateId, { tracked }) : menuKeyboard();
+        if (cmd === 'plan' && ex && isOpenReady(v)) kb = withOpenButton(kb, v.candidateId);
         await reply(cmd === 'plan' ? formatPlanCard(v) : formatThesisCard(v), kb);
       }
     } else if (cmd === 'track' || cmd === 'untrack') {
@@ -463,9 +714,21 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     } else if (cmd === 'positions') {
       if (!hasStore) await reply('Journal store unavailable.');
       else {
-        const opens = openPositions(await readRecent(store, 50));
-        const payload = opens.length ? filterPayload(await build(), { compact: true }) : null;
-        await reply(formatPositions(opens, payload, now()), positionsKeyboard(opens) || menuKeyboard());
+        let opens = openPositions(await readRecent(store, 50));
+        if (!ex) {
+          const payload = opens.length ? filterPayload(await build(), { compact: true }) : null;
+          await reply(formatPositions(opens, payload, now()), positionsKeyboard(opens) || menuKeyboard());
+        } else {
+          // Live chain read first (manage buttons), then journal opens the chain does not already show.
+          const [chain, status] = await Promise.all([chainPositions(), safeStatus()]);
+          const onChain = new Set((chain || []).map((p) => `${p.symbol}|${p.direction}`));
+          opens = opens.filter((o) => !(o.source === 'execution' && onChain.has(`${o.symbol}|${o.direction}`)));
+          const payload = opens.length ? filterPayload(await build(), { compact: true }) : null;
+          const chainText = chain ? formatChainPositions(chain, { mode: execMode(status) }) : '⛓ <b>ON CHAIN</b>\nChain read unavailable; try again in a minute.';
+          const text = `${chainText}\n${RULE}\n<b>JOURNAL</b>\n${formatPositions(opens, payload, now())}`;
+          const rows = [...chainPositionsKeyboardRows(chain || []), ...((positionsKeyboard(opens) || {}).inline_keyboard || [])];
+          await execSend(text, rows.length ? { inline_keyboard: rows } : null, { event: 'positions', mode: execMode(status) });
+        }
       }
     } else if (cmd === 'stillin') {
       if (!hasStore) await reply('Tracking store unavailable.');

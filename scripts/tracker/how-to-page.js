@@ -27,7 +27,7 @@ const ROUTINE = [
 
 // ---------- Telegram ----------
 
-const TG_MENU = [['Signals', 'Flags', 'Market'], ['Why BTC', 'Why ETH', 'Why SOL'], ['Charts', 'Wallet', 'Positions'], ['Journal', 'Status', 'Alerts', 'Tracking']];
+const TG_MENU = [['Signals', 'Flags', 'Market'], ['Why BTC', 'Why ETH', 'Why SOL'], ['Charts', 'Wallet', 'Positions', 'Exec'], ['Journal', 'Status', 'Alerts', 'Tracking']];
 
 // [command, what it does]
 const TG_COMMANDS = [
@@ -59,7 +59,18 @@ const TG_ALWAYS = [
   'A tracked flag alerts on every change at any level: forming → triggering → confirmed, SETUP, GET IN NOW (with the Plan card), void, and TP1 or stop once the plan is ready or you took it.',
   'Data unavailable or mark down for more than 5 minutes always alerts, as does the alerts cron failing 3 runs in a row (then hourly) and its recovery.',
   'Quiet hours: 01:00-05:00 America/Chicago every day by default. Alerts in the window send silently, never dropped. /alerts quiet 23-06 changes it, /alerts quiet off turns it off.',
-  'Owner-only: anyone else who messages the bot gets no answer. The bot is read-only and never places, signs or closes a trade.'
+  'Owner-only: anyone else who messages the bot gets no answer. Alerts and read commands never trade; a trade happens only through an order ticket you confirm with your PIN (see Execution), and only when execution is switched on.'
+];
+
+// [step or command, chip, what it does] - execution (T-3), off unless TRADE_EXECUTION_ENABLED=true
+const TG_EXEC = [
+  ['Dry run first', 'Default', 'Mode is DRY RUN until the mode is changed to live in Vercel (env only; /mode shows it). A dry run does everything except sign and send: same checks, same ticket, same PIN, journaled as a note. Do at least 3 dry orders before going live.'],
+  ['Open', 'Ready plans only', 'On a GOOD alert or Plan card when the call is GET IN NOW. Builds the order from the engine plan: entry, stop, TP1; size and leverage = the engine suggestion, capped by your caps.'],
+  ['Ticket', '60 s', '⚡ ORDER card: DRY RUN or LIVE banner, side, size, leverage, expected fill, SL, TP1, max loss, fees. Anything over a cap, a stop over 3%, the kill switch on or a missing cap → ⛔ ORDER REFUSED with the reasons.'],
+  ['Confirm + PIN', 'Every time', 'Tap Confirm, then reply /confirm <nonce> <PIN>. The bot deletes that message so the PIN does not stay in the chat. Wrong PIN 3 times → execution auto-kills for 1 hour. Cancel sends nothing.'],
+  ['/order', 'Manual', '/order BTC long size 200 lev 5 sl 84390 tp 85146. SL and TP are required; the same checks and ticket apply.'],
+  ['/positions', 'Manage', 'Live positions from chain with PnL: Close, Close 50%, SL→BE, Set SL/TP (/stops <pos> sl <price> tp <price>). Each makes a ticket and needs /confirm with your PIN.'],
+  ['/kill · /arm', 'Stop switch', '/kill stops all execution at once, no PIN. /arm <PIN> clears it (an EXECUTION_KILL set in Vercel stays until removed there). /exec shows mode, kill, caps, loss today, open count and margin.']
 ];
 
 const TG_BUTTONS = [
@@ -241,6 +252,11 @@ export function renderHowTo() {
         id: 'howto-telegram-buttons-tile', title: 'Buttons on every alert', lg: 6,
         body: defList('howto-telegram-buttons-list', TG_BUTTONS),
         foot: 'Rows: Plan · Thesis · Chart, then Track · Took it · Skipped. /signals carries them per symbol block. A button on an alert older than the bot\'s memory answers [expired — send /signals].'
+      }),
+      tile({
+        id: 'howto-telegram-execution-tile', title: 'Execution', tag: 'Dry run first · PIN · /kill', lg: 12,
+        body: defList('howto-telegram-execution-list', TG_EXEC),
+        foot: 'Off unless execution is enabled; then every execution button and command answers "Execution off". The GPT and MCP can never reach it.'
       })
     ]
   });

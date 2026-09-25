@@ -33,6 +33,9 @@
  * Auth: `Authorization: Bearer <CRON_SECRET>` (Vercel Cron sends it when CRON_SECRET is
  * set), else 401. Missing CRON_SECRET, bot token, allowlist or Blob store -> 503 with a
  * reason. Read-only toward the engine; never imports execution, signing or wallet code.
+ * With TRADE_EXECUTION_ENABLED=true a GOOD alert whose plan is ready (GET IN NOW) gets an
+ * `Open` button on top (open:<ref>, handled by the webhook); the cron itself never reaches
+ * the executor.
  */
 
 import crypto from 'crypto';
@@ -43,6 +46,7 @@ import { updateBlob, readBlob } from '../lib/blobJsonl.js';
 import { readRecent } from './journal.js';
 import { alertLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 import {
+  isOpenReadySymbol, withOpenButton,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef
 } from '../lib/telegram.js';
@@ -179,6 +183,12 @@ export async function handleTelegramCron(req, res, deps = {}) {
     } catch (err) {
       log('journal', ` reason=journal_read_${err && err.name ? err.name : 'Error'}`);
     }
+  }
+  // Open (T-3): only on a ready GOOD plan, only when execution is enabled; the webhook gates the rest.
+  if (env.TRADE_EXECUTION_ENABLED === 'true') {
+    const syms = compact && compact.symbols ? compact.symbols : {};
+    alerts = alerts.map((a) => (a.kind === 'GOOD' && a.candidateId && isOpenReadySymbol(a.symbol, syms[a.symbol], a.candidateId)
+      ? { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId) } : a));
   }
   const silent = inQuietHours(prefs && prefs.quiet, nowMs);
   let sent = 0;
