@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-25 — Telegram: Plan / Thesis / Track buttons on every alert; tracked-candidate alerts (not deployed)
+
+Delivery-only; no rule, threshold, schema or config change; no execution or signing import; no new dependency. GPT instructions untouched (check:gpt unchanged).
+
+- Every WATCH / TRIGGERING / BREAKOUT / SETUP / GOOD alert and `/signals` block: `Plan · Thesis · Chart` / `Track · Took it · Skipped`. Plan card = engine levels, R gross/net, sizing from the candidate `risk` block, mark vs Kraken, expected length (n/a unless measured), call; anything not a trade says `NOT A TRADE UNDER YOUR RULES — <reason>`. Thesis card = supports / against / unknown / changes as plain phrases, To become GO IN. Refs resolve live first, then the stored snapshot, else `[expired — send /signals]`.
+- Track (max 10, 6 h; Took it implies it): every transition alerts at any level (triggering, confirmed, SETUP, GET IN NOW + Plan card, void, gone, expired), then TP1 / stop on the mark with R; a taken trade gets Closed here / Partial / Still in and one reminder 10 min after a hit with no close journaled. `/tracking`, `/positions` (open trades with live R and Close @ mark), menu `Tracking`, `Positions`.
+- Timeframe focus: `/alerts tf` (default 3m,5m) gates WATCH / TRIGGERING / BREAKOUT; a tracked symbol + direction turns on its 1m flags (`1m ENTRY · for your tracked …`).
+- Visual layout on alerts, cards, `/signals`, `/status`, `/positions`, `/tracking`: dot + coin glyph + `▲ LONG` / `▼ SHORT` header, rule-separated LEVELS / VERDICT / PLAN / CONTEXT with monospace numbers, under 1,000 chars.
+- `/market` (menu `Market`): 24h card from engine fields with a rule-based LEAN, alerts today by kind (`state.alerts.byKind`), and the 1h/4h level that would change it. The payload publishes 20 1h candles, so the 24h window falls back to the last 6 4h candles (labeled). `test:telegram` 73 → 85; all other suites unchanged.
+
 ## 2026-09-25 — Telegram two-line alerts with one bold verdict; void-drift dedup (not deployed)
 
 Delivery-only; no rule, threshold, schema or config change. GPT instructions untouched.

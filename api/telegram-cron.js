@@ -6,7 +6,10 @@
  * `telegram/state.json` (lib/telegram.js diffAlerts) and sends only transitions: NEW GOOD
  * (with the plan timeframe's chart), NEW SETUP, GOOD ended, and data / mark problems that
  * last over 5 minutes (repeated at most every 30 minutes), and at alert level `watch` new
- * forming/triggering flag candidates. Nothing changed -> nothing sent. The owner's alert
+ * forming/triggering flag candidates, plus every transition of a tracked candidate (Track /
+ * Took it) at any level. A close reminder (NUDGE) is dropped when the journal already
+ * holds a close for that trade (the journal is read only when a reminder is due).
+ * Nothing changed -> nothing sent. The owner's alert
  * level and quiet hours live in the same state (`prefs`, set with /alerts); during quiet
  * hours (America/Chicago, every day) alerts send with disable_notification, never dropped.
  *
@@ -33,9 +36,10 @@ import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { renderContextChart } from '../lib/chartRender.js';
 import { updateBlob, readBlob } from '../lib/blobJsonl.js';
+import { readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
-  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText
+  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef
 } from '../lib/telegram.js';
 
 /**
@@ -158,6 +162,15 @@ export async function handleTelegramCron(req, res, deps = {}) {
   if (migratedFrom !== null) log('state', ` reason=state_migrated from=${migratedFrom}`);
   const health = await recordHealth({ get, put, bot, chats, nowMs, outcome: { ok: true }, log });
 
+  // A reminder is only for a trade still open in the journal (a /log or GPT close counts).
+  if (alerts.some((a) => a.kind === 'NUDGE')) {
+    try {
+      const open = new Set(openPositions(await readRecent({ get, put, head }, 50)).map(positionRef));
+      alerts = alerts.filter((a) => a.kind !== 'NUDGE' || open.has(a.ref));
+    } catch (err) {
+      log('journal', ` reason=journal_read_${err && err.name ? err.name : 'Error'}`);
+    }
+  }
   const silent = inQuietHours(prefs && prefs.quiet, nowMs);
   let sent = 0;
   let failed = 0;
@@ -172,6 +185,11 @@ export async function handleTelegramCron(req, res, deps = {}) {
       if (png) {
         const p = await bot.sendPhoto(chatId, png, `${escapeHtml(alert.chart.symbol)} ${escapeHtml(alert.chart.timeframe)} · ${escapeHtml(alert.kind)}`, { silent });
         if (p.ok) sent++; else failed++;
+      }
+      // Follow-up cards (a tracked plan turning ready carries its Plan card).
+      for (const more of Array.isArray(alert.more) ? alert.more : []) {
+        const m = await bot.sendMessage(chatId, more, { silent });
+        if (m.ok) sent++; else failed++;
       }
     }
   }

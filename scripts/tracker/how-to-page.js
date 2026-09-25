@@ -17,16 +17,17 @@ import { esc, tile, zone, jumpNav } from './bento.js';
 
 const ROUTINE = [
   ['Alert arrives', 'Telegram pings on a GOOD, a SETUP or a BREAKOUT, with entry, stop, TP1 and gross / net R. During quiet hours (01-05 Chicago) it arrives silently; nothing is dropped.'],
-  ['Tap Why', 'Supports, against, unknowns and the exact change that would flip the call.'],
+  ['Tap Plan', 'Entry, stop, TP1 / TP2, gross and net R, suggested leverage, size and loss at stop, mark vs Kraken, and the readiness call. Anything that is not a trade says so: NOT A TRADE UNDER YOUR RULES, with the reason.'],
+  ['Tap Thesis', 'Supports, against, unknowns and what changes the call, in plain words, plus the one thing that would make it GO IN.'],
   ['Tap Chart', 'The confirmation chart at the plan timeframe: flag, breakout level, stop, TP1, EMA21 / EMA200.'],
   ['Decide', 'GOOD = ready plan, act at the quoted levels or not at all. SETUP = wait for its retest trigger. BREAKOUT = a flag just confirmed; the entry is the retest that holds, never the breakout candle.'],
-  ['Took it or Skipped', 'One tap journals your decision with the engine\'s own levels. Later changes go in as text: /log closed BTC at 85100, /log moved stop 84500.'],
+  ['Took it or Skipped', 'One tap journals your decision with the engine\'s own levels. Took it also tracks the trade: TP1 or stop hit on the mark brings Closed here / Partial / Still in, and one reminder after 10 minutes if nothing is journaled. /positions lists what is still open.'],
   ['Check the tracker', 'Once a day: engine vs you, the equity curve, and whether GOOD calls are actually paying.']
 ];
 
 // ---------- Telegram ----------
 
-const TG_MENU = [['Signals', 'Flags'], ['Why BTC', 'Why ETH', 'Why SOL'], ['Charts', 'Wallet'], ['Journal', 'Status', 'Alerts']];
+const TG_MENU = [['Signals', 'Flags', 'Market'], ['Why BTC', 'Why ETH', 'Why SOL'], ['Charts', 'Wallet', 'Positions'], ['Journal', 'Status', 'Alerts', 'Tracking']];
 
 // [command, what it does]
 const TG_COMMANDS = [
@@ -37,8 +38,11 @@ const TG_COMMANDS = [
   ['/wallet', 'Read-only account block.'],
   ['/journal [n]', 'Last n journal lines (default 10).'],
   ['/log text', 'Journal a line: took / closed / skipped / moved / anything else as a note.'],
-  ['/status', 'Schema, data age, marks, last alert, cron health, alert level, quiet hours.'],
-  ['/alerts', 'Show or set the alert level and quiet hours.'],
+  ['/market', 'Last 24h per symbol from engine fields: change and range, top-down, 4h / 1h lean, EMA200 count, Stoch 15m / 1h, mark drift; a rule-based LEAN line, alerts today, and the level that would change it.'],
+  ['/positions', 'Journal opens with no close: live mark, R now, R to stop and TP1, age; Close @ mark and Chart buttons.'],
+  ['/tracking', 'The flags you track (up to 10, 6 hours each) with Plan, Thesis and Untrack buttons.'],
+  ['/status', 'Schema, data age, marks, last alert, cron health, alert level, quiet hours, alert timeframes.'],
+  ['/alerts', 'Show or set the alert level, quiet hours and timeframes (/alerts tf 5m | 3m,5m | all; default 3m,5m).'],
   ['/menu · /help', 'Bring back the button keyboard; list every command.']
 ];
 
@@ -51,16 +55,21 @@ const TG_LEVELS = [
 
 const TG_ALWAYS = [
   'BREAKOUT alerts send at every level, once per flag, the first time it confirms.',
+  'WATCH, TRIGGERING and BREAKOUT follow /alerts tf (default 3m and 5m). Tracking a flag turns on 1m alerts for that symbol and direction only, labeled "1m ENTRY · for your tracked …"; GOOD, SETUP, tracked and health alerts are never filtered.',
+  'A tracked flag alerts on every change at any level: forming → triggering → confirmed, SETUP, GET IN NOW (with the Plan card), void, and TP1 or stop once the plan is ready or you took it.',
   'Data unavailable or mark down for more than 5 minutes always alerts, as does the alerts cron failing 3 runs in a row (then hourly) and its recovery.',
   'Quiet hours: 01:00-05:00 America/Chicago every day by default. Alerts in the window send silently, never dropped. /alerts quiet 23-06 changes it, /alerts quiet off turns it off.',
   'Owner-only: anyone else who messages the bot gets no answer. The bot is read-only and never places, signs or closes a trade.'
 ];
 
 const TG_BUTTONS = [
-  ['Why', 'Explain', 'The same answer as /why for that symbol.'],
-  ['Chart', 'See it', 'The confirmation chart at the plan\'s timeframe.'],
-  ['Took it', 'Journal: open', 'Logs an open with the alert\'s symbol, direction, entry, stop and TP1 plus the engine reference. A double tap logs once.'],
-  ['Skipped', 'Journal: skip', 'Logs a skip against the same plan, so engine vs you counts it.']
+  ['Plan', 'Levels + size', 'Entry, stop, TP1 / TP2, R gross and net, max and suggested leverage, collateral, size, loss at stop, mark vs Kraken, expected length (n/a unless measured) and the call. Engine fields only.'],
+  ['Thesis', 'Why, plainly', 'Supports / against / unknown / what changes the call, the counter-trend note, and what would make it GO IN.'],
+  ['Chart', 'See it', 'The confirmation chart at the flag\'s timeframe.'],
+  ['Track', 'Follow it', 'Alerts on every change of that flag for 6 hours; the button turns into Untrack.'],
+  ['Took it', 'Journal: open', 'Logs an open with the engine\'s levels and reference, and tracks the trade for TP1 / stop. A double tap logs once.'],
+  ['Skipped', 'Journal: skip', 'Logs a skip against the same plan, so engine vs you counts it.'],
+  ['Closed here · Partial · Still in', 'After a hit', 'On a TP1 or stop alert of a trade you took: journal the close (R vs your entry and stop), a partial at TP1, or keep watching.']
 ];
 
 // ---------- ChatGPT ----------
@@ -229,9 +238,9 @@ export function renderHowTo() {
         body: defList('howto-telegram-levels-list', TG_LEVELS) + plainList('howto-telegram-always-list', TG_ALWAYS)
       }),
       tile({
-        id: 'howto-telegram-buttons-tile', title: 'Buttons on GOOD, SETUP and BREAKOUT', lg: 6,
+        id: 'howto-telegram-buttons-tile', title: 'Buttons on every alert', lg: 6,
         body: defList('howto-telegram-buttons-list', TG_BUTTONS),
-        foot: '/signals carries the same buttons per symbol; Took it and Skipped appear only when that symbol has a GOOD plan or a SETUP.'
+        foot: 'Rows: Plan · Thesis · Chart, then Track · Took it · Skipped. /signals carries them per symbol block. A button on an alert older than the bot\'s memory answers [expired — send /signals].'
       })
     ]
   });

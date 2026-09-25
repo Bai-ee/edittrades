@@ -23,6 +23,11 @@
  * (setWebhook allowed_updates ["message","callback_query"]): the same allowlist applies,
  * answerCallbackQuery is sent first, then the button runs as its command. Took it /
  * Skipped journal the alert's plan (state.buttons, else the live plan with that ref).
+ * Plan / Thesis / Track resolve the button's ref against live data first, then the
+ * snapshot in state (buttons, tracked); an unknown ref replies `[expired — send /signals]`.
+ * Track / Untrack / Took it / Still in write `state.tracked` with the same ETag-guarded
+ * update as `/alerts`. Closed here / Partial / Close @ mark journal a close or adjust
+ * against the open trade (journal opens with no close, `/positions`).
  */
 
 import crypto from 'crypto';
@@ -37,7 +42,10 @@ import {
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
   migrateState, parseHealth, errText, TELEGRAM_HEALTH_PATH, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet,
   parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot,
-  collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS
+  collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS,
+  resolveRef, formatPlanCard, formatThesisCard, tradeKeyboard, swapTrackButton, candidateSnapshot, trackEntry, applyTrackChange, formatTrackingList,
+  trackingKeyboard, signalsSnapshots, applyButtonSnapshots, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, livePrice,
+  EXPIRED_REPLY, TRACK_MAX, formatMarket, fmtTag, fmtLvl
 } from '../lib/telegram.js';
 
 // /flags renders up to 9 charts and sends several Bot API requests (5 s each at most)
@@ -217,6 +225,32 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       return null;
     }
   };
+  /**
+   * ETag-guarded state change (the cron's own update path). `change(text)` returns new
+   * text, or {text, result, entry}. Resolves {result, entry, before} or null on failure (logged).
+   */
+  const writeState = async (change) => {
+    let out = null;
+    try {
+      await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => {
+        const before = migrateState(text).state;
+        const r = change(text);
+        const next = typeof r === 'string' ? r : r.text;
+        const ref = r && typeof r === 'object' ? (r.entry && r.entry.ref) : null;
+        out = typeof r === 'string' ? { result: 'saved', entry: null, before: null } : { result: r.result, entry: r.entry, before: (before.tracked || []).find((t) => t && ref && t.ref === ref) || r.entry };
+        return next;
+      });
+      return out;
+    } catch (err) {
+      log('state', ` reason=state_write_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`);
+      return null;
+    }
+  };
+  /** Swap Track <-> Untrack on the tapped message's keyboard (best effort, callbacks only). */
+  const swapOriginal = async (ref, tracked) => {
+    const markup = cq && cq.message ? swapTrackButton(cq.message.reply_markup, ref, tracked) : null;
+    if (markup && cq.message.message_id !== undefined) await bot.editMessageReplyMarkup(chatId, cq.message.message_id, markup);
+  };
   let parsed;
   if (cq) {
     await bot.answerCallbackQuery(cq.id); // promptly, before any build
@@ -241,7 +275,11 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       await reply('Pick a chart:', chartsKeyboard());
     } else if (cmd === 'signals') {
       const payload = filterPayload(await build(), { compact: true });
-      await reply(formatSignals(payload, now()), signalsKeyboard(payload) || menuKeyboard());
+      const state = hasStore ? await readState() : null;
+      await reply(formatSignals(payload, now()), signalsKeyboard(payload, state ? state.tracked : []) || menuKeyboard());
+      // The blocks' buttons must outlive the flag: keep their snapshots (best effort).
+      const snaps = signalsSnapshots(payload);
+      if (hasStore && snaps.length) await writeState((text) => applyButtonSnapshots(text, snaps, now()));
     } else if (cmd === 'why') {
       const sym = parseSymbol(parsed.args[0]);
       if (!sym) await reply('Usage: /why BTC (BTC, ETH or SOL)');
@@ -327,7 +365,9 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         else await reply(`Quiet hours: ${fmtQuiet(prefs.quiet)}`);
       } else {
         // Same ETag-guarded update as the cron, so a concurrent cron run cannot lose it.
-        const change = a.action === 'level' ? { level: a.level } : { quiet: a.action === 'quiet_off' ? null : a.quiet };
+        const change = a.action === 'level' ? { level: a.level }
+          : a.action === 'tf' ? { alertTimeframes: a.alertTimeframes }
+            : { quiet: a.action === 'quiet_off' ? null : a.quiet };
         let prefs = null;
         let resetCause = null;
         let saved = true;
@@ -359,7 +399,109 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           if (!checked.ok) await reply(`Not logged: ${escapeHtml(checked.errors.join('; '))}`);
           else {
             const { duplicate } = await appendRecord(store, checked.record);
-            await reply(`[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''}`);
+            let note = '';
+            if (parsed.kind === 'open') {
+              // Took it implies Track: TP1 / stop on this trade alert from now on.
+              const out = await writeState((text) => applyTrackChange(text, { action: 'track', entry: trackEntry({ ...snap, symbol: parsed.symbol }, now(), { took: true }) }, now()));
+              note = out && out.result === 'full' ? ` · tracking list full (${TRACK_MAX}); untrack one` : out ? ` · tracking ${fmtTag(parsed.symbol, snap.timeframe, snap.direction)} for TP1 / stop` : ' · tracking could not be saved';
+              if (out && out.result !== 'full') await swapOriginal(parsed.ref, true);
+            }
+            await reply(`[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''}${note}`);
+          }
+        }
+      }
+    } else if (cmd === 'plan' || cmd === 'thesis') {
+      const payload = filterPayload(await build(), { compact: true });
+      const state = hasStore ? await readState() : null;
+      const v = resolveRef(parsed.ref, payload, state);
+      if (!v) await reply(EXPIRED_REPLY);
+      else {
+        const tracked = Boolean(state && Array.isArray(state.tracked) && state.tracked.some((t) => t && t.ref === parsed.ref));
+        const kb = v.source === 'live' ? tradeKeyboard(v.symbol, v.candidate.timeframe, v.candidateId, { tracked }) : menuKeyboard();
+        await reply(cmd === 'plan' ? formatPlanCard(v) : formatThesisCard(v), kb);
+      }
+    } else if (cmd === 'track' || cmd === 'untrack') {
+      if (!hasStore) await reply('Tracking store unavailable.');
+      else if (cmd === 'untrack') {
+        const out = await writeState((text) => applyTrackChange(text, { action: 'untrack', ref: parsed.ref }, now()));
+        if (!out) await reply('Tracking could not be saved; try again in a minute.');
+        else {
+          const e = out.before;
+          await reply(out.result === 'untracked' && e ? `Untracked ${fmtTag(e.symbol, e.timeframe, e.direction)}.` : 'Not tracked.');
+          await swapOriginal(parsed.ref, false);
+        }
+      } else {
+        const payload = filterPayload(await build(), { compact: true });
+        const state = await readState();
+        const v = resolveRef(parsed.ref, payload, state);
+        const snap = v ? (v.source === 'live' ? candidateSnapshot(v.symbol, v.s, v.candidateId) : v.snap) : null;
+        if (!v || !snap) await reply(EXPIRED_REPLY);
+        else {
+          const entry = trackEntry({ ...snap, symbol: v.symbol, state: v.candidate.state || snap.state || snap.lastState }, now(), {
+            ready: Boolean(v.plan && v.plan.status === 'ready'), setupSeen: Boolean(v.setup)
+          });
+          const out = await writeState((text) => applyTrackChange(text, { action: 'track', entry }, now()));
+          const tag = fmtTag(entry.symbol, entry.timeframe, entry.direction);
+          if (!out) await reply('Tracking could not be saved; try again in a minute.');
+          else if (out.result === 'full') await reply(`Tracking list is full (${TRACK_MAX}). Untrack one in /tracking first.`);
+          else {
+            await reply(`${out.result === 'already' ? 'Already tracking' : 'Tracking'} ${tag} · brk ${fmtLvl(entry.breakoutLevel)} · alerts on every change`,
+              tradeKeyboard(entry.symbol, entry.timeframe, entry.candidateId, { tracked: true }));
+            await swapOriginal(parsed.ref, true);
+          }
+        }
+      }
+    } else if (cmd === 'market') {
+      // Full build with bias (4h/1h lean, top-down, 1h/4h candles); the FLAGS line reads state.
+      const payload = await build({ includeBias: true });
+      const state = hasStore ? await readState() : null;
+      await reply(formatMarket(payload, state, now()));
+    } else if (cmd === 'tracking') {
+      const state = hasStore ? await readState() : null;
+      if (!state) await reply('Tracking store unavailable.');
+      else await reply(formatTrackingList(state.tracked, now()), trackingKeyboard(state.tracked, now()) || menuKeyboard());
+    } else if (cmd === 'positions') {
+      if (!hasStore) await reply('Journal store unavailable.');
+      else {
+        const opens = openPositions(await readRecent(store, 50));
+        const payload = opens.length ? filterPayload(await build(), { compact: true }) : null;
+        await reply(formatPositions(opens, payload, now()), positionsKeyboard(opens) || menuKeyboard());
+      }
+    } else if (cmd === 'stillin') {
+      if (!hasStore) await reply('Tracking store unavailable.');
+      else {
+        const out = await writeState((text) => applyTrackChange(text, { action: 'stillin', ref: parsed.ref }, now()));
+        const e = out && out.entry;
+        await reply(out && out.result === 'rearmed' && e
+          ? `Still in · ${fmtTag(e.symbol, e.timeframe, e.direction)} · watching TP1 ${fmtLvl(e.tp1)} and stop ${fmtLvl(e.stop)} again.`
+          : 'That trade is not tracked any more. /positions lists open trades.');
+      }
+    } else if (cmd === 'closed' || cmd === 'partial' || cmd === 'pclose') {
+      if (!hasStore) await reply('Journal store unavailable.');
+      else {
+        const opens = openPositions(await readRecent(store, 50));
+        const open = opens.find((o) => positionRef(o) === parsed.ref);
+        const state = await readState();
+        const t = state && Array.isArray(state.tracked) ? state.tracked.find((x) => x && x.ref === parsed.ref) : null;
+        if (!open) await reply('No open trade on file for that button. /positions lists open trades; /log closes one by hand.');
+        else {
+          // Closed here / Partial: the hit price the alert quoted; Close @ mark: the live mark (Kraken close if no mark).
+          let exit = cmd !== 'pclose' && t && t.hit ? { price: t.hit.price, src: t.hit.src || 'mark' } : null;
+          if (!exit) {
+            const payload = filterPayload(await build(), { compact: true });
+            exit = livePrice(payload && payload.symbols ? payload.symbols[open.symbol] : null);
+          }
+          if (!exit) await reply(`No live price for ${escapeHtml(open.symbol)}; close it with /log.`);
+          else {
+            const kind = cmd === 'partial' ? 'adjust' : 'close';
+            const body = closeBody(open, { kind, exitPrice: exit.price, src: exit.src, ref: parsed.ref, levels: t });
+            const checked = validateJournalEntry(body, { now: now(), newId: () => body.id, source: 'telegram' });
+            if (!checked.ok) await reply(`Not logged: ${escapeHtml(checked.errors.join('; '))}`);
+            else {
+              const { duplicate } = await appendRecord(store, checked.record);
+              if (kind === 'close') await writeState((text) => applyTrackChange(text, { action: 'closed', ref: parsed.ref }, now()));
+              await reply(`[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''} · ${escapeHtml(checked.record.text)}`);
+            }
           }
         }
       }
