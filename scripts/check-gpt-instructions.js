@@ -31,9 +31,14 @@ function extractFencedBlock(markdown) {
 const markdown = readFileSync(DOC_PATH, 'utf8');
 const block = extractFencedBlock(markdown);
 const length = block.length;
+const bytes = Buffer.byteLength(block, 'utf8');
 
-console.log(`GPT instructions: ${length} UTF-16 units (budget ${BUDGET}, ChatGPT cap 8000)`);
+console.log(`GPT instructions: ${length} UTF-16 units, ${bytes} bytes (budget ${BUDGET} for both; ChatGPT's box also rejects over 8,000 bytes)`);
 
+if (bytes > BUDGET) {
+  console.error(`FAIL: ${bytes} bytes exceeds the ${BUDGET}-byte budget by ${bytes - BUDGET}`);
+  process.exit(1);
+}
 if (length > BUDGET) {
   console.error(`FAIL: ${length} exceeds the ${BUDGET}-unit budget by ${length - BUDGET}`);
   process.exit(1);
