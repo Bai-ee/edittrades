@@ -343,6 +343,17 @@ async function run() {
     }
   });
 
+  // Owner priority 2026-09-24: BTC 3m long confirmed at 84,479, plan rejected chase, setup was null.
+  await test('chase-rejected plan with its retest SETUP -> class stays BAD/chase, setup copied through (long + short)', () => {
+    for (const dir of DIRS) {
+      const setup = { candidateId: `BTC:3m:${dir}:chase`, timeframe: '3m', direction: dir, entry: 84479, stop: dir === 'long' ? 84349.7 : 84608.3, tp1: dir === 'long' ? 85000 : 83958, grossRR: 4.03, netRR: 3.4, entryCondition: `wait for a 3m retest of 84,479.00 that holds ${dir === 'long' ? 'above' : 'below'} it` };
+      const p = plan(dir, { status: 'rejected', reasonCode: 'chase', entry: 2678.79, stop: dir === 'long' ? 2670 : 2687, tp1: null, grossRR: null, netRR: null, setup });
+      const c = [candidate(dir, { breakoutLevel: 2678.79, invalidation: dir === 'long' ? 2670 : 2687, measuredTarget: dir === 'long' ? 2710 : 2647, qual: { reasons: ['chase'] } })];
+      const { compact } = check(dir, { dir, p, c, g: {} }, { class: 'BAD', primary: 'chase' });
+      assertEqual(JSON.stringify(compact.setup), JSON.stringify(setup), `${dir}: setup non-null, same shape`);
+    }
+  });
+
   // provisional: no-flag wording (no owner item).
   await test('no flag -> WATCH "must form", context undirected', () => {
     const { compact } = check('none', { dir: 'long', p: null, c: [], ev: evidence('long', { flags: [] }) }, {

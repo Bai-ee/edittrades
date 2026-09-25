@@ -284,6 +284,28 @@ async function run() {
     assertEqual(plan.reasonCode, 'chase', 'reasonCode');
   });
 
+  await test('chase-rejected confirmed flag still publishes a retest SETUP with the plan levels; live plan stays rejected/chase (long + short mirror)', () => {
+    for (const dir of ['long', 'short']) {
+      const cand = (dir === 'long' ? longCandidate : shortCandidate)({ chaseRisk: true });
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand }));
+      assertEqual(`${plan.status}|${plan.reasonCode}`, 'rejected|chase', `${dir}: live plan unchanged`);
+      assert(plan.setup, `${dir}: setup published`);
+      assertEqual(plan.setup.candidateId, cand.candidateId, `${dir}: same candidate`);
+      assertEqual(`${plan.setup.direction}|${plan.setup.entry}|${plan.setup.stop}|${plan.setup.grossRR}`, `${dir}|1000|${cand.invalidation}|4`, `${dir}: levels`);
+      assert(typeof plan.setup.tp1 === 'number' && typeof plan.setup.netRR === 'number', `${dir}: tp1 + netRR`);
+      assertEqual(plan.setup.entryCondition, `wait for a ${cand.timeframe} retest of 1,000.00 that holds ${dir === 'long' ? 'above' : 'below'} it`, `${dir}: trigger sentence`);
+      assertEqual(Object.keys(plan.setup).join(), 'candidateId,timeframe,direction,entry,stop,tp1,grossRR,netRR,entryCondition', `${dir}: same shape as other SETUPs`);
+    }
+  });
+
+  await test('chase-rejected flag that would also fail another gate (R below floor) gets no SETUP (long + short mirror)', () => {
+    for (const dir of ['long', 'short']) {
+      const cand = (dir === 'long' ? longCandidate : shortCandidate)({ chaseRisk: true, measuredTarget: dir === 'long' ? 1005 : 995 });
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand }));
+      assertEqual(`${plan.reasonCode}|${plan.setup}`, 'chase|null', `${dir}: no setup`);
+    }
+  });
+
   await test('rejected/room_at_entry: a horizontal zone overlaps the entry itself (long)', () => {
     const geometryContext = { '15m': { horizontalResistanceZones: [{ low: 995, high: 1005 }], horizontalSupportZones: [] } };
     const plan = buildFlagTradePlan(baseParams({ candidate: longCandidate(), geometryContext }));

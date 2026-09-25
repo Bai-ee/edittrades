@@ -24,7 +24,7 @@ import {
   formatWatchAlert, formatAlertPrefs, parseAlertsArgs, parseQuietSpec, normalizePrefs, applyPrefsChange, chicagoHour,
   WATCH_COOLDOWN_MS, WATCH_RECENT_IDS, DEFAULT_QUIET_HOURS,
   collectLiveFlags, capFlagCharts, formatFlagLine, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, emaTailSeries, albumSeries,
-  LIVE_FLAG_STATES, MAX_FLAG_CHARTS, MAX_MEDIA_GROUP,
+  LIVE_FLAG_STATES, MAX_FLAG_CHARTS, MAX_MEDIA_GROUP, formatBreakoutAlert, BREAKOUT_RECENT_IDS,
   MENU_ROWS, parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, shortRef, tradeButtonRow, signalsKeyboard,
   parseCallbackData, MAX_CALLBACK_BYTES, BUTTON_MEMORY, ALLOWED_UPDATES,
   HEALTH_PERSIST_MS, HEALTH_REPEAT_MS, HEARTBEAT_WRITE_MS, MAX_MESSAGE_CHARS, TELEGRAM_STATE_PATH
@@ -397,9 +397,9 @@ async function run() {
   await test('level gating per class: good = GOOD only, setup adds SETUP, watch adds WATCH; health always', () => {
     const p = payload({ ETH: formSym([cand('ETH:3m:long:a')], setupEth) });
     const kinds = (level) => diffAlerts(withPrefs(level), p, T0).alerts.map((a) => a.kind).sort().join(',');
-    assertEqual(kinds('good'), 'GOOD', 'good');
-    assertEqual(kinds('setup'), 'GOOD,SETUP', 'setup');
-    assertEqual(kinds('watch'), 'GOOD,SETUP,WATCH', 'watch');
+    assertEqual(kinds('good'), 'BREAKOUT,GOOD', 'good (BREAKOUT sends at every level)');
+    assertEqual(kinds('setup'), 'BREAKOUT,GOOD,SETUP', 'setup');
+    assertEqual(kinds('watch'), 'BREAKOUT,GOOD,SETUP,WATCH', 'watch');
     assertEqual(diffAlerts(emptyState(), p, T0).state.prefs.level, 'setup', 'default level is setup');
     // SETUP held back at level good is still remembered: raising the level does not replay it.
     const a = diffAlerts(withPrefs('good'), p, T0);
@@ -904,6 +904,56 @@ async function run() {
     }
     assertEqual(JSON.stringify(cfg.crons), JSON.stringify([{ path: '/api/telegram-cron', schedule: '* * * * *' }]), 'crons');
     assertEqual(cfg.git && cfg.git.deploymentEnabled, false, 'git deploys stay off');
+  });
+
+  console.log('\nbreakout alerts');
+
+  const chaseBtc = () => {
+    const c = { candidateId: 'BTC:5m:long:2026-09-24T14:00:00.000Z', type: 'flag', timeframe: '5m', direction: 'long', state: 'confirmed', breakoutLevel: 84479, invalidation: 84349.7, measuredTarget: 84985, measuredRR: 3.91 };
+    const setup = { candidateId: c.candidateId, timeframe: '5m', direction: 'long', entry: 84479, stop: 84349.7, tp1: 84985, grossRR: 3.91, netRR: 3.3, entryCondition: 'wait for a 5m retest of 84,479.00 that holds above it' };
+    const w = watchSym(setup);
+    return {
+      ...w, candidateSetups: [c],
+      flagTradePlan: { planId: `${c.candidateId}|t|cfg`, candidateId: c.candidateId, status: 'rejected', reasonCode: 'chase', timeframe: '5m', direction: 'long', entry: 84479, stop: 84349.7, tp1: null, grossRR: null, netRR: null, setup },
+      flagRecommendation: { ...w.flagRecommendation, class: 'BAD', candidateId: c.candidateId, primaryReason: { code: 'chase', text: 'chase' }, setup }
+    };
+  };
+
+  await test('BREAKOUT line format (own plan status/reason, else another candidate selected)', () => {
+    const s = chaseBtc();
+    assertEqual(formatBreakoutAlert('BTC', s.candidateSetups[0], s.flagTradePlan),
+      'BREAKOUT · BTC 5m LONG confirmed · brk 84,479.00 · void 84,349.70 · 3.9R · entry = retest of 84,479.00 that holds · plan rejected: chase', 'line');
+    assert(formatBreakoutAlert('BTC', { ...s.candidateSetups[0], direction: 'short' }, null).endsWith('SHORT confirmed · brk 84,479.00 · void 84,349.70 · 3.9R · entry = retest of 84,479.00 that holds · plan: another candidate is selected'), 'short, not selected');
+  });
+
+  await test('BREAKOUT: once per candidateId at every level, before its SETUP, with Why/Chart/Took it/Skipped; no repeat per candle', () => {
+    const p = () => payload({ BTC: chaseBtc(), ETH: watchSym(), SOL: watchSym() });
+    for (const level of ['good', 'setup', 'watch']) {
+      const r = diffAlerts(withPrefs(level), p(), T0);
+      const kinds = r.alerts.map((a) => a.kind).join();
+      assertEqual(kinds, level === 'good' ? 'BREAKOUT' : 'BREAKOUT,SETUP', `${level}: breakout then setup`);
+      const ref = shortRef('BTC:5m:long:2026-09-24T14:00:00.000Z');
+      assertEqual(allCallbackData(r.alerts[0].replyMarkup).join(), `why:BTC,chart:BTC:5m,log:took:BTC:${ref},log:skip:BTC:${ref}`, `${level}: buttons`);
+      assertEqual(`${r.state.buttons[ref].entry}|${r.state.buttons[ref].stop}|${r.state.buttons[ref].tp1}|${r.state.buttons[ref].reasonCode}`, '84479|84349.7|84985|chase', `${level}: Took it snapshot (candidate target when the plan has no tp1)`);
+      const again = diffAlerts(r.state, payload({ BTC: chaseBtc(), ETH: watchSym(), SOL: watchSym(), closedThrough: '2026-09-24T14:10:00.000Z' }), T0 + 5 * MIN);
+      assertEqual(again.alerts.length, 0, `${level}: next candle sends nothing`);
+    }
+    const st = diffAlerts(emptyState(), payload({ BTC: formSym([cand('B:x', 'forming')]) }), T0).state;
+    assertEqual(st.symbols.BTC.breakoutIds.length, 0, 'forming is not a breakout');
+    const confirmedNow = diffAlerts(st, payload({ BTC: formSym([cand('B:x', 'confirmed')]) }), T0 + MIN);
+    assertEqual(confirmedNow.alerts.map((a) => a.kind).join(), 'BREAKOUT', 'forming -> confirmed fires');
+    assert(BREAKOUT_RECENT_IDS >= 20, 'memory');
+  });
+
+  await test('cron: BREAKOUT sends with its buttons to every allowed chat, once', async () => {
+    const blob = fakeBlob();
+    const build = async () => payload({ BTC: chaseBtc(), ETH: watchSym(), SOL: watchSym() });
+    const first = await cron({ blob, build });
+    const b = first.tg.calls.filter((c) => c.method === 'sendMessage' && c.text.startsWith('BREAKOUT'));
+    assertEqual(b.length, 2, 'two chats');
+    assert(b.every((c) => c.replyMarkup && c.replyMarkup.inline_keyboard[0].length === 4), 'buttons');
+    const second = await cron({ blob, build, nowMs: T0 + MIN });
+    assertEqual(second.tg.calls.filter((c) => c.text && c.text.startsWith('BREAKOUT')).length, 0, 'once');
   });
 
   console.log('\nflag albums');

@@ -1205,7 +1205,11 @@ components:
         flagPlan.minRR and, when the net gate is on, netRR >= flagPlan.minNetRR - the
         retest-hold sequence just hasn't completed yet), surfaced even when a
         DIFFERENT candidate won flagTradePlan's own selection. Null when no such
-        candidate exists this build. Informational only - never GO IN, never gates
+        candidate exists this build. When no conditional attempt exists, a confirmed
+        flag rejected only for chase (the same candidate re-attempted without the chase
+        flag clears every other gate) yields the SETUP instead, same shape, with
+        entryCondition "wait for a <tf> retest of <entry> that holds above|below it"
+        (the live plan stays rejected/chase, class BAD). Informational only - never GO IN, never gates
         class/primaryReason/supports/opposes on its own, distinct from flagTradePlan
         (the live plan) and from a GOOD class. Published in the default payload (not
         gated by include).
