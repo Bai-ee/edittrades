@@ -1488,7 +1488,7 @@ async function run() {
     assert(replies[0].endsWith('[chart unavailable]'), replies[0]);
   });
 
-  await test('/flags: 9-image cap with a limit line; Charts -> All flags runs the albums; allowlist still enforced; webhook maxDuration 60', async () => {
+  await test('/flags: 9-image cap with a limit line; Charts -> All flags runs the albums; allowlist still enforced; webhook maxDuration 300', async () => {
     const tfs = ['1m', '3m', '5m', '15m', '1h'];
     const five = (s) => formSym(tfs.map((tf) => fc(`${s}${tf}`, tf, 'long', 'forming')));
     let rendered = 0;
@@ -1506,7 +1506,7 @@ async function run() {
     assertEqual(`${stranger.tg.calls.length}|${built}`, '0|0', 'stranger: silence');
     const st = await tap({ data: 'flags:all', from: 999, build: async () => { built++; return albumPayload(); } });
     assertEqual(`${st.tg.calls.length}|${built}`, '0|0', 'stranger tap: silence');
-    assertEqual(webhookConfig.maxDuration, 60, 'maxDuration');
+    assertEqual(webhookConfig.maxDuration, 300, 'maxDuration');
   });
 
   // ---------------------------------------------------------------- Plan / Thesis / Track / Positions / Market

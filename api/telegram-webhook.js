@@ -62,9 +62,11 @@ import {
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 
-// /flags renders up to 9 charts and sends several Bot API requests (5 s each at most)
-// after one build; 60 s keeps that inside the function limit (Pro allows it).
-export const config = { maxDuration: 60 };
+// 300 s (Vercel Pro ceiling): the live two-phase open runs inside one confirm request —
+// worst case 45 s land + 60 s keeper fill + 2 x 45 s stop landings + 45 s emergency close
+// + 45 s close retries (landing / fill-wait ceilings in the perps service, executor
+// EMERGENCY_CLOSE_MAX_MS) ≈ 285 s. /flags (9 charts, several Bot API calls) fits easily.
+export const config = { maxDuration: 300 };
 
 function safeCompare(a, b) {
   const hashA = crypto.createHash('sha256').update(String(a)).digest();

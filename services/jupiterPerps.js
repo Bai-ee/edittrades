@@ -525,7 +525,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** landTransaction defaults (T-3 F, docs/PLAN_LIVE_PERPS_TEST.md "Transaction landing"). */
 export const DEFAULT_LAND_REBROADCAST_MS = 2000;
 export const DEFAULT_LAND_OBSERVE_POLL_MS = 1000;
-export const DEFAULT_LAND_MAX_WAIT_MS = 90000;
+export const DEFAULT_LAND_MAX_WAIT_MS = 45000; // sized with EMERGENCY_CLOSE_MAX_MS to fit the webhook's 300 s maxDuration
 
 /**
  * Land an already-signed transaction: rebroadcast the IDENTICAL signed bytes every
@@ -546,7 +546,7 @@ export const DEFAULT_LAND_MAX_WAIT_MS = 90000;
  * @param {Object} [opts]
  * @param {number} [opts.rebroadcastEveryMs=2000]
  * @param {number} [opts.observePollMs=1000]
- * @param {number} [opts.maxWaitMs=90000]
+ * @param {number} [opts.maxWaitMs=45000]
  * @returns {Promise<{status:'confirmed'|'expired'|'failed', signature:string, slot:number|null, err:*, logs:string[]|null}>}
  */
 export async function landTransaction(signedTx, connection, opts = {}) {

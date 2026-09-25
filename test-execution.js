@@ -494,7 +494,7 @@ async function run() {
     const emergency = auditRows(store).find((l) => l.event === 'emergency_close' && l.ok === true);
     assert(emergency, 'emergency_close audited');
   });
-  await test('T-3 F live open: emergency close itself failing engages the kill switch, alerts, retries every 5s up to 2 min', async () => {
+  await test('T-3 F live open: emergency close itself failing engages the kill switch, alerts, retries every 5s up to EMERGENCY_CLOSE_MAX_MS', async () => {
     const { ex, jupiter, store, clock, alerts } = setup({
       env: baseEnv({ EXECUTION_MODE: 'live' }),
       jupiter: fakeJupiter({
@@ -508,7 +508,7 @@ async function run() {
     has(r.reasons, 'emergency_close_failed', 'emergency close failed');
     has(r.reasons, 'kill_engaged', 'kill engaged');
     assert(r.emergencyClose.attempts > 1, `retried more than once (attempts=${r.emergencyClose.attempts})`);
-    eq(clock.t - T0, 2 * 60_000, 'retried for exactly EMERGENCY_CLOSE_MAX_MS (fake sleep advances the clock)');
+    eq(clock.t - T0, 45_000, 'retried for exactly EMERGENCY_CLOSE_MAX_MS (fake sleep advances the clock)');
     const kill = JSON.parse(store.text(KILL_PATH));
     eq(kill.reason, 'emergency_close_failed', 'kill switch engaged with the emergency-close reason');
     assert(alerts.length >= 2, `at least a kill-engaged alert and a final-failure alert (got ${alerts.length})`);
