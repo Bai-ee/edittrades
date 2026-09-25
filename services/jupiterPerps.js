@@ -61,8 +61,29 @@ const {
 // Jupiter Perps Pool Address (mainnet)
 const JUPITER_PERPS_POOL = '5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq';
 
-// Event Authority PDA (from jup-perps-client constants.ts) required on every program ix.
-const EVENT_AUTHORITY = '37hJBDnntwqhGbK7L6M1bLyvccj4u55CCUiLPdYkiqBN';
+// Event Authority PDA required on every program instruction (Anchor `#[event_cpi]`): seeds
+// [b"__event_authority"] under the Perps program. Derived, then asserted against the
+// published address before any instruction is built (T-3 E; was hard-coded).
+export const EXPECTED_EVENT_AUTHORITY = '37hJBDnntwqhGbK7L6M1bLyvccj4u55CCUiLPdYkiqBN';
+const EVENT_AUTHORITY_SEED = Buffer.from('__event_authority');
+
+/** Event Authority PDA of `programAddress` (base58). Pure. */
+export function deriveEventAuthority(programAddress = PERPETUALS_PROGRAM_ADDRESS) {
+  const [pda] = PublicKey.findProgramAddressSync([EVENT_AUTHORITY_SEED], new PublicKey(programAddress));
+  return pda.toBase58();
+}
+
+let eventAuthorityCache = null;
+/** Derived Event Authority, asserted equal to EXPECTED_EVENT_AUTHORITY (throws on mismatch). */
+export function eventAuthority() {
+  if (eventAuthorityCache) return eventAuthorityCache;
+  const derived = deriveEventAuthority();
+  if (derived !== EXPECTED_EVENT_AUTHORITY) {
+    throw new Error(`eventAuthority mismatch: derived ${derived}, expected ${EXPECTED_EVENT_AUTHORITY}`);
+  }
+  eventAuthorityCache = derived;
+  return derived;
+}
 
 // Perpetuals account address (derived PDA)
 // Seeds: [b"perpetuals", pool]
@@ -80,6 +101,32 @@ const TRADED = Object.freeze(['BTC', 'ETH', 'SOL']);
 const isPosNum = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const n6 = (v) => Number(v) / USD_DECIMALS;
 const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+
+/** Default max slippage for market requests: 1% (100 bps). */
+export const DEFAULT_MAX_SLIPPAGE_BPS = 100;
+
+/**
+ * `priceSlippage` for the Perps request instructions (T-3 E fix). The program reads it as the
+ * worst acceptable execution PRICE in USD with 6 decimals, not as bps: the max price when
+ * the request buys (increase long, decrease short) and the min price when it sells
+ * (increase short, decrease long). The old code passed a raw 100 (= $0.0001), so every long
+ * failed and no short had real price protection.
+ * @param {Object} p
+ * @param {number} p.referencePrice - USD reference (mark / expected fill, or the trigger price)
+ * @param {'long'|'short'} p.direction - the position's side
+ * @param {'increase'|'decrease'} p.change
+ * @param {number} [p.maxSlippageBps=DEFAULT_MAX_SLIPPAGE_BPS] - 0 < bps <= 1000
+ * @returns {bigint} USD, 6 decimals
+ */
+export function slippagePriceUsd6({ referencePrice, direction, change, maxSlippageBps = DEFAULT_MAX_SLIPPAGE_BPS } = {}) {
+  if (!isPosNum(referencePrice)) throw new Error('referencePrice (USD) is required for the slippage bound');
+  if (direction !== 'long' && direction !== 'short') throw new Error('direction must be "long" or "short"');
+  if (change !== 'increase' && change !== 'decrease') throw new Error('change must be "increase" or "decrease"');
+  if (!(isPosNum(maxSlippageBps) && maxSlippageBps <= 1000)) throw new Error('maxSlippageBps must be in (0, 1000]');
+  const buying = (change === 'increase') === (direction === 'long');
+  const bound = referencePrice * (buying ? 1 + maxSlippageBps / 10_000 : 1 - maxSlippageBps / 10_000);
+  return BigInt(Math.round(bound * USD_DECIMALS));
+}
 
 /**
  * Derive Position PDA
@@ -545,7 +592,8 @@ export function createKitSigner(keypair) {
  * @param {Object} [p.connection] - @solana/kit rpc; defaults to this module's rpc
  * @returns {Promise<{transaction:Object, meta:Object, simulate:Function, send:Function}>}
  */
-export async function buildOpenPosition({ market, direction, sizeUsd, leverage = 1, stopLoss = null, takeProfit = null, owner, connection } = {}) {
+export async function buildOpenPosition({ market, direction, sizeUsd, leverage = 1, stopLoss = null, takeProfit = null, owner, referencePrice, maxSlippageBps = DEFAULT_MAX_SLIPPAGE_BPS, connection } = {}) {
+  eventAuthority(); // derived + asserted before any instruction is built
   const rpcClient = connection || rpc;
   if (direction !== 'long' && direction !== 'short') throw new Error('direction must be "long" or "short"');
   if (!isPosNum(sizeUsd)) throw new Error('sizeUsd must be > 0');
@@ -553,6 +601,7 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
   if (!owner) throw new Error('owner (base58 address) is required');
   const symbol = symbolFromMarket(market);
   if (!symbol) throw new Error(`Unsupported market: ${market}`);
+  const increaseSlippage = slippagePriceUsd6({ referencePrice, direction, change: 'increase', maxSlippageBps });
 
   const side = POSITION_SIDE_SEED[direction]; // program Side enum: None=0, Long=1, Short=2
   const { custodyAddress, collateralCustodyAddress, custody, collateralCustody } = await resolveTradeCustodies(rpcClient, symbol, direction);
@@ -571,6 +620,7 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
   const fundingAccount = getAssociatedTokenAddressSync(collateralMint, ownerPubkey, false);
   const positionRequestAta = getAssociatedTokenAddressSync(collateralMint, positionRequestPDA, true);
 
+  // TODO(T-3 E follow-up, owner 2026-09-25): long collateral is the asset token, but collateralTokenDelta below is sized in USD-6, not the asset's decimals/price; fix in a later phase.
   const marginRequired = sizeUsd / leverage;
   const sizeUsdDelta = BigInt(Math.floor(sizeUsd * USD_DECIMALS));
   const collateralTokenDelta = BigInt(Math.floor(marginRequired * USD_DECIMALS));
@@ -589,21 +639,22 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
     referral: null,
     tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
-    eventAuthority: EVENT_AUTHORITY,
+    eventAuthority: eventAuthority(),
     program: PERPETUALS_PROGRAM_ADDRESS,
     sizeUsdDelta,
     collateralTokenDelta,
     side,
-    priceSlippage: BigInt(100), // 1% slippage tolerance (bps)
+    priceSlippage: increaseSlippage, // worst acceptable price, USD 6 decimals (see slippagePriceUsd6)
     jupiterMinimumOut: null,
     counter: BigInt(increaseCounter),
   }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
 
+  // Only the owner's collateral (funding) ATA is created when missing. The position-request
+  // ATA is created by the program itself inside createIncreasePositionMarketRequest (T-3 E:
+  // pre-creating it made the program's own init fail).
   const preInstructions = [];
   const fundingAtaIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: fundingAccount, owner: ownerPubkey, mint: collateralMint });
   if (fundingAtaIx) preInstructions.push(fundingAtaIx);
-  const positionRequestAtaIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: positionRequestAta, owner: positionRequestPDA, mint: collateralMint });
-  if (positionRequestAtaIx) preInstructions.push(positionRequestAtaIx);
 
   // Custody's dedicated Doves oracle account vs. its primary oracle account (typically the
   // Pythnet feed). jup-perps-client's Custody decoder exposes both separately (dovesOracle,
@@ -616,9 +667,8 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
   const addTrigger = async (kind, triggerPrice, triggerAboveThreshold) => {
     const counter = randomInt(1, 2 ** 31 - 1);
     const [reqPDA] = await derivePositionRequestPDA(positionPDA, counter, 'decrease');
+    // Position-request ATA: created by the program in createDecreasePositionRequest2 (not here).
     const reqAta = getAssociatedTokenAddressSync(collateralMint, reqPDA, true);
-    const ataIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: reqAta, owner: reqPDA, mint: collateralMint });
-    if (ataIx) preInstructions.push(ataIx);
     const ix = getCreateDecreasePositionRequest2Instruction({
       owner: ownerPubkey.toBase58(),
       receivingAccount: fundingAccount.toBase58(),
@@ -636,12 +686,14 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
       tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
       systemProgram: SystemProgram.programId.toBase58(),
-      eventAuthority: EVENT_AUTHORITY,
+      eventAuthority: eventAuthority(),
       program: PERPETUALS_PROGRAM_ADDRESS,
       collateralUsdDelta: BigInt(0),
       sizeUsdDelta,
       requestType: RequestType.Trigger,
-      priceSlippage: BigInt(100),
+      // A stop must fill, so the SL carries no price bound (None). The TP is bounded off its
+      // own trigger price (a decrease sells a long / buys back a short).
+      priceSlippage: kind === 'stopLoss' ? null : slippagePriceUsd6({ referencePrice: triggerPrice, direction, change: 'decrease', maxSlippageBps }),
       jupiterMinimumOut: null,
       triggerPrice: BigInt(Math.floor(triggerPrice * USD_DECIMALS)),
       triggerAboveThreshold,
@@ -656,6 +708,7 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
   if (isPosNum(takeProfit)) await addTrigger('takeProfit', takeProfit, direction === 'long' ? true : false);
 
   const { value: latestBlockhash } = await rpcClient.getLatestBlockhash().send();
+  // TODO(T-3 E follow-up, owner 2026-09-25): SL/TP trigger requests ride in the same tx as the increase, before the keeper has filled the position; likely an ordering bug, fix in a later phase.
   const instructions = [...computeBudgetInstructions(), ...preInstructions, increaseIx, ...triggerIxs];
   const transactionMessage = buildTransactionMessage(address(ownerPubkey.toBase58()), instructions, latestBlockhash);
 
@@ -691,7 +744,8 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
  * @param {string} p.owner
  * @param {Object} [p.connection]
  */
-export async function buildClosePosition({ positionId, market, direction, sizeUsd = null, collateralUsd = null, positionSizeUsd = null, owner, connection } = {}) {
+export async function buildClosePosition({ positionId, market, direction, sizeUsd = null, collateralUsd = null, positionSizeUsd = null, owner, referencePrice, maxSlippageBps = DEFAULT_MAX_SLIPPAGE_BPS, connection } = {}) {
+  eventAuthority(); // derived + asserted before any instruction is built
   const rpcClient = connection || rpc;
   if (!positionId) throw new Error('positionId is required');
   if (!owner) throw new Error('owner (base58 address) is required');
@@ -699,6 +753,7 @@ export async function buildClosePosition({ positionId, market, direction, sizeUs
   const symbol = symbolFromMarket(market);
   if (!symbol) throw new Error(`Unsupported market: ${market}`);
 
+  const decreaseSlippage = slippagePriceUsd6({ referencePrice, direction, change: 'decrease', maxSlippageBps });
   const { custodyAddress, collateralCustodyAddress, collateralCustody } = await resolveTradeCustodies(rpcClient, symbol, direction);
   const ownerPubkey = new PublicKey(owner);
   const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
@@ -732,19 +787,19 @@ export async function buildClosePosition({ positionId, market, direction, sizeUs
     tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
     systemProgram: SystemProgram.programId.toBase58(),
-    eventAuthority: EVENT_AUTHORITY,
+    eventAuthority: eventAuthority(),
     program: PERPETUALS_PROGRAM_ADDRESS,
     collateralUsdDelta,
     sizeUsdDelta,
-    priceSlippage: BigInt(100),
+    priceSlippage: decreaseSlippage, // worst acceptable price, USD 6 decimals
     jupiterMinimumOut: null,
     entirePosition,
     counter: BigInt(counter),
   }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
 
+  // Only the owner's receiving ATA is created when missing; the position-request ATA is
+  // created by the program in createDecreasePositionMarketRequest.
   const preInstructions = [];
-  const ataIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: positionRequestAta, owner: positionRequestPDA, mint: collateralMint });
-  if (ataIx) preInstructions.push(ataIx);
   const ownerAtaIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: ownerAta, owner: ownerPubkey, mint: collateralMint });
   if (ownerAtaIx) preInstructions.push(ownerAtaIx);
 
@@ -770,7 +825,8 @@ export async function buildClosePosition({ positionId, market, direction, sizeUs
  * IDL instruction used: createDecreasePositionRequest2 (requestType=Trigger), same
  * semantics as the open's SL/TP triggers (see buildOpenPosition).
  */
-export async function buildUpdateStops({ positionId, market, direction, stop = null, tp = null, positionSizeUsd = null, owner, connection } = {}) {
+export async function buildUpdateStops({ positionId, market, direction, stop = null, tp = null, positionSizeUsd = null, owner, maxSlippageBps = DEFAULT_MAX_SLIPPAGE_BPS, connection } = {}) {
+  eventAuthority(); // derived + asserted before any instruction is built
   const rpcClient = connection || rpc;
   if (!positionId) throw new Error('positionId is required');
   if (!owner) throw new Error('owner (base58 address) is required');
@@ -797,9 +853,8 @@ export async function buildUpdateStops({ positionId, market, direction, stop = n
   const addTrigger = async (kind, triggerPrice, triggerAboveThreshold) => {
     const counter = randomInt(1, 2 ** 31 - 1);
     const [reqPDA] = await derivePositionRequestPDA(positionPDA, counter, 'decrease');
+    // Position-request ATA: created by the program in createDecreasePositionRequest2 (not here).
     const reqAta = getAssociatedTokenAddressSync(collateralMint, reqPDA, true);
-    const ataIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: reqAta, owner: reqPDA, mint: collateralMint });
-    if (ataIx) preInstructions.push(ataIx);
     const ix = getCreateDecreasePositionRequest2Instruction({
       owner: ownerPubkey.toBase58(),
       receivingAccount: ownerAta.toBase58(),
@@ -817,12 +872,14 @@ export async function buildUpdateStops({ positionId, market, direction, stop = n
       tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
       systemProgram: SystemProgram.programId.toBase58(),
-      eventAuthority: EVENT_AUTHORITY,
+      eventAuthority: eventAuthority(),
       program: PERPETUALS_PROGRAM_ADDRESS,
       collateralUsdDelta: BigInt(0),
       sizeUsdDelta,
       requestType: RequestType.Trigger,
-      priceSlippage: BigInt(100),
+      // A stop must fill, so the SL carries no price bound (None). The TP is bounded off its
+      // own trigger price (a decrease sells a long / buys back a short).
+      priceSlippage: kind === 'stopLoss' ? null : slippagePriceUsd6({ referencePrice: triggerPrice, direction, change: 'decrease', maxSlippageBps }),
       jupiterMinimumOut: null,
       triggerPrice: BigInt(Math.floor(triggerPrice * USD_DECIMALS)),
       triggerAboveThreshold,
@@ -857,6 +914,7 @@ export async function buildUpdateStops({ positionId, market, direction, stop = n
  * IDL instruction used: updateDecreasePositionRequest2.
  */
 export async function buildReplaceTriggerRequest({ positionId, positionRequestId, sizeUsdDelta, triggerPrice, market, direction, owner, connection } = {}) {
+  eventAuthority(); // derived + asserted before any instruction is built
   const rpcClient = connection || rpc;
   if (!positionId || !positionRequestId) throw new Error('positionId and positionRequestId are required');
   if (!owner) throw new Error('owner (base58 address) is required');
@@ -909,14 +967,17 @@ export async function buildReplaceTriggerRequest({ positionId, positionRequestId
  * @param {Object} [opts.connection] - @solana/kit rpc, defaults to this module's rpc
  * @param {Object} [opts.wallet] - @solana/web3.js Keypair, defaults to walletManager.getWallet()
  * @param {Object} [opts.signer] - @solana/kit signer, defaults to createKitSigner(wallet)
+ * @param {number} opts.referencePrice - USD mark / expected fill for the slippage bound (required)
+ * @param {number} [opts.maxSlippageBps]
  * @returns {Promise<Object>} Execution result with position ID and signature
  */
 export async function openPerpPosition(market, direction, size, leverage = 1, stopLoss = null, takeProfit = null, opts = {}) {
   const rpcClient = opts.connection || rpc;
+  if (!isPosNum(opts.referencePrice)) throw new Error('referencePrice (USD) is required for the slippage bound');
   const wallet = opts.wallet || getWallet();
   if (!wallet) throw new Error('Wallet not initialized');
   const owner = wallet.publicKey.toBase58();
-  const built = await buildOpenPosition({ market, direction, sizeUsd: size, leverage, stopLoss, takeProfit, owner, connection: rpcClient });
+  const built = await buildOpenPosition({ market, direction, sizeUsd: size, leverage, stopLoss, takeProfit, owner, referencePrice: opts.referencePrice, maxSlippageBps: opts.maxSlippageBps, connection: rpcClient });
   const sim = await built.simulate(rpcClient);
   if (sim.err) {
     const tail = sim.logs && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
@@ -957,13 +1018,15 @@ export async function closePerpPosition(positionId, size = null, opts = {}) {
   const wallet = opts.wallet || getWallet();
   if (!wallet) throw new Error('Wallet not initialized');
   const owner = wallet.publicKey.toBase58();
-  const r = await getPerpPositions(owner, { rpc: rpcClient });
+  const r = await getPerpPositions(owner, { rpc: rpcClient, markPrices: opts.markPrices });
   if (!r.ok) throw new Error(r.error || 'position read unavailable');
   const p = r.positions.find((x) => x.positionId === positionId);
   if (!p) throw new Error(`Position not found: ${positionId}`);
+  const referencePrice = isPosNum(opts.referencePrice) ? opts.referencePrice : p.markPrice;
   const built = await buildClosePosition({
     positionId, market: p.market, direction: p.direction, sizeUsd: size,
-    collateralUsd: p.collateralUsd, positionSizeUsd: p.sizeUsd, owner, connection: rpcClient,
+    collateralUsd: p.collateralUsd, positionSizeUsd: p.sizeUsd, owner, referencePrice,
+    maxSlippageBps: opts.maxSlippageBps, connection: rpcClient,
   });
   const sim = await built.simulate(rpcClient);
   if (sim.err) {

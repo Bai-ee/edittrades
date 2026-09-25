@@ -35,6 +35,11 @@ import {
   getPerpQuote,
   checkCustodyCapacity,
   getPerpMarkets,
+  slippagePriceUsd6,
+  eventAuthority,
+  deriveEventAuthority,
+  EXPECTED_EVENT_AUTHORITY,
+  DEFAULT_MAX_SLIPPAGE_BPS,
 } from './services/jupiterPerps.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +73,12 @@ const { Side, RequestType, PERPETUALS_PROGRAM_ADDRESS } = jupPerpsClient;
 const C = DEFAULT_PERP_CUSTODIES;
 const POOL = '5BUwFW4nRbftYTDMbgxykoFWqWHPzahFSNAaaaJtVKsq';
 const OWNER = TEST_KEYPAIR.publicKey.toBase58();
+/** Fixture reference prices for the slippage bound (T-3 E: builders require referencePrice). */
+const REF = Object.freeze({ BTCUSDT: 84_800, ETHUSDT: 2_500, SOLUSDT: 150 });
+/** ATA-create instructions (spl-associated-token idempotent create: data [1]). */
+const ataCreates = (built) => built.transaction.instructions.filter((ix) => ix.data && ix.data.length === 1 && ix.data[0] === 1);
+/** Owner account (index 2) of each ATA-create: must never be a position-request PDA. */
+const ataOwners = (built) => ataCreates(built).map((ix) => String(ix.accounts[2].address));
 
 function encPool(custodies) {
   return jupPerpsClient.getPoolEncoder().encode({
@@ -177,7 +188,7 @@ async function main() {
 
   await test('buildOpenPosition: encodes side=Long, includes ATA-create + increase + SL + TP trigger instructions in order', async () => {
     const rpc = fakeRpc();
-    const built = await buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 200, leverage: 5, stopLoss: 84390, takeProfit: 85146, owner: OWNER, connection: rpc });
+    const built = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 200, leverage: 5, stopLoss: 84390, takeProfit: 85146, owner: OWNER, connection: rpc });
     eq(built.meta.side, Side.Long, 'side = Long');
     assert(built.meta.triggers.stopLoss, 'stopLoss trigger present');
     assert(built.meta.triggers.takeProfit, 'takeProfit trigger present');
@@ -202,23 +213,44 @@ async function main() {
     eq(triggerPrices[0], 84_390_000_000n, 'SL triggerPrice round-trips');
     eq(triggerPrices[1], 85_146_000_000n, 'TP triggerPrice round-trips');
 
-    // ATA-create instructions included because the fake rpc has no ATA accounts at all
-    const ataCreateCount = kitInstructions.filter((ix) => ix.data && ix.data.length === 1 && ix.data[0] === 1).length;
-    assert(ataCreateCount >= 3, `at least 3 ATA-create instructions (funding + 2 position-request ATAs), got ${ataCreateCount}`);
+    // T-3 E: only the owner's funding ATA is created; the program creates every
+    // position-request ATA itself (increase and both trigger legs).
+    eq(ataCreates(built).length, 1, 'exactly one ATA-create (the funding ATA)');
+    const requestPdas = [built.meta.positionRequestId, built.meta.triggers.stopLoss.positionRequestId, built.meta.triggers.takeProfit.positionRequestId];
+    assert(ataOwners(built).every((o) => o === OWNER), 'the only ATA-create is owned by the wallet');
+    assert(!ataOwners(built).some((o) => requestPdas.includes(o)), 'no ATA-create for any position-request PDA');
+
+    // priceSlippage is a USD-6 worst price: a long increase buys -> cap = ref * (1 + 1%)
+    eq(decodedIncrease.priceSlippage, 85_648_000_000n, 'increase priceSlippage = 84,800 * 1.01 in USD-6');
+    eq(decodedIncrease.priceSlippage, slippagePriceUsd6({ referencePrice: REF.BTCUSDT, direction: 'long', change: 'increase' }), 'matches slippagePriceUsd6');
+    assert(decodedIncrease.priceSlippage > BigInt(REF.BTCUSDT * 1e6), 'buying: bound is above the reference (cap)');
+    const byTrigger = Object.fromEntries(decodedDecreases.map((d) => [String(optionValue(d.triggerPrice)), d]));
+    eq(optionValue(byTrigger['84390000000'].priceSlippage), null, 'SL trigger carries priceSlippage: null (a stop must fill)');
+    eq(optionValue(byTrigger['85146000000'].priceSlippage), slippagePriceUsd6({ referencePrice: 85146, direction: 'long', change: 'decrease' }), 'TP bounded off its trigger price');
+    assert(optionValue(byTrigger['85146000000'].priceSlippage) < 85_146_000_000n, 'long TP sells: bound is a floor below the trigger');
   });
 
   await test('buildOpenPosition: encodes side=Short and short collateralizes with USDC; SL/TP thresholds flip', async () => {
     const rpc = fakeRpc();
-    const built = await buildOpenPosition({ market: 'BTCUSDT', direction: 'short', sizeUsd: 100, leverage: 3, stopLoss: 86000, takeProfit: 82000, owner: OWNER, connection: rpc });
+    const built = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'short', sizeUsd: 100, leverage: 3, stopLoss: 86000, takeProfit: 82000, owner: OWNER, connection: rpc });
     eq(built.meta.side, Side.Short, 'side = Short');
     eq(built.meta.collateralCustody, C.USDC, 'short collateral custody = USDC');
     eq(built.meta.triggers.stopLoss.triggerAboveThreshold, true, 'short SL fires above the trigger price');
     eq(built.meta.triggers.takeProfit.triggerAboveThreshold, false, 'short TP fires below the trigger price');
+    const inc = built.transaction.instructions.find((ix) => hasDiscriminator(ix, CREATE_INCREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR));
+    const d = jupPerpsClient.getCreateIncreasePositionMarketRequestInstructionDataDecoder().decode(inc.data);
+    eq(d.priceSlippage, 83_952_000_000n, 'short increase sells: floor = 84,800 * 0.99 in USD-6');
+    const decs = built.transaction.instructions.filter((ix) => hasDiscriminator(ix, CREATE_DECREASE_POSITION_REQUEST2_DISCRIMINATOR))
+      .map((ix) => jupPerpsClient.getCreateDecreasePositionRequest2InstructionDataDecoder().decode(ix.data));
+    const tp = decs.find((x) => optionValue(x.triggerPrice) === 82_000_000_000n);
+    const sl = decs.find((x) => optionValue(x.triggerPrice) === 86_000_000_000n);
+    eq(optionValue(sl.priceSlippage), null, 'short SL: priceSlippage null');
+    eq(optionValue(tp.priceSlippage), 82_820_000_000n, 'short TP buys back: cap = 82,000 * 1.01');
   });
 
   await test('buildOpenPosition: omitting stopLoss/takeProfit builds with no trigger instructions', async () => {
     const rpc = fakeRpc();
-    const built = await buildOpenPosition({ market: 'ETHUSDT', direction: 'long', sizeUsd: 50, leverage: 2, owner: OWNER, connection: rpc });
+    const built = await buildOpenPosition({ market: 'ETHUSDT', referencePrice: REF.ETHUSDT, direction: 'long', sizeUsd: 50, leverage: 2, owner: OWNER, connection: rpc });
     eq(Object.keys(built.meta.triggers).length, 0, 'no triggers');
   });
 
@@ -228,22 +260,25 @@ async function main() {
     const { getAssociatedTokenAddressSync } = await import('@solana/spl-token');
     const fundingAta = getAssociatedTokenAddressSync(collateralMint, new PublicKey(OWNER), false).toBase58();
     const rpc = fakeRpc({ extraAccounts: { [fundingAta]: Buffer.from([1, 2, 3]) } });
-    const withoutAta = await buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: fakeRpc() });
-    const withAta = await buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: rpc });
+    const withoutAta = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: fakeRpc() });
+    const withAta = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: rpc });
     const countCreates = (b) => b.transaction.instructions.filter((ix) => ix.data && ix.data.length === 1 && ix.data[0] === 1).length;
     assert(countCreates(withAta) < countCreates(withoutAta), 'fewer ATA-creates when the funding ATA already exists');
   });
 
   await test('buildClosePosition: entirePosition=true by default (full close), false + sizeUsdDelta for a partial close', async () => {
     const rpc = fakeRpc();
-    const full = await buildClosePosition({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', direction: 'long', positionSizeUsd: 200, owner: OWNER, connection: rpc });
+    const full = await buildClosePosition({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', positionSizeUsd: 200, owner: OWNER, connection: rpc });
     eq(full.meta.entirePosition, true, 'full close: entirePosition');
     const closeIx = full.transaction.instructions.find((ix) => hasDiscriminator(ix, CREATE_DECREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR));
     assert(closeIx, 'decrease-market instruction found');
     const decoded = jupPerpsClient.getCreateDecreasePositionMarketRequestInstructionDataDecoder().decode(closeIx.data);
     eq(optionValue(decoded.entirePosition), true, 'decoded entirePosition round-trips true');
+    eq(decoded.priceSlippage, 83_952_000_000n, 'long close sells: floor = 84,800 * 0.99 in USD-6');
+    assert(!ataOwners(full).includes(full.meta.positionRequestId), 'no ATA-create for the close position-request PDA');
+    assert(ataOwners(full).every((o) => o === OWNER), 'only the owner receiving ATA may be created');
 
-    const partial = await buildClosePosition({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', direction: 'long', sizeUsd: 50, collateralUsd: 40, positionSizeUsd: 200, owner: OWNER, connection: rpc });
+    const partial = await buildClosePosition({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 50, collateralUsd: 40, positionSizeUsd: 200, owner: OWNER, connection: rpc });
     eq(partial.meta.entirePosition, false, 'partial close: not entirePosition');
     const partialIx = partial.transaction.instructions.find((ix) => hasDiscriminator(ix, CREATE_DECREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR));
     const decodedPartial = jupPerpsClient.getCreateDecreasePositionMarketRequestInstructionDataDecoder().decode(partialIx.data);
@@ -256,13 +291,13 @@ async function main() {
 
   await test('simulate(): returns {err:null} on a clean fixture, {err} when the fake rpc reports one', async () => {
     const ok = fakeRpc();
-    const built1 = await buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: ok });
+    const built1 = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: ok });
     const sim1 = await built1.simulate(ok);
     eq(sim1.err, null, 'clean simulation');
     eq(ok.calls.simulateTransaction, 1, 'simulate hit the rpc once');
 
     const bad = fakeRpc({ simResult: { err: { InstructionError: [0, 'Custom'] }, logs: ['Program log: CustodyAmountLimit'], unitsConsumed: 100 } });
-    const built2 = await buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: bad });
+    const built2 = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: bad });
     const sim2 = await built2.simulate(bad);
     assert(sim2.err, 'simulation error surfaced');
     assert(sim2.logs.some((l) => l.includes('CustodyAmountLimit')), 'logs surfaced');
@@ -276,7 +311,7 @@ async function main() {
       // sendAndConfirmTransactionFactory would call rpc.sendTransaction, which this fake rpc
       // does not implement -- that would throw a *different* error than the simulation
       // refusal, so this test also catches a broken refusal, not just a missing throw.
-      await openPerpPosition('BTCUSDT', 'long', 10, 2, 84000, 86000, { connection: bad });
+      await openPerpPosition('BTCUSDT', 'long', 10, 2, 84000, 86000, { connection: bad, referencePrice: REF.BTCUSDT });
     } catch (err) {
       threw = err;
     }
@@ -288,7 +323,7 @@ async function main() {
     const rpc = fakeRpc();
     process.env.JUPITER_SIMULATE_ONLY = 'true';
     try {
-      const r = await openPerpPosition('BTCUSDT', 'long', 200, 5, 84390, 85146, { connection: rpc });
+      const r = await openPerpPosition('BTCUSDT', 'long', 200, 5, 84390, 85146, { connection: rpc, referencePrice: REF.BTCUSDT });
       eq(r.success, true, 'success');
       eq(r.simulated, true, 'simulated flag set');
       eq(r.signature, null, 'no signature when simulate-only');
@@ -323,7 +358,7 @@ async function main() {
 
   await test('sendSigned: JUPITER_SIMULATE_ONLY=true simulates instead of sending; unset would need rpc.sendTransaction', async () => {
     const rpc = fakeRpc();
-    const built = await buildOpenPosition({ market: 'SOLUSDT', direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: rpc });
+    const built = await buildOpenPosition({ market: 'SOLUSDT', referencePrice: REF.SOLUSDT, direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: rpc });
     const signer = createKitSigner(TEST_KEYPAIR);
     process.env.JUPITER_SIMULATE_ONLY = 'true';
     try {
@@ -367,10 +402,56 @@ async function main() {
     const prices = decoded.map((d) => optionValue(d.triggerPrice)).sort();
     eq(prices[0], 83_000_000_000n, 'SL triggerPrice round-trips');
     eq(prices[1], 87_000_000_000n, 'TP triggerPrice round-trips');
+    const sl = decoded.find((d) => optionValue(d.triggerPrice) === 83_000_000_000n);
+    const tp = decoded.find((d) => optionValue(d.triggerPrice) === 87_000_000_000n);
+    eq(optionValue(sl.priceSlippage), null, 'update SL: priceSlippage null');
+    eq(optionValue(tp.priceSlippage), 86_130_000_000n, 'update long TP: floor = 87,000 * 0.99 in USD-6');
+    eq(ataCreates(both).length, 0, 'no ATA-create: the program creates each trigger position-request ATA');
 
     const stopOnly = await buildUpdateStops({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', direction: 'short', stop: 88000, positionSizeUsd: 200, owner: OWNER, connection: rpc });
     eq(Object.keys(stopOnly.meta.triggers).length, 1, 'only stopLoss requested');
     eq(stopOnly.meta.triggers.stopLoss.triggerAboveThreshold, true, 'short SL above');
+  });
+
+  console.log('\nT-3 E fixes: slippage scale + eventAuthority (services/jupiterPerps.js)');
+
+  await test('slippagePriceUsd6: USD-6 worst price, cap when buying, floor when selling; refuses without a reference', () => {
+    eq(DEFAULT_MAX_SLIPPAGE_BPS, 100, 'default 1%');
+    eq(slippagePriceUsd6({ referencePrice: 100, direction: 'long', change: 'increase' }), 101_000_000n, 'long increase buys: cap');
+    eq(slippagePriceUsd6({ referencePrice: 100, direction: 'short', change: 'decrease' }), 101_000_000n, 'short decrease buys back: cap');
+    eq(slippagePriceUsd6({ referencePrice: 100, direction: 'short', change: 'increase' }), 99_000_000n, 'short increase sells: floor');
+    eq(slippagePriceUsd6({ referencePrice: 100, direction: 'long', change: 'decrease' }), 99_000_000n, 'long decrease sells: floor');
+    eq(slippagePriceUsd6({ referencePrice: 84_800, direction: 'long', change: 'increase', maxSlippageBps: 25 }), 85_012_000_000n, 'custom 25 bps');
+    const v = slippagePriceUsd6({ referencePrice: 150, direction: 'long', change: 'increase' });
+    assert(v > 1_000_000n, 'USD-6 scale, never the old raw 100 (= $0.0001)');
+    for (const bad of [{}, { referencePrice: 0 }, { referencePrice: 100, maxSlippageBps: 0 }, { referencePrice: 100, maxSlippageBps: 2000 }]) {
+      let threw = false;
+      try { slippagePriceUsd6({ direction: 'long', change: 'increase', ...bad }); } catch { threw = true; }
+      assert(threw, `refuses ${JSON.stringify(bad)}`);
+    }
+    let threwBuild = false;
+    return buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: fakeRpc() })
+      .catch(() => { threwBuild = true; })
+      .then(() => assert(threwBuild, 'buildOpenPosition refuses without referencePrice'));
+  });
+
+  await test('eventAuthority(): derived from ["__event_authority"] under the Perps program and equal to EXPECTED_EVENT_AUTHORITY', () => {
+    const [pda] = PublicKey.findProgramAddressSync([Buffer.from('__event_authority')], new PublicKey(PERPETUALS_PROGRAM_ADDRESS));
+    eq(deriveEventAuthority(), pda.toBase58(), 'deriveEventAuthority matches an independent derivation');
+    eq(EXPECTED_EVENT_AUTHORITY, '37hJBDnntwqhGbK7L6M1bLyvccj4u55CCUiLPdYkiqBN', 'fixture: published Perps event authority');
+    eq(eventAuthority(), EXPECTED_EVENT_AUTHORITY, 'eventAuthority() asserts and returns it');
+    assert(deriveEventAuthority(PublicKey.default.toBase58()) !== EXPECTED_EVENT_AUTHORITY, 'a different program derives a different PDA');
+  });
+
+  await test('eventAuthority: never derived with a wrong program address; builders never pass a literal event authority', () => {
+    const src = readFileSync(path.join(root, 'services/jupiterPerps.js'), 'utf8');
+    const calls = [...src.matchAll(/deriveEventAuthority\(([^)]*)\)/g)].map((m) => m[1].trim());
+    assert(calls.length >= 1, 'deriveEventAuthority is used');
+    assert(calls.every((a) => a === '' || a === 'PERPETUALS_PROGRAM_ADDRESS' || /^programAddress/.test(a)), `only the Perps program (or the default param) is used: ${JSON.stringify(calls)}`);
+    const fields = [...src.matchAll(/eventAuthority:\s*([^,\n]+)/g)].map((m) => m[1].trim());
+    assert(fields.length >= 4, 'every request instruction sets eventAuthority');
+    assert(fields.every((f) => f === 'eventAuthority()'), `every eventAuthority field uses the asserted derivation: ${JSON.stringify(fields)}`);
+    assert(!/eventAuthority:\s*'/.test(src), 'no hard-coded eventAuthority literal in any instruction');
   });
 
   await test('buildUpdateStops: throws without stop or tp (nothing to update)', async () => {
@@ -382,7 +463,7 @@ async function main() {
 
   await test('buildReplaceTriggerRequest: updateDecreasePositionRequest2 round trip for an already-known pending request', async () => {
     const rpc = fakeRpc();
-    const opened = await buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 200, leverage: 5, stopLoss: 84390, owner: OWNER, connection: rpc });
+    const opened = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 200, leverage: 5, stopLoss: 84390, owner: OWNER, connection: rpc });
     const pendingSL = opened.meta.triggers.stopLoss;
     const replaced = await buildReplaceTriggerRequest({ positionId: opened.meta.positionId, positionRequestId: pendingSL.positionRequestId, sizeUsdDelta: 200, triggerPrice: 84100, market: 'BTCUSDT', direction: 'long', owner: OWNER, connection: rpc });
     const ix = replaced.transaction.instructions.find((ix2) => hasDiscriminator(ix2, jupPerpsClient.UPDATE_DECREASE_POSITION_REQUEST2_DISCRIMINATOR));
