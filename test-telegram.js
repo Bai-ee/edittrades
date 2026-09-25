@@ -23,12 +23,14 @@ import {
   formatGoodAlert, emptyState, parseState, diffAlerts, createBotClient, inQuietHours, COMMANDS,
   formatWatchAlert, formatAlertPrefs, parseAlertsArgs, parseQuietSpec, normalizePrefs, applyPrefsChange, chicagoHour,
   WATCH_COOLDOWN_MS, WATCH_RECENT_IDS, DEFAULT_QUIET_HOURS,
+  collectLiveFlags, capFlagCharts, formatFlagLine, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, emaTailSeries, albumSeries,
+  LIVE_FLAG_STATES, MAX_FLAG_CHARTS, MAX_MEDIA_GROUP,
   MENU_ROWS, parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, shortRef, tradeButtonRow, signalsKeyboard,
   parseCallbackData, MAX_CALLBACK_BYTES, BUTTON_MEMORY, ALLOWED_UPDATES,
   HEALTH_PERSIST_MS, HEALTH_REPEAT_MS, HEARTBEAT_WRITE_MS, MAX_MESSAGE_CHARS, TELEGRAM_STATE_PATH
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
-import { handleTelegramWebhook, testAlertSample } from './api/telegram-webhook.js';
+import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, config as webhookConfig } from './api/telegram-webhook.js';
 import { handleTelegramCron } from './api/telegram-cron.js';
 import { telegramStatusFromState, pullTelegramStatus } from './scripts/tracker/collect.js';
 import { alertsFact } from './scripts/tracker/build-page.js';
@@ -163,6 +165,11 @@ function fakeTelegram({ fail = false } = {}) {
       entry.chatId = init.body.get('chat_id');
       entry.caption = init.body.get('caption');
       entry.photo = init.body.get('photo');
+      const media = init.body.get('media');
+      if (media) {
+        entry.media = JSON.parse(media);
+        entry.files = entry.media.map((m) => init.body.get(m.media.replace('attach://', '')));
+      }
     } else {
       const b = JSON.parse(init.body);
       Object.assign(entry, { chatId: String(b.chat_id), text: b.text, parseMode: b.parse_mode, silent: b.disable_notification, replyMarkup: b.reply_markup, callbackQueryId: b.callback_query_id });
@@ -196,11 +203,11 @@ async function quiet(fn) {
 }
 
 let updateSeq = 1000;
-async function hook({ text, from = OWNER, secret = SECRET, method = 'POST', env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, updateId }) {
+async function hook({ text, from = OWNER, secret = SECRET, method = 'POST', env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, updateId, render = fakeRender }) {
   const update = { update_id: updateId ?? updateSeq++, message: { message_id: 1, from: { id: from }, chat: { id: from, type: 'private' }, text } };
   const req = { method, headers: secret === null ? {} : { 'x-telegram-bot-api-secret-token': secret }, body: JSON.stringify(update) };
   const res = mockRes();
-  const { logs } = await quiet(() => handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render: fakeRender, now: () => nowMs, env }));
+  const { logs } = await quiet(() => handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render, now: () => nowMs, env }));
   return { res, tg, blob, logs };
 }
 
@@ -690,7 +697,7 @@ async function run() {
     const c = await hook({ text: 'Charts' });
     const grid = c.tg.calls[0].replyMarkup.inline_keyboard;
     assertEqual(grid.map((r) => r.map((b) => b.callback_data).join(',')).join(' | '),
-      'chart:BTC:1m,chart:BTC:3m,chart:BTC:5m,chart:BTC:15m,chart:BTC:1h | chart:ETH:1m,chart:ETH:3m,chart:ETH:5m,chart:ETH:15m,chart:ETH:1h | chart:SOL:1m,chart:SOL:3m,chart:SOL:5m,chart:SOL:15m,chart:SOL:1h', 'grid');
+      'chart:BTC:1m,chart:BTC:3m,chart:BTC:5m,chart:BTC:15m,chart:BTC:1h | chart:ETH:1m,chart:ETH:3m,chart:ETH:5m,chart:ETH:15m,chart:ETH:1h | chart:SOL:1m,chart:SOL:3m,chart:SOL:5m,chart:SOL:15m,chart:SOL:1h | flags:all', 'grid');
     const a = await hook({ text: 'Alerts' });
     assertEqual(a.tg.calls[0].replyMarkup.inline_keyboard.map((r) => r.map((b) => `${b.text}=${b.callback_data}`).join(',')).join(' | '),
       'Good=alerts:good,Setup=alerts:setup,Watch=alerts:watch | Quiet on=alerts:quiet:on,Quiet off=alerts:quiet:off', 'alerts buttons');
@@ -897,6 +904,115 @@ async function run() {
     }
     assertEqual(JSON.stringify(cfg.crons), JSON.stringify([{ path: '/api/telegram-cron', schedule: '* * * * *' }]), 'crons');
     assertEqual(cfg.git && cfg.git.deploymentEnabled, false, 'git deploys stay off');
+  });
+
+  console.log('\nflag albums');
+
+  const fc = (id, tf, dir, st, extra = {}) => ({ candidateId: id, type: 'flag', timeframe: tf, direction: dir, state: st, breakoutLevel: 84466.1, invalidation: 84331.6, measuredRR: 2.43, ...extra });
+  const albumPayload = () => payload({
+    BTC: formSym([
+      fc('B1', '3m', 'long', 'forming', { qual: { decision: 'watch', reasons: ['room:blocked-15m'] } }),
+      fc('B2', '3m', 'short', 'proto'),
+      fc('B3', '1m', 'long', 'confirmed'),
+      fc('B4', '5m', 'long', 'failed', { failReason: 'invalidated' }),
+      fc('B5', '15m', 'short', 'expired')
+    ]),
+    ETH: formSym([fc('E1', '5m', 'short', 'triggering')]),
+    SOL: formSym([fc('S1', '1m', 'long', 'failed')])
+  });
+
+  await test('collectLiveFlags: live states only (failed out), grouped per symbol and timeframe, tf order; /flags SYM limits', () => {
+    assertEqual(LIVE_FLAG_STATES.join(), 'proto,forming,triggering,confirmed,expired', 'states');
+    const g = collectLiveFlags(albumPayload());
+    assertEqual(g.map((x) => `${x.symbol}:${x.charts.map((c) => `${c.timeframe}=${c.candidates.map((k) => k.candidateId).join('+')}`).join(',')}`).join(' | '),
+      'BTC:1m=B3,3m=B1+B2,15m=B5 | ETH:5m=E1 | SOL:', 'grouping');
+    assertEqual(collectLiveFlags(albumPayload(), 'ETH').map((x) => x.symbol).join(), 'ETH', 'only');
+  });
+
+  await test('caption: one line per candidate + closed through, HTML-safe, under 1,000 chars', () => {
+    assertEqual(formatFlagLine('BTC', fc('x', '3m', 'long', 'forming', { qual: { decision: 'watch', reasons: ['room:blocked-15m'] } })),
+      'BTC 3m · LONG forming · brk 84,466.10 · void 84,331.60 · 2.4R · qual watch (room:blocked-15m)', 'line');
+    const chart = collectLiveFlags(albumPayload())[0].charts[1];
+    const cap = formatFlagCaption(chart, '2026-09-24T14:05:00.000Z');
+    assertEqual(cap.split('\n').length, 3, 'two candidates + tail');
+    assert(cap.includes('SHORT proto') && cap.endsWith('closed through 14:05 UTC'), cap);
+    const many = { symbol: 'BTC', timeframe: '3m', candidates: Array.from({ length: 40 }, (_, i) => fc(`m${i}`, '3m', 'long', 'forming', { qual: { decision: 'watch', reasons: ['a<b', 'room:blocked-15m', 'ct:4h'] } })) };
+    const long = formatFlagCaption(many, '2026-09-24T14:05:00.000Z');
+    assert(long.length <= 1000 && long.endsWith('UTC') && long.includes('a&lt;b'), `len ${long.length}`);
+    assertEqual(formatNoLiveFlags('BTC'), 'BTC · no live flags', 'no-live line');
+  });
+
+  await test('media-group chunking (<= 10), 9-image cap across symbols, EMA tail series', () => {
+    assertEqual(chunkMediaGroup(Array.from({ length: 23 }, (_, i) => i)).map((c) => c.length).join(), '10,10,3', 'chunks');
+    assertEqual(MAX_MEDIA_GROUP, 10, 'group max');
+    const groups = ['BTC', 'ETH', 'SOL'].map((symbol) => ({ symbol, charts: Array.from({ length: 5 }, (_, i) => ({ symbol, timeframe: `t${i}`, candidates: [] })) }));
+    const { groups: capped, dropped } = capFlagCharts(groups, MAX_FLAG_CHARTS);
+    assertEqual(`${capped.map((g) => g.charts.length).join()}|${dropped}|${capped[2].capped}`, '5,4,0|6|true', 'cap 9');
+    const closes = [100, 101, 102, 101.5, 103];
+    const k = 2 / 22;
+    let e = 99; const fwd = closes.map((c) => (e = e + k * (c - e)));
+    const back = emaTailSeries(closes, fwd[fwd.length - 1], 21);
+    assert(back.every((v, i) => Math.abs(v - fwd[i]) < 0.01), JSON.stringify(back));
+    assertEqual(emaTailSeries(closes, null, 21), null, 'no last ema');
+    const p = { symbols: { BTC: { timeframes: { '3m': { candles: closes.map((c) => ({ c })), ema21: fwd[4], ema200: 100 } } } } };
+    assertEqual(albumSeries(p, 'BTC', '3m').ema21.length, 5, 'album series');
+    assertEqual(JSON.stringify(albumSeries(p, 'ETH', '3m')), '{}', 'missing tf');
+  });
+
+  await test('/flags: summary first, then one album per symbol (sendMediaGroup, attach:// parts), no-live line; one full build', async () => {
+    let builds = 0;
+    const r = await hook({ text: '/flags', build: async (o) => { builds++; assert(o === undefined, 'full build, no chart opt'); return albumPayload(); } });
+    assertEqual(builds, 1, 'one build');
+    assertEqual(r.tg.calls.map((c) => c.method).join(), 'sendMessage,sendMediaGroup,sendPhoto,sendMessage', 'order');
+    assert(r.tg.calls[0].text.includes('<b>BTC</b>'), 'summary first');
+    const album = r.tg.calls[1];
+    assertEqual(album.media.length, 3, 'BTC 1m, 3m, 15m');
+    assert(album.media.every((m, i) => m.type === 'photo' && m.media === `attach://photo${i}` && m.parse_mode === 'HTML'), JSON.stringify(album.media));
+    assert(album.files.every((f) => f && f.size === fakePng.length), 'file parts');
+    assert(album.media[1].caption.startsWith('BTC 3m · LONG forming') && album.media[1].caption.includes('BTC 3m · SHORT proto'), album.media[1].caption);
+    assert(r.tg.calls[2].caption.startsWith('ETH 5m · SHORT triggering'), 'single ETH chart via sendPhoto');
+    assertEqual(r.tg.calls[3].text, 'SOL · no live flags', 'SOL failed only -> no live flags');
+    const one = await hook({ text: '/flags eth' });
+    assertEqual(one.tg.calls.map((c) => c.method).join(), 'sendMessage,sendMessage', 'fixture ETH has no candidates');
+    assertEqual(one.tg.calls[1].text, 'ETH · no live flags', 'no-live line');
+  });
+
+  await test('/flags: a failing or slow chart falls back to caption text + [chart unavailable]; the rest still sends', async () => {
+    const render = async (p, req) => {
+      if (req.timeframe === '3m') throw new Error('boom');
+      return fakeRender();
+    };
+    const r = await hook({ text: '/flags BTC', build: async () => albumPayload(), render });
+    assertEqual(r.tg.calls.map((c) => c.method).join(), 'sendMessage,sendMediaGroup,sendMessage', 'order');
+    assertEqual(r.tg.calls[1].media.length, 2, '1m + 15m');
+    assert(r.tg.calls[2].text.startsWith('BTC 3m · LONG forming') && r.tg.calls[2].text.endsWith('[chart unavailable]'), r.tg.calls[2].text);
+    const tg = fakeTelegram();
+    const bot = createBotClient({ token: TOKEN, fetchImpl: tg.fetchImpl });
+    const replies = [];
+    const out = await sendFlagAlbums({ bot, chatId: 1, payload: albumPayload(), only: 'ETH', render: () => new Promise(() => {}), reply: async (t) => replies.push(t), budgetMs: 20 });
+    assertEqual(`${out.images}|${out.failed}`, '0|1', 'timed out');
+    assert(replies[0].endsWith('[chart unavailable]'), replies[0]);
+  });
+
+  await test('/flags: 9-image cap with a limit line; Charts -> All flags runs the albums; allowlist still enforced; webhook maxDuration 60', async () => {
+    const tfs = ['1m', '3m', '5m', '15m', '1h'];
+    const five = (s) => formSym(tfs.map((tf) => fc(`${s}${tf}`, tf, 'long', 'forming')));
+    let rendered = 0;
+    const r = await hook({ text: '/flags', build: async () => payload({ BTC: five('B'), ETH: five('E'), SOL: five('S') }), render: async () => { rendered++; return fakeRender(); } });
+    assertEqual(rendered, 9, 'nine renders');
+    const sentImages = r.tg.calls.reduce((n, c) => n + (c.method === 'sendMediaGroup' ? c.media.length : c.method === 'sendPhoto' ? 1 : 0), 0);
+    assertEqual(sentImages, 9, 'nine images');
+    assert(r.tg.calls[r.tg.calls.length - 1].text.startsWith('+6 more flag charts over the 9-image limit'), r.tg.calls[r.tg.calls.length - 1].text);
+    assert(!r.tg.calls.some((c) => c.text === 'SOL · no live flags'), 'capped symbol is not "no live flags"');
+    assertEqual(JSON.stringify(parseCallbackData('flags:all')), JSON.stringify({ cmd: 'flags', args: [], rest: '', known: true }), 'callback');
+    const t = await tap({ data: 'flags:all', build: async () => albumPayload() });
+    assertEqual(t.tg.calls.map((c) => c.method).join(), 'answerCallbackQuery,sendMessage,sendMediaGroup,sendPhoto,sendMessage', 'button runs /flags');
+    let built = 0;
+    const stranger = await hook({ text: '/flags', from: 999, build: async () => { built++; return albumPayload(); } });
+    assertEqual(`${stranger.tg.calls.length}|${built}`, '0|0', 'stranger: silence');
+    const st = await tap({ data: 'flags:all', from: 999, build: async () => { built++; return albumPayload(); } });
+    assertEqual(`${st.tg.calls.length}|${built}`, '0|0', 'stranger tap: silence');
+    assertEqual(webhookConfig.maxDuration, 60, 'maxDuration');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

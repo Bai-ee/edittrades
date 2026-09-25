@@ -15,6 +15,9 @@
  * Every accepted update answers 200 so Telegram does not redeliver it. Secrets, message
  * text and user ids are never logged.
  *
+ * /flags (the Flags label, and Charts -> All flags) sends the text summary, then chart
+ * albums of every live flag (sendFlagAlbums), from one full build.
+ *
  * Buttons: plain replies carry the persistent reply keyboard (lib/telegram.js MENU_ROWS;
  * a tapped label maps to its command). Inline buttons arrive as `callback_query` updates
  * (setWebhook allowed_updates ["message","callback_query"]): the same allowlist applies,
@@ -33,8 +36,13 @@ import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
   parseState, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet,
-  parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot
+  parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot,
+  collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS
 } from '../lib/telegram.js';
+
+// /flags renders up to 9 charts and sends several Bot API requests (5 s each at most)
+// after one build; 60 s keeps that inside the function limit (Pro allows it).
+export const config = { maxDuration: 60 };
 
 function safeCompare(a, b) {
   const hashA = crypto.createHash('sha256').update(String(a)).digest();
@@ -80,6 +88,57 @@ export function testAlertSample(payload) {
   const p = typeof btc.price === 'number' ? btc.price : 100000;
   const plan = { timeframe: '5m', direction: 'long', entry: p, stop: p * 0.995, tp1: p * 1.0125, grossRR: 2.5, netRR: 2.1 };
   return { symbol: 'BTC', sample: { ...btc, flagTradePlan: plan, flagRecommendation: { class: 'GOOD', changeConditions: [] } }, chart: { symbol: 'BTC', timeframe: '5m' } };
+}
+
+/** Resolves `promise`, or rejects with a TimeoutError after `ms`. */
+function withBudget(promise, ms) {
+  let timer;
+  const expiry = new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('chart budget exceeded'), { name: 'TimeoutError' })), ms); });
+  return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The /flags albums from one full (non-compact) payload: every live flag grouped per
+ * symbol and timeframe, at most MAX_FLAG_CHARTS images, rendered in parallel with a
+ * per-image budget, one media group per symbol. A symbol with no live flag gets the one
+ * line "BTC · no live flags"; a chart that fails to render goes out as its caption text
+ * plus [chart unavailable]. Never throws on a render failure.
+ * @returns {Promise<{images:number, failed:number, dropped:number}>}
+ */
+export async function sendFlagAlbums({ bot, chatId, payload, only = null, render, reply, budgetMs = FLAG_CHART_BUDGET_MS, maxCharts = MAX_FLAG_CHARTS }) {
+  const { groups, dropped } = capFlagCharts(collectLiveFlags(payload, only), maxCharts);
+  const closedThrough = payload && payload.closedThrough;
+  const jobs = groups.flatMap((g) => g.charts);
+  const settled = await Promise.allSettled(jobs.map((ch) => withBudget(
+    Promise.resolve().then(() => render(payload, { symbol: ch.symbol, timeframe: ch.timeframe }, albumSeries(payload, ch.symbol, ch.timeframe))),
+    budgetMs
+  )));
+  const results = new Map(jobs.map((ch, i) => [ch, settled[i]]));
+  let images = 0;
+  let failed = 0;
+  for (const g of groups) {
+    if (!g.charts.length) {
+      if (!g.capped) await reply(formatNoLiveFlags(g.symbol)); // capped away: covered by the limit line
+      continue;
+    }
+    const photos = [];
+    const unavailable = [];
+    for (const ch of g.charts) {
+      const r = results.get(ch);
+      const caption = formatFlagCaption(ch, closedThrough);
+      if (r.status === 'fulfilled' && r.value && r.value.png) photos.push({ png: r.value.png, caption });
+      else unavailable.push(`${caption}\n[chart unavailable]`);
+    }
+    for (const chunk of chunkMediaGroup(photos)) {
+      const sent = await bot.sendMediaGroup(chatId, chunk);
+      if (sent.ok) images += chunk.length;
+      else unavailable.push(...chunk.map((p) => `${p.caption}\n[chart unavailable]`));
+    }
+    failed += unavailable.length;
+    if (unavailable.length) await reply(unavailable.join('\n\n'));
+  }
+  if (dropped) await reply(`+${dropped} more flag chart${dropped === 1 ? '' : 's'} over the ${maxCharts}-image limit; send /flags BTC, /flags ETH or /flags SOL.`);
+  return { images, failed, dropped };
 }
 
 /**
@@ -179,7 +238,12 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     } else if (cmd === 'flags') {
       const sym = parsed.args[0] ? parseSymbol(parsed.args[0]) : null;
       if (parsed.args[0] && !sym) await reply('Usage: /flags [BTC|ETH|SOL]');
-      else await reply(formatFlags(filterPayload(await build(), { compact: true }), sym));
+      else {
+        // One full build (candles for the charts); the text summary reads its compact view.
+        const payload = await build();
+        await reply(formatFlags(filterPayload(payload, { compact: true }), sym));
+        await sendFlagAlbums({ bot, chatId, payload, only: sym, render, reply });
+      }
     } else if (cmd === 'wallet') {
       const payload = await build();
       await reply(formatWallet(payload && payload.account));
