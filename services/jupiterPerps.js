@@ -80,7 +80,6 @@ const TRADED = Object.freeze(['BTC', 'ETH', 'SOL']);
 const isPosNum = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const n6 = (v) => Number(v) / USD_DECIMALS;
 const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
-const tokenAmountToUsd = (amount, decimals) => Number(amount) / 10 ** (Number.isFinite(decimals) ? decimals : 6);
 
 /**
  * Derive Position PDA
@@ -318,11 +317,13 @@ export async function checkCustodyCapacity(market, requiredSize, opts = {}) {
   const { custodyAddress, custody } = await resolveTradeCustodies(rpcClient, symbol, direction, opts);
   const c = custody.data;
   const maxUsd = n6(c.maxPositionSizeUsd);
-  // Utilization proxy (Custody.assets, jup-perps-client Assets type): guaranteedUsd is
-  // already USD for the asset (long) custody; a stable custody's locked amount is valued
-  // near 1:1 USD. This is a best-effort proxy -- the exact CustodyAmountLimit check is
-  // enforced on-chain and may reject a transaction this estimate would have allowed.
-  const usedUsd = c.isStable ? tokenAmountToUsd(c.assets.locked, c.decimals) : n6(c.assets.guaranteedUsd);
+  // resolveTradeCustodies always returns the traded asset's own custody here (BTC/ETH/SOL,
+  // never USDC/USDT), for both directions -- Custody.assets.globalShortSizes exists
+  // precisely so short exposure is also tracked on this same custody. guaranteedUsd is
+  // already USD (Custody.assets, jup-perps-client Assets type). This is a best-effort
+  // utilization proxy -- the exact CustodyAmountLimit check is enforced on-chain and may
+  // reject a transaction this estimate would have allowed.
+  const usedUsd = n6(c.assets.guaranteedUsd);
   const currentAssets = n6(c.assets.owned);
   const headroomUsd = maxUsd > 0 ? r2(maxUsd - usedUsd) : null;
   return {

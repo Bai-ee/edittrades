@@ -26,10 +26,15 @@ import {
   resolveTradeCustodies,
   buildOpenPosition,
   buildClosePosition,
+  buildUpdateStops,
+  buildReplaceTriggerRequest,
   sendSigned,
   createKitSigner,
   openPerpPosition,
   closePerpPosition,
+  getPerpQuote,
+  checkCustodyCapacity,
+  getPerpMarkets,
 } from './services/jupiterPerps.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -347,6 +352,94 @@ async function main() {
     const sendSignedStart = src.indexOf('export async function sendSigned(');
     const nextExportAfter = src.indexOf('\nexport ', sendSignedStart + 1);
     assert(sendSignedStart !== -1 && idx > sendSignedStart && (nextExportAfter === -1 || idx < nextExportAfter), 'the one call site is inside the sendSigned function body');
+  });
+
+  console.log('\nupdate-stops: create/replace trigger requests (services/jupiterPerps.js)');
+
+  await test('buildUpdateStops: creates new Trigger decrease requests for SL and/or TP, same threshold rules as open', async () => {
+    const rpc = fakeRpc();
+    const both = await buildUpdateStops({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', direction: 'long', stop: 83000, tp: 87000, positionSizeUsd: 200, owner: OWNER, connection: rpc });
+    eq(both.meta.triggers.stopLoss.triggerAboveThreshold, false, 'long SL below');
+    eq(both.meta.triggers.takeProfit.triggerAboveThreshold, true, 'long TP above');
+    const decreaseIxs = both.transaction.instructions.filter((ix) => hasDiscriminator(ix, CREATE_DECREASE_POSITION_REQUEST2_DISCRIMINATOR));
+    eq(decreaseIxs.length, 2, 'two new trigger requests built');
+    const decoded = decreaseIxs.map((ix) => jupPerpsClient.getCreateDecreasePositionRequest2InstructionDataDecoder().decode(ix.data));
+    const prices = decoded.map((d) => optionValue(d.triggerPrice)).sort();
+    eq(prices[0], 83_000_000_000n, 'SL triggerPrice round-trips');
+    eq(prices[1], 87_000_000_000n, 'TP triggerPrice round-trips');
+
+    const stopOnly = await buildUpdateStops({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', direction: 'short', stop: 88000, positionSizeUsd: 200, owner: OWNER, connection: rpc });
+    eq(Object.keys(stopOnly.meta.triggers).length, 1, 'only stopLoss requested');
+    eq(stopOnly.meta.triggers.stopLoss.triggerAboveThreshold, true, 'short SL above');
+  });
+
+  await test('buildUpdateStops: throws without stop or tp (nothing to update)', async () => {
+    const rpc = fakeRpc();
+    let threw = false;
+    try { await buildUpdateStops({ positionId: PublicKey.default.toBase58(), market: 'BTCUSDT', direction: 'long', owner: OWNER, connection: rpc }); } catch { threw = true; }
+    assert(threw, 'must throw when neither stop nor tp given');
+  });
+
+  await test('buildReplaceTriggerRequest: updateDecreasePositionRequest2 round trip for an already-known pending request', async () => {
+    const rpc = fakeRpc();
+    const opened = await buildOpenPosition({ market: 'BTCUSDT', direction: 'long', sizeUsd: 200, leverage: 5, stopLoss: 84390, owner: OWNER, connection: rpc });
+    const pendingSL = opened.meta.triggers.stopLoss;
+    const replaced = await buildReplaceTriggerRequest({ positionId: opened.meta.positionId, positionRequestId: pendingSL.positionRequestId, sizeUsdDelta: 200, triggerPrice: 84100, market: 'BTCUSDT', direction: 'long', owner: OWNER, connection: rpc });
+    const ix = replaced.transaction.instructions.find((ix2) => hasDiscriminator(ix2, jupPerpsClient.UPDATE_DECREASE_POSITION_REQUEST2_DISCRIMINATOR));
+    assert(ix, 'update-decrease-request2 instruction found');
+    const decoded = jupPerpsClient.getUpdateDecreasePositionRequest2InstructionDataDecoder().decode(ix.data);
+    eq(decoded.triggerPrice, 84_100_000_000n, 'new triggerPrice round-trips');
+    eq(decoded.sizeUsdDelta, 200_000_000n, 'sizeUsdDelta round-trips');
+  });
+
+  console.log('\nreal quote + custody capacity from on-chain fixture data (services/jupiterPerps.js)');
+
+  await test('getPerpQuote: fees from custody increasePositionBps, liquidationPrice only when a markPrice is given', async () => {
+    const rpc = fakeRpc();
+    const noMark = await getPerpQuote('BTCUSDT', 'long', 1000, 5, { connection: rpc });
+    eq(noMark.openFeeBps, 10, 'increasePositionBps from the fixture custody');
+    eq(noMark.closeFeeBps, 10, 'decreasePositionBps from the fixture custody');
+    eq(noMark.estimatedFees, 1, 'fees = 1000 * 10bps/10000 (no price-impact bps in this fixture)');
+    eq(noMark.liquidationPrice, null, 'no markPrice -> no liquidationPrice');
+    eq(noMark.marginRequired, 200, 'marginRequired = size/leverage');
+
+    const withMark = await getPerpQuote('BTCUSDT', 'long', 1000, 5, { connection: rpc, markPrice: 90000 });
+    eq(withMark.liquidationPrice, 72270, 'liq = 90000 * (1 - (1/5 - 0.003))');
+    const short = await getPerpQuote('BTCUSDT', 'short', 1000, 5, { connection: rpc, markPrice: 90000 });
+    eq(short.liquidationPrice, 107730, 'short liq = 90000 * (1 + (1/5 - 0.003))');
+  });
+
+  await test('getPerpQuote: rejects out-of-range leverage and below-minimum margin before any chain call', async () => {
+    const rpc = fakeRpc();
+    let threw1 = false;
+    try { await getPerpQuote('BTCUSDT', 'long', 100, 500, { connection: rpc }); } catch { threw1 = true; }
+    assert(threw1, 'leverage > 200 rejected');
+    eq(rpc.calls.getMultipleAccounts, 0, 'no chain call before validation');
+    let threw2 = false;
+    try { await getPerpQuote('BTCUSDT', 'long', 0.001, 1, { connection: rpc }); } catch { threw2 = true; }
+    assert(threw2, 'below-minimum margin rejected');
+  });
+
+  await test('checkCustodyCapacity: numeric headroom = maxPositionSizeUsd - current utilization on the asset custody (both directions track exposure there: Custody.assets.globalShortSizes exists precisely for short exposure on the same custody)', async () => {
+    const rpc = fakeRpc();
+    const long = await checkCustodyCapacity('BTCUSDT', 500, { connection: rpc, direction: 'long' });
+    eq(long.maxPositionSizeUsd, 5_000_000, 'maxPositionSizeUsd from the fixture custody (5e12 / 1e6)');
+    eq(long.usedUsd, 1_000_000, 'usedUsd = guaranteedUsd for the (non-stable) asset custody');
+    eq(long.headroomUsd, 4_000_000, 'headroom = max - used');
+    eq(long.availableUsd, long.headroomUsd, 'availableUsd alias matches headroomUsd');
+    assert(typeof long.currentAssets === 'number', 'currentAssets present for executor compat');
+
+    const short = await checkCustodyCapacity('BTCUSDT', 500, { connection: rpc, direction: 'short' });
+    eq(short.custodyAddress, C.BTC, 'capacity is checked against the asset custody for both directions');
+    eq(short.headroomUsd, long.headroomUsd, 'same custody data -> same headroom regardless of direction');
+  });
+
+  await test('getPerpMarkets: resolves BTC/ETH/SOL by mint from the fixture pool, keyed by market symbol', async () => {
+    const rpc = fakeRpc();
+    const markets = await getPerpMarkets({ connection: rpc });
+    eq(Object.keys(markets).sort().join(','), 'BTCUSDT,ETHUSDT,SOLUSDT', 'all three markets resolved');
+    eq(markets.BTCUSDT.custodyAddress, C.BTC, 'BTC custody by mint');
+    eq(markets.BTCUSDT.tokenMint, PERP_MINTS.BTC, 'BTC mint');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
