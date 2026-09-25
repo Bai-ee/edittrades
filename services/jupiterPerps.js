@@ -26,12 +26,11 @@ import {
   setTransactionMessageLifetimeUsingBlockhash,
   appendTransactionMessageInstruction,
   signTransactionMessageWithSigners,
-  sendAndConfirmTransactionFactory,
   compileTransaction,
   pipe,
   address,
 } from '@solana/kit';
-import { getBase64EncodedWireTransaction } from '@solana/transactions';
+import { getBase64EncodedWireTransaction, getSignatureFromTransaction } from '@solana/transactions';
 import { getConnection, getWallet } from './walletManager.js';
 import { PublicKey, SystemProgram, ComputeBudgetProgram } from '@solana/web3.js';
 import {
@@ -56,6 +55,7 @@ const {
   getCreateDecreasePositionRequest2Instruction,
   getCreateDecreasePositionMarketRequestInstruction,
   getUpdateDecreasePositionRequest2Instruction,
+  getClosePositionRequestInstruction,
 } = jupPerpsClient;
 
 // Jupiter Perps Pool Address (mainnet)
@@ -520,16 +520,103 @@ function makeSimulate(transactionMessage) {
   };
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** landTransaction defaults (T-3 F, docs/PLAN_LIVE_PERPS_TEST.md "Transaction landing"). */
+export const DEFAULT_LAND_REBROADCAST_MS = 2000;
+export const DEFAULT_LAND_OBSERVE_POLL_MS = 1000;
+export const DEFAULT_LAND_MAX_WAIT_MS = 90000;
+
+/**
+ * Land an already-signed transaction: rebroadcast the IDENTICAL signed bytes every
+ * `rebroadcastEveryMs` while the outcome is unknown (a single send is routinely dropped
+ * between RPC and leader; resending the same signed bytes is idempotent on chain and can
+ * only help it land, never execute twice -- never resigns, never builds a new transaction).
+ * Declares EXPIRED only once the FINALIZED block height has passed the transaction's
+ * `lastValidBlockHeight` AND a fresh `getSignatureStatuses` lookup still finds nothing (a
+ * transaction with an expired blockhash cannot land in any future block, so nothing was
+ * charged). `maxWaitMs` is a last-resort ceiling: if neither a terminal status nor the
+ * expiry condition is reached by then, the transaction is reported EXPIRED without
+ * further waiting (the caller should treat this the same as a normal expiry -- nothing is
+ * known to have landed).
+ * @param {Object} signedTx - a signed @solana/kit transaction (messageBytes + signatures
+ *   [+ lifetimeConstraint.lastValidBlockHeight]), e.g. the internal result of
+ *   `signTransactionMessageWithSigners`
+ * @param {Object} [connection] - @solana/kit rpc; defaults to this module's rpc
+ * @param {Object} [opts]
+ * @param {number} [opts.rebroadcastEveryMs=2000]
+ * @param {number} [opts.observePollMs=1000]
+ * @param {number} [opts.maxWaitMs=90000]
+ * @returns {Promise<{status:'confirmed'|'expired'|'failed', signature:string, slot:number|null, err:*, logs:string[]|null}>}
+ */
+export async function landTransaction(signedTx, connection, opts = {}) {
+  const rpcClient = connection || rpc;
+  const rebroadcastEveryMs = Number.isFinite(opts.rebroadcastEveryMs) ? opts.rebroadcastEveryMs : DEFAULT_LAND_REBROADCAST_MS;
+  const observePollMs = Number.isFinite(opts.observePollMs) ? opts.observePollMs : DEFAULT_LAND_OBSERVE_POLL_MS;
+  const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : DEFAULT_LAND_MAX_WAIT_MS;
+  const signature = getSignatureFromTransaction(signedTx);
+  const wireTransaction = getBase64EncodedWireTransaction(signedTx);
+  const lastValidBlockHeight = signedTx.lifetimeConstraint && signedTx.lifetimeConstraint.lastValidBlockHeight !== undefined
+    ? BigInt(signedTx.lifetimeConstraint.lastValidBlockHeight) : null;
+
+  const fetchStatus = async () => {
+    const res = await rpcClient.getSignatureStatuses([signature], { searchTransactionHistory: false }).send();
+    return res && Array.isArray(res.value) ? res.value[0] || null : null;
+  };
+  const toResult = (status) => ({
+    status: status.err ? 'failed' : 'confirmed',
+    signature, slot: status.slot !== undefined && status.slot !== null ? Number(status.slot) : null,
+    err: status.err ?? null, logs: null,
+  });
+  const broadcast = async () => {
+    try {
+      await rpcClient.sendTransaction(wireTransaction, { encoding: 'base64', skipPreflight: true, maxRetries: 0n }).send();
+    } catch {
+      // A rebroadcast rejection (e.g. "already processed") is not itself a failure signal;
+      // the outcome is read from getSignatureStatuses, never from this call's own result.
+    }
+  };
+
+  const startMs = Date.now();
+  await broadcast();
+  let lastBroadcastMs = Date.now();
+  while (Date.now() - startMs < maxWaitMs) {
+    const status = await fetchStatus();
+    if (status && (status.err || status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized')) {
+      return toResult(status);
+    }
+    if (lastValidBlockHeight !== null) {
+      let finalizedHeight = null;
+      try { finalizedHeight = BigInt(await rpcClient.getBlockHeight({ commitment: 'finalized' }).send()); } catch { finalizedHeight = null; }
+      if (finalizedHeight !== null && finalizedHeight > lastValidBlockHeight) {
+        const recheck = await fetchStatus();
+        if (!recheck) return { status: 'expired', signature, slot: null, err: null, logs: null };
+        if (recheck.err || recheck.confirmationStatus === 'confirmed' || recheck.confirmationStatus === 'finalized') return toResult(recheck);
+        return { status: 'expired', signature, slot: null, err: null, logs: null };
+      }
+    }
+    if (Date.now() - lastBroadcastMs >= rebroadcastEveryMs) {
+      await broadcast();
+      lastBroadcastMs = Date.now();
+    }
+    await sleep(observePollMs);
+  }
+  return { status: 'expired', signature, slot: null, err: null, logs: null };
+}
+
 /**
  * The ONLY function in this module that broadcasts a transaction. Signs `transactionMessage`
- * with `signer` (a @solana/kit TransactionSigner) and either sends+confirms it, or, when
- * JUPITER_SIMULATE_ONLY=true, simulates it and returns without sending.
+ * with `signer` (a @solana/kit TransactionSigner) and either lands it (rebroadcast +
+ * expiry via `landTransaction`), or, when JUPITER_SIMULATE_ONLY=true, simulates it and
+ * returns without sending. Never resigns: exactly one signed transaction is produced and
+ * the same bytes are (re)broadcast until landTransaction reaches a terminal status.
  * @param {Object} transactionMessage - unsigned kit transaction message (a `build*` result's `.transaction`)
  * @param {Object} signer - @solana/kit signer (see createKitSigner)
  * @param {Object} [connection] - @solana/kit rpc; defaults to this module's rpc
- * @returns {Promise<{simulated:boolean, signature?:string, logs?:string[], unitsConsumed?:number|null, err?:*}>}
+ * @param {Object} [opts] - forwarded to landTransaction (rebroadcastEveryMs, observePollMs, maxWaitMs)
+ * @returns {Promise<{simulated:boolean, signature?:string, slot?:number|null, logs?:string[], unitsConsumed?:number|null, err?:*}>}
  */
-export async function sendSigned(transactionMessage, signer, connection) {
+export async function sendSigned(transactionMessage, signer, connection, opts = {}) {
   const rpcClient = connection || rpc;
   const messageWithSigner = setTransactionMessageFeePayerSigner(signer, transactionMessage);
   const signedTransaction = await signTransactionMessageWithSigners(messageWithSigner);
@@ -540,9 +627,13 @@ export async function sendSigned(transactionMessage, signer, connection) {
     }).send();
     return { simulated: true, logs: sim.value.logs || [], unitsConsumed: sim.value.unitsConsumed ?? null, err: sim.value.err ?? null };
   }
-  const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc: rpcClient });
-  const signature = await sendAndConfirm(signedTransaction, { commitment: 'confirmed' });
-  return { simulated: false, signature };
+  const landed = await landTransaction(signedTransaction, rpcClient, opts);
+  if (landed.status !== 'confirmed') {
+    const err = new Error(`Transaction ${landed.status}${landed.err ? `: ${JSON.stringify(landed.err)}` : ''} (signature ${landed.signature})`);
+    err.landResult = landed;
+    throw err;
+  }
+  return { simulated: false, signature: landed.signature, slot: landed.slot };
 }
 
 /** Wrap a @solana/web3.js Keypair as a @solana/kit signer (nacl-backed, same as the pre-T-3-D code). */
@@ -953,6 +1044,151 @@ export async function buildReplaceTriggerRequest({ positionId, positionRequestId
   };
 }
 
+/**
+ * Build (do not sign/send) a cancel of a not-yet-filled increase-position request,
+ * reclaiming its escrowed collateral back to the owner's ATA and closing the request
+ * account (rent back to the owner).
+ *
+ * IDL instruction used: closePositionRequest. ASSUMPTION (T-3 F, unverified against a live
+ * cluster -- see the F master-prompt handback): this instruction's account list requires a
+ * `keeper` signer and a (non-signer) `owner`; this module passes the SAME wallet address for
+ * both (the requester cancelling its own unfilled request, acting as its own keeper), which
+ * matches the existing pattern elsewhere in this file of passing plain address strings for
+ * "signer" IDL fields and letting the fee-payer signature (the same wallet) cover them. The
+ * `position` account is passed readonly and not required to already hold decoded data --
+ * unverified whether the program tolerates this for a position that has never been filled.
+ * @param {Object} p
+ * @param {string} p.positionId - Position PDA (base58)
+ * @param {string} p.positionRequestId - the unfilled increase request's PDA (base58)
+ * @param {string} p.market
+ * @param {'long'|'short'} p.direction
+ * @param {string} p.owner
+ * @param {Object} [p.connection]
+ */
+export async function buildCancelIncreaseRequest({ positionId, positionRequestId, market, direction, owner, connection } = {}) {
+  eventAuthority(); // derived + asserted before any instruction is built
+  const rpcClient = connection || rpc;
+  if (!positionId || !positionRequestId) throw new Error('positionId and positionRequestId are required');
+  if (!owner) throw new Error('owner (base58 address) is required');
+  const symbol = symbolFromMarket(market);
+  if (!symbol) throw new Error(`Unsupported market: ${market}`);
+  const { collateralCustody } = await resolveTradeCustodies(rpcClient, symbol, direction);
+  const ownerPubkey = new PublicKey(owner);
+  const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
+  const positionPDA = new PublicKey(positionId);
+  const positionRequestPDA = new PublicKey(positionRequestId);
+  const collateralMint = new PublicKey(collateralCustody.data.mint);
+  const ownerAta = getAssociatedTokenAddressSync(collateralMint, ownerPubkey, false);
+  const positionRequestAta = getAssociatedTokenAddressSync(collateralMint, positionRequestPDA, true);
+
+  const ix = getClosePositionRequestInstruction({
+    keeper: ownerPubkey.toBase58(),
+    owner: ownerPubkey.toBase58(),
+    ownerAta: ownerAta.toBase58(),
+    pool: poolPubkey.toBase58(),
+    positionRequest: positionRequestPDA.toBase58(),
+    positionRequestAta: positionRequestAta.toBase58(),
+    position: positionPDA.toBase58(),
+    tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
+    eventAuthority: eventAuthority(),
+    program: PERPETUALS_PROGRAM_ADDRESS,
+  }, { programAddress: PERPETUALS_PROGRAM_ADDRESS });
+
+  const { value: latestBlockhash } = await rpcClient.getLatestBlockhash().send();
+  const instructions = [...computeBudgetInstructions(), ix];
+  const transactionMessage = buildTransactionMessage(address(ownerPubkey.toBase58()), instructions, latestBlockhash);
+
+  return {
+    transaction: transactionMessage,
+    meta: { positionId, positionRequestId },
+    simulate: makeSimulate(transactionMessage),
+    send: (signer, conn) => sendSigned(transactionMessage, signer, conn || rpcClient),
+  };
+}
+
+/** {data:Uint8Array}-shaped getMultipleAccounts/getAccountInfo row -> raw account bytes, or null. */
+function accountBytes(acc) {
+  if (!acc || !acc.data) return null;
+  const raw = Array.isArray(acc.data) ? acc.data[0] : acc.data;
+  return typeof raw === 'string' ? Buffer.from(raw, 'base64') : raw;
+}
+
+/**
+ * Which of `addresses` currently exist on chain (non-null account with data), in order.
+ * Used to confirm a set of trigger-request PDAs actually landed (F3 "verify").
+ * @param {Array<string>} addresses
+ * @param {Object} [connection]
+ * @returns {Promise<boolean[]>}
+ */
+export async function fetchAccountsExist(addresses, connection) {
+  const rpcClient = connection || rpc;
+  const addrs = (addresses || []).map((a) => address(String(a)));
+  if (!addrs.length) return [];
+  const res = await rpcClient.getMultipleAccounts(addrs, { encoding: 'base64', commitment: 'confirmed' }).send();
+  const values = res && Array.isArray(res.value) ? res.value : [];
+  return addrs.map((_, i) => Boolean(accountBytes(values[i])));
+}
+
+/** waitForFill defaults (T-3 F, docs/PLAN_LIVE_PERPS_TEST.md "Keeper fill is asynchronous"). */
+export const DEFAULT_FILL_POLL_MS = 1000;
+export const DEFAULT_FILL_MAX_WAIT_MS = 60000;
+
+/**
+ * Poll until a submitted increase-position request is filled by the keeper (Perps v2:
+ * `buildOpenPosition` only SUBMITS a request; a keeper fills it seconds later).
+ *
+ * Filled: the request account is gone or decodes `executed:true`, AND the position
+ * account decodes with `sizeUsd > 0`. Not filled: both accounts are gone (the keeper
+ * rejected/cancelled the request without ever creating a position) -> `reason:'rejected'`;
+ * or `maxWaitMs` elapses with the request still pending -> `reason:'timeout'`.
+ *
+ * ASSUMPTION (T-3 F, unverified against a live cluster): PositionRequest has no explicit
+ * "rejected" status field beyond `executed:boolean` (see node_modules/jup-perps-client
+ * dist/accounts/positionRequest.d.ts) -- "both accounts gone" is inferred to mean the
+ * keeper closed the request without filling it, not confirmed from IDL docs.
+ * @param {string} positionRequestPDA
+ * @param {string} positionPDA
+ * @param {Object} [connection] - @solana/kit rpc; defaults to this module's rpc
+ * @param {Object} [opts]
+ * @param {number} [opts.pollMs=1000]
+ * @param {number} [opts.maxWaitMs=60000]
+ * @param {Object<string,string>} [opts.symbolByCustody]
+ * @param {Object<string,number>} [opts.markPrices]
+ * @returns {Promise<{filled:true, position:Object}|{filled:false, reason:'timeout'|'rejected'}>}
+ */
+export async function waitForFill(positionRequestPDA, positionPDA, connection, opts = {}) {
+  const rpcClient = connection || rpc;
+  const pollMs = Number.isFinite(opts.pollMs) ? opts.pollMs : DEFAULT_FILL_POLL_MS;
+  const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : DEFAULT_FILL_MAX_WAIT_MS;
+  const reqAddr = address(String(positionRequestPDA));
+  const posAddr = address(String(positionPDA));
+
+  const startMs = Date.now();
+  for (;;) {
+    const res = await rpcClient.getMultipleAccounts([reqAddr, posAddr], { encoding: 'base64', commitment: 'confirmed' }).send();
+    const values = res && Array.isArray(res.value) ? res.value : [null, null];
+    const reqBytes = accountBytes(values[0]);
+    const posBytes = accountBytes(values[1]);
+
+    let executed = false;
+    if (reqBytes) {
+      try { executed = Boolean(jupPerpsClient.getPositionRequestDecoder().decode(reqBytes).executed); } catch { executed = false; }
+    }
+    let position = null;
+    if (posBytes) {
+      try {
+        position = decodePerpPositionAccount(posBytes, {
+          positionId: String(positionPDA), symbolByCustody: opts.symbolByCustody || {}, markPrices: opts.markPrices || {},
+        });
+      } catch { position = null; }
+    }
+    if ((!reqBytes || executed) && position && position.sizeUsd > 0) return { filled: true, position };
+    if (!reqBytes && !position) return { filled: false, reason: 'rejected' };
+    if (Date.now() - startMs >= maxWaitMs) return { filled: false, reason: 'timeout' };
+    await sleep(pollMs);
+  }
+}
+
 // ------------------------------------------------------------ legacy simple-signature API
 //
 // Kept for the frozen executor contract (docs/PLAN_TELEGRAM_EXECUTION.md "Contract between
@@ -1192,9 +1428,8 @@ export async function getPerpPositions(walletAddress = null, opts = {}) {
     if (!values) return { ok: false, positions: [], error: 'rpc returned no account list' };
     const positions = [];
     values.forEach((acc, i) => {
-      if (!acc || !acc.data) return;
-      const raw = Array.isArray(acc.data) ? acc.data[0] : acc.data;
-      const bytes = typeof raw === 'string' ? Buffer.from(raw, 'base64') : raw;
+      const bytes = accountBytes(acc);
+      if (!bytes) return;
       const row = decodePerpPositionAccount(bytes, {
         positionId: candidates[i].address,
         symbolByCustody,

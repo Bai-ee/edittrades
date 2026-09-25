@@ -28,6 +28,7 @@ import {
   buildClosePosition,
   buildUpdateStops,
   buildReplaceTriggerRequest,
+  buildCancelIncreaseRequest,
   sendSigned,
   createKitSigner,
   openPerpPosition,
@@ -40,7 +41,12 @@ import {
   deriveEventAuthority,
   EXPECTED_EVENT_AUTHORITY,
   DEFAULT_MAX_SLIPPAGE_BPS,
+  landTransaction,
+  waitForFill,
+  fetchAccountsExist,
 } from './services/jupiterPerps.js';
+import { setTransactionMessageFeePayerSigner, signTransactionMessageWithSigners } from '@solana/kit';
+import { getSignatureFromTransaction } from '@solana/transactions';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 let passed = 0;
@@ -379,14 +385,201 @@ async function main() {
     assert(nacl.sign.detached.verify(message, sig, TEST_KEYPAIR.publicKey.toBytes()), 'signature verifies against the test keypair');
   });
 
-  await test('no code path in services/jupiterPerps.js broadcasts a transaction outside sendSigned', () => {
+  await test('no code path in services/jupiterPerps.js broadcasts a transaction outside sendSigned -> landTransaction (T-3 F)', () => {
     const src = readFileSync(path.join(root, 'services/jupiterPerps.js'), 'utf8');
-    const matches = [...src.matchAll(/sendAndConfirmTransactionFactory\s*\(/g)];
-    eq(matches.length, 1, `sendAndConfirmTransactionFactory must appear exactly once (inside sendSigned), found ${matches.length}`);
-    const idx = matches[0].index;
+    // T-3 F: sendSigned no longer calls sendAndConfirmTransactionFactory directly -- it
+    // delegates to landTransaction, the single place that calls rpc.sendTransaction (so a
+    // dropped send can be safely rebroadcast with the identical signed bytes).
+    assert(!/sendAndConfirmTransactionFactory/.test(src), 'sendAndConfirmTransactionFactory must not appear (landTransaction replaced it)');
+    const sendTxMatches = [...src.matchAll(/rpcClient\.sendTransaction\s*\(/g)];
+    eq(sendTxMatches.length, 1, `rpc.sendTransaction must appear exactly once (inside landTransaction), found ${sendTxMatches.length}`);
+    const idx = sendTxMatches[0].index;
+    const landStart = src.indexOf('export async function landTransaction(');
+    const nextExportAfter = src.indexOf('\nexport ', landStart + 1);
+    assert(landStart !== -1 && idx > landStart && (nextExportAfter === -1 || idx < nextExportAfter), 'the one send call site is inside landTransaction');
     const sendSignedStart = src.indexOf('export async function sendSigned(');
-    const nextExportAfter = src.indexOf('\nexport ', sendSignedStart + 1);
-    assert(sendSignedStart !== -1 && idx > sendSignedStart && (nextExportAfter === -1 || idx < nextExportAfter), 'the one call site is inside the sendSigned function body');
+    const sendSignedEnd = src.indexOf('\nexport ', sendSignedStart + 1);
+    const sendSignedBody = src.slice(sendSignedStart, sendSignedEnd === -1 ? undefined : sendSignedEnd);
+    assert(!/rpcClient\.sendTransaction\s*\(/.test(sendSignedBody), 'sendSigned must not call rpc.sendTransaction directly; it must go through landTransaction');
+    assert(/landTransaction\s*\(/.test(sendSignedBody), 'sendSigned calls landTransaction');
+  });
+
+  console.log('\nlandTransaction / waitForFill / buildCancelIncreaseRequest (T-3 F, services/jupiterPerps.js)');
+
+  /** A real signed @solana/kit transaction (fixture pool/custody, throwaway test keypair). */
+  async function realSignedTx() {
+    const rpc = fakeRpc();
+    const built = await buildOpenPosition({ market: 'SOLUSDT', referencePrice: REF.SOLUSDT, direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: rpc });
+    const signer = createKitSigner(TEST_KEYPAIR);
+    const messageWithSigner = setTransactionMessageFeePayerSigner(signer, built.transaction);
+    return signTransactionMessageWithSigners(messageWithSigner);
+  }
+
+  /** Fake landing rpc: scripted getSignatureStatuses / getBlockHeight sequences, records every sendTransaction call. */
+  function fakeLandingRpc({ statuses = [], heights = [], sendThrows = false } = {}) {
+    let si = 0;
+    let hi = 0;
+    const calls = { send: 0, status: 0, height: 0, wires: [] };
+    return {
+      calls,
+      sendTransaction: (wire) => ({
+        send: async () => {
+          calls.send++;
+          calls.wires.push(wire);
+          if (sendThrows) throw new Error('send rejected: already processed');
+          return 'ignored-by-landTransaction';
+        }
+      }),
+      getSignatureStatuses: () => ({
+        send: async () => {
+          calls.status++;
+          const v = statuses.length ? statuses[Math.min(si, statuses.length - 1)] ?? null : null;
+          si++;
+          return { value: [v] };
+        }
+      }),
+      getBlockHeight: () => ({
+        send: async () => {
+          calls.height++;
+          const v = heights.length ? heights[Math.min(hi, heights.length - 1)] : 0n;
+          hi++;
+          return v;
+        }
+      }),
+    };
+  }
+
+  await test('landTransaction: dropped then rebroadcast then confirmed; identical signed bytes every time (no resign)', async () => {
+    const signedTx = await realSignedTx();
+    const expectedSig = getSignatureFromTransaction(signedTx);
+    const rpc = fakeLandingRpc({ statuses: [null, null, { err: null, confirmationStatus: 'confirmed', slot: 42n }], heights: [500n] });
+    const result = await landTransaction(signedTx, rpc, { rebroadcastEveryMs: 0, observePollMs: 1, maxWaitMs: 3000 });
+    eq(result.status, 'confirmed', 'confirmed');
+    eq(result.signature, expectedSig, 'signature matches the signed transaction (derived once, never resigned)');
+    eq(result.slot, 42, 'slot surfaced');
+    assert(rpc.calls.send >= 2, `rebroadcast happened at least once (sent ${rpc.calls.send} times)`);
+    assert(rpc.calls.wires.every((w) => w === rpc.calls.wires[0]), 'every (re)broadcast sends the identical signed wire bytes');
+  });
+
+  await test('landTransaction: EXPIRED only once the finalized block height passes lastValidBlockHeight AND a fresh status lookup is empty', async () => {
+    const signedTx = await realSignedTx();
+    const rpc = fakeLandingRpc({ statuses: [null, null, null, null], heights: [500n, 1500n] });
+    const result = await landTransaction(signedTx, rpc, { rebroadcastEveryMs: 0, observePollMs: 1, maxWaitMs: 3000 });
+    eq(result.status, 'expired', 'expired');
+    eq(result.err, null, 'no err on a clean expiry');
+  });
+
+  await test('landTransaction: FAILED surfaces the on-chain err + slot from getSignatureStatuses', async () => {
+    const signedTx = await realSignedTx();
+    const rpc = fakeLandingRpc({ statuses: [{ err: { InstructionError: [0, 'Custom'] }, confirmationStatus: 'confirmed', slot: 7n }] });
+    const result = await landTransaction(signedTx, rpc, { rebroadcastEveryMs: 0, observePollMs: 1, maxWaitMs: 3000 });
+    eq(result.status, 'failed', 'failed');
+    eq(result.slot, 7, 'slot');
+    eq(JSON.stringify(result.err), JSON.stringify({ InstructionError: [0, 'Custom'] }), 'err surfaced verbatim');
+    // KNOWN LIMITATION (T-3 F): getSignatureStatuses carries no program logs; landTransaction
+    // cannot populate `logs` from it. logs stays null on every outcome (see the handback).
+    eq(result.logs, null, 'logs unavailable from getSignatureStatuses (documented limitation)');
+  });
+
+  await test('sendSigned (non-simulate path): lands via landTransaction; throws with .landResult on a non-confirmed outcome', async () => {
+    const rpc = fakeRpc();
+    const built = await buildOpenPosition({ market: 'SOLUSDT', referencePrice: REF.SOLUSDT, direction: 'long', sizeUsd: 10, leverage: 2, owner: OWNER, connection: rpc });
+    const signer = createKitSigner(TEST_KEYPAIR);
+    const landingRpc = fakeLandingRpc({ statuses: [null, null], heights: [2000n] }); // already past lastValidBlockHeight=1000n
+    let threw = null;
+    try {
+      await sendSigned(built.transaction, signer, landingRpc, { rebroadcastEveryMs: 0, observePollMs: 1, maxWaitMs: 1000 });
+    } catch (err) {
+      threw = err;
+    }
+    assert(threw, 'must throw on a non-confirmed landing outcome');
+    assert(threw.landResult && threw.landResult.status === 'expired', `expected landResult.status expired, got ${JSON.stringify(threw.landResult)}`);
+  });
+
+  // ---- waitForFill fixtures: hand-encoded PositionRequest / Position accounts (same IDL
+  // encoders used by the executor's on-chain reads elsewhere in this suite / test-execution.js).
+  function encPositionRequest(o = {}) {
+    return jupPerpsClient.getPositionRequestEncoder().encode({
+      owner: OWNER, pool: POOL, custody: C.BTC, position: PublicKey.default.toBase58(), mint: PERP_MINTS.BTC,
+      openTime: 0n, updateTime: 0n, sizeUsdDelta: 200_000_000n, collateralDelta: 40_000_000n,
+      requestChange: jupPerpsClient.RequestChange.Increase, requestType: RequestType.Market, side: Side.Long,
+      priceSlippage: null, jupiterMinimumOut: null, preSwapAmount: null, triggerPrice: null, triggerAboveThreshold: null, entirePosition: null,
+      executed: false, counter: 1n, bump: 255, referral: null,
+      ...o,
+    });
+  }
+  function encPositionAcc(o = {}) {
+    return jupPerpsClient.getPositionEncoder().encode({
+      owner: OWNER, pool: POOL, custody: C.BTC, collateralCustody: C.BTC, openTime: 1790000000n, updateTime: 1790000100n, side: 1,
+      price: 84_000_000_000n, sizeUsd: 200_000_000n, collateralUsd: 40_000_000n, realisedPnlUsd: 0n, cumulativeInterestSnapshot: 0n, lockedAmount: 0n, bump: 254,
+      ...o,
+    });
+  }
+  /** Fake rpc for waitForFill: one [reqBytes|null, posBytes|null] pair per getMultipleAccounts call (last entry repeats). */
+  function fakeFillRpc(sequence) {
+    let i = 0;
+    const calls = { getMultipleAccounts: 0 };
+    const enc = (b) => (b ? { data: [Buffer.from(b).toString('base64'), 'base64'] } : null);
+    return {
+      calls,
+      getMultipleAccounts: () => ({
+        send: async () => {
+          calls.getMultipleAccounts++;
+          const [reqBytes, posBytes] = sequence[Math.min(i, sequence.length - 1)];
+          i++;
+          return { value: [enc(reqBytes), enc(posBytes)] };
+        }
+      }),
+    };
+  }
+  const REQ_PDA = 'ReqPda1111111111111111111111111111111111111';
+  const POS_PDA = 'PosPda1111111111111111111111111111111111111';
+
+  await test('waitForFill: filled once the request account is gone and the position decodes with size > 0', async () => {
+    const rpc = fakeFillRpc([[encPositionRequest({ executed: false }), null], [null, encPositionAcc({})]]);
+    const r = await waitForFill(REQ_PDA, POS_PDA, rpc, { pollMs: 1, maxWaitMs: 2000 });
+    eq(r.filled, true, 'filled');
+    eq(r.position.sizeUsd, 200, 'position decoded');
+  });
+
+  await test('waitForFill: filled also when the request account still exists but decodes executed:true', async () => {
+    const rpc = fakeFillRpc([[encPositionRequest({ executed: true }), encPositionAcc({})]]);
+    const r = await waitForFill(REQ_PDA, POS_PDA, rpc, { pollMs: 1, maxWaitMs: 2000 });
+    eq(r.filled, true, 'filled via executed:true');
+  });
+
+  await test('waitForFill: still pending past maxWaitMs -> timeout', async () => {
+    const rpc = fakeFillRpc([[encPositionRequest({ executed: false }), null]]);
+    const r = await waitForFill(REQ_PDA, POS_PDA, rpc, { pollMs: 1, maxWaitMs: 5 });
+    eq(r.filled, false, 'not filled');
+    eq(r.reason, 'timeout', 'timeout');
+  });
+
+  await test('waitForFill: request account gone with no resulting position -> rejected', async () => {
+    const rpc = fakeFillRpc([[null, null]]);
+    const r = await waitForFill(REQ_PDA, POS_PDA, rpc, { pollMs: 1, maxWaitMs: 2000 });
+    eq(r.filled, false, 'not filled');
+    eq(r.reason, 'rejected', 'rejected');
+  });
+
+  await test('buildCancelIncreaseRequest: closePositionRequest instruction round trip for an unfilled increase request', async () => {
+    const rpc = fakeRpc();
+    const opened = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 200, leverage: 5, owner: OWNER, connection: rpc });
+    const cancel = await buildCancelIncreaseRequest({ positionId: opened.meta.positionId, positionRequestId: opened.meta.positionRequestId, market: 'BTCUSDT', direction: 'long', owner: OWNER, connection: rpc });
+    const ix = cancel.transaction.instructions.find((i2) => hasDiscriminator(i2, jupPerpsClient.CLOSE_POSITION_REQUEST_DISCRIMINATOR));
+    assert(ix, 'closePositionRequest instruction found');
+    assert(typeof cancel.simulate === 'function' && typeof cancel.send === 'function', 'exposes simulate/send');
+    eq(cancel.meta.positionRequestId, opened.meta.positionRequestId, 'cancels the request the open submitted');
+  });
+
+  await test('fetchAccountsExist: existence per address in order, in one batched call; empty input makes no call', async () => {
+    let calls = 0;
+    const rpc = { getMultipleAccounts: (addrs) => ({ send: async () => { calls++; return { value: addrs.map((_, i2) => (i2 === 0 ? { data: ['AA==', 'base64'] } : null)) }; } }) };
+    const exists = await fetchAccountsExist([OWNER, POOL], rpc);
+    eq(JSON.stringify(exists), JSON.stringify([true, false]), 'existence per address');
+    eq(calls, 1, 'one batched call');
+    eq(JSON.stringify(await fetchAccountsExist([], rpc)), '[]', 'empty input');
+    eq(calls, 1, 'no extra call for empty input');
   });
 
   console.log('\nupdate-stops: create/replace trigger requests (services/jupiterPerps.js)');
