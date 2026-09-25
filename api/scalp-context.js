@@ -14,7 +14,7 @@
  * never changes the status, headers or body; TRACK_SERVED_CALLS=false turns it off.
  */
 
-import { buildScalpContext, filterPayload, wantsBias, wantsModel } from '../services/scalpContext.js';
+import { buildScalpContext, filterPayload, wantsBias, wantsModel, capOptInSections } from '../services/scalpContext.js';
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { recordServedCalls } from '../lib/servedCalls.js';
@@ -147,11 +147,13 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
 
     // Query-param filtering (phase 5): parsed after auth, auth code above is untouched.
     // No params -> filterPayload is a no-op and the response is today's full payload.
-    const filtered = filterPayload(payload, {
+    const capped = capOptInSections(filterPayload(payload, {
       symbols: parseListParam(req.query && req.query.symbols),
       include,
       compact: parseCompactParam(req.query && req.query.compact)
-    });
+    }));
+    const filtered = capped.payload;
+    if (capped.dropped) console.log(`[ScalpContext] requestId=${requestId} optInDropped=true bytes=${capped.bytes}`);
 
     const warningsCount = Array.isArray(filtered?.warnings) ? filtered.warnings.length : 0;
     const symbolsCount = Array.isArray(filtered?.symbols)

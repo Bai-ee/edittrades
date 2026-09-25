@@ -47,6 +47,7 @@ import {
   INCLUDE_TOKENS,
   FLAG_PLAN_SHADOW_VARIANTS
 } from './services/scalpContext.js';
+import { capOptInSections } from './services/scalpContext.js';
 import { loadHistoryDir, makeReplayFetch } from './scripts/replay.js';
 
 import { findSwings, buildStructure } from './lib/structure.js';

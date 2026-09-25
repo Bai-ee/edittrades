@@ -967,6 +967,32 @@ function filterSymbol(sym, tokens, compactMode) {
  * @param {boolean} [opts.compact]
  * @returns {Object}
  */
+/**
+ * REST response cap (2026-09-24): a ChatGPT Action drops responses over ~100 KB, and the
+ * Custom GPT sometimes asks for include=model on the full payload (120 KB live). When the
+ * serialized response exceeds `limitBytes`, strip the opt-in `model` objects and the
+ * opt-in bias objects (biasMatrix/alignment/decisionInputs/topDown) per symbol, add one
+ * warning, and return the smaller payload. Default sections are never touched.
+ * @param {Object} filtered - filterPayload() output
+ * @param {number} [limitBytes=95000]
+ * @returns {{payload:Object, bytes:number, dropped:boolean}}
+ */
+export function capOptInSections(filtered, limitBytes = 95000) {
+  const bytes = JSON.stringify(filtered).length;
+  if (!(bytes > limitBytes) || !filtered || typeof filtered !== 'object') return { payload: filtered, bytes, dropped: false };
+  const out = { ...filtered, symbols: {} };
+  const optIn = ['model', 'biasMatrix', 'alignment', 'decisionInputs', 'topDown'];
+  for (const [sym, val] of Object.entries(filtered.symbols || {})) {
+    if (!val || typeof val !== 'object') { out.symbols[sym] = val; continue; }
+    const copy = { ...val };
+    for (const k of optIn) delete copy[k];
+    out.symbols[sym] = copy;
+  }
+  const warning = `opt-in sections (model/bias) dropped: response was ${bytes} bytes, over the ${limitBytes}-byte Action limit; use compact=true or the MCP tool for them`;
+  out.warnings = [...(Array.isArray(filtered.warnings) ? filtered.warnings : []), warning];
+  return { payload: out, bytes: JSON.stringify(out).length, dropped: true };
+}
+
 export function filterPayload(payload, opts = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   const { symbols, include, compact } = opts || {};

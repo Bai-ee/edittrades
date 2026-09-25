@@ -31,10 +31,10 @@ paths:
           required: false
           description: >-
             Comma-separated sections to keep, per symbol plus account/config. Unknown
-            values are ignored (noted in warnings). Omit for the full payload. "bias"
-            and "model" are opt-in: those bulky objects are only returned when listed,
-            e.g. include=bias or include=strategies,trace,model. Pair with compact=1 to
-            stay small.
+            values are ignored (noted in warnings). Omit for the full payload. Do not
+            request "model" or "bias" through this Action: they push the response past
+            the Action size limit and are dropped with a warning; they are for the MCP
+            tool. Use compact=true for a smaller payload.
           schema:
             type: array
             items:
