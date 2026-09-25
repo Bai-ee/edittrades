@@ -110,7 +110,11 @@ function tick(){var now=Date.now();
     set('system-last-run-age',m+' min ago');set('tile-last-capture','LAST CAPTURE '+(m<90?m+' MIN AGO':Math.round(m/60)+' H AGO'));}
   var d=new Date(now);d.setUTCSeconds(0,0);for(var i=0;i<61;i++){d.setUTCMinutes(d.getUTCMinutes()+1);if(mins.indexOf(d.getUTCMinutes())>=0)break;}
   set('system-next-run','in '+Math.max(1,Math.ceil((d.getTime()-now)/60000))+' min');}
-tick();setInterval(tick,30000);})();`;
+tick();setInterval(tick,30000);
+var born=Date.now();function fresh(){if(Date.now()-born>120000)location.reload();}
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')fresh();});
+window.addEventListener('pageshow',function(e){if(e.persisted)fresh();});
+setInterval(function(){if(document.visibilityState==='visible')location.reload();},600000);})();`;
 }
 
 /** Next scheduled run strictly after nowMs. */
