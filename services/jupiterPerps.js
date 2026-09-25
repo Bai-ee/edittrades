@@ -17,7 +17,10 @@
  */
 
 // Use CommonJS wrapper to work around ES module compatibility issues
-import jupPerpsClient from './jup-perps-wrapper.cjs';
+// ESM namespace import. The old './jup-perps-wrapper.cjs' did require('jup-perps-client'),
+// which is an ES module: fine on Node >= 22 locally, but Vercel's runtime threw
+// "require() of ES Module ... not supported" on the first preflight (2026-09-25).
+import * as jupPerpsClient from 'jup-perps-client';
 import {
   createSolanaRpc,
   createTransactionMessage,
