@@ -1,144 +1,296 @@
 /**
- * EditTrades call tracker - "How to use with ChatGPT" page (how-to.html).
+ * EditTrades call tracker - "How to use EditTrades" page (how-to.html).
  *
- * Static guide for talking to the EditTrades Custom GPT about trades, laid out in the
- * shared bento system (./bento.js, ./page-style.js). Content mirrors
- * docs/GPT_INSTRUCTIONS.md (commands, answer format, engine authority); update both
- * together when a command or the answer format changes. No data, no scripts.
+ * Static guide to the whole product as it runs today: the Telegram bot (@EditTrades_Bot,
+ * lib/telegram.js, docs/PLAN_TELEGRAM.md), the Custom GPT (docs/GPT_INSTRUCTIONS.md),
+ * the rules in force (config/engine.json, docs/OWNER_DECISIONS_2026-09-23.md,
+ * docs/OWNER_DECISIONS_2026-09-24.md), the tracker tiles (./build-page.js) and the journal
+ * (api/journal.js, lib/journalSchema.js). Laid out in the shared bento system
+ * (./bento.js, ./page-style.js). Update this page with those sources whenever a command,
+ * alert, rule value or tile changes. No data, no scripts.
  */
 
 import { PAGE_CSS } from './page-style.js';
 import { esc, tile, zone, jumpNav } from './bento.js';
 
-const STEPS = [
-  ['Fresh chat', 'Open a new chat for each session so no old prices carry over.'],
-  ['Ask "signals"', 'Read the call line first (GO IN / HOLD / DON\'T), then the DATA block at the bottom. Generated At and Closed Through should be minutes old.'],
-  ['Nothing actionable? Ask "forming"', 'Note each Confirmation price and Thesis Eliminated price. Set chart alerts on them.'],
-  ['Alert fires: ask "signals" again', 'Act only if the plan is now ready and the call says GO IN.'],
-  ['Enter as quoted', 'Quoted entry, Stop Loss placed right away, leverage at or under the suggested figure. Never above max.'],
-  ['Manage with facts', 'Send entry, size, collateral, leverage and liquidation for HOLD / REDUCE / EXIT and a protective stop. Past the Time Stop, ask again.']
+// ---------- daily routine (phone-first) ----------
+
+const ROUTINE = [
+  ['Alert arrives', 'Telegram pings on a GOOD, a SETUP or a BREAKOUT, with entry, stop, TP1 and gross / net R. During quiet hours (01-05 Chicago) it arrives silently; nothing is dropped.'],
+  ['Tap Why', 'Supports, against, unknowns and the exact change that would flip the call.'],
+  ['Tap Chart', 'The confirmation chart at the plan timeframe: flag, breakout level, stop, TP1, EMA21 / EMA200.'],
+  ['Decide', 'GOOD = ready plan, act at the quoted levels or not at all. SETUP = wait for its retest trigger. BREAKOUT = a flag just confirmed; the entry is the retest that holds, never the breakout candle.'],
+  ['Took it or Skipped', 'One tap journals your decision with the engine\'s own levels. Later changes go in as text: /log closed BTC at 85100, /log moved stop 84500.'],
+  ['Check the tracker', 'Once a day: engine vs you, the equity curve, and whether GOOD calls are actually paying.']
 ];
+
+// ---------- Telegram ----------
+
+const TG_MENU = [['Signals', 'Flags'], ['Why BTC', 'Why ETH', 'Why SOL'], ['Charts', 'Wallet'], ['Journal', 'Status', 'Alerts']];
+
+// [command, what it does]
+const TG_COMMANDS = [
+  ['/signals', 'BTC / ETH / SOL call now: GO IN / HOLD / DON\'T plus SETUP lines, with buttons per symbol.'],
+  ['/why SYM', 'Supports, against, unknowns and what changes, for one symbol.'],
+  ['/flags [SYM]', 'Every flag candidate and its state, then chart albums of every live flag (up to 9 images).'],
+  ['/chart SYM TF', 'One confirmation chart, e.g. /chart BTC 5m. Charts opens a picker grid.'],
+  ['/wallet', 'Read-only account block.'],
+  ['/journal [n]', 'Last n journal lines (default 10).'],
+  ['/log text', 'Journal a line: took / closed / skipped / moved / anything else as a note.'],
+  ['/status', 'Schema, data age, marks, last alert, cron health, alert level, quiet hours.'],
+  ['/alerts', 'Show or set the alert level and quiet hours.'],
+  ['/menu · /help', 'Bring back the button keyboard; list every command.']
+];
+
+// [level, what you get]
+const TG_LEVELS = [
+  ['good', 'Only', 'New GOOD and GOOD ended.'],
+  ['setup', 'Default', 'Adds new SETUPs (the best conditional plan awaiting its retest or breakout).'],
+  ['watch', 'Loudest', 'Adds a one-line alert for each new forming or triggering flag (15-min cooldown per symbol).']
+];
+
+const TG_ALWAYS = [
+  'BREAKOUT alerts send at every level, once per flag, the first time it confirms.',
+  'Data unavailable or mark down for more than 5 minutes always alerts, as does the alerts cron failing 3 runs in a row (then hourly) and its recovery.',
+  'Quiet hours: 01:00-05:00 America/Chicago every day by default. Alerts in the window send silently, never dropped. /alerts quiet 23-06 changes it, /alerts quiet off turns it off.',
+  'Owner-only: anyone else who messages the bot gets no answer. The bot is read-only and never places, signs or closes a trade.'
+];
+
+const TG_BUTTONS = [
+  ['Why', 'Explain', 'The same answer as /why for that symbol.'],
+  ['Chart', 'See it', 'The confirmation chart at the plan\'s timeframe.'],
+  ['Took it', 'Journal: open', 'Logs an open with the alert\'s symbol, direction, entry, stop and TP1 plus the engine reference. A double tap logs once.'],
+  ['Skipped', 'Journal: skip', 'Logs a skip against the same plan, so engine vs you counts it.']
+];
+
+// ---------- ChatGPT ----------
 
 // [command, what you get, chip, phone span, desktop span]
-const COMMANDS = [
-  ['signals', 'BTC, ETH and SOL, longs and shorts. The strongest actionable asset gets the full call: thesis, GO IN / HOLD / DON\'T, entry, stops, targets, size. The others get one NO TRADE line each with the trigger to watch. "trades" gives the same answer.', 'Start here', 2, 6],
-  ['forming', 'Flags still building on 1m / 3m / 5m, both directions: what confirms them, what kills them, when to check back. No entries or sizing.', 'Watchlist', 2, 6],
-  ['track', 'Send with a chart screenshot or a described setup you are not in. Five lines back: TRACK YES/NO, entry condition, window, thesis null, expected trade time.', 'Screenshot', 2, 4],
-  ['flags', 'Every flag candidate per asset in every state, failed and expired included, with the engine\'s quality decision and reasons.', 'Full list', 2, 4],
-  ['balance', 'Wallet balance, exposure and P&L only.', 'Account', 1, 2],
-  ['data check', 'Only the data block: snapshot time, last closed candle, versions, warnings.', 'Freshness', 1, 2]
+const GPT_COMMANDS = [
+  ['signals', 'BTC, ETH and SOL, longs and shorts. The strongest actionable asset gets the full call: thesis, GO IN / HOLD / DON\'T, entry, stop, targets, size. Others get one NO TRADE line with the trigger to watch, plus a SETUP line when one exists. "trades" gives the same answer.', 'Start here', 2, 6],
+  ['flags', 'Every flag candidate per asset on 1m / 3m / 5m, both directions, every state including failed and expired, with the qualifier\'s decision and reasons.', 'Full list', 2, 6],
+  ['forming', 'Flags still building, both directions: Confirmation price, Thesis Eliminated price, when to check back. No entries or sizing.', 'Watchlist', 2, 4],
+  ['why SYM', 'Ask in plain words, e.g. "why BTC". It cites the engine\'s supports, against, unknowns and reason codes verbatim; no call line.', 'Explain', 2, 4],
+  ['trades', 'Same as signals.', 'Alias', 1, 4],
+  ['log text', 'Writes a journal line: took = open, closed = close, skipped = skip, anything else = note. Only your numbers; replies [LOGGED id].', 'Journal', 1, 3],
+  ['journal', 'Last 10 journal lines, one each.', 'Journal', 1, 3],
+  ['balance', 'Account and performance blocks only.', 'Account', 1, 3],
+  ['data check', 'Only the DATA block.', 'Freshness', 2, 3],
+  ['track', 'With a screenshot or a described setup you are not in. Five lines: TRACK YES/NO, entry condition, window, thesis null, expected trade time.', 'Screenshot', 2, 12]
 ];
 
-// Reading an answer, grouped by the question each group answers.
-const READING = [
-  ['howto-read-call-tile', 'The call', 'Should I act?', [
-    ['GO IN / HOLD / DON\'T', '≥ 65% to act', 'Three percentages that add to 100. GO IN needs at least 65% plus a ready engine plan, entry, confirmation, stop, targets and acceptable wallet risk. Anything less is HOLD or DON\'T.'],
-    ['NO TRADE', 'Valid answer', 'Below threshold is normal. It comes with the exact trigger that would change it.']
-  ]],
-  ['howto-read-engine-tile', 'Engine verdict', 'What does the engine say?', [
-    ['Recommendation class', 'Engine call', 'GOOD, WATCH, BAD or DATA_UNAVAILABLE, with Supports / Against / Unknown / What changes. The GPT reports it; it does not recompute it.'],
-    ['Plan status', 'Trade authority', 'ready = eligible for GO IN at the quoted levels. conditional = wait for the entry condition. rejected = no trade, with a reason code (chase, rr_below_min, room_at_entry…).']
-  ]],
-  ['howto-read-levels-tile', 'Levels', 'Where am I wrong?', [
-    ['Thesis Eliminated', 'Kill level', 'The price where the idea is wrong. Long: at or below the zone low. Short: at or above the zone high. Never inside the zone.'],
-    ['Stop Loss', 'Exit', 'The executable exit, with a buffer past Thesis Eliminated. Scalp stops are capped at 3% from entry.'],
-    ['R:R', '≥ 3R gross', 'Trades need about 3R to TP1 before fees. Under 1R to TP1 is always DON\'T.']
-  ]],
-  ['howto-read-fresh-tile', 'Freshness', 'Can I trust these numbers?', [
-    ['DATA block', 'Always check', 'Every trade answer ends with Generated At and Closed Through. If they are old, or warnings are listed, ask again before acting.'],
-    ['Mark drift', '> 10 bps', 'Stops and liquidation hit on the Pyth mark, not the Kraken close. The GPT flags it when the gap is over 10 bps.']
-  ]]
+const GPT_WILL = [
+  'Pull a fresh snapshot (getScalpContext) before every analysis and quote the engine\'s numbers exactly.',
+  'Treat the engine plan as the trade authority: ready = eligible for GO IN, conditional = wait, rejected = DON\'T with the reason code.',
+  'Size against your wallet and show wallet risk, $ loss at the stop and leverage under the max.',
+  'Check stops, Thesis Eliminated and liquidation against the Pyth mark (where Jupiter fills and stops), and say so when mark drifts more than 10 bps from the close.',
+  'Say "thin after fees" when a plan carries the net_rr_low warning (net R under 1R).'
 ];
 
-const FOLLOW_UPS = [
-  ['howto-follow-why', 'Why is the BTC plan rejected?'],
-  ['howto-follow-changes', 'What would make ETH GOOD instead of WATCH?'],
-  ['howto-follow-bias', 'What\'s your bias on SOL right now?'],
-  ['howto-follow-coil', 'What\'s happening with the ETH 1h coil?'],
-  ['howto-follow-position', 'I\'m long BTC, entry 61000, 5x, liquidation 52400, collateral $2000. What should I do?']
+const GPT_WONT = [
+  'Invent a level. Entry, stop, TP1 and R:R come from the engine; the plan math is not the GPT\'s to redo.',
+  'Call GO IN under 65%, widen a scalp stop past 3%, or lower any threshold on request. NO TRADE is a valid answer.',
+  'Reuse prices from earlier in the chat, or claim a trade was executed. Nothing here executes.',
+  'Treat confidence as win odds. It measures setup strength, not the chance it pays.'
 ];
 
-const DONTS = [
-  'Don\'t ask it to lower the 65% threshold, widen a scalp stop past 3%, or "just give me an entry". NO TRADE is a valid answer.',
-  'Don\'t act on an entry the engine didn\'t produce. A GPT-made level must show R:R, $ loss and wallet risk, and is labeled legacy or provisional.',
-  'Don\'t reuse numbers from earlier in the chat. Ask again so it pulls a fresh snapshot.',
-  'Don\'t treat confidence as win odds. It measures setup strength, not the chance it pays.',
-  'Counter-trend against the 4h is allowed: size smaller, targets inside the next higher-timeframe level.',
-  'When it asks for a screenshot (visual confirmation), send the chart it names before any GO IN.'
+// Reading the classes.
+const CLASSES = [
+  ['GOOD', 'Act-eligible', 'A ready plan (breakout close, then a retest close that held) and no hard block. The only class that can carry GO IN.'],
+  ['SETUP', 'Wait', 'The best conditional plan at ≥ 2.5R gross, awaiting its retest or breakout. Includes confirmed flags rejected only for chasing: the trigger is a retest that holds. Never GO IN until it becomes GOOD.'],
+  ['WATCH', 'Not yet', 'The best candidate so far, with the concrete change that would upgrade it (e.g. a close above a price, a measured move that clears 2.5R).'],
+  ['BAD', 'No', 'A named disqualifier (chase, rr_below_min, room_at_entry, stop too wide…) and the remedy that would fix it.'],
+  ['DATA_UNAVAILABLE', 'Don\'t trust', 'The snapshot is missing or stale. Ask again; never act on it.']
 ];
+
+const DATA_BLOCK = [
+  ['Generated At', 'Snapshot time', 'Should be minutes old. If not, ask again.'],
+  ['Closed Through', 'Last closed candle', 'The engine reads closed candles only, so it can trail the live price by one candle.'],
+  ['Wallet Updated At', 'Account read', 'Unavailable is not a zero balance.'],
+  ['Schema / Config', 'Versions', 'Instruction schema 1.24.x and the engine configVersion. A config change marks a boundary on the tracker.'],
+  ['Warnings', 'Read them', 'Any listed warning means ask again before acting.']
+];
+
+// ---------- rules in force ----------
+
+// [rule, value, since, source]
+const RULES = [
+  ['Gross R:R floor', '≥ 2.5R to TP1, gross (price only)', '2026-09-24', 'D-variant revised (09-24); gross, not net: decision 1 (09-23)'],
+  ['Net R gate', 'Off. Net R is shown on every plan; net_rr_low warning when net < 1R', '2026-09-24', 'D-variant revised (09-24)'],
+  ['3R rule', 'Runs as a shadow comparator on the tracker (gross 3.0), never traded', '2026-09-24', 'D-variant revised (09-24)'],
+  ['Ready', 'Breakout close, then one retest close that holds; the retest must not wick through the stop', '2026-09-23', 'Decision 2 (09-23); wick rule: T6 plan A3 (09-24)'],
+  ['Room check', 'Candidate\'s own geometry timeframe only (15m for 1m-5m flags); the TP1 cap still reads every timeframe', '2026-09-24', 'Decisions 4a (09-23), 4b (09-24)'],
+  ['Scalp stop cap', '≤ 3% from entry; wider is NO_TRADE', 'Standing', 'Owner rule, unchanged'],
+  ['Costs (round trip)', 'Long 0.34% · short 0.14% (USDC-funded) · 0.20% when direction is unresolved', '2026-09-24', 'D-cost (09-24)'],
+  ['Timeframe pairs', '4H → 1m / 3m / 5m (main) · 1H → 1m / 3m · 1D → 15m / 1H · 1W not traded', '2026-09-23', 'Decision 7 (09-23)'],
+  ['Stops on mark', 'Stops, Thesis Eliminated and liquidation checked on the Pyth mark', '2026-09-23', 'Decision 5 (09-23)'],
+  ['The call', '21/200 flag recommendation; legacy strategies shown, labeled legacy', '2026-09-23', 'Decision 6 (09-23)'],
+  ['Testing window', '2026-09-23 → 2026-10-07; thresholds frozen until 2026-10-08; config boundary marked', '2026-09-23', 'D-variant revised (09-24)']
+];
+
+// ---------- tracker tiles ----------
+
+const TRACKER_TILES = [
+  ['Status', 'Is it running?', 'LIVE / DELAYED / STALLED from the last capture. Captures every 10 min; the page rebuilds every 30. The Alerts fact shows the last Telegram alert and the alerts cron\'s heartbeat.'],
+  ['Testing timeline', 'How far along?', 'Day of 14 and plans scored toward 30. Thresholds stay frozen; the config-boundary line splits stats before and after the 2026-09-24 rule change.'],
+  ['Expectancy', 'Is it paying?', 'Gross R per scored call over 7 days, with net R under it. Scored = a ready plan that reached TP1 or its stop on later candles.'],
+  ['Class check', 'Did the filter work?', 'WATCH and BAD scored as if taken. If they beat GOOD, the filter is not earning its keep. Counterfactual only.'],
+  ['3R shadow', 'Was 2.5 the right call?', 'The former 3R rule scored beside the live 2.5 rule on the same candles. Never traded.'],
+  ['Breakout shadow · flag paths · calibration', 'Measure only', 'Alternative entries and path forecasts, scored and never fed back into a rule.'],
+  ['GOOD / hour · SETUPs / day', 'How often?', 'How often a GOOD or a SETUP actually shows up in the feed.'],
+  ['Equity curve', 'The running total', 'Cumulative gross R of engine calls, your journal trades dashed beside it. Filters (symbol, timeframe, direction and more) narrow both.'],
+  ['Wallet value', 'Your account', 'Wallet total over time with GOOD calls and your journal trades marked.'],
+  ['Engine vs you', 'Did you follow it?', 'GOOD calls you took, skipped or overrode, from the journal.'],
+  ['Calls · served calls', 'What was said', 'Open calls, the 7-day call log and by-day table. "Via" and "Seen in chat" mark calls a GPT or Telegram answer actually served.']
+];
+
+// ---------- journal ----------
+
+const JOURNAL = [
+  ['From Telegram', 'Took it / Skipped buttons, or /log text. Records carry source "telegram".'],
+  ['From ChatGPT', 'log text through the postJournal Action; journal reads back through getJournal.'],
+  ['Kinds', 'open, close, adjust, skip, note. Unknown wording is a note; your text is always kept verbatim.'],
+  ['Append-only', 'POST /api/journal adds a line; nothing is edited or deleted. A repeated id is stored once.'],
+  ['Where it shows', 'Engine vs you, the journal log and the dashed line on the equity curve.']
+];
+
+// ---------- honest limits ----------
+
+const LIMITS = [
+  'No execution. Neither the bot nor the GPT can place, sign or close an order; you place every trade.',
+  'No real position read. The engine sees wallet balances, not your open perps positions; give entry, size, leverage and liquidation when you ask about one.',
+  'One 15-day window of data. Every rate, win percentage and expectancy on the tracker is provisional.',
+  'At the old flat 0.20% cost, the 1m-5m flag styles showed negative net expectancy in replay. Fees are a real share of a tight scalp stop.',
+  '1 GOOD per hour was about 10× the rate observed under the 3R rule. The 2.5R floor raises volume; it does not make that target realistic on its own.'
+];
+
+const AFTER_WINDOW = [
+  'Thresholds unfreeze on 2026-10-08.',
+  'One calibration pass with the owner: 2.5R live vs the 3R shadow on net expectancy, costs as paid, class check and engine vs you.',
+  'Phase 2 starts after the window: failed-flag reversal scouts (a failed long opens a short scout, and the mirror), gated on the MISS_004 fixture.'
+];
+
+// ---------- markup ----------
 
 const defList = (id, rows) => `<dl class="def-list" id="${id}">${rows.map(([term, chip, text]) => `<div class="def-row"><dt>${esc(term)}<span class="label">${esc(chip)}</span></dt><dd>${esc(text)}</dd></div>`).join('')}</dl>`;
+const plainList = (id, items) => `<ul class="howto-list" id="${id}">${items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`;
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 export function renderHowTo() {
-  const topStrip = `<header class="edge-strip" id="howto-top-edge-strip"><span id="howto-page-title">EDITTRADES / HOW TO USE WITH CHATGPT</span>`
+  const topStrip = `<header class="edge-strip" id="howto-top-edge-strip"><span id="howto-page-title">EDITTRADES / HOW TO USE</span>`
     + `<a class="nav-link" id="howto-back-link" href="index.html">← Call tracker</a></header>`
     + jumpNav('howto-jump-nav', [
-      ['#howto-session-section', 'Session'], ['#howto-commands-section', 'Commands'], ['#howto-reading-section', 'Reading'],
-      ['#howto-ask-zone', 'Asking'], ['#howto-tracker-section', 'Tracker'], ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
+      ['#howto-what-section', 'What'], ['#howto-routine-section', 'Routine'], ['#howto-telegram-section', 'Telegram'],
+      ['#howto-chatgpt-section', 'ChatGPT'], ['#howto-rules-section', 'Rules'], ['#howto-tracker-section', 'Tracker'],
+      ['#howto-journal-section', 'Journal'], ['#howto-limits-section', 'Limits'],
+      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
     ]);
 
-  const intro = zone({
-    id: 'howto-intro-zone', title: 'How to use EditTrades in ChatGPT',
+  const what = zone({
+    id: 'howto-what-section', title: 'What this is',
     tiles: [
       tile({
-        id: 'howto-intro-section', lg: 8,
-        body: `<h1 id="howto-intro-title">Talk to the engine, not around it.</h1>`
-          + `<p class="howto-lede" id="howto-intro-text">The GPT reads a closed-candle snapshot of BTC, ETH and SOL before every answer. The engine owns the trade levels: entry, stop, targets, R:R. The GPT reports them, explains them and sizes them against your wallet. Treat it as a second pair of eyes with fixed rules.</p>`
+        id: 'howto-what-tile', lg: 8,
+        body: `<h1 id="howto-intro-title">The engine calls. You decide.</h1>`
+          + `<p class="howto-lede" id="howto-what-text">EditTrades reads closed candles for BTC, ETH and SOL and turns them into one call per symbol: GOOD, WATCH, BAD or DATA_UNAVAILABLE, plus a SETUP line when a conditional plan is waiting for its trigger. The engine owns every level: entry, stop, TP1 and R:R. You get the calls on your phone from the Telegram bot and in ChatGPT from the EditTrades Custom GPT; the tracker records them every 10 minutes and scores each one on the candles that follow. Nothing here places a trade.</p>`
       }),
       tile({
         id: 'howto-quickstart-tile', title: 'Quick start', lg: 4,
-        body: `<div class="prompt-stack" id="howto-quickstart-prompts"><pre class="howto-prompt" id="howto-quick-signals">signals</pre><pre class="howto-prompt" id="howto-quick-forming">forming</pre></div>`
-          + `<p class="note" id="howto-quickstart-note">Type either as the whole message. Case doesn't matter.</p>`
+        body: `<div class="prompt-stack" id="howto-quickstart-prompts"><pre class="howto-prompt" id="howto-quick-telegram">Telegram · @EditTrades_Bot · tap Signals</pre><pre class="howto-prompt" id="howto-quick-signals">ChatGPT · signals</pre></div>`
+          + `<p class="note" id="howto-quickstart-note">Both read the same engine snapshot. Telegram pushes; ChatGPT answers when asked.</p>`
       })
     ]
   });
 
-  const session = zone({
-    id: 'howto-session-section', title: 'A session, step by step', sub: '6 steps',
-    tiles: STEPS.map(([title, text], i) => tile({
-      id: `howto-step-${i + 1}-tile`, as: 'div', lg: 4,
+  const routine = zone({
+    id: 'howto-routine-section', title: 'Daily routine', sub: 'Phone first · 6 steps',
+    tiles: ROUTINE.map(([title, text], i) => tile({
+      id: `howto-routine-step-${i + 1}-tile`, as: 'div', lg: 4,
       body: `<span class="step-num" aria-hidden="true">${i + 1}</span><h3 class="tile-title">${esc(title)}</h3><p class="step-text">${esc(text)}</p>`
     }))
   });
 
-  const commands = zone({
-    id: 'howto-commands-section', title: 'Commands', sub: 'The whole message',
-    tiles: COMMANDS.map(([cmd, desc, chip, sm, lg]) => tile({
-      id: `howto-cmd-${cmd.replace(/\s+/g, '-')}-tile`, as: 'div', sm, lg,
-      body: `<div class="cmd-head"><div class="cmd-name" data-command="${esc(cmd)}">${esc(cmd)}</div><span class="prov-tag">${esc(chip)}</span></div><p class="cmd-desc">${esc(desc)}</p>`
-    }))
-  });
-
-  const reading = zone({
-    id: 'howto-reading-section', title: 'Reading an answer', sub: 'Four questions, in order',
-    tiles: READING.map(([id, title, question, rows]) => tile({
-      id, title, tag: question, lg: 6,
-      body: defList(`${id}-list`, rows)
-    }))
-  });
-
-  const ask = zone({
-    id: 'howto-ask-zone', title: 'Asking well',
+  const menuKeys = `<div class="menu-keys" id="howto-telegram-menu-keys" role="img" aria-label="Telegram menu: ${esc(TG_MENU.flat().join(', '))}">`
+    + TG_MENU.map((row, i) => `<div class="menu-row" id="howto-telegram-menu-row-${i + 1}">${row.map((k) => `<span class="menu-key" data-menu-key="${esc(k)}">${esc(k)}</span>`).join('')}</div>`).join('')
+    + `</div>`;
+  const telegram = zone({
+    id: 'howto-telegram-section', title: 'Telegram', sub: '@EditTrades_Bot · owner only',
     tiles: [
       tile({
-        id: 'howto-follow-ups-section', title: 'Good follow-up questions', lg: 7,
-        body: `<div class="prompt-stack" id="howto-follow-ups-list">${FOLLOW_UPS.map(([id, text]) => `<pre class="howto-prompt" id="${id}">${esc(text)}</pre>`).join('')}</div>`,
-        foot: 'For an open position, always give entry, size or notional, collateral, leverage and liquidation price. Without them it can\'t check that your stop clears liquidation.'
+        id: 'howto-telegram-menu-tile', title: 'The menu', tag: 'Always on screen', lg: 5,
+        body: menuKeys + `<p class="note" id="howto-telegram-menu-note">A persistent keyboard under the chat. Each key runs its command; Charts opens a symbol × timeframe grid with an All flags button.</p>`
       }),
       tile({
-        id: 'howto-donts-section', title: 'What not to do', lg: 5,
-        body: `<ul class="howto-list" id="howto-donts-list">${DONTS.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
+        id: 'howto-telegram-commands-tile', title: 'Commands', lg: 7,
+        body: `<dl class="def-list" id="howto-telegram-commands-list">${TG_COMMANDS.map(([cmd, text]) => `<div class="def-row"><dt><span class="cmd-inline" data-tg-command="${esc(cmd)}">${esc(cmd)}</span></dt><dd>${esc(text)}</dd></div>`).join('')}</dl>`
+      }),
+      tile({
+        id: 'howto-telegram-levels-tile', title: 'Alert levels', tag: '/alerts good|setup|watch', lg: 6,
+        body: defList('howto-telegram-levels-list', TG_LEVELS) + plainList('howto-telegram-always-list', TG_ALWAYS)
+      }),
+      tile({
+        id: 'howto-telegram-buttons-tile', title: 'Buttons on GOOD, SETUP and BREAKOUT', lg: 6,
+        body: defList('howto-telegram-buttons-list', TG_BUTTONS),
+        foot: '/signals carries the same buttons per symbol; Took it and Skipped appear only when that symbol has a GOOD plan or a SETUP.'
       })
     ]
   });
 
-  const tracker = zone({
-    id: 'howto-tracker-zone', title: 'The tracker',
+  const chatgpt = zone({
+    id: 'howto-chatgpt-section', title: 'ChatGPT', sub: 'EditTrades Custom GPT · schema 1.24.x',
+    tiles: [
+      ...GPT_COMMANDS.map(([cmd, desc, chip, sm, lg]) => tile({
+        id: `howto-cmd-${slug(cmd)}-tile`, as: 'div', sm, lg,
+        body: `<div class="cmd-head"><div class="cmd-name" data-command="${esc(cmd)}">${esc(cmd)}</div><span class="prov-tag">${esc(chip)}</span></div><p class="cmd-desc">${esc(desc)}</p>`
+      })),
+      tile({ id: 'howto-gpt-will-tile', title: 'It will', lg: 6, body: plainList('howto-gpt-will-list', GPT_WILL) }),
+      tile({
+        id: 'howto-gpt-wont-tile', title: 'It won\'t', lg: 6, body: plainList('howto-gpt-wont-list', GPT_WONT),
+        foot: 'Action operations: getScalpContext (the snapshot), postJournal and getJournal (the journal). Read-only toward the market.'
+      }),
+      tile({ id: 'howto-classes-tile', title: 'Reading GOOD / SETUP / WATCH / BAD', tag: 'Engine class', lg: 7, body: defList('howto-classes-list', CLASSES) }),
+      tile({
+        id: 'howto-data-block-tile', title: 'The DATA block', tag: 'Every trade answer ends with it', lg: 5, body: defList('howto-data-block-list', DATA_BLOCK)
+      })
+    ]
+  });
+
+  const rulesTable = `<div class="table-scroll" id="howto-rules-table-scroll"><table class="rules-table" id="howto-rules-table">`
+    + `<thead><tr><th>Rule</th><th>Value</th><th>Since</th><th>Owner decision</th></tr></thead><tbody>`
+    + RULES.map(([rule, value, since, src]) => `<tr id="howto-rule-${slug(rule)}-row"><td class="rule-name">${esc(rule)}</td><td class="rule-value">${esc(value)}</td><td>${esc(since)}</td><td class="rule-src">${esc(src)}</td></tr>`).join('')
+    + `</tbody></table></div>`;
+  const rules = zone({
+    id: 'howto-rules-section', title: 'The rules in force', sub: 'Frozen until 2026-10-08',
     tiles: [tile({
-      id: 'howto-tracker-section', title: 'How this ties to the call tracker',
-      body: `<p class="howto-lede" id="howto-tracker-text">The call tracker records the same engine calls every 30 minutes and scores them against later candles. Until it has enough scored plans, every number there is provisional. Check it before trusting a class: if GOOD calls are losing, that matters more than any single answer in the chat.</p>`
-        + `<p id="howto-tracker-link-row"><a class="nav-link" id="howto-tracker-link" href="index.html">Open the call tracker →</a></p>`
+      id: 'howto-rules-tile', title: 'Rules', tag: 'config 2026.09.24-5', body: rulesTable,
+      foot: 'Sources: config/engine.json, docs/OWNER_DECISIONS_2026-09-23.md, docs/OWNER_DECISIONS_2026-09-24.md in the engine repo. The flag detector runs on 1m / 3m / 5m.'
     })]
+  });
+
+  const tracker = zone({
+    id: 'howto-tracker-section', title: 'What the tracker shows', sub: 'One question per tile',
+    tiles: [tile({
+      id: 'howto-tracker-tiles-tile', title: 'Reading each tile', lg: 12,
+      body: defList('howto-tracker-tiles-list', TRACKER_TILES)
+        + `<p id="howto-tracker-link-row"><a class="nav-link" id="howto-tracker-link" href="index.html">Open the call tracker →</a></p>`,
+      foot: 'Gross R is price only; net R subtracts the round-trip cost for the call\'s direction. Both are shown wherever a call is scored.'
+    })]
+  });
+
+  const journal = zone({
+    id: 'howto-journal-section', title: 'Journal', sub: 'POST /api/journal',
+    tiles: [tile({
+      id: 'howto-journal-tile', title: 'Your side of the record', lg: 12,
+      body: `<dl class="def-list" id="howto-journal-list">${JOURNAL.map(([term, text]) => `<div class="def-row"><dt>${esc(term)}</dt><dd>${esc(text)}</dd></div>`).join('')}</dl>`
+    })]
+  });
+
+  const limits = zone({
+    id: 'howto-limits-section', title: 'Honest limits', sub: 'And what changes on 2026-10-08',
+    tiles: [
+      tile({ id: 'howto-limits-tile', title: 'Not built, or not proven', lg: 7, body: plainList('howto-limits-list', LIMITS) }),
+      tile({ id: 'howto-after-window-tile', title: 'On 2026-10-08', tag: 'After the window', lg: 5, body: plainList('howto-after-window-list', AFTER_WINDOW) })
+    ]
   });
 
   const bottomStrip = `<footer class="edge-strip" id="howto-bottom-edge-strip"><span id="howto-footer-note">NOT FINANCIAL ADVICE · THE ENGINE NEVER EXECUTES TRADES · YOU PLACE EVERY ORDER</span></footer>`;
@@ -158,7 +310,7 @@ ${PAGE_CSS}
 <body>
 <main id="howto-page-main">
 ${topStrip}
-${[intro, session, commands, reading, ask, tracker].join('\n')}
+${[what, routine, telegram, chatgpt, rules, tracker, journal, limits].join('\n')}
 ${bottomStrip}
 </main>
 </body>

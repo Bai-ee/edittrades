@@ -191,4 +191,14 @@ th.num,td.num{text-align:right;padding:var(--sp-2) 0 var(--sp-2) var(--sp-4)}
 .howto-list li{padding:var(--sp-3) 0;border-bottom:1px solid var(--border)}
 .howto-list li:first-child{padding-top:0}
 .howto-list li:last-child{border-bottom:0;padding-bottom:0}
+.howto-list + .howto-list,.def-list + .howto-list{padding-top:var(--sp-3);border-top:1px solid var(--border)}
+.cmd-inline{font:400 var(--fs-sm)/1.4 var(--mono);letter-spacing:.04em;color:var(--text-display)}
+.menu-keys{display:flex;flex-direction:column;gap:var(--sp-2)}
+.menu-row{display:flex;gap:var(--sp-2)}
+.menu-key{flex:1 1 0;min-width:0;min-height:44px;display:flex;align-items:center;justify-content:center;padding:0 var(--sp-2);background:var(--black);border:1px solid var(--border-visible);border-radius:var(--radius-sm);font:400 var(--fs-sm)/1.2 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-primary);text-align:center}
+.rules-table td{white-space:normal;vertical-align:top}
+.rules-table td.rule-name{white-space:nowrap;color:var(--text-display)}
+.rules-table td.rule-value{min-width:16em;font-family:var(--grotesk);font-size:var(--fs-body);letter-spacing:0}
+.rules-table td.rule-src{min-width:12em;color:var(--text-secondary)}
+.status-channel-note{margin:0}
 `;

@@ -59,6 +59,9 @@ export const PHASE_NAME = 'Phase 5 forward record (2.5R gross, net gate off)';
 export const PHASE_START = '2026-09-24';
 export const PHASE_DAYS = 14;
 export const PHASE_TARGET_PLANS = 30;
+// Owner decision "D-variant revised" (docs/OWNER_DECISIONS_2026-09-24.md): thresholds stay
+// frozen through the testing window; the first day tuning may resume.
+export const FROZEN_UNTIL = '2026-10-08';
 const PHASE_START_MS = Date.parse(`${PHASE_START}T00:00:00Z`);
 
 // Tracker schedule. Must match the cron in repo-template/.github/workflows/track.yml.
@@ -526,7 +529,7 @@ export const V3_SHADOW_TOO_FEW = 'TOO FEW CALLS';
 // deploy goes live. Edit this line again if the deploy timeline changes - same
 // pattern as PHASE_START above.
 export const V3_SHADOW_ACCRUAL_NOTE = 'Accruing since this deploy (D-variant revised, 2026-09-24) - nothing captured before that carries a v3 shadow field.';
-export const V3_SHADOW_NOTE = `Shadow mode: the former live rule (gross minRR 3.0, net gate on at 2.0) kept as a comparator now that the live rule is gross minRR 2.5, net gate off (owner decision "D-variant revised", docs/OWNER_DECISIONS_2026-09-24.md - lean toward producing GOOD calls so the strategy can be tracked and tweaked) - computed by the engine itself with real ATR and retest-hold, not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. ${V3_SHADOW_ACCRUAL_NOTE}`;
+export const V3_SHADOW_NOTE = `Shadow mode: the former live rule (gross minRR 3.0) kept as a comparator now that the live rule is gross minRR 2.5; the net gate is off in both, so only the gross floor differs (owner decision "D-variant revised", docs/OWNER_DECISIONS_2026-09-24.md - lean toward producing GOOD calls so the strategy can be tracked and tweaked) - computed by the engine itself with real ATR and retest-hold, not an approximation, never traded, never feeds flagTradePlan/flagRecommendation/class logic or any gate. ${V3_SHADOW_ACCRUAL_NOTE}`;
 
 export const EMPTY_V3_SHADOW_SUMMARY = {
   generatedAt: null, n: 0, resolvedN: 0, open: 0, expired: 0, winRate: null, grossExpectancyR: null, netExpectancyR: null, netExpectancyR_dirCost: null
@@ -700,6 +703,7 @@ export function renderHtml(agg, data = {}) {
     + `<div class="status-fact" id="system-runs-fact"><dt>Runs · 24 h</dt><dd id="system-runs-24h">${runs24h} / ${expected24h || dash}</dd><dd class="fact-sub">${act.runs} since ${esc(act.firstRun ? act.firstRun.slice(0, 10) : dash)}</dd></div>`
     + alertsFact(data.telegram || null, nowMs)
     + `</dl>`
+    + `<p class="note status-channel-note" id="system-alerts-channel-note">Alerts: Telegram @EditTrades_Bot · <a class="nav-link" id="system-alerts-channel-link" href="how-to.html#howto-telegram-section">how alerts work →</a></p>`
     + `<div class="heartbeat-wrap" id="system-heartbeat-wrap"><div class="heartbeat" id="system-heartbeat" style="grid-template-columns:repeat(${HEARTBEAT_SLOTS},1fr)" role="img" aria-label="${slotsHit} of ${expectedSlots} half-hour slots in the last 24 hours had a run">${beats}</div>`
     + `<div class="heartbeat-axis" id="system-heartbeat-axis"><span>24 H AGO</span><span class="heartbeat-key"><i class="on"></i>RUN <i class="miss"></i>MISSED</span><span>BUILT ${esc(time(agg.generatedAt).slice(11))}</span></div></div>`;
   const statusTile = tile({
@@ -725,8 +729,9 @@ export function renderHtml(agg, data = {}) {
     + `<div class="stat-row"><dt>Phase</dt><dd>${esc(PHASE_NAME.toUpperCase())}</dd></div>`
     + `<div class="stat-row"><dt>Done when</dt><dd>DAY ${PHASE_DAYS} AND ≥ ${PHASE_TARGET_PLANS} SCORED PLANS</dd></div>`
     + `<div class="stat-row"><dt>Then</dt><dd>ONE CALIBRATION PASS WITH YOU</dd></div>`
+    + `<div class="stat-row" id="testing-phase-frozen-row"><dt>Thresholds</dt><dd>FROZEN UNTIL ${esc(FROZEN_UNTIL)}</dd></div>`
     + `</dl>`
-    + `<p class="mono-note" id="testing-phase-frozen">FROZEN DURING THE WINDOW: NO THRESHOLD TUNING. ALL LABELS PROVISIONAL.</p>`
+    + `<p class="mono-note" id="testing-phase-frozen">LIVE RULES: GROSS MINRR 2.5, NET GATE OFF (NET R SHOWN), 3R AS SHADOW. NO TUNING UNTIL ${esc(FROZEN_UNTIL)}. CONFIG BOUNDARY MARKED AT EACH CONFIGVERSION CHANGE; STATS SPLIT BEFORE / AFTER. ALL LABELS PROVISIONAL.</p>`
     + configBoundaryNote(agg.configBoundary);
 
   // Activity, last 24 h.
@@ -886,7 +891,7 @@ export function renderReport(agg) {
   const out = [];
   out.push(`# EditTrades call tracker report\n\nGenerated ${time(agg.generatedAt)}. R is gross, before fees and slippage. ${EDGE_NOTE}\n`);
   out.push(`## Testing phase\n\n_${PROVISIONAL}_\n`);
-  out.push(`- Status: ${phase.status}\n- Phase: ${PHASE_NAME}, start ${PHASE_START}, ends ${phase.endDate}\n- Target: ${PHASE_DAYS} days / >= ${PHASE_TARGET_PLANS} scored plans\n- Progress: day ${phase.elapsed} / ${PHASE_DAYS}, plans scored ${isNum(phase.scored) ? phase.scored : dash} / ${PHASE_TARGET_PLANS}\n- Frozen during the window: no threshold tuning\n`);
+  out.push(`- Status: ${phase.status}\n- Phase: ${PHASE_NAME}, start ${PHASE_START}, ends ${phase.endDate}\n- Thresholds frozen until ${FROZEN_UNTIL}\n- Target: ${PHASE_DAYS} days / >= ${PHASE_TARGET_PLANS} scored plans\n- Progress: day ${phase.elapsed} / ${PHASE_DAYS}, plans scored ${isNum(phase.scored) ? phase.scored : dash} / ${PHASE_TARGET_PLANS}\n- Frozen during the window: no threshold tuning\n`);
   out.push(`## Summary\n\n_${PROVISIONAL}_\n`);
   out.push(mdTable(['Expectancy 7d', 'Scored 7d', 'Win rate 7d', 'Fills 7d', 'Losing streak 7d', 'Avg win R 7d', 'Last capture'],
     [[isNum(t.expectancy7d) ? rVal(t.expectancy7d) : NO_SCORED, t7.wins + t7.losses, pct(t.winRate7d), `${t7.fills} / ${t7.calls}`, t.losingStreak7d, rVal(t7.avgWinR), time(t.lastCapture)]]));

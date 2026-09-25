@@ -48,6 +48,7 @@ import {
   v3ShadowOutcomesFile, v3ShadowSummaryFile, computeV3ShadowRows, v3ShadowSummary, v3ShadowDataDir
 } from './scripts/tracker/v3-shadow.js';
 import { writeFileSync } from 'node:fs';
+import { esc } from './scripts/tracker/bento.js';
 import {
   renderChangelogPage, parseChangelog, renderMarkdown, renderInline, isNew, groupFields,
   NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS, NO_BOARD, BOARD_BREAKPOINT, boardModel, layoutBoard
@@ -705,16 +706,42 @@ async function run() {
     const howTo = readFileSync(howToFile, 'utf8');
     assert(/<a href="how-to.html"[^>]*id="tracker-how-to-link"/.test(index), 'index links to how-to');
     assert(howTo.includes('href="index.html"'), 'how-to links back');
-    for (const cmd of ['signals', 'forming', 'flags', 'track', 'balance', 'data check']) {
+    for (const cmd of ['signals', 'flags', 'forming', 'why SYM', 'trades', 'log text', 'journal', 'balance', 'data check', 'track']) {
       assert(howTo.includes(`data-command="${cmd}"`), `command ${cmd}`);
     }
     assert(howTo.includes('&quot;trades&quot; gives the same answer'), 'trades = signals');
-    for (const id of ['howto-session-section', 'howto-commands-section', 'howto-reading-section', 'howto-follow-ups-section', 'howto-donts-section', 'howto-tracker-section']) {
+    for (const id of ['howto-what-section', 'howto-routine-section', 'howto-telegram-section', 'howto-chatgpt-section', 'howto-rules-section', 'howto-tracker-section', 'howto-journal-section', 'howto-limits-section',
+      'howto-telegram-menu-tile', 'howto-telegram-levels-tile', 'howto-telegram-buttons-tile', 'howto-classes-tile', 'howto-data-block-tile', 'howto-rules-table']) {
       assert(howTo.includes(`id="${id}"`), `missing #${id}`);
+      if (id.endsWith('-section')) assert(howTo.includes(`href="#${id}"`), `jump nav to #${id}`);
     }
+    for (const key of ['Signals', 'Flags', 'Why BTC', 'Why ETH', 'Why SOL', 'Charts', 'Wallet', 'Journal', 'Status', 'Alerts']) {
+      assert(howTo.includes(`data-menu-key="${key}"`), `menu key ${key}`);
+    }
+    for (const cmd of ['/signals', '/why SYM', '/flags [SYM]', '/chart SYM TF', '/wallet', '/journal [n]', '/log text', '/status', '/alerts']) {
+      assert(howTo.includes(`data-tg-command="${cmd}"`), `telegram command ${cmd}`);
+    }
+    // Rules in force must match the owner decisions (docs/OWNER_DECISIONS_2026-09-24.md).
+    for (const fact of ['≥ 2.5R to TP1, gross', 'net_rr_low', 'gross 3.0', 'must not wick through the stop', '≤ 3% from entry', 'Long 0.34% · short 0.14%', '0.20% when direction is unresolved',
+      '4H → 1m / 3m / 5m (main) · 1H → 1m / 3m · 1D → 15m / 1H', '2026-09-23 → 2026-10-07', 'frozen until 2026-10-08', '01:00-05:00 America/Chicago', 'Took it', 'Skipped',
+      'getScalpContext', 'postJournal', 'getJournal', '1.24.x', 'open, close, adjust, skip, note', 'MISS_004']) {
+      assert(howTo.includes(esc(fact)), `how-to states: ${fact}`);
+    }
+    assert(!/net R:R ≥ 2\.0|restarted/i.test(howTo), 'no stale net-gate or restart copy');
     assert(!/<script/i.test(howTo), 'no scripts');
     assert(!/SCALP_CONTEXT_API_KEY|Bearer|walletAddress/i.test(howTo), 'no secrets or wallet fields');
     assert(howTo.includes('prefers-color-scheme: dark') && howTo.includes('prefers-color-scheme: light'), 'both schemes');
+  });
+
+  await test('page: index states current rules, frozen-until date, Telegram alerts line; no stale net-gate copy', () => {
+    const dir = tmp();
+    const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
+    const index = readFileSync(htmlFile, 'utf8');
+    assert(index.includes('id="testing-phase-frozen-row"') && index.includes('FROZEN UNTIL 2026-10-08'), 'frozen-until row');
+    assert(index.includes('GROSS MINRR 2.5, NET GATE OFF') && index.includes('CONFIG BOUNDARY MARKED'), 'live rules + boundary note');
+    assert(/id="system-alerts-channel-note"[^>]*>Alerts: Telegram @EditTrades_Bot/.test(index), 'alerts channel line');
+    assert(index.includes('href="how-to.html#howto-telegram-section"'), 'links to how-to Telegram section');
+    assert(!/net R:R ≥ 2\.0|Window restarted|net gate on at 2\.0/i.test(index), 'no stale strategy copy');
   });
 
   await test('alerts: new GOOD call alerts once per symbol+candidate, fresh only, owner mentioned', async () => {
