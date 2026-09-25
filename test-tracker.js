@@ -54,6 +54,11 @@ import {
   NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS, NO_BOARD, BOARD_BREAKPOINT, boardModel, layoutBoard
 } from './scripts/tracker/changelog-page.js';
 import { buildChangelog, latestVersions } from './scripts/tracker/build-changelog.js';
+import { pullTelegramLogs, telegramAlertRowsFromLines, transitionRowsFromLines, TELEGRAM_ALERT_FIELDS } from './scripts/tracker/collect.js';
+import { readTelegramAlerts, readTransitions, appendTelegramAlerts, appendTransitions, alertOutcomesFile } from './scripts/tracker/store.js';
+import { scoreAlerts, scoreAlertsDataDir, alertLatencyMin } from './scripts/tracker/score.js';
+import { computeAlertAggregates } from './scripts/tracker/aggregate.js';
+import { alertsZoneTiles, NO_ALERT_LOG, NO_TRANSITIONS } from './scripts/tracker/build-page.js';
 
 let passed = 0;
 let failed = 0;
@@ -2293,6 +2298,101 @@ async function run() {
   });
 
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
+  console.log('\nTelegram sent-alert + transition logs\n');
+
+  const D = '2026-09-24';
+  const at = (hhmm, sec = 0) => `${D}T${hhmm}:${String(sec).padStart(2, '0')}.000Z`;
+  const CA = 'BTC:3m:long:2026-09-24T14:00:00.000Z';
+  const CB = 'ETH:5m:short:2026-09-24T13:50:00.000Z';
+  const aLine = (id, sentAt, over = {}) => ({ id, sentAt, kind: 'TRIGGERING', event: null, symbol: 'BTC', timeframe: '3m', direction: 'long', candidateId: CA, signature: 'BTC|3m|long|84466.10',
+    verdict: 'BE READY', etaMin: 2, breakout: 84466.1, invalidation: 84331.6, entry: 84466.1, stop: 84331.6, tp1: null, grossRR: null, netRR: null, roomR: null,
+    closedThrough: at('14:07'), silent: false, level: 'watch', tracked: false, delivered: true, text: 'BTC 3m LONG · TRIGGERING', ...over });
+  const tLine = (atIso, candidateId, from, to, planStatus = null, over = {}) => ({ at: atIso, closedThrough: atIso, symbol: candidateId.split(':')[0], timeframe: candidateId.split(':')[1], direction: candidateId.split(':')[2],
+    candidateId, from, to, planStatus, planFrom: null, reasonCode: null, class: null, breakout: 1, invalidation: 0.5, measuredRR: 2.5, ...over });
+
+  await test('telegram logs: pull both manifests into data/telegram-alerts + data/transitions, dedupe by id / candidateId+at, whitelist + strip', async () => {
+    const dir = tmp();
+    const base = 'https://store.public.blob.vercel-storage.com';
+    const files = {
+      [`${base}/telegram/alerts/manifest.json`]: JSON.stringify({ schemaVersion: 'telegram-alerts-manifest-1', baseUrl: base, days: [D] }),
+      [`${base}/telegram/alerts/${D}.jsonl`]: [JSON.stringify({ ...aLine('a1', at('14:07', 21)), wallet: { address: 'x' }, extra: 'dropped' }), JSON.stringify(aLine('a2', at('14:12', 5), { verdict: 'GET IN NOW', kind: 'GOOD' })), '{torn'].join('\n'),
+      [`${base}/telegram/transitions/manifest.json`]: JSON.stringify({ schemaVersion: 'telegram-transitions-manifest-1', baseUrl: base, days: [D] }),
+      [`${base}/telegram/transitions/${D}.jsonl`]: [JSON.stringify(tLine(at('14:07'), CA, 'forming', 'triggering')), JSON.stringify(tLine(at('14:12'), CA, 'triggering', 'confirmed', 'ready'))].join('\n')
+    };
+    const fakeFetch = async (url) => { const t = files[url.split('?')[0]]; return t === undefined ? { ok: false, status: 404, text: async () => '' } : { ok: true, status: 200, text: async () => t }; };
+    const r1 = await pullTelegramLogs(dir, base, fakeFetch, 1);
+    assert(r1.alerts.added === 2 && r1.transitions.added === 2, JSON.stringify(r1));
+    const r2 = await pullTelegramLogs(dir, base, fakeFetch, 2);
+    assert(r2.alerts.added === 0 && r2.alerts.duplicates === 2 && r2.transitions.duplicates === 2, JSON.stringify(r2));
+    const stored = readTelegramAlerts(dir);
+    assertEqual(Object.keys(stored[0]).join(), TELEGRAM_ALERT_FIELDS.join(), 'whitelisted keys');
+    assert(!allText(dir).includes('address') && !allText(dir).includes('dropped'), 'strip');
+    assertEqual(readTransitions(dir).length, 2, 'transitions stored');
+    assert(existsSync(path.join(dir, 'telegram-alerts', `${D}.jsonl`)) && existsSync(path.join(dir, 'transitions', `${D}.jsonl`)), 'day files');
+    const none = await pullTelegramLogs(tmp(), 'https://empty.public.blob.vercel-storage.com', fakeFetch);
+    assert(none.alerts.days === 0 && none.transitions.added === 0, 'no manifest -> nothing');
+    assertEqual(telegramAlertRowsFromLines([{ sentAt: at('14:00') }, { id: 'x', sentAt: 'nope' }]).length, 0, 'id + sentAt required');
+    assertEqual(transitionRowsFromLines([{ at: at('14:00') }]).length, 0, 'candidateId required');
+    assertEqual(appendTransitions(dir, [tLine(at('14:07'), CA, 'forming', 'triggering')]).duplicates, 1, 'store dedupe');
+    assertEqual(appendTelegramAlerts(dir, [aLine('a1', at('14:07', 21))]).duplicates, 1, 'store dedupe by id');
+  });
+
+  await test('alert scoring on a synthetic day: latency from the timeframe close, outcome ladder, later GOOD, BE READY -> GET IN NOW, call join', () => {
+    const alerts = [
+      aLine('a1', at('14:07', 21)), // BE READY, CA; later ready at 14:12 (5 min) then TP1 hit 14:30
+      aLine('a2', at('14:12', 5), { kind: 'TRACK', event: 'get_in_now', verdict: 'GET IN NOW', tracked: true, closedThrough: at('14:12') }),
+      aLine('a3', at('14:30', 10), { kind: 'TRACK', event: 'tp1', verdict: null, tracked: true, closedThrough: at('14:30') }),
+      aLine('b1', at('14:05', 40), { symbol: 'ETH', timeframe: '5m', direction: 'short', candidateId: CB, kind: 'WATCH', verdict: 'WAIT', closedThrough: at('14:05') }),
+      aLine('d1', at('14:20', 3), { kind: 'DATA', symbol: null, timeframe: null, candidateId: null, verdict: null, closedThrough: at('14:20') })
+    ];
+    const transitions = [
+      tLine(at('14:07'), CA, 'forming', 'triggering'),
+      tLine(at('14:12'), CA, 'triggering', 'confirmed', 'ready'),
+      tLine(at('14:10'), CB, 'forming', 'confirmed'),
+      tLine(at('14:40'), CB, 'confirmed', 'gone')
+    ];
+    const outcomes = [{ callId: 'plan|BTC|x', kind: 'plan', planStatus: 'ready', candidateId: CA, calledAt: at('14:12'), outcome: 'tp1', r: 2.6, resolvedAt: at('14:29') }];
+    const nowMs = Date.parse(`${D}T20:00:00.000Z`);
+    const rows = scoreAlerts(alerts, transitions, outcomes, nowMs);
+    const by = Object.fromEntries(rows.map((r) => [r.id, r]));
+    assertEqual(alertLatencyMin(alerts[0]), 1.4, '3m close 14:06 -> sent 14:07:21');
+    assertEqual(by.b1.latencyMin, 0.7, '5m close 14:05 -> 14:05:40');
+    assert(by.a1.outcome === 'tp1' && by.a1.laterGood === true && by.a1.readyAfterMin === 4.7 && by.a1.callId === 'plan|BTC|x' && by.a1.callOutcome === 'tp1' && by.a1.callR === 2.6, JSON.stringify(by.a1));
+    assert(by.a2.outcome === 'tp1', `a2 ${by.a2.outcome}`);
+    assert(by.b1.outcome === 'confirmed' && by.b1.laterGood === false && by.b1.callId === null, JSON.stringify(by.b1));
+    assert(by.d1.outcome === null && by.d1.laterGood === null && by.d1.latencyMin === 0.1, JSON.stringify(by.d1));
+    const fresh = scoreAlerts([aLine('p1', at('19:59'))], [], [], nowMs)[0];
+    assertEqual(fresh.outcome, 'pending', 'inside 24 h, nothing yet');
+    assertEqual(scoreAlerts([aLine('p1', at('00:01'))], [], [], nowMs + 2 * 86_400_000)[0].outcome, 'none', 'window closed');
+    const agg = computeAlertAggregates(rows, transitions, nowMs);
+    assert(agg.tiles.alerts7d === 5 && agg.tiles.medianLatencyMin === 0.2 && agg.tiles.laterGoodN === 2 && agg.tiles.laterGoodRate === 0.5, JSON.stringify(agg.tiles));
+    assert(agg.tiles.beReadyN === 1 && agg.tiles.beReadyToGoRate === 1, JSON.stringify(agg.tiles));
+    assertEqual(JSON.stringify(agg.tiles.transitionsPerHour), '{"3m":0.34,"5m":0.34}', 'per hour over the 5.9 h logged');
+    assertEqual(agg.byDay[0].day, D, 'day row');
+    assert(agg.byDay[0].alerts === 5 && agg.byDay[0].byKind.TRACK === 2 && agg.byDay[0].byVerdict['BE READY'] === 1 && agg.byDay[0].transitions === 4, JSON.stringify(agg.byDay[0]));
+    // Data dir round trip.
+    const dir = tmp();
+    appendTelegramAlerts(dir, alerts);
+    appendTransitions(dir, transitions);
+    writeJsonl(outcomesFile(dir), outcomes);
+    assertEqual(scoreAlertsDataDir(dir, nowMs).length, 5, 'written');
+    assertEqual(readJsonl(alertOutcomesFile(dir)).length, 5, 'alert-outcomes.jsonl');
+    const full = aggregateDataDir(dir, nowMs);
+    assertEqual(full.alerts.tiles.alerts7d, 5, 'aggregates.json carries alerts');
+  });
+
+  await test('page Alerts zone: renders from empty data, jump nav + Status Alerts link, filled tiles and daily table', () => {
+    const empty = alertsZoneTiles(computeAlertAggregates([], [], T0)).join('');
+    for (const f of ['id="tile-alerts-7d"', 'id="tile-alert-latency"', 'id="tile-alert-later-good"', 'id="tile-be-ready-to-go"', NO_TRANSITIONS, NO_ALERT_LOG, 'PROVISIONAL']) assert(empty.includes(f), `empty missing ${f}`);
+    const dir = tmp();
+    const { htmlFile } = buildPage(dir, path.join(dir, 'docs'), T0);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="zone-alerts"') && html.includes('href="#zone-alerts">Alerts</a>') && html.includes('id="system-alerts-fact-link" href="#zone-alerts"'), 'zone + links');
+    const agg = computeAlertAggregates(scoreAlerts([aLine('a1', at('14:07', 21))], [tLine(at('14:07'), CA, 'forming', 'triggering')], [], T0 + 5 * 86_400_000), [tLine(at('14:07'), CA, 'forming', 'triggering')], Date.parse(`${D}T15:00:00.000Z`));
+    const filled = alertsZoneTiles(agg).join('');
+    assert(filled.includes('id="alerts-daily-table"') && filled.includes('TRIGGERING 1') && filled.includes('id="alerts-transitions-3m-row"'), filled);
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) {
     console.log(`Failed: ${failures.join(', ')}`);

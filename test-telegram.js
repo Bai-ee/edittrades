@@ -38,6 +38,9 @@ import {
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, config as webhookConfig } from './api/telegram-webhook.js';
 import { handleTelegramCron } from './api/telegram-cron.js';
+import { diffCandidates } from './lib/telegram.js';
+import { alertLogLine, verdictOf as logVerdictOf, textExcerpt, recordTelegramLogs, assertSafeRows, alertsDayPath, transitionsDayPath, ALERTS_MANIFEST_PATH, TRANSITIONS_MANIFEST_PATH } from './lib/telegramLog.js';
+import { findSensitiveKeys } from './scripts/tracker/records.js';
 import { telegramStatusFromState, pullTelegramStatus } from './scripts/tracker/collect.js';
 import { alertsFact } from './scripts/tracker/build-page.js';
 
@@ -1859,6 +1862,112 @@ async function run() {
       const src = readFileSync(path.join(root, f), 'utf8');
       assert(!/execute-trade|jupiterPerps|walletManager|signTransaction|Keypair/.test(src), `${f} reaches execution`);
     }
+  });
+
+  console.log('\nsent-alert + transition logs');
+
+  const ALERT_LINE_KEYS = ['id', 'sentAt', 'kind', 'event', 'symbol', 'timeframe', 'direction', 'candidateId', 'signature', 'verdict', 'etaMin', 'breakout', 'invalidation',
+    'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'silent', 'level', 'tracked', 'delivered', 'text'];
+
+  await test('alert log line: field list, verdict + eta, levels from the plan, no sensitive keys, sizing rows cut from the text', () => {
+    const p = payload();
+    const d = diffAlerts(emptyState(), p, T0);
+    const good = d.alerts.find((a) => a.kind === 'GOOD');
+    const line = alertLogLine(good, { payload: p, id: 'x#0', sentAtMs: T0 + 2000, silent: false, level: 'setup' });
+    assertEqual(Object.keys(line).join(), ALERT_LINE_KEYS.join(), 'keys');
+    assertEqual(line.verdict, 'GET IN NOW', 'verdict');
+    assertEqual(line.signature, 'BTC|5m|long|84600.00', 'signature');
+    assert(line.entry === 84600 && line.stop === 84390 && line.tp1 === 85146 && line.grossRR === 2.6 && line.netRR === 2.1 && line.breakout === 84600 && line.invalidation === 84390, JSON.stringify(line));
+    assert(line.timeframe === '5m' && line.direction === 'long' && line.closedThrough === '2026-09-24T14:05:00.000Z' && line.sentAt === '2026-09-24T14:05:32.000Z' && line.tracked === false, JSON.stringify(line));
+    assert(line.text.length <= 200 && !line.text.includes('<b>'), line.text);
+    assertEqual(findSensitiveKeys(line).length, 0, 'strip check');
+    assertEqual(JSON.stringify(logVerdictOf('<b>SOL 3m</b> · x\n<b>BE READY (3m)</b> — close')), '{"verdict":"BE READY","etaMin":3}', 'eta');
+    assert(!textExcerpt('a\n<code>size · lev  $500 · 5x\nloss$  $10</code>\nb').includes('$500'), 'sizing cut');
+    let threw = false;
+    try { assertSafeRows([{ ...line, account: {} }]); } catch { threw = true; }
+    assert(threw, 'sensitive key refused');
+  });
+
+  await test('alert log line: tracked VOID keeps the tracked levels when the candidate is gone; health alerts carry nulls', () => {
+    const id = 'BTC:3m:long:2026-09-24T14:00:00.000Z';
+    const st = { ...withPrefs('setup'), tracked: [{ ...trackEntry({ symbol: 'BTC', candidateId: id, timeframe: '3m', direction: 'long', entry: 84466.1, stop: 84331.6, tp1: 84800, breakoutLevel: 84466.1, invalidation: 84331.6, state: 'forming' }, T0 - MIN) }] };
+    const p = payload({ BTC: { ...formSym([]), price: 84000 } });
+    const d = diffAlerts(st, p, T0);
+    const voided = d.alerts.find((a) => a.kind === 'TRACK');
+    assert(voided && voided.event === 'void', JSON.stringify(d.alerts.map((a) => [a.kind, a.event])));
+    const line = alertLogLine(voided, { payload: p, id: 'v#0', sentAtMs: T0, silent: true, level: 'setup' });
+    assert(line.tracked && line.event === 'void' && line.entry === 84466.1 && line.stop === 84331.6 && line.timeframe === '3m' && line.verdict === 'STAND DOWN' && line.silent, JSON.stringify(line));
+    const data = alertLogLine({ kind: 'DATA', symbol: null, text: '⚪ <b>DATA</b> stale' }, { payload: p, id: 'd#0', sentAtMs: T0, silent: false, level: 'setup' });
+    assert(data.symbol === null && data.signature === null && data.verdict === null && data.entry === null, JSON.stringify(data));
+  });
+
+  await test('transition diff: first run seeds silently; state / plan changes, new and gone candidates -> one line each; unavailable data -> none', () => {
+    const idA = 'BTC:3m:long:2026-09-24T14:00:00.000Z';
+    const idB = 'BTC:5m:long:2026-09-24T13:50:00.000Z';
+    const p1 = payload({ BTC: formSym([cand(idA, 'forming')]) });
+    const seed = diffCandidates(undefined, p1, T0);
+    assertEqual(seed.transitions.length, 0, 'seeded silently');
+    assertEqual(JSON.stringify(seed.cands[idA]), '{"sym":"BTC","s":"forming","p":null}', 'seed entry');
+    assertEqual(diffCandidates(seed.cands, p1, T0 + MIN).transitions.length, 0, 'nothing changed -> nothing');
+    const p2 = payload({ BTC: formSym([cand(idA, 'triggering'), cand(idB, 'confirmed', { timeframe: '5m' })]) });
+    const t2 = diffCandidates(seed.cands, p2, T0 + MIN).transitions;
+    assertEqual(t2.length, 2, JSON.stringify(t2));
+    const a = t2.find((x) => x.candidateId === idA);
+    assertEqual(Object.keys(a).join(), 'at,closedThrough,symbol,timeframe,direction,candidateId,from,to,planStatus,planFrom,reasonCode,class,breakout,invalidation,measuredRR', 'line keys');
+    assert(a.from === 'forming' && a.to === 'triggering' && a.breakout === 84466.1 && a.invalidation === 84331.6 && a.measuredRR === 2.43 && a.timeframe === '3m', JSON.stringify(a));
+    assert(t2.find((x) => x.candidateId === idB).from === null, 'new candidate from null');
+    const c2 = diffCandidates(seed.cands, p2, T0 + MIN).cands;
+    // idA's plan turns ready (same state) -> a plan-status line; idB disappears -> gone.
+    const g = goodSym(idA);
+    const p3 = payload({ BTC: { ...g, candidateSetups: [cand(idA, 'triggering')] } });
+    const t3 = diffCandidates(c2, p3, T0 + 2 * MIN).transitions;
+    const ready = t3.find((x) => x.candidateId === idA);
+    const gone = t3.find((x) => x.candidateId === idB);
+    assert(ready && ready.from === 'triggering' && ready.to === 'triggering' && ready.planStatus === 'ready' && ready.planFrom === null && ready.class === 'GOOD', JSON.stringify(ready));
+    assert(gone && gone.to === 'gone' && gone.from === 'confirmed' && gone.timeframe === '5m' && gone.direction === 'long', JSON.stringify(gone));
+    assertEqual(diffCandidates(c2, { ...p3, dataStatus: 'unavailable' }, T0).transitions.length, 0, 'unavailable -> none');
+    // A symbol missing from the payload keeps its candidates (no gone lines).
+    const onlyEth = { ...payload(), symbols: { ETH: watchSym() } };
+    const kept = diffCandidates(c2, onlyEth, T0);
+    assert(kept.transitions.length === 0 && kept.cands[idA], 'absent symbol kept');
+    // diffAlerts returns the same lines and stores the map.
+    const d = diffAlerts({ ...withPrefs('setup'), cands: seed.cands }, p2, T0 + MIN);
+    assert(d.transitions.length === 2 && d.state.cands[idB], 'diffAlerts transitions');
+  });
+
+  await test('cron: sent alerts and transitions land in their day files + manifests; a second identical run adds nothing', async () => {
+    const blob = fakeBlob();
+    const idA = 'BTC:3m:long:2026-09-24T14:00:00.000Z';
+    await cron({ blob, build: async () => payload({ BTC: formSym([cand(idA, 'forming')]) }) });
+    assert(!blob.files.get(transitionsDayPath('2026-09-24')), 'first run seeds, no transition file');
+    const r = await cron({ blob, nowMs: T0 + MIN, build: async () => payload() });
+    const alertsFile = blob.files.get(alertsDayPath('2026-09-24'));
+    assert(alertsFile && blob.files.get(ALERTS_MANIFEST_PATH), 'alert log + manifest');
+    const lines = alertsFile.text.trim().split('\n').map((l) => JSON.parse(l));
+    const sentKinds = r.res.body.kinds.map((k) => k.split(':')[0]);
+    assertEqual(lines.map((l) => l.kind).join(), sentKinds.join(), 'one line per sent alert');
+    assert(lines.every((l) => findSensitiveKeys(l).length === 0 && l.delivered && l.level === 'setup'), 'clean + delivered');
+    const tr = blob.files.get(transitionsDayPath('2026-09-24')).text.trim().split('\n').map((l) => JSON.parse(l));
+    assert(tr.some((x) => x.candidateId === idA && x.to === 'gone') && tr.some((x) => x.to === 'confirmed' && x.planStatus === 'ready'), JSON.stringify(tr));
+    const man = JSON.parse(blob.files.get(TRANSITIONS_MANIFEST_PATH).text);
+    assert(man.schemaVersion === 'telegram-transitions-manifest-1' && man.days.join() === '2026-09-24' && man.baseUrl === BASE, JSON.stringify(man));
+    const before = [blob.files.get(alertsDayPath('2026-09-24')).text, blob.files.get(transitionsDayPath('2026-09-24')).text];
+    const again = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => payload() });
+    assertEqual(again.res.body.alerts, 0, 'nothing new');
+    assertEqual(blob.files.get(alertsDayPath('2026-09-24')).text, before[0], 'no alert lines');
+    assertEqual(blob.files.get(transitionsDayPath('2026-09-24')).text, before[1], 'no transition lines');
+  });
+
+  await test('cron: a failing log store never blocks a send; TRACK_TELEGRAM_LOG=false writes nothing', async () => {
+    const blob = fakeBlob();
+    const realPut = blob.put;
+    blob.put = async (pathname, body, opts) => { if (pathname.startsWith('telegram/alerts/') || pathname.startsWith('telegram/transitions/')) throw new Error('blob down'); return realPut(pathname, body, opts); };
+    const r = await cron({ blob });
+    assert(r.res.statusCode === 200 && r.res.body.sent > 0 && r.logs.some((l) => l.includes('logSkipped=error')), r.logs.join('\n'));
+    const off = fakeBlob();
+    const r2 = await cron({ blob: off, env: { ...ENV, TRACK_TELEGRAM_LOG: 'false' } });
+    assert(r2.res.body.sent > 0 && !off.files.get(alertsDayPath('2026-09-24')), 'disabled');
+    assertEqual((await recordTelegramLogs({ alerts: [{ id: 'a', sentAt: 'x' }] }, { store: null })).skipped, 'no_store', 'no store');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

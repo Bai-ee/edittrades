@@ -19,12 +19,19 @@
  * capture-health numbers, last capture or run counts (those describe the cron job).
  * activity.served24h / servedGood24h count served rows (and GOOD ones) in the last 24 h.
  *
+ * Telegram alerts (`alerts`, computeAlertAggregates): from data/alert-outcomes.jsonl
+ * (score.js scoreAlerts) and data/transitions/: sent alerts by kind and verdict per day,
+ * median latency (sentAt - producing candle close), "alerted -> later GOOD" rate (alerts
+ * before any GET IN NOW whose candidate later reached a ready plan), "BE READY -> GET IN
+ * NOW within 30 min" rate (BE READY alerts at least 30 min old), and engine transitions
+ * per hour by timeframe over the last 24 h (span capped to the logged time).
+ *
  * Usage: node aggregate.js [--data ./data] [--now <iso>]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile } from './store.js';
+import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions } from './store.js';
 import { round, median, isFiniteNumber } from './walk-outcome.js';
 import { costR } from './costs.js';
 
@@ -227,6 +234,72 @@ export function configBoundary(outcomes) {
   };
 }
 
+export const READY_WITHIN_MIN = 30;
+export const ALERT_LOG_DAYS = 14;
+const countBy = (rows, key) => rows.reduce((m, r) => { const k = r[key] ?? 'none'; m[k] = (m[k] || 0) + 1; return m; }, {});
+const rate = (hits, n) => (n ? round(hits / n) : null);
+/** An alert about a candidate before any GET IN NOW (not GOOD, not a TP1/stop/nudge/ended TRACK message). */
+const isPreGood = (r) => Boolean(r.candidateId) && r.laterGood !== null && r.kind !== 'GOOD' && r.verdict !== 'GET IN NOW'
+  && (!r.event || r.event === 'setup' || String(r.event).startsWith('state:'));
+
+/**
+ * Telegram alert numbers (see header). Renders from empty input.
+ * @param {Array<Object>} alertOutcomes - score.js scoreAlerts rows
+ * @param {Array<Object>} transitions - data/transitions lines
+ * @param {number} [nowMs=Date.now()]
+ */
+export function computeAlertAggregates(alertOutcomes = [], transitions = [], nowMs = Date.now()) {
+  const rows = (alertOutcomes || []).filter((r) => r && Number.isFinite(Date.parse(r.sentAt)));
+  const trs = (transitions || []).filter((t) => t && Number.isFinite(Date.parse(t.at)));
+  const since7d = nowMs - 7 * DAY;
+  const r7 = rows.filter((r) => Date.parse(r.sentAt) >= since7d);
+  const latencies = r7.map((r) => r.latencyMin).filter(isFiniteNumber).sort((a, b) => a - b);
+  const before = r7.filter(isPreGood);
+  const beReady = r7.filter((r) => r.verdict === 'BE READY' && r.candidateId && Date.parse(r.sentAt) <= nowMs - READY_WITHIN_MIN * 60_000);
+  const readyFast = beReady.filter((r) => isFiniteNumber(r.readyAfterMin) && r.readyAfterMin <= READY_WITHIN_MIN);
+  const since24h = nowMs - DAY;
+  const t24 = trs.filter((t) => Date.parse(t.at) >= since24h);
+  const firstMs = trs.reduce((m, t) => Math.min(m, Date.parse(t.at)), Infinity);
+  const hours = Number.isFinite(firstMs) ? Math.max(1, Math.min(24, (nowMs - Math.max(firstMs, since24h)) / 3_600_000)) : null;
+  const perTf = countBy(t24, 'timeframe');
+  const transitionsPerHour = hours === null ? {} : Object.fromEntries(Object.entries(perTf).sort(([a], [b]) => a.localeCompare(b)).map(([tf, n]) => [tf, round(n / hours, 2)]));
+  const days = [...new Set([...rows.map((r) => String(r.sentAt).slice(0, 10)), ...trs.map((t) => String(t.at).slice(0, 10))])].sort().reverse().slice(0, ALERT_LOG_DAYS);
+  const byDay = days.map((day) => {
+    const d = rows.filter((r) => String(r.sentAt).slice(0, 10) === day);
+    const lat = d.map((r) => r.latencyMin).filter(isFiniteNumber).sort((a, b) => a - b);
+    const dBefore = d.filter(isPreGood);
+    return {
+      day,
+      alerts: d.length,
+      byKind: countBy(d, 'kind'),
+      byVerdict: countBy(d.filter((r) => r.verdict), 'verdict'),
+      medianLatencyMin: median(lat),
+      laterGood: dBefore.filter((r) => r.laterGood).length,
+      laterGoodOf: dBefore.length,
+      transitions: trs.filter((t) => String(t.at).slice(0, 10) === day).length
+    };
+  });
+  return {
+    label: 'provisional; not evidence of an edge',
+    tiles: {
+      alerts7d: r7.length,
+      alertsToday: rows.filter((r) => String(r.sentAt).slice(0, 10) === new Date(nowMs).toISOString().slice(0, 10)).length,
+      medianLatencyMin: median(latencies),
+      latencyN: latencies.length,
+      laterGoodRate: rate(before.filter((r) => r.laterGood).length, before.length),
+      laterGoodN: before.length,
+      beReadyToGoRate: rate(readyFast.length, beReady.length),
+      beReadyN: beReady.length,
+      transitions24h: t24.length,
+      transitionsPerHour
+    },
+    byKind7d: countBy(r7, 'kind'),
+    byVerdict7d: countBy(r7.filter((r) => r.verdict), 'verdict'),
+    byOutcome7d: countBy(r7.filter((r) => r.outcome), 'outcome'),
+    byDay
+  };
+}
+
 /**
  * Everything the page and report need.
  * @param {Array<Object>} outcomes
@@ -324,6 +397,7 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
       servedGood24h: served24h.filter((r) => r.flagRecommendation && r.flagRecommendation.class === 'GOOD').length
     },
     classCheck: classCheck(outcomes, opts.phaseStartMs),
+    alerts: computeAlertAggregates(opts.alertOutcomes || [], opts.transitions || [], nowMs),
     phase: isFiniteNumber(opts.phaseStartMs)
       ? { startedAt: new Date(opts.phaseStartMs).toISOString(), tradable: statsFor(tradable.filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs)) }
       : null
@@ -331,7 +405,8 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
 }
 
 export function aggregateDataDir(dataDir, nowMs = Date.now(), opts = {}) {
-  const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs, opts);
+  const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs,
+    { alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), ...opts });
   writeJson(aggregatesFile(dataDir), agg);
   return agg;
 }

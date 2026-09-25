@@ -44,12 +44,26 @@
  * is in the outcomes store; else a minimal set from engineRef. Written to
  * data/journal-outcomes.jsonl, fully recomputed each run (scoredAt kept when unchanged).
  *
+ * Telegram alerts: each sent-alert line (data/telegram-alerts/) is joined to the scored call
+ * for its candidateId (a ready plan first, then setup, then rec; nearest calledAt) and to
+ * that candidate's later transitions (data/transitions/) and later alerts within 24 h.
+ * latencyMin = sentAt - the close of the alert's timeframe candle at or before the
+ * payload's closedThrough (the candle close that produced the state; 1m when unknown).
+ * outcome = the furthest the candidate got after the alert: tp1 | stop (a later TRACK hit,
+ * else the joined ready plan's walk) > get_in_now (plan ready / GET IN NOW) > setup (SETUP
+ * or conditional plan) > confirmed > void (failed or gone) > expired; nothing yet ->
+ * pending (inside 24 h) or none. readyAfterMin = minutes to the first ready plan / GET IN NOW
+ * after the alert. Written to data/alert-outcomes.jsonl, fully recomputed each run.
+ *
  * Usage: node score.js [--data ./data] [--now <iso>]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, readJournal, journalOutcomesFile } from './store.js';
+import {
+  parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, readJournal, journalOutcomesFile,
+  readTelegramAlerts, readTransitions, alertOutcomesFile
+} from './store.js';
 import { walkOutcome, isFiniteNumber, FILL_WINDOW_CANDLES } from './walk-outcome.js';
 
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -484,6 +498,112 @@ export function scoreJournal(records, candlesBySymbol, outcomes = [], previous =
   return rows;
 }
 
+// ---------------------------------------------------------------- Telegram alerts
+
+const ALERT_TF_MS = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '4h': 14_400_000 };
+/** Outcome ladder, best first. */
+export const ALERT_OUTCOMES = ['tp1', 'stop', 'get_in_now', 'setup', 'confirmed', 'void', 'expired'];
+const CALL_KIND_RANK = { plan: 0, setup: 1, rec: 2 };
+
+/** Minutes from the alert timeframe's candle close (at or before closedThrough) to sentAt, 0.1 min; null when unknown. */
+export function alertLatencyMin(alert) {
+  const sent = Date.parse(alert && alert.sentAt);
+  const through = Date.parse(alert && alert.closedThrough);
+  if (!Number.isFinite(sent) || !Number.isFinite(through)) return null;
+  const iv = ALERT_TF_MS[alert.timeframe] || ALERT_TF_MS['1m'];
+  const close = Math.floor(through / iv) * iv;
+  return Math.round(((sent - close) / MINUTE) * 10) / 10;
+}
+
+/** The scored call for an alert's candidate: ready plan, then setup, then rec; nearest calledAt. */
+function joinCall(alert, outcomes) {
+  if (!alert.candidateId) return null;
+  const sent = Date.parse(alert.sentAt);
+  const hits = outcomes.filter((o) => o && o.candidateId === alert.candidateId && (o.kind !== 'plan' || o.planStatus === 'ready'));
+  hits.sort((a, b) => ((CALL_KIND_RANK[a.kind] ?? 9) - (CALL_KIND_RANK[b.kind] ?? 9)) || (Math.abs(Date.parse(a.calledAt) - sent) - Math.abs(Date.parse(b.calledAt) - sent)));
+  return hits[0] || null;
+}
+
+/**
+ * Score sent alerts against later transitions, later alerts and scored calls.
+ * @param {Array<Object>} alerts - data/telegram-alerts lines
+ * @param {Array<Object>} transitions - data/transitions lines
+ * @param {Array<Object>} [outcomes=[]] - engine outcomes.jsonl rows
+ * @param {number} [nowMs=Date.now()]
+ * @returns {Array<Object>}
+ */
+export function scoreAlerts(alerts, transitions, outcomes = [], nowMs = Date.now()) {
+  const byCand = new Map();
+  for (const t of transitions || []) {
+    if (!t || !t.candidateId) continue;
+    if (!byCand.has(t.candidateId)) byCand.set(t.candidateId, []);
+    byCand.get(t.candidateId).push(t);
+  }
+  const sorted = [...(alerts || [])].filter((a) => a && a.id && Number.isFinite(Date.parse(a.sentAt)))
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  return sorted.map((a) => {
+    const sent = Date.parse(a.sentAt);
+    const end = sent + WINDOW_MS;
+    const call = joinCall(a, outcomes || []);
+    const reached = new Map(); // outcome -> first ms
+    const mark = (o, ms) => { if (!reached.has(o) || ms < reached.get(o)) reached.set(o, ms); };
+    let readyMs = null;
+    if (a.candidateId) {
+      for (const t of byCand.get(a.candidateId) || []) {
+        const ms = Date.parse(t.at);
+        if (!(ms > sent && ms < end)) continue;
+        if (t.planStatus === 'ready') { mark('get_in_now', ms); readyMs = readyMs === null ? ms : Math.min(readyMs, ms); }
+        if (t.planStatus === 'setup' || t.planStatus === 'conditional') mark('setup', ms);
+        if (t.to === 'confirmed') mark('confirmed', ms);
+        if (t.to === 'failed' || t.to === 'gone') mark('void', ms);
+        if (t.to === 'expired') mark('expired', ms);
+      }
+      for (const b of sorted) {
+        const ms = Date.parse(b.sentAt);
+        if (b === a || b.candidateId !== a.candidateId || !(ms > sent && ms < end)) continue;
+        if (b.event === 'tp1' || b.event === 'stop') mark(b.event, ms);
+        if (b.event === 'void' || b.event === 'gone') mark('void', ms);
+        if (b.event === 'expired') mark('expired', ms);
+        if (b.kind === 'GOOD' || b.verdict === 'GET IN NOW') { mark('get_in_now', ms); readyMs = readyMs === null ? ms : Math.min(readyMs, ms); }
+      }
+      if (call && call.kind === 'plan' && (call.outcome === 'tp1' || call.outcome === 'stop') && Date.parse(call.resolvedAt || call.calledAt) > sent) {
+        mark(call.outcome, Date.parse(call.resolvedAt || call.calledAt));
+      }
+    }
+    const best = ALERT_OUTCOMES.find((o) => reached.has(o)) || null;
+    return {
+      id: a.id,
+      sentAt: a.sentAt,
+      day: String(a.sentAt).slice(0, 10),
+      kind: a.kind ?? null,
+      event: a.event ?? null,
+      verdict: a.verdict ?? null,
+      symbol: a.symbol ?? null,
+      timeframe: a.timeframe ?? null,
+      direction: a.direction ?? null,
+      candidateId: a.candidateId ?? null,
+      tracked: Boolean(a.tracked),
+      silent: Boolean(a.silent),
+      latencyMin: alertLatencyMin(a),
+      outcome: best || (a.candidateId ? (nowMs < end ? 'pending' : 'none') : null),
+      outcomeAt: best ? new Date(reached.get(best)).toISOString() : null,
+      laterGood: a.candidateId ? reached.has('get_in_now') || reached.has('tp1') || reached.has('stop') : null,
+      readyAfterMin: readyMs === null ? null : Math.round(((readyMs - sent) / MINUTE) * 10) / 10,
+      callId: call ? call.callId : null,
+      callKind: call ? call.kind : null,
+      callOutcome: call ? call.outcome ?? null : null,
+      callR: call && isFiniteNumber(call.r) ? call.r : null
+    };
+  });
+}
+
+/** Score the sent alerts in `dataDir`; write alert-outcomes.jsonl. */
+export function scoreAlertsDataDir(dataDir, nowMs = Date.now()) {
+  const rows = scoreAlerts(readTelegramAlerts(dataDir), readTransitions(dataDir), readJsonl(outcomesFile(dataDir)), nowMs);
+  writeJsonl(alertOutcomesFile(dataDir), rows);
+  return rows;
+}
+
 /** Score the journal in `dataDir` against its 1m candles and engine outcomes; write journal-outcomes.jsonl. */
 export function scoreJournalDataDir(dataDir, nowMs = Date.now()) {
   const rows = scoreJournal(readJournal(dataDir), readCandles(dataDir, '1m'), readJsonl(outcomesFile(dataDir)),
@@ -511,6 +631,8 @@ function main() {
   console.log(`[tracker:score] ${rows.length} call(s) -> ${outcomesFile(opts.data)} ${JSON.stringify(counts)}`);
   const journal = scoreJournalDataDir(opts.data, nowMs);
   console.log(`[tracker:score] ${journal.length} journal trade(s) -> ${journalOutcomesFile(opts.data)}`);
+  const alerts = scoreAlertsDataDir(opts.data, nowMs);
+  console.log(`[tracker:score] ${alerts.length} sent alert(s) -> ${alertOutcomesFile(opts.data)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

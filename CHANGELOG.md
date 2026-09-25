@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-25 — Tracking: Telegram sent-alert log and per-minute transition log, ingested by the tracker (not deployed)
+
+Logging only; no rule, threshold, schema or config change; no execution import; no new dependency. GPT instructions untouched (check:gpt unchanged).
+
+- Sent-alert log (`lib/telegramLog.js`, called by `api/telegram-cron.js` after the sends): one line per alert the cron sends (alerts, tracked transitions, TP1/stop hits, nudges; not command replies) to Blob `telegram/alerts/YYYY-MM-DD.jsonl` + `telegram/alerts/manifest.json` with id, sentAt, kind, event, symbol, timeframe, direction, candidateId, signature, verdict, etaMin, levels, gross/net R, room R, closedThrough, silent, level, tracked, delivered and a 200-char plain-text excerpt (sizing rows cut). No account or wallet fields; sensitive keys refused.
+- Transition log: `diffAlerts` keeps `state.cands` and returns `transitions` (`diffCandidates`): one line per candidate whose state or plan status changed since the last run, to `telegram/transitions/YYYY-MM-DD.jsonl` + manifest. Nothing when nothing changed; first run seeds silently.
+- Best effort: 2 s cap, never throws, never blocks or repeats a send; `TRACK_TELEGRAM_LOG=false` disables it.
+- Tracker: `collect.js` `pullTelegramLogs` → `data/telegram-alerts/` (dedupe by id) and `data/transitions/` (candidateId+at); `score.js` `scoreAlerts` → `data/alert-outcomes.jsonl` (latencyMin from the producing candle close, outcome tp1 / stop / get_in_now / setup / confirmed / void / expired, laterGood, readyAfterMin, joined call); `aggregate.js` `alerts` (by kind / verdict per day, median latency, alerted → later GOOD, BE READY → GET IN NOW ≤ 30 min, transitions per hour by timeframe); page `#zone-alerts` (PROVISIONAL, renders empty), Status Alerts fact links to it. `test:telegram` 85 → 90, `test:tracker` 111 → 114.
+
 ## 2026-09-25 — Telegram: Plan / Thesis / Track buttons on every alert; tracked-candidate alerts (not deployed)
 
 Delivery-only; no rule, threshold, schema or config change; no execution or signing import; no new dependency. GPT instructions untouched (check:gpt unchanged).

@@ -36,12 +36,21 @@
  * only the cron heartbeat and alert counters (telegramStatusFromState whitelist) for the
  * page's Status "Alerts" fact. A failed pull warns; it never fails the run.
  *
+ * Telegram sent alerts + transitions: pullTelegramLogs fetches telegram/alerts/ and
+ * telegram/transitions/ (manifest, then the day files from the newest stored day minus
+ * one) into data/telegram-alerts/ (dedupe by id) and data/transitions/ (dedupe by
+ * candidateId+at). Lines are rebuilt from a field whitelist (TELEGRAM_ALERT_FIELDS,
+ * TRANSITION_FIELDS), then the same strip and fail-closed re-check. A failed pull warns.
+ *
  * Usage: node collect.js [--data ./data] [--url <scalp-context url>] [--journal-base <url>] [--no-journal] [--no-served] [--no-telegram]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, appendCalls, appendServedCalls, appendCandles, appendWallet, appendJournal, readAllCalls, writeJson, telegramStatusFile, CANDLE_TIMEFRAMES } from './store.js';
+import {
+  parseArgs, appendCalls, appendServedCalls, appendCandles, appendWallet, appendJournal, readAllCalls, writeJson, telegramStatusFile, CANDLE_TIMEFRAMES,
+  appendTelegramAlerts, appendTransitions, readTelegramAlerts, readTransitions
+} from './store.js';
 import { stripSensitive, findSensitiveKeys, recordsFromPayload, servedKey } from './records.js';
 
 // Row building lives in records.js (shared with the engine's served-calls recorder).
@@ -320,6 +329,87 @@ export async function pullTelegramStatus(dataDir, base, fetchImpl = fetch, nowMs
   return status;
 }
 
+// ---------------------------------------------------------------- Telegram sent alerts + transitions
+
+/** The only fields a stored sent-alert line keeps (lib/telegramLog.js alertLogLine), in order. */
+export const TELEGRAM_ALERT_FIELDS = Object.freeze(['id', 'sentAt', 'kind', 'event', 'symbol', 'timeframe', 'direction', 'candidateId', 'signature', 'verdict', 'etaMin',
+  'breakout', 'invalidation', 'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'silent', 'level', 'tracked', 'delivered', 'text']);
+/** The only fields a stored transition line keeps (lib/telegram.js diffCandidates), in order. */
+export const TRANSITION_FIELDS = Object.freeze(['at', 'closedThrough', 'symbol', 'timeframe', 'direction', 'candidateId', 'from', 'to', 'planStatus', 'planFrom',
+  'reasonCode', 'class', 'breakout', 'invalidation', 'measuredRR']);
+
+const scalarOrNull = (v) => (v === null || v === undefined ? null : typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ? v : null);
+
+function whitelistRows(rows, fields, required, what) {
+  const out = [];
+  for (const r of rows || []) {
+    if (!r || typeof r !== 'object' || Array.isArray(r) || required.some((k) => r[k] === undefined || r[k] === null)) continue;
+    const row = {};
+    for (const k of fields) row[k] = scalarOrNull(r[k]);
+    if (typeof row.text === 'string') row.text = row.text.slice(0, 200);
+    const clean = stripSensitive(row);
+    if (findSensitiveKeys(clean).length) throw new Error(`refusing to write: sensitive keys survived strip in a ${what} line`);
+    out.push(clean);
+  }
+  return out;
+}
+
+/** Sent-alert lines made safe to store: whitelisted scalar fields, a string id and a valid sentAt. */
+export function telegramAlertRowsFromLines(rows) {
+  return whitelistRows(rows, TELEGRAM_ALERT_FIELDS, ['id', 'sentAt'], 'telegram alert')
+    .filter((r) => typeof r.id === 'string' && Number.isFinite(Date.parse(r.sentAt)));
+}
+
+/** Transition lines made safe to store: whitelisted scalar fields, a candidateId and a valid at. */
+export function transitionRowsFromLines(rows) {
+  return whitelistRows(rows, TRANSITION_FIELDS, ['at', 'candidateId'], 'transition')
+    .filter((r) => typeof r.candidateId === 'string' && Number.isFinite(Date.parse(r.at)));
+}
+
+/**
+ * Pull one telegram/<kind>/ log (manifest, then day files from the newest stored day minus
+ * one) and append it. 404 manifest -> nothing.
+ */
+async function pullDayLog({ dataDir, base, fetchImpl, nowMs, prefix, newestMs, toRows, append }) {
+  const get = async (url) => {
+    const res = await fetchImpl(`${url}?t=${nowMs}`, { headers: { Accept: '*/*' }, signal: AbortSignal.timeout(20_000) });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`${prefix} HTTP ${res.status}`);
+    return res.text();
+  };
+  const manifestText = await get(`${base}/${prefix}/manifest.json`);
+  if (manifestText === null) return { days: 0, added: 0, duplicates: 0 };
+  const manifest = JSON.parse(manifestText);
+  const listed = Array.isArray(manifest.days) ? manifest.days.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [];
+  const from = Number.isFinite(newestMs) ? new Date(newestMs - DAY_MS).toISOString().slice(0, 10) : null;
+  const days = from ? listed.filter((d) => d >= from) : listed;
+  const fileBase = typeof manifest.baseUrl === 'string' && /^https:\/\/[a-z0-9.-]+$/i.test(manifest.baseUrl) ? manifest.baseUrl : base;
+  const rows = [];
+  for (const day of days) {
+    const text = await get(`${fileBase}/${prefix}/${day}.jsonl`);
+    if (text !== null) rows.push(...parseLines(text));
+  }
+  return { days: days.length, ...append(dataDir, toRows(rows)) };
+}
+
+const newestOf = (rows, key) => rows.map((r) => Date.parse(r[key])).filter(Number.isFinite).reduce((m, ms) => Math.max(m, ms), -Infinity);
+
+/**
+ * Pull the cron's sent-alert and transition logs into data/telegram-alerts/ and data/transitions/.
+ * @returns {Promise<{alerts:{days:number, added:number, duplicates:number}, transitions:{days:number, added:number, duplicates:number}}>}
+ */
+export async function pullTelegramLogs(dataDir, base, fetchImpl = fetch, nowMs = Date.now()) {
+  const alerts = await pullDayLog({
+    dataDir, base, fetchImpl, nowMs, prefix: 'telegram/alerts', newestMs: newestOf(readTelegramAlerts(dataDir), 'sentAt'),
+    toRows: telegramAlertRowsFromLines, append: appendTelegramAlerts
+  });
+  const transitions = await pullDayLog({
+    dataDir, base, fetchImpl, nowMs, prefix: 'telegram/transitions', newestMs: newestOf(readTransitions(dataDir), 'at'),
+    toRows: transitionRowsFromLines, append: appendTransitions
+  });
+  return { alerts, transitions };
+}
+
 /** Write one payload's calls and candles into `dataDir`. */
 export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const rows = recordsFromPayload(payload, capturedAtMs);
@@ -379,6 +469,13 @@ async function main() {
     } catch (err) {
       telegram = 'failed';
       console.warn(`[tracker:collect] telegram pull failed: ${err.message}`);
+    }
+    try {
+      const l = await pullTelegramLogs(opts.data, telegramBase);
+      telegram += `; sent-alert log +${l.alerts.added} (dup ${l.alerts.duplicates}), transitions +${l.transitions.added} (dup ${l.transitions.duplicates})`;
+    } catch (err) {
+      telegram += '; logs failed';
+      console.warn(`[tracker:collect] telegram log pull failed: ${err.message}`);
     }
   }
   console.log(`[tracker:collect] closedThrough=${result.closedThrough} symbols=${result.symbols.join(',')} `

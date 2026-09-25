@@ -21,6 +21,10 @@
  * State versioning: parseState/migrateState never throw; an older deploy's state migrates
  * forward (stateVersion 2), an unreadable one resets to defaults and logs
  * `reason=state_reset`. State failures log `reason=state_write_<name> msg="<err.message>"`.
+ * Tracked record (lib/telegramLog.js): after the sends, one line per sent alert goes to Blob
+ * telegram/alerts/YYYY-MM-DD.jsonl and one line per candidate state / plan status change to
+ * telegram/transitions/YYYY-MM-DD.jsonl (each with a day manifest), best effort and capped
+ * at 2 s; a log failure never blocks or repeats a send. TRACK_TELEGRAM_LOG=false disables it.
  * Health: consecutive failures live in Blob `telegram/health.json` (written with
  * allowOverwrite, no ETag, so a stuck state write cannot block it). The 3rd consecutive
  * failure sends ALERTS CRON FAILING to the allowed users, then at most hourly; the first
@@ -37,6 +41,7 @@ import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { renderContextChart } from '../lib/chartRender.js';
 import { updateBlob, readBlob } from '../lib/blobJsonl.js';
 import { readRecent } from './journal.js';
+import { alertLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 import {
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef
@@ -129,6 +134,8 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const bot = createBotClient({ token: env.TELEGRAM_BOT_TOKEN, fetchImpl });
   const secrets = [env.TELEGRAM_BOT_TOKEN, env.CRON_SECRET, env.BLOB_READ_WRITE_TOKEN];
   let alerts = [];
+  let transitions = [];
+  let trackedIds = new Set();
   let prefs = null;
   let written = false;
   let resetReason = null;
@@ -147,6 +154,8 @@ export async function handleTelegramCron(req, res, deps = {}) {
         diff = diffAlerts({ prefs: m.state.prefs }, compact, nowMs);
       }
       alerts = diff.alerts;
+      transitions = diff.transitions || [];
+      trackedIds = new Set((Array.isArray(m.state.tracked) ? m.state.tracked : []).map((t) => t && t.candidateId).filter(Boolean));
       prefs = diff.state.prefs;
       return diff.changed || m.migrated || resetReason ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
@@ -174,14 +183,16 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const silent = inQuietHours(prefs && prefs.quiet, nowMs);
   let sent = 0;
   let failed = 0;
-  for (const alert of alerts) {
+  const alertLines = [];
+  for (const [i, alert] of alerts.entries()) {
+    let delivered = false;
     let png = null;
     if (alert.chart) {
       try { png = (await render(payload, alert.chart)).png; } catch { png = null; }
     }
     for (const chatId of chats) {
       const r = await bot.sendMessage(chatId, alert.text, { silent, replyMarkup: alert.replyMarkup || null });
-      if (r.ok) sent++; else failed++;
+      if (r.ok) { sent++; delivered = true; } else failed++;
       if (png) {
         const p = await bot.sendPhoto(chatId, png, `${escapeHtml(alert.chart.symbol)} ${escapeHtml(alert.chart.timeframe)} · ${escapeHtml(alert.kind)}`, { silent });
         if (p.ok) sent++; else failed++;
@@ -192,9 +203,14 @@ export async function handleTelegramCron(req, res, deps = {}) {
         if (m.ok) sent++; else failed++;
       }
     }
+    try {
+      const sentAtMs = now();
+      alertLines.push(alertLogLine(alert, { payload: compact, id: `${new Date(nowMs).toISOString()}#${i}`, sentAtMs, silent, level: prefs && prefs.level, trackedIds, delivered }));
+    } catch { /* a line that cannot be built is skipped; the send already happened */ }
   }
+  const logged = await recordTelegramLogs({ alerts: alertLines, transitions }, { store: { get, put, head }, env, nowMs });
 
   const kinds = alerts.map((a) => `${a.kind}${a.symbol ? `:${a.symbol}` : ''}`);
-  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} silent=${silent} stateWritten=${written}${health.message ? ' healthAlert=recovered' : ''}`);
+  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} silent=${silent} stateWritten=${written} logAlerts=${logged.alerts} logTransitions=${logged.transitions}${logged.skipped && logged.skipped !== 'nothing' ? ` logSkipped=${logged.skipped}` : ''}${health.message ? ' healthAlert=recovered' : ''}`);
   return res.status(200).json({ ok: true, alerts: alerts.length, kinds, sent, failed, silent, stateWritten: written });
 }

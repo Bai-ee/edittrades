@@ -91,6 +91,7 @@
         { "path": "api/telegram-webhook.js", "name": "telegram-webhook", "role": "Answers your Telegram commands (signals, why, flags, chart, wallet, journal, status, log) from the same context build and journals /log lines; never executes anything.", "publishes": ["Telegram replies", "journal record"], "consumes": ["REST payload", "TELEGRAM_WEBHOOK_SECRET", "TELEGRAM_ALLOWED_USER_IDS"], "tests": ["test:telegram"], "since": "2026-09-24", "schemaSince": "1.24.0" },
         { "path": "api/telegram-cron.js", "name": "telegram-cron", "role": "Runs every minute, compares the fresh context with telegram/state.json and sends only new GOOD, new SETUP, GOOD-ended and lasting data or mark alerts.", "publishes": ["Telegram alerts", "telegram/state.json"], "consumes": ["REST payload", "CRON_SECRET", "telegram/state.json"], "tests": ["test:telegram"], "since": "2026-09-24", "schemaSince": "1.24.0" },
         { "path": "lib/telegram.js", "name": "telegram", "role": "Formats the payload into Telegram messages, decides which alert transitions fire, and talks to the Bot API with a 5 second timeout.", "publishes": ["Telegram messages", "alert transitions"], "consumes": ["flagRecommendation", "flagTradePlan", "mark"], "tests": ["test:telegram"], "since": "2026-09-24", "schemaSince": "1.24.0" },
+        { "path": "lib/telegramLog.js", "name": "telegramLog", "role": "Appends one line per sent Telegram alert and one per engine candidate state or plan-status change to Blob day files the tracker pulls.", "publishes": ["telegram/alerts/YYYY-MM-DD.jsonl", "telegram/transitions/YYYY-MM-DD.jsonl"], "consumes": ["Telegram alerts", "alert transitions"], "tests": ["test:telegram"], "since": "2026-09-25", "schemaSince": "1.25.0" },
         { "path": "api/health.js", "name": "health", "role": "A ping that says the deployment is up; no market data.", "publishes": ["GET /api/health"], "consumes": [], "tests": [], "since": "2025-11-27", "schemaSince": null },
         { "path": "openapi/scalp-context.yaml", "name": "scalp-context.yaml", "role": "The field-by-field contract of the payload the GPT Action reads.", "publishes": ["OpenAPI schema"], "consumes": ["REST payload"], "tests": ["test:scalp"], "since": "2026-09-21", "schemaSince": "1.0.0" }
       ]
@@ -198,6 +199,7 @@
     { "from": "scalp-context (REST)", "to": "servedCalls", "label": "served calls" },
     { "from": "journal (REST)", "to": "blobJsonl", "label": "journal lines" },
     { "from": "scalpContext", "to": "telegram-cron", "label": "every minute" },
+    { "from": "telegram-cron", "to": "telegramLog", "label": "sent alerts + transitions" },
     { "from": "scalpContext", "to": "telegram-webhook", "label": "commands" },
     { "from": "telegram-webhook", "to": "journal (REST)", "label": "/log lines" },
     { "from": "scalp-context (REST)", "to": "collect", "label": "every 10 min" },

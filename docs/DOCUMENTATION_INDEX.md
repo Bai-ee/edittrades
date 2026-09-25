@@ -71,7 +71,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Forward-paper ledger (signal-reliability minimum plan, dev only, local file) | `scripts/paper-ledger.js` |
 | Call tracker (T1, runs in the separate private repo `Bai-ee/edittrades-tracker` via GitHub Actions; synced with `npm run tracker:sync`) | `scripts/tracker/` (`collect.js`, `store.js`, `score.js`, `aggregate.js`, `build-page.js`, vendored `walk-outcome.js`, `sync.js`, `repo-template/`) |
 | Trade journal (T2, REST only, never MCP) | `api/journal.js`, `lib/journalSchema.js`, `lib/blobJsonl.js` (shared Blob JSONL helpers) |
-| Telegram bot (T-1, never MCP, never execution) | `api/telegram-webhook.js`, `api/telegram-cron.js`, `lib/telegram.js` |
+| Telegram bot (T-1, never MCP, never execution) | `api/telegram-webhook.js`, `api/telegram-cron.js`, `lib/telegram.js`, `lib/telegramLog.js` (sent-alert + transition logs) |
 | Served calls (T3, REST side effect, never MCP) | `lib/servedCalls.js`, `lib/blobJsonl.js`, `scripts/tracker/records.js` (shared tracker row builder + strip) |
 | Architecture map (source of the tracker's system map page `changelog.html`; `npm run test:archmap` keeps it in step with the code) | `docs/ARCHITECTURE_MAP.json`, `test-architecture-map.js`, `scripts/tracker/changelog-page.js`, `scripts/tracker/build-changelog.js` |
 | Miss log (schema + one JSON per miss) | `test/fixtures/misses/README.md` |

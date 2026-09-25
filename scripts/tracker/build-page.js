@@ -20,7 +20,10 @@
  * skipped, not logged; WATCH/BAD taken as overrides, with outcomes) and the journal log.
  * The Performance zone also carries a class check: GOOD / WATCH / BAD calls scored
  * counterfactually from their flag candidate's levels ("did the filter work?"), kept out
- * of the hero and the testing target. Every section
+ * of the hero and the testing target. The Alerts zone (Telegram sent-alert log and engine
+ * transitions, aggregate.js computeAlertAggregates) shows alerts 7d, median latency,
+ * alerted -> later GOOD, BE READY -> GET IN NOW within 30 min, transitions per hour by
+ * timeframe and a daily table; the Status "Alerts" fact links to it. Every section
  * carries a PROVISIONAL tag; the edge disclaimer appears once, under the hero. Renders
  * from an empty data dir.
  *
@@ -31,7 +34,7 @@ import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, ensureDir, readJsonl, readJson, readWallet, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile } from './store.js';
-import { aggregateDataDir } from './aggregate.js';
+import { aggregateDataDir, computeAlertAggregates, READY_WITHIN_MIN } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
 import { shadowOutcomesFile, shadowSummaryFile } from './shadow.js';
@@ -580,6 +583,48 @@ function v3ShadowBody(summary, rows) {
  * @param {number} nowMs
  * @returns {string} one status-fact <div>
  */
+export const NO_ALERT_LOG = '[NO SENT ALERTS LOGGED YET]';
+export const NO_TRANSITIONS = '[NO TRANSITIONS LOGGED YET]';
+const countsText = (m) => Object.entries(m || {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${k} ${n}`).join(' · ') || dash;
+
+/**
+ * Alerts zone (Telegram sent-alert log + transitions): four instruments and two sections,
+ * each section PROVISIONAL. Renders from an empty aggregate.
+ * @param {Object} a - computeAlertAggregates output
+ * @returns {string[]} tiles
+ */
+export function alertsZoneTiles(a) {
+  const t = a.tiles;
+  const rateHtml = (v, n) => (n ? esc(pct(v)) : emptyInline('[NONE YET]'));
+  const tpH = Object.entries(t.transitionsPerHour || {});
+  const tiles = [
+    instrument('tile-alerts-7d', 'Alerts sent · 7d', `<span class="${t.alerts7d ? '' : 'dim'}">${t.alerts7d}</span>`, '', `${t.alertsToday} TODAY`),
+    instrument('tile-alert-latency', 'Median latency',
+      isNum(t.medianLatencyMin) ? `${esc(num(t.medianLatencyMin, 1))}<span class="hero-unit"> min</span>` : emptyInline('[NONE YET]'), '', `CANDLE CLOSE → SENT · n=${t.latencyN}`),
+    instrument('tile-alert-later-good', 'Alerted → later GOOD', rateHtml(t.laterGoodRate, t.laterGoodN),
+      inlineBar('alert-later-good-bar', t.laterGoodRate), `n=${t.laterGoodN} ALERTS BEFORE GET IN NOW`),
+    instrument('tile-be-ready-to-go', `BE READY → GET IN NOW ≤ ${READY_WITHIN_MIN} min`, rateHtml(t.beReadyToGoRate, t.beReadyN),
+      inlineBar('be-ready-to-go-bar', t.beReadyToGoRate), `n=${t.beReadyN} BE READY ALERTS`)
+  ];
+  const tpBody = tpH.length
+    ? `<dl class="stat-rows" id="alerts-transitions-rows">${tpH.map(([tf, v]) => `<div class="stat-row" id="alerts-transitions-${esc(tf)}-row"><dt>${esc(tf)}</dt><dd>${esc(num(v, 2))} / h</dd></div>`).join('')}</dl>`
+      + `<p class="mono-note" id="alerts-transitions-total">${t.transitions24h} TRANSITIONS · LAST 24 H</p>`
+    : `<p class="empty" id="alerts-transitions-empty">${esc(NO_TRANSITIONS)}</p>`;
+  const kindsBody = `<dl class="stat-rows" id="alerts-mix-rows">`
+    + `<div class="stat-row" id="alerts-mix-kind-row"><dt>By kind · 7d</dt><dd>${esc(countsText(a.byKind7d))}</dd></div>`
+    + `<div class="stat-row" id="alerts-mix-verdict-row"><dt>By verdict · 7d</dt><dd>${esc(countsText(a.byVerdict7d))}</dd></div>`
+    + `<div class="stat-row" id="alerts-mix-outcome-row"><dt>Outcome · 7d</dt><dd>${esc(countsText(a.byOutcome7d))}</dd></div></dl>`
+    + `<p class="note" id="alerts-mix-note">Latency = sent time minus the close of the alert timeframe's candle that produced it. Outcome = the furthest the candidate got after the alert (tp1 / stop, GET IN NOW, SETUP, confirmed, void, expired). Counts only; nothing here tunes a rule.</p>`;
+  const dayRows = a.byDay.map((d) => [d.day, d.alerts, countsText(d.byKind), countsText(d.byVerdict), num(d.medianLatencyMin, 1),
+    d.laterGoodOf ? `${d.laterGood} / ${d.laterGoodOf}` : dash, d.transitions]);
+  tiles.push(
+    section('alerts-mix-section', 'Alert mix and outcomes', kindsBody, { sm: 2, lg: 7 }),
+    section('alerts-transitions-section', 'Engine transitions / hour · 24 h', tpBody, { sm: 2, lg: 5 }),
+    section('alerts-daily-section', 'Alerts by day', table('alerts-daily-table', ['Day', 'Alerts', 'By kind', 'By verdict', 'Median latency (min)', 'Later GOOD', 'Transitions'], dayRows, NO_ALERT_LOG))
+  );
+  return tiles;
+}
+
 export function alertsFact(tg, nowMs) {
   const none = !tg || (!tg.lastAlert && !tg.cronLastRunAt);
   const today = new Date(nowMs).toISOString().slice(0, 10);
@@ -588,7 +633,7 @@ export function alertsFact(tg, nowMs) {
   const cronText = Number.isFinite(cronMs) ? `TELEGRAM CRON ${Math.max(0, Math.round((nowMs - cronMs) / 60_000))} MIN AGO` : 'TELEGRAM CRON NOT SEEN';
   const main = none ? '[NO ALERTS YET]'
     : tg.lastAlert ? `${tg.lastAlert.kind || 'ALERT'}${tg.lastAlert.symbol ? ` ${tg.lastAlert.symbol}` : ''} · ${count} today` : `[NO ALERTS YET] · ${count} today`;
-  return `<div class="status-fact" id="system-alerts-fact"><dt>Alerts</dt><dd id="system-alerts-last">${esc(main)}</dd>`
+  return `<div class="status-fact" id="system-alerts-fact"><dt><a class="nav-link" id="system-alerts-fact-link" href="#zone-alerts">Alerts →</a></dt><dd id="system-alerts-last">${esc(main)}</dd>`
     + `<dd class="fact-sub" id="system-alerts-sub">${esc(tg && tg.lastAlert ? `${time(tg.lastAlert.at)} · ${cronText}` : cronText)}</dd></div>`;
 }
 
@@ -622,7 +667,7 @@ export function renderHtml(agg, data = {}) {
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
     + jumpNav('tracker-jump-nav', [
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
-      ['#zone-calls', 'Calls'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
+      ['#zone-calls', 'Calls'], ['#zone-alerts', 'Alerts'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
       ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"']
     ]);
 
@@ -832,6 +877,10 @@ export function renderHtml(agg, data = {}) {
         section('daily-log-section', 'Call log (last 7 days)', table('daily-log-table', ['Called', 'Symbol', 'Call', 'Reason', 'TF', 'Dir', 'Entry / stop / TP1', 'Levels', 'Outcome', 'R', 'Min', 'Via'], logRows, '[NO CALLS YET]')),
         section('daily-summary-section', 'By day', table('daily-summary-table', ['Day', 'Calls', 'GOOD', 'WATCH', 'BAD', 'DATA_UNAV', 'Ready plans', 'Fills', 'TP1', 'Stop', 'Exp.'], dayRows, '[NO ROWS YET]', 1))
       ]
+    }),
+    zone({
+      id: 'zone-alerts', title: 'Alerts', sub: 'Telegram · sent alerts and engine transitions',
+      tiles: alertsZoneTiles(agg.alerts || computeAlertAggregates([], [], nowMs))
     }),
     zone({
       id: 'zone-breakdown', title: 'Breakdown', sub: 'By class, reason, symbol, timeframe',

@@ -13,6 +13,12 @@
  *   journal/YYYY-MM-DD.jsonl the owner's trade journal (T2), pulled from the journal API's
  *                            Blob store by collect.js, one record per id (UTC day of receivedAt)
  *   journal-outcomes.jsonl   one line per scored journal `open` record (rewritten by score.js)
+ *   telegram-alerts/YYYY-MM-DD.jsonl  one line per Telegram alert the cron sent (UTC day of
+ *                            sentAt), pulled from Blob telegram/alerts/ by collect.js, keyed by id
+ *   transitions/YYYY-MM-DD.jsonl      one line per engine candidate state / plan-status change
+ *                            (UTC day of at), from Blob telegram/transitions/, keyed by candidateId+at
+ *   alert-outcomes.jsonl     one line per sent alert joined to later transitions and scored
+ *                            calls (rewritten by score.js)
  *
  * Node >= 20, fs only. No network, no secrets.
  */
@@ -291,4 +297,72 @@ export function appendJournal(dataDir, records) {
     added += rows.length;
   }
   return { added, duplicates };
+}
+
+// ---------------------------------------------------------------- Telegram sent alerts + transitions
+
+export function telegramAlertsDir(dataDir) {
+  return path.join(dataDir, 'telegram-alerts');
+}
+
+export function transitionsDir(dataDir) {
+  return path.join(dataDir, 'transitions');
+}
+
+export function alertOutcomesFile(dataDir) {
+  return path.join(dataDir, 'alert-outcomes.jsonl');
+}
+
+export const telegramAlertKey = (r) => r.id;
+export const transitionRowKey = (r) => `${r.candidateId}|${r.at}`;
+
+function readDayDir(dir, timeKey) {
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort();
+  const rows = [];
+  for (const f of files) rows.push(...readJsonl(path.join(dir, f)));
+  return rows.sort((a, b) => (Date.parse(a[timeKey]) || 0) - (Date.parse(b[timeKey]) || 0));
+}
+
+/** Append rows into <dir>/<UTC day of row[timeKey]>.jsonl, skipping keys already stored in any day file. */
+function appendDayDir(dir, rows, timeKey, keyOf) {
+  const seen = new Set(readDayDir(dir, timeKey).map(keyOf));
+  const byFile = new Map();
+  let duplicates = 0;
+  for (const r of rows) {
+    const ms = Date.parse(r && r[timeKey]);
+    if (!r || !Number.isFinite(ms)) continue;
+    const key = keyOf(r);
+    if (seen.has(key)) { duplicates++; continue; }
+    seen.add(key);
+    const file = path.join(dir, `${new Date(ms).toISOString().slice(0, 10)}.jsonl`);
+    if (!byFile.has(file)) byFile.set(file, []);
+    byFile.get(file).push(r);
+  }
+  let added = 0;
+  for (const [file, fileRows] of byFile) {
+    appendJsonl(file, fileRows);
+    added += fileRows.length;
+  }
+  return { added, duplicates };
+}
+
+/** Every stored sent-alert line, oldest first by sentAt. */
+export function readTelegramAlerts(dataDir) {
+  return readDayDir(telegramAlertsDir(dataDir), 'sentAt');
+}
+
+/** Every stored transition line, oldest first by at. */
+export function readTransitions(dataDir) {
+  return readDayDir(transitionsDir(dataDir), 'at');
+}
+
+/** @returns {{added:number, duplicates:number}} dedupe by id */
+export function appendTelegramAlerts(dataDir, rows) {
+  return appendDayDir(telegramAlertsDir(dataDir), rows, 'sentAt', telegramAlertKey);
+}
+
+/** @returns {{added:number, duplicates:number}} dedupe by candidateId+at */
+export function appendTransitions(dataDir, rows) {
+  return appendDayDir(transitionsDir(dataDir), rows, 'at', transitionRowKey);
 }
