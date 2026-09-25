@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-25 — Telegram two-line alerts with one bold verdict; void-drift dedup (not deployed)
+
+Delivery-only; no rule, threshold, schema or config change. GPT instructions untouched.
+
+- Every flag alert is two lines. Line 1: `KIND · SYM tf DIR [forming, WATCH only] · brk · void · meas <R>` plus `counter-trend (td:<s> n/4)` only when the top-down sentiment opposes the direction; "confirmed" dropped from BREAKOUT. Line 2: one bold verdict — `GET IN NOW` (own plan ready: entry · stop · TP1 (R) · net), `BE READY (Xm)` (conditional plan, own SETUP incl. chase-rejected "no chase; enter on a retest of X that holds below", or TRIGGERING), `WAIT (Xm)` (forming), `STAND DOWN` (`<r>R room to <level> (<source>); needs 2.5R` | `entry X inside support|resistance` | `stop N% > 3% cap` | plain words). No reason codes, remedy sentences or "plan rejected:" in any alert.
+- GOOD alert uses the same shape (`GOOD · …` / `GET IN NOW …`) and keeps its chart; SETUP alert uses the BREAKOUT/BE READY shape. A BREAKOUT that already carries its own candidate's SETUP line no longer sends a second SETUP alert (remembered, not sent).
+- `/signals`: one line per symbol `<b>VERDICT (Xm)</b> · SYM · reason`, a `SETUP · …` line when setup≠null, then the one-line DATA. `/why` keeps the GPT SETUP line.
+- Dedup signature drops the void level: `symbol|tf|direction|breakout`; a breakout within 0.05% of a remembered one is the same flag (no re-alert for 60 min unless it escalates forming → triggering → confirmed; GOOD keeps candidate-id dedup). Older 5-part signatures in state still match. `test:telegram` 70 → 73 (five owner examples as long + short snapshots, void/breakout drift, escalation pass-through, no-reason-code regex).
+
 ## 2026-09-25 — Telegram alert fixes: signature dedup, per-alert readiness (not deployed)
 
 Delivery-only; no rule, threshold, schema or config change.
