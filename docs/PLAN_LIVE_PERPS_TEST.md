@@ -1,7 +1,7 @@
 # T-3 F — Make live Jupiter perp trades work, then test on the real wallet with tiny caps
 
 Last updated: 2026-09-25. Owner-approved direction: "good enough to start placing live perp trades".
-Baseline: 8e98eae. Builders exist (open with SL/TP, close, update-stops, quote, capacity, build/simulate/send split, position read). NOT done: executor live wiring (`LIVE_CAPABILITIES` all false), keeper-fill two-phase open, transaction landing (rebroadcast/EXPIRED), live test.
+Baseline: 8e98eae; F1–F6 (code + tests + docs) landed on top of b583bdb, not deployed. `LIVE_CAPABILITIES` is now `{openWithStops, close, update: true}`; transaction landing (rebroadcast/EXPIRED), the keeper-fill two-phase open, exactly-once, and the Telegram phase/emergency-close cards are all implemented — see `docs/PLAN_TELEGRAM_EXECUTION.md` "Live flow" for the mechanics and the open assumptions/blockers (most importantly: the two-phase open's worst-case wall-clock budget does not fit a normal serverless request, an owner decision needed before any live test below). NOT done: everything under "Live test protocol" — no env is set, nothing has run against a real wallet.
 
 ## Blockers, in order
 1. **Keeper fill is asynchronous.** On Perps v2 `buildOpenPosition` submits an *increase position request*; a keeper fills it seconds later. The SL/TP trigger requests reference the filled position, so they cannot ride in the same transaction reliably. Two-phase open is required: submit → wait for fill → attach stops → verify.
