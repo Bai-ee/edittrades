@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-25 — Telegram alert fixes: signature dedup, per-alert readiness (not deployed)
+
+Delivery-only; no rule, threshold, schema or config change.
+
+- Dedup: WATCH/TRIGGERING/BREAKOUT/SETUP also key on `symbol|tf|direction|breakout|invalidation` (2 dp), kept in `telegram/state.json` `watch.sigs` for 60 min (last 200). A re-detected forming flag whose candidateId shifted no longer re-alerts (prod 2026-09-25 02:25–02:28Z: one BTC 3m WATCH sent 3×). TRIGGERING/BREAKOUT pass once each as escalations; SETUP once. The 15-min per-symbol cooldown still gates new WATCHes; a TRIGGERING on a signature that had a WATCH passes it. candidateId memory kept.
+- Readiness per alert, not the symbol verdict: WATCH `WAIT (<eta>m)`, TRIGGERING/SETUP `BE READY (<eta>m)` (eta to that candidate timeframe's next close from asOf), BREAKOUT `GET IN NOW` (its plan ready) / `BE READY` (conditional or its SETUP) / `STAND DOWN — <short reason>` (rr, entry inside zone, chase retest, stop cap, else the code). The long remedy sentence is never the call line.
+- WATCH line: `meas <R>` plus ` · room <r>R to <level> (<source>)` when the room belongs to that candidate; SETUP/BREAKOUT Room line only for their own candidate. GOOD alerts, buttons, health alerts and `/signals` unchanged. `test:telegram` 67 → 70.
+
 ## 2026-09-24 — Delivery pass: readiness call, room line, one-line DATA (schema 1.25.0, not deployed)
 
 Owner asks 2026-09-24 evening. Additive, no rule/threshold/config change (two-week freeze), configVersion unchanged; schema 1.24.0 → **1.25.0**. MCP untouched.

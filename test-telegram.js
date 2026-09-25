@@ -22,7 +22,7 @@ import {
   formatSymbolBlock, formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatSetupLine,
   formatGoodAlert, emptyState, parseState, diffAlerts, createBotClient, inQuietHours, COMMANDS,
   formatWatchAlert, formatAlertPrefs, parseAlertsArgs, parseQuietSpec, normalizePrefs, applyPrefsChange, chicagoHour,
-  WATCH_COOLDOWN_MS, WATCH_RECENT_IDS, DEFAULT_QUIET_HOURS,
+  WATCH_COOLDOWN_MS, WATCH_RECENT_IDS, DEFAULT_QUIET_HOURS, alertSignature, SIGNATURE_TTL_MS,
   collectLiveFlags, capFlagCharts, formatFlagLine, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, emaTailSeries, albumSeries,
   LIVE_FLAG_STATES, MAX_FLAG_CHARTS, MAX_MEDIA_GROUP, formatBreakoutAlert, BREAKOUT_RECENT_IDS, formatCall, formatRoomLine, formatReadinessLine,
   MENU_ROWS, parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, shortRef, tradeButtonRow, signalsKeyboard,
@@ -344,22 +344,52 @@ async function run() {
     assert(warned.includes('Warnings: 1h stale'), 'warnings line when non-empty');
   });
 
-  await test('1.25.0 alerts: GOOD / SETUP / WATCH / TRIGGERING / BREAKOUT carry the readiness call and room line', () => {
+  await test('per-alert readiness: WATCH WAIT / TRIGGERING BE READY (eta from that candidate tf) / SETUP BE READY + own room; GOOD unchanged', () => {
     const good = formatGoodAlert('BTC', withRec(goodSym(), { action: ACT_GOOD, room: ROOM_GOOD }), payload(), { nowMs: T0 });
     assert(good.includes('GET IN NOW — 5m long ready') && good.includes('Room: 546.00 to 85,146.00 (15m resistance) = 2.6R vs stop 84,390.00'), good);
-    const recW = { ...TD_REC, action: ACT_WAIT, room: null };
+    // The symbol verdict is STAND DOWN; the alerts must not echo it.
+    const recW = { ...TD_REC, action: ACT_DOWN, room: null };
     const st = diffAlerts(withPrefs('watch'), payload({
-      BTC: withRec(formSym([cand('BTC:3m:long:2026-09-24T14:00:00.000Z'), cand('BTC:3m:long:2026-09-24T13:57:00.000Z', 'triggering'), cand('BTC:5m:long:2026-09-24T13:50:00.000Z', 'confirmed')]), recW),
-      ETH: withRec(watchSym(setupEth), { action: ACT_READY, room: ROOM_SETUP })
+      BTC: withRec(formSym([cand('BTC:3m:long:2026-09-24T14:00:00.000Z')]), recW),
+      SOL: withRec(formSym([cand('SOL:5m:long:2026-09-24T13:57:00.000Z', 'triggering', { timeframe: '5m', breakoutLevel: 151 })]), recW),
+      ETH: withRec(watchSym(setupEth), { action: ACT_READY, room: ROOM_SETUP }),
+      closedThrough: '2026-09-24T14:04:00.000Z'
     }), T0);
     const byKind = (k) => st.alerts.filter((a) => a.kind === k);
-    const trig = formatWatchAlert('BTC', cand('x', 'triggering'), recW);
-    assertEqual(trig, 'TRIGGERING · BTC 3m LONG triggering · break 84,466.10 / void 84,331.60 · 2.4R · td:bull:3/4\nWAIT (1m) — 3m close above 84,466.10, then a retest that holds it, then plan ready', 'TRIGGERING carries the call');
-    for (const k of ['WATCH', 'BREAKOUT']) {
-      assert(byKind(k).length > 0 && byKind(k).every((a) => a.text.includes('\nWAIT (1m) — 3m close above 84,466.10')), `${k}: ${JSON.stringify(byKind(k).map((a) => a.text))}`);
-    }
+    assertEqual(byKind('WATCH')[0].text.split('\n')[1], 'WAIT (2m)', 'WATCH on 3m from 14:04 -> 14:06');
+    assertEqual(byKind('TRIGGERING')[0].text.split('\n')[1], 'BE READY (1m)', 'TRIGGERING on 5m from 14:04 -> 14:05');
+    assert(!st.alerts.some((a) => a.text.includes('STAND DOWN')), 'symbol verdict not pasted');
     const setup = byKind('SETUP')[0];
-    assert(setup && setup.text.includes('\nBE READY (1m) — 3m close below 2601.5') && setup.text.includes('\nRoom: 26.50 to 2,575.00 (measured move) = 2.52R vs stop 2,612.00'), setup && setup.text);
+    assert(setup && setup.text.includes('\nBE READY (2m)') && setup.text.includes('\nRoom: 26.50 to 2,575.00 (measured move) = 2.52R vs stop 2,612.00'), setup && setup.text);
+    assert(setup.text.split('\n').includes('BE READY (2m)'), 'SETUP readiness is the bare call, no note');
+  });
+
+  await test('WATCH R labels: meas <R>; room segment only when room belongs to this candidate', () => {
+    const c = cand('BTC:3m:long:R');
+    const setupSame = { candidateId: c.candidateId, timeframe: '3m', direction: 'long', entry: 84466.1, stop: 84331.6, tp1: 84700, grossRR: 1.74 };
+    const room = { toLevel: 'tp1_cap', levelPrice: 84700, levelSource: '15m resistance', pts: 233.9, r: 1.74, stop: 84331.6 };
+    assertEqual(formatWatchAlert('BTC', c, { ...TD_REC, setup: setupSame, room }, { asOf: '2026-09-24T14:05:00.000Z' }),
+      'WATCH · BTC 3m LONG forming · break 84,466.10 / void 84,331.60 · meas 2.4R · room 1.74R to 84,700.00 (15m resistance) · td:bull:3/4\nWAIT (1m)', 'own room');
+    const other = formatWatchAlert('BTC', c, { ...TD_REC, setup: { ...setupSame, candidateId: 'BTC:5m:long:other' }, room });
+    assert(!other.includes('room '), `another candidate's room is not shown: ${other}`);
+  });
+
+  await test('BREAKOUT readiness: ready GET IN NOW / conditional or own setup BE READY / rejected STAND DOWN short reasons', () => {
+    const c = { candidateId: 'BTC:5m:long:K', timeframe: '5m', direction: 'long', state: 'confirmed', breakoutLevel: 84479, invalidation: 84349.7, measuredRR: 3.9 };
+    const asOf = '2026-09-24T14:02:00.000Z';
+    const plan = (x) => ({ candidateId: c.candidateId, timeframe: '5m', direction: 'long', entry: 84479, stop: 84349.7, tp1: 84700, ...x });
+    const call = (p, rec = {}) => formatBreakoutAlert('BTC', c, p, rec, { asOf }).split('\n')[1];
+    assertEqual(call(plan({ status: 'ready' })), 'GET IN NOW', 'ready');
+    assertEqual(call(plan({ status: 'conditional' })), 'BE READY (3m)', 'conditional');
+    assertEqual(call(plan({ status: 'rejected', reasonCode: 'chase' }), { setup: { candidateId: c.candidateId, timeframe: '5m' } }), 'BE READY (3m)', 'setup for this candidate');
+    assertEqual(call(plan({ status: 'rejected', reasonCode: 'rr_below_min', grossRR: 1.2 })), 'STAND DOWN — 1.2R to first level (needs 2.5R)', 'rr');
+    assertEqual(call(plan({ status: 'rejected', reasonCode: 'room_at_entry' })), 'STAND DOWN — entry 84,479.00 inside resistance', 'room long');
+    assertEqual(call(plan({ status: 'rejected', reasonCode: 'room_at_entry', direction: 'short' })), 'STAND DOWN — entry 84,479.00 inside support', 'room short');
+    assertEqual(call(plan({ status: 'rejected', reasonCode: 'chase' })), 'STAND DOWN — ran past breakout; wait for retest of 84,479.00', 'chase');
+    assertEqual(call(plan({ status: 'rejected', reasonCode: 'stop_distance_exceeds_cap', stopDistancePct: 3.4 })), 'STAND DOWN — stop 3.4% &gt; 3% cap', 'stop cap (HTML-escaped for parse_mode HTML)');
+    assertEqual(call(plan({ status: 'rejected', reasonCode: 'net_rr_below_min' })), 'STAND DOWN — net_rr_below_min', 'other -> code');
+    const long = 'a flag whose measured move is >= 2.5R gross to TP1';
+    assert(!formatBreakoutAlert('BTC', c, plan({ status: 'rejected', reasonCode: 'rr_below_min', grossRR: 1.2 }), { action: { call: 'STAND DOWN', note: long } }, { asOf }).includes(long), 'remedy sentence never pasted');
   });
 
   console.log('\nalert state machine');
@@ -471,9 +501,9 @@ async function run() {
   });
 
   await test('WATCH line format; proto/failed/expired/confirmed never alert; TRIGGERING line', () => {
-    assertEqual(formatWatchAlert('BTC', cand('x'), TD_REC), 'WATCH · BTC 3m LONG forming · break 84,466.10 / void 84,331.60 · 2.4R · td:bull:3/4', 'forming');
-    assertEqual(formatWatchAlert('BTC', cand('x', 'triggering'), TD_REC), 'TRIGGERING · BTC 3m LONG triggering · break 84,466.10 / void 84,331.60 · 2.4R · td:bull:3/4', 'triggering');
-    assertEqual(formatWatchAlert('ETH', cand('x', 'forming', { direction: 'short', measuredRR: null }), { supports: [] }), 'WATCH · ETH 3m SHORT forming · break 84,466.10 / void 84,331.60 · R n/a', 'no td, no R');
+    assertEqual(formatWatchAlert('BTC', cand('x'), TD_REC), 'WATCH · BTC 3m LONG forming · break 84,466.10 / void 84,331.60 · meas 2.4R · td:bull:3/4\nWAIT', 'forming (no asOf -> no eta)');
+    assertEqual(formatWatchAlert('BTC', cand('x', 'triggering'), TD_REC, { asOf: '2026-09-24T14:05:00.000Z' }), 'TRIGGERING · BTC 3m LONG triggering · break 84,466.10 / void 84,331.60 · meas 2.4R · td:bull:3/4\nBE READY (1m)', 'triggering');
+    assertEqual(formatWatchAlert('ETH', cand('x', 'forming', { direction: 'short', measuredRR: null }), { supports: [] }), 'WATCH · ETH 3m SHORT forming · break 84,466.10 / void 84,331.60 · meas n/a\nWAIT', 'no td, no R');
     const other = ['proto', 'failed', 'expired', 'confirmed'].map((st, i) => cand(`BTC:3m:long:o${i}`, st));
     const r = diffAlerts(withPrefs('watch'), payload({ BTC: formSym(other) }), T0);
     assertEqual(r.alerts.filter((x) => x.kind === 'WATCH' || x.kind === 'TRIGGERING').length, 0, 'only forming/triggering');
@@ -506,9 +536,41 @@ async function run() {
     assertEqual(WATCH_COOLDOWN_MS, 15 * MIN, 'cooldown');
   });
 
+  await test('prod 2026-09-25 repro: shifting candidateId, same levels, 3 cron runs -> one WATCH; stays quiet past the cooldown until 60 min', () => {
+    const lv = { breakoutLevel: 84900, invalidation: 84722.6 };
+    const at = (m) => payload({ BTC: formSym([cand(`BTC:3m:long:2026-09-25T02:${String(10 + m).padStart(2, '0')}:00.000Z`, 'forming', lv)]) });
+    const w = (r) => r.alerts.filter((x) => x.kind === 'WATCH' || x.kind === 'TRIGGERING').map((x) => x.kind);
+    let st = withPrefs('watch');
+    const sent = [];
+    for (const m of [0, 1, 3]) { const r = diffAlerts(st, at(m), T0 + m * MIN); st = r.state; sent.push(...w(r)); }
+    assertEqual(sent.join(), 'WATCH', 'three runs -> one send');
+    // Past the 15-min cooldown the signature still holds (shifted id again).
+    for (const m of [20, 45, 59]) { const r = diffAlerts(st, at(m), T0 + m * MIN); st = r.state; assertEqual(w(r).join(), '', `min ${m}`); }
+    // Escalation passes once: the same levels triggering, then BREAKOUT; neither repeats.
+    const trig = (m, id) => payload({ BTC: formSym([cand(id, 'triggering', lv)]) });
+    let r = diffAlerts(st, trig(0, 'BTC:3m:long:T1'), T0 + 5 * MIN); st = r.state;
+    assertEqual(w(r).join(), 'TRIGGERING', 'escalation passes the cooldown');
+    r = diffAlerts(st, trig(0, 'BTC:3m:long:T2'), T0 + 6 * MIN); st = r.state;
+    assertEqual(w(r).join(), '', 'triggering once per signature');
+    const conf = (id) => payload({ BTC: formSym([cand(id, 'confirmed', lv)]) });
+    r = diffAlerts(st, conf('BTC:3m:long:C1'), T0 + 7 * MIN); st = r.state;
+    assertEqual(r.alerts.filter((x) => x.kind === 'BREAKOUT').length, 1, 'breakout once');
+    r = diffAlerts(st, conf('BTC:3m:long:C2'), T0 + 8 * MIN); st = r.state;
+    assertEqual(r.alerts.filter((x) => x.kind === 'BREAKOUT').length, 0, 'shifted confirmed id: no second BREAKOUT');
+    // Different levels on the same symbol within 15 min: held by the per-symbol cooldown.
+    r = diffAlerts(st, payload({ BTC: formSym([cand('BTC:3m:long:N', 'forming', { breakoutLevel: 85000 })]) }), T0 + 9 * MIN);
+    assertEqual(w(r).join(), '', 'cooldown gates a new WATCH (last BTC watch-family alert at min 5)');
+    // After 60 min the same signature may alert again.
+    r = diffAlerts(st, at(61), T0 + 68 * MIN);
+    assertEqual(w(r).join(), 'WATCH', 'signature expires 60 min after its last alert (BREAKOUT at min 7)');
+    assertEqual(alertSignature('BTC', { timeframe: '3m', direction: 'long', breakoutLevel: 84900.004, invalidation: 84722.6 }), 'BTC|3m|long|84900.00|84722.60', 'signature format');
+    assertEqual(SIGNATURE_TTL_MS, 60 * MIN, 'ttl');
+    assertEqual(parseState(JSON.stringify(st)).watch.sigs.length, st.watch.sigs.length, 'signatures survive parseState');
+  });
+
   await test('WATCH memory rolls at 200 ids and survives parseState; level setup tracks nothing', () => {
     let st = withPrefs('watch');
-    for (let i = 0; i < 205; i++) st = diffAlerts(st, payload({ BTC: formSym([cand(`BTC:3m:long:${i}`)]) }), T0 + i * 16 * MIN).state;
+    for (let i = 0; i < 205; i++) st = diffAlerts(st, payload({ BTC: formSym([cand(`BTC:3m:long:${i}`, 'forming', { breakoutLevel: 84000 + i })]) }), T0 + i * 16 * MIN).state;
     assertEqual(st.watch.ids.length, WATCH_RECENT_IDS, 'rolling 200');
     assertEqual(st.watch.ids[0].id, 'BTC:3m:long:5', 'oldest dropped');
     assertEqual(parseState(JSON.stringify(st)).watch.ids.length, 200, 'round trip');
@@ -923,7 +985,7 @@ async function run() {
     assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
     const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
     const fromV1 = diffAlerts(m.state, next, T0 + MIN);
-    const fromCurrent = diffAlerts({ ...first, buttons: {}, symbols: { ...first.symbols, BTC: { ...first.symbols.BTC, breakoutIds: [] } } }, next, T0 + MIN);
+    const fromCurrent = diffAlerts({ ...first, buttons: {}, watch: { ...first.watch, sigs: [] }, symbols: { ...first.symbols, BTC: { ...first.symbols.BTC, breakoutIds: [] } } }, next, T0 + MIN);
     assertEqual(kindsOf(fromV1), kindsOf(fromCurrent), 'same alerts');
     assert(kindsOf(fromV1).includes('SETUP:ETH') && !kindsOf(fromV1).includes('GOOD:BTC'), `dedup memory carried: ${kindsOf(fromV1)}`);
     assertEqual(fromV1.state.stateVersion, STATE_VERSION, 'write stamps stateVersion');
@@ -1103,8 +1165,8 @@ async function run() {
   await test('BREAKOUT line format (own plan status/reason, else another candidate selected)', () => {
     const s = chaseBtc();
     assertEqual(formatBreakoutAlert('BTC', s.candidateSetups[0], s.flagTradePlan),
-      'BREAKOUT · BTC 5m LONG confirmed · brk 84,479.00 · void 84,349.70 · 3.9R · entry = retest of 84,479.00 that holds · plan rejected: chase', 'line');
-    assert(formatBreakoutAlert('BTC', { ...s.candidateSetups[0], direction: 'short' }, null).endsWith('SHORT confirmed · brk 84,479.00 · void 84,349.70 · 3.9R · entry = retest of 84,479.00 that holds · plan: another candidate is selected'), 'short, not selected');
+      'BREAKOUT · BTC 5m LONG confirmed · brk 84,479.00 · void 84,349.70 · 3.9R · entry = retest of 84,479.00 that holds · plan rejected: chase\nSTAND DOWN — ran past breakout; wait for retest of 84,479.00', 'line');
+    assert(formatBreakoutAlert('BTC', { ...s.candidateSetups[0], direction: 'short' }, null).endsWith('SHORT confirmed · brk 84,479.00 · void 84,349.70 · 3.9R · entry = retest of 84,479.00 that holds · plan: another candidate is selected\nSTAND DOWN — another candidate is selected'), 'short, not selected');
   });
 
   await test('BREAKOUT: once per candidateId at every level, before its SETUP, with Why/Chart/Took it/Skipped; no repeat per candle', () => {
