@@ -44,6 +44,7 @@ import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { validateJournalEntry } from '../lib/journalSchema.js';
+import { classifyTier } from '../lib/tier.js';
 import { readBlob, readBlobFresh, updateBlob } from '../lib/blobJsonl.js';
 import { appendRecord, readRecent } from './journal.js';
 import {
@@ -59,7 +60,8 @@ import {
   orderIntentFromCandidate, candidateLevels, openSourceKind, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
   formatResultCard, formatConfirmFail, formatOpenPhaseCard, formatEmergencyCloseCard, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
   formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket,
-  parseRiskArgs, applyRiskPrefsChange, formatRiskStatus
+  parseRiskArgs, applyRiskPrefsChange, formatRiskStatus,
+  PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 
@@ -118,7 +120,7 @@ export function testAlertSample(payload) {
 const EXECUTOR_FNS = Object.freeze(['preflight', 'createTicket', 'confirm', 'closePosition', 'updateStops', 'listPositions', 'status']);
 const validExecutor = (x) => (x && EXECUTOR_FNS.every((k) => typeof x[k] === 'function') ? x : null);
 /** Commands and buttons that need the executor (each answers `Execution off` without it). */
-const EXEC_CMDS = new Set(['open', 'order', 'confirm', 'stops', 'exec', 'kill', 'arm', 'mode', 'risk', 'xconfirm', 'xcancel', 'xmanage']);
+const EXEC_CMDS = new Set(['open', 'order', 'confirm', 'stops', 'exec', 'kill', 'arm', 'mode', 'risk', 'xconfirm', 'xcancel', 'xmanage', 'xboost', 'risk_profile_prompt']);
 
 /**
  * The executor (docs/PLAN_TELEGRAM_EXECUTION.md "Contract between agents"), or null:
@@ -387,7 +389,11 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         candidateId: intent.candidateId || null, snap
       });
     }
-    return execSend(formatTicketCard(intent, pf, { ...ticket, expiresAt }, { mode, timeframe, nowMs: now(), from }), ticketKeyboard(ticket.nonce), { ...meta, event: 'ticket' });
+    return execSend(
+      formatTicketCard(intent, pf, { ...ticket, expiresAt }, { mode, timeframe, nowMs: now(), from }),
+      ticketKeyboard(ticket.nonce, { boost: pf.order && pf.order.tier !== 'A' }),
+      { ...meta, event: 'ticket' }
+    );
   };
   /** Chain positions (normalized) or null when the read fails. */
   const chainPositions = async () => { try { return normalizeChainPositions(await ex.listPositions()); } catch (err) { log('exec', ` reason=positions_${errName(err)}`); return null; } };
@@ -448,7 +454,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         // still re-checks every gate (caps, drift, 3% stop, kill, PIN) against them.
         const built = orderIntentFromCandidate(v, execCaps(await safeStatus(), env));
         if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || (v.candidate && v.candidate.direction) }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
-        else await runOrder(built.intent, {
+        else await runOrder({ ...built.intent, tier: classifyTier(v.rec) }, {
           timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null),
           from: { kind: openSourceKind(v), timeframe: tf, ref: parsed.ref }
         });
@@ -473,6 +479,33 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       if (hasStore) await tickets.take(parsed.nonce);
       if (cq && cq.message && cq.message.message_id !== undefined) await bot.editMessageReplyMarkup(chatId, cq.message.message_id, { inline_keyboard: [] });
       await execSend('Cancelled. Nothing was sent.', null, { event: 'cancel' });
+    } else if (cmd === 'xboost') {
+      if (typeof ex.boostTicket !== 'function') { await execSend('Boost is not available in this build.', null, { event: 'boost_failed' }); }
+      else {
+        let b;
+        try { b = await ex.boostTicket(parsed.nonce, ctx()); } catch (err) { b = { ok: false, reasons: [`boost failed (${errName(err)})`] }; }
+        if (!b || b.ok !== true) { await execSend(formatConfirmFail(b), null, { event: 'boost_failed' }); }
+        else {
+          if (hasStore) {
+            await tickets.take(parsed.nonce);
+            await tickets.put({
+              nonce: b.nonce, kind: 'order', expiresAt: b.expiresAt, symbol: b.order.symbol, timeframe: null, direction: b.order.direction,
+              entry: b.order.entry ?? null, stop: b.order.stop, tp1: b.order.tp1, sizeUsd: b.order.sizeUsd, leverage: b.order.leverage,
+              fill: typeof b.order.expectedFill === 'number' ? b.order.expectedFill : null, candidateId: b.order.candidateId || null, snap: null
+            });
+          }
+          if (cq && cq.message && cq.message.message_id !== undefined) await bot.editMessageReplyMarkup(chatId, cq.message.message_id, { inline_keyboard: [] });
+          const mode = b.order.mode;
+          const meta = { symbol: b.order.symbol, direction: b.order.direction, mode, event: 'boosted' };
+          await execSend(
+            formatTicketCard(b.order, { order: b.order }, { nonce: b.nonce, expiresAt: b.expiresAt }, { mode, nowMs: now() }),
+            ticketKeyboard(b.nonce, { boost: b.order.tier !== 'A' }),
+            meta
+          );
+        }
+      }
+    } else if (cmd === 'risk_profile_prompt') {
+      await execSend(formatProfileSwitchPrompt(parsed.profile), null, { event: 'risk_profile_prompt' });
     } else if (cmd === 'confirm') {
       if (parsed.args.length) await deleteOwn(); // the PIN must not stay in the chat
       const { nonce, pin } = parseConfirmArgs(parsed.args);
@@ -581,26 +614,72 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       await execSend(formatModeCard(status), null, { event: 'mode', mode: execMode(status) });
     } else if (cmd === 'risk') {
       const pr = parseRiskArgs(parsed.args);
+      if (pr.action === 'profile_set') await deleteOwn(); // the PIN must not stay in the chat
+      const activeProfileOf = (state) => {
+        const p = state && state.prefs && state.prefs.risk && state.prefs.risk.profile;
+        return PROFILE_NAMES.includes(p) ? p : DEFAULT_PROFILE_NAME;
+      };
       if (pr.action === 'error') await execSend(escapeHtml(pr.message), null, { event: 'usage' });
       else if (pr.action === 'show') {
         const state = hasStore ? await readState() : null;
         const status = await safeStatus();
         if (!status) await execSend('Execution status could not be read; try again in a minute.', null, { event: 'status_failed' });
-        else await execSend(formatRiskStatus(status, state && state.prefs && state.prefs.risk), null, { event: 'risk_show' });
+        else await execSend(formatRiskStatus(status, state && state.prefs && state.prefs.risk), riskProfileKeyboard(activeProfileOf(state)), { event: 'risk_show' });
       } else if (!hasStore) {
         await execSend('Risk prefs store unavailable.', null, { event: 'risk_failed' });
-      } else if (pr.action === 'set' && (typeof ex.riskPrefBound === 'function') && pr.value > ex.riskPrefBound(pr.key)) {
-        await execSend(`⛔ <b>REJECTED</b> — that would loosen the gate. Max right now: ${ex.riskPrefBound(pr.key)} (env cap / the 2% per-trade ceiling).`, null, { event: 'risk_rejected' });
-      } else {
-        let saved = true;
-        try {
-          await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => applyRiskPrefsChange(text, pr.action === 'reset' ? { action: 'reset' } : { action: 'set', key: pr.key, value: pr.value }));
-        } catch (err) { saved = false; log('exec', ` reason=risk_write_${errName(err)}`); }
-        if (!saved) await execSend('Could not save; try again in a minute.', null, { event: 'risk_failed' });
+      } else if (pr.action === 'profile_prompt') {
+        await execSend(formatProfileSwitchPrompt(pr.profile), null, { event: 'risk_profile_prompt' });
+      } else if (pr.action === 'profile_set') {
+        if (typeof ex.switchProfile !== 'function') { await execSend('Profile switch is not available in this build.', null, { event: 'risk_profile_failed' }); }
         else {
           const state = await readState();
-          const status = await safeStatus();
-          await execSend(status ? `Saved.\n${formatRiskStatus(status, state && state.prefs && state.prefs.risk)}` : 'Saved.', null, { event: pr.action === 'reset' ? 'risk_reset' : 'risk_set' });
+          const fromProfile = activeProfileOf(state);
+          let r;
+          try { r = await ex.switchProfile(pr.profile, pr.pin, ctx({ currentProfile: fromProfile })); } catch (err) { r = { ok: false, reasons: [`switch failed (${errName(err)})`] }; }
+          if (r && r.ok === true) {
+            let saved = true;
+            try { await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => applyRiskPrefsChange(text, { action: 'profile', profile: pr.profile })); } catch (err) { saved = false; log('exec', ` reason=risk_profile_write_${errName(err)}`); }
+            await execSend(saved ? formatProfileSwitched(fromProfile, pr.profile) : 'Switched, but could not save the new default — try /risk profile again.', null, { event: saved ? 'risk_profile_switched' : 'risk_profile_failed' });
+          } else {
+            await execSend(formatConfirmFail(r), null, { event: 'risk_profile_failed' });
+          }
+        }
+      } else if (pr.action === 'goal_set') {
+        const status = await safeStatus();
+        const currentEquityUsd = status && status.risk && typeof status.risk.equityUsd === 'number' && Number.isFinite(status.risk.equityUsd) ? status.risk.equityUsd : null;
+        if (!currentEquityUsd) await execSend('Equity could not be read; try again in a minute.', null, { event: 'risk_goal_failed' });
+        else {
+          const goal = normalizeRiskGoal({ equityUsd: pr.equityUsd, byDate: pr.byDate, startEquityUsd: currentEquityUsd, startAt: new Date(now()).toISOString() });
+          let saved = true;
+          try { await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => applyRiskPrefsChange(text, { action: 'goal', goal })); } catch (err) { saved = false; log('exec', ` reason=risk_goal_write_${errName(err)}`); }
+          if (!saved) await execSend('Could not save; try again in a minute.', null, { event: 'risk_goal_failed' });
+          else {
+            const state = await readState();
+            const status2 = await safeStatus();
+            await execSend(status2 ? `Goal saved.\n${formatRiskStatus(status2, state && state.prefs && state.prefs.risk)}` : 'Goal saved.', null, { event: 'risk_goal_set' });
+          }
+        }
+      } else if (pr.action === 'goal_off') {
+        let saved = true;
+        try { await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => applyRiskPrefsChange(text, { action: 'goal_off' })); } catch (err) { saved = false; log('exec', ` reason=risk_goal_write_${errName(err)}`); }
+        await execSend(saved ? 'Goal cleared.' : 'Could not save; try again in a minute.', null, { event: saved ? 'risk_goal_off' : 'risk_goal_failed' });
+      } else {
+        const state = await readState();
+        const fromProfile = activeProfileOf(state);
+        const bound = typeof ex.riskPrefBound === 'function' ? ex.riskPrefBound(pr.key, fromProfile) : null;
+        if (pr.action === 'set' && bound !== null && pr.value > bound) {
+          await execSend(`⛔ <b>REJECTED</b> — that would loosen the gate. Max right now: ${bound} (${fromProfile} profile's own ceiling).`, null, { event: 'risk_rejected' });
+        } else {
+          let saved = true;
+          try {
+            await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => applyRiskPrefsChange(text, pr.action === 'reset' ? { action: 'reset' } : { action: 'set', key: pr.key, value: pr.value }));
+          } catch (err) { saved = false; log('exec', ` reason=risk_write_${errName(err)}`); }
+          if (!saved) await execSend('Could not save; try again in a minute.', null, { event: 'risk_failed' });
+          else {
+            const state2 = await readState();
+            const status = await safeStatus();
+            await execSend(status ? `Saved.\n${formatRiskStatus(status, state2 && state2.prefs && state2.prefs.risk)}` : 'Saved.', null, { event: pr.action === 'reset' ? 'risk_reset' : 'risk_set' });
+          }
         }
       }
     } else if (cmd === 'kill') {

@@ -7,7 +7,10 @@
 
 import {
   RISK_DEFAULTS, RISK_PCT_PER_TRADE_MAX,
-  readRiskPolicyConfig, normalizeRiskPrefs, riskOverrideBound, applyRiskPrefs, evaluateRiskPolicy
+  PROFILE_KEYS, DEFAULT_PROFILE, PROFILES, isProfileKey, normalizeProfileKey,
+  profileRiskConfig, tieredPolicyConfig, applyLeverageRule, nextTier, boostMultiplier,
+  readRiskPolicyConfig, normalizeRiskPrefs, riskOverrideBound, applyRiskPrefs, evaluateRiskPolicy, evaluateAllProfiles,
+  goalAheadFraction, applyGoalPaceTightening
 } from './lib/execution/riskPolicy.js';
 
 // ---------------------------------------------------------------------------
@@ -301,6 +304,178 @@ async function run() {
     const envConfig = readRiskPolicyConfig({});
     const merged = applyRiskPrefs(envConfig, null);
     assertEqual(merged.pctPerTrade, envConfig.pctPerTrade);
+  });
+
+  console.log('\n10) profiles (T-9 v2)');
+
+  await test('PROFILE_KEYS and DEFAULT_PROFILE', () => {
+    assertEqual(PROFILE_KEYS.length, 2);
+    assert(PROFILE_KEYS.includes('steady') && PROFILE_KEYS.includes('aggressive'));
+    assertEqual(DEFAULT_PROFILE, 'steady');
+  });
+
+  await test('isProfileKey / normalizeProfileKey', () => {
+    assertEqual(isProfileKey('steady'), true);
+    assertEqual(isProfileKey('yolo'), false);
+    assertEqual(isProfileKey(null), false);
+    assertEqual(normalizeProfileKey('aggressive'), 'aggressive');
+    assertEqual(normalizeProfileKey('yolo'), 'steady');
+    assertEqual(normalizeProfileKey(undefined), 'steady');
+  });
+
+  await test('steady and aggressive carry every required knob', () => {
+    for (const key of PROFILE_KEYS) {
+      const p = PROFILES[key];
+      for (const field of ['label', 'blurb', 'riskPctPerTrade', 'riskPctCeiling', 'maxExposurePct', 'maxPerSymbolPct', 'dailyDrawdownPct', 'weeklyDrawdownPct', 'minStopPct', 'tierMultipliers', 'boostMax', 'leverageRule', 'goal', 'evaluateAfterTrades']) {
+        assert(field in p, `${key} missing ${field}`);
+      }
+      assert(p.minStopPct.long > 0 && p.minStopPct.short > 0, `${key} minStopPct`);
+      for (const tier of ['A', 'B', 'C']) assert(p.tierMultipliers[tier] > 0, `${key} tierMultipliers.${tier}`);
+      assertEqual(p.evaluateAfterTrades, 30);
+    }
+    assertEqual(PROFILES.aggressive.riskPctCeiling > PROFILES.steady.riskPctCeiling, true, 'aggressive ceiling above steady');
+    assertEqual(PROFILES.steady.leverageRule, 'half');
+    assertEqual(PROFILES.aggressive.leverageRule, 'stop');
+  });
+
+  await test('profileRiskConfig seeds the RISK_ENV shape from the profile, gas from RISK_DEFAULTS', () => {
+    const cfg = profileRiskConfig('steady');
+    assertEqual(cfg.pctPerTrade, PROFILES.steady.riskPctPerTrade);
+    assertEqual(cfg.maxExposurePct, PROFILES.steady.maxExposurePct);
+    assertEqual(cfg.minFreeGasSol, RISK_DEFAULTS.minFreeGasSol);
+    assertEqual(cfg.minStopPct, PROFILES.steady.minStopPct);
+  });
+
+  await test('tieredPolicyConfig scales pctPerTrade by the tier multiplier only', () => {
+    const b = tieredPolicyConfig('steady', 'B');
+    const a = tieredPolicyConfig('steady', 'A');
+    const c = tieredPolicyConfig('steady', 'C');
+    assertEqual(b.pctPerTrade, PROFILES.steady.riskPctPerTrade);
+    assertClose(a.pctPerTrade, PROFILES.steady.riskPctPerTrade * PROFILES.steady.tierMultipliers.A, 0.001, 'tier A');
+    assertClose(c.pctPerTrade, PROFILES.steady.riskPctPerTrade * PROFILES.steady.tierMultipliers.C, 0.001, 'tier C');
+    assertEqual(a.maxExposurePct, b.maxExposurePct, 'exposure unaffected by tier');
+  });
+
+  await test('applyLeverageRule: half cuts non-A tiers, stop never touches it, tier A never cut', () => {
+    assertEqual(applyLeverageRule('steady', 'B', 10), 5);
+    assertEqual(applyLeverageRule('steady', 'C', 7), 3); // floor(7/2)
+    assertEqual(applyLeverageRule('steady', 'A', 10), 10);
+    assertEqual(applyLeverageRule('aggressive', 'B', 10), 10); // leverageRule 'stop'
+    assertEqual(applyLeverageRule('steady', 'B', null), null);
+    assertEqual(applyLeverageRule('steady', 'B', 1), 1); // floor(1/2)=0 -> clamped to 1
+  });
+
+  await test('nextTier and boostMultiplier', () => {
+    assertEqual(nextTier('C'), 'B');
+    assertEqual(nextTier('B'), 'A');
+    assertEqual(nextTier('A'), null);
+    assertEqual(nextTier('bogus'), null);
+    assertClose(boostMultiplier('steady', 'B'), Math.min(PROFILES.steady.tierMultipliers.A, PROFILES.steady.boostMax), 0.001);
+    assertEqual(boostMultiplier('steady', 'A'), null, 'already top tier');
+    assertClose(boostMultiplier('aggressive', 'C'), Math.min(PROFILES.aggressive.tierMultipliers.B, PROFILES.aggressive.boostMax), 0.001);
+  });
+
+  await test('riskOverrideBound with a profileKey bounds pctPerTrade by that profile ceiling, not the absolute 2% max', () => {
+    const envConfig = readRiskPolicyConfig({});
+    assertEqual(riskOverrideBound('pctPerTrade', envConfig, 'aggressive'), PROFILES.aggressive.riskPctCeiling); // 3, above the absolute max
+    assertEqual(riskOverrideBound('pctPerTrade', envConfig, 'steady'), PROFILES.steady.riskPctCeiling); // 2
+    assertEqual(riskOverrideBound('pctPerTrade', envConfig), Math.min(envConfig.pctPerTrade, RISK_PCT_PER_TRADE_MAX), 'no profile -> old behavior');
+    assertEqual(riskOverrideBound('maxExposurePct', envConfig, 'aggressive'), envConfig.maxExposurePct, 'non-pctPerTrade keys ignore profileKey');
+  });
+
+  await test('applyRiskPrefs lets an aggressive override above 2% through, bound by 3%', () => {
+    const base = profileRiskConfig('aggressive');
+    const under = applyRiskPrefs(base, { pctPerTrade: 2.8 }, 'aggressive');
+    assertEqual(under.pctPerTrade, 2.8, 'in bounds for aggressive');
+    const over = applyRiskPrefs(base, { pctPerTrade: 3.5 }, 'aggressive');
+    assertEqual(over.pctPerTrade, base.pctPerTrade, 'above the 3% ceiling -> ignored');
+  });
+
+  await test('applyRiskPrefs without a profileKey stays tighten-only (unchanged pre-profile behavior)', () => {
+    const envConfig = readRiskPolicyConfig({});
+    const merged = applyRiskPrefs(envConfig, { pctPerTrade: 1.5 }); // above default, no profile -> rejected same as before
+    assertEqual(merged.pctPerTrade, envConfig.pctPerTrade);
+  });
+
+  console.log('\n11) minStopPct fee floor');
+
+  await test('stop_too_tight fires when the stop is inside the profile floor (long and short)', () => {
+    const equityUsd = 100000;
+    const policy = { ...RISK_DEFAULTS, minStopPct: { long: 1.5, short: 1.0 } };
+    const tightLong = evaluateRiskPolicy({ equityUsd, intent: { symbol: 'BTC', sizeUsd: 200, entry: 100000, stop: 99000 }, policy }); // 1% < 1.5% floor
+    assert(tightLong.reasons.includes('stop_too_tight'), `expected stop_too_tight, got ${tightLong.reasons}`);
+    const okLong = evaluateRiskPolicy({ equityUsd, intent: { symbol: 'BTC', sizeUsd: 200, entry: 100000, stop: 98000 }, policy }); // 2% > 1.5%
+    assertEqual(okLong.reasons.includes('stop_too_tight'), false);
+    const tightShort = evaluateRiskPolicy({ equityUsd, intent: { symbol: 'BTC', sizeUsd: 200, entry: 100000, stop: 100500 }, policy }); // 0.5% < 1.0% floor
+    assert(tightShort.reasons.includes('stop_too_tight'), `expected stop_too_tight (short), got ${tightShort.reasons}`);
+  });
+
+  await test('minStopPct is a no-op when the policy does not carry it (backward compatible)', () => {
+    const r = evaluateRiskPolicy({ equityUsd: 100000, intent: { symbol: 'BTC', sizeUsd: 200, entry: 100000, stop: 99900 } }); // 0.1% stop, no floor configured
+    assertEqual(r.reasons.includes('stop_too_tight'), false);
+  });
+
+  console.log('\n12) evaluateAllProfiles (parallel tracking)');
+
+  await test('evaluates both profiles on the same intent, keyed by name', () => {
+    const out = evaluateAllProfiles({ equityUsd: 100000, intent: LONG_INTENT }, { tier: 'B' });
+    assertEqual(Object.keys(out).sort().join(','), 'aggressive,steady');
+    for (const key of PROFILE_KEYS) {
+      const row = out[key];
+      assert(isNumLike(row.riskUsd), `${key} riskUsd`);
+      assert(isNumLike(row.sizeUsd), `${key} sizeUsd`);
+      assertEqual(row.tier, 'B');
+      assertEqual(typeof row.ok, 'boolean');
+      assert(Array.isArray(row.reasons));
+    }
+    assert(out.aggressive.sizeUsd > out.steady.sizeUsd, 'aggressive suggests a bigger size than steady on the same call at tier B (bigger risk budget)');
+  });
+
+  await test('evaluateAllProfiles never gates the caller: an intent one profile would refuse still returns a row for it, ok:false', () => {
+    // equity so small that even steady's default refuses (risk_pct_over), the caller is informed, not thrown
+    const out = evaluateAllProfiles({ equityUsd: 10, intent: LONG_INTENT }, { tier: 'B' });
+    assertEqual(out.steady.ok, false);
+    assert(out.steady.reasons.length > 0);
+  });
+
+  await test('evaluateAllProfiles respects an injected maxSizeCapUsd / maxLeverageCap for both profiles', () => {
+    const out = evaluateAllProfiles({ equityUsd: 10_000_000, intent: LONG_INTENT }, { tier: 'A', maxSizeCapUsd: 50, maxLeverageCap: 3 });
+    for (const key of PROFILE_KEYS) {
+      assertEqual(out[key].sizeUsd, 50);
+      assert(out[key].leverage <= 3, `${key} leverage capped`);
+    }
+  });
+
+  function isNumLike(v) { return typeof v === 'number' && Number.isFinite(v); }
+
+  console.log('\n13) goal pace (T-9 v2 P4)');
+
+  await test('goalAheadFraction: exactly on pace -> ~0; ahead / behind read the right sign', () => {
+    const goal = { equityUsd: 2000, startEquityUsd: 1000, startAt: '2026-01-01T00:00:00Z', byDate: '2026-01-11T00:00:00Z' };
+    const halfway = Date.parse('2026-01-06T00:00:00Z');
+    assertClose(goalAheadFraction(goal, 1500, halfway), 0, 0.01, 'on pace at the midpoint');
+    assertClose(goalAheadFraction(goal, 1900, halfway), 0.4, 0.01, 'ahead of pace');
+    assertClose(goalAheadFraction(goal, 1100, halfway), -0.4, 0.01, 'behind pace');
+  });
+
+  await test('goalAheadFraction is null without a baseline, a malformed window, or unreadable equity', () => {
+    assertEqual(goalAheadFraction(null, 1000), null);
+    assertEqual(goalAheadFraction({ equityUsd: 2000, byDate: '2026-01-11T00:00:00Z' }, 1000), null, 'no startEquityUsd/startAt');
+    assertEqual(goalAheadFraction({ equityUsd: 2000, startEquityUsd: 1000, startAt: '2026-01-11T00:00:00Z', byDate: '2026-01-01T00:00:00Z' }, 1500), null, 'byDate before startAt');
+    assertEqual(goalAheadFraction({ equityUsd: 2000, startEquityUsd: 1000, startAt: '2026-01-01T00:00:00Z', byDate: '2026-01-11T00:00:00Z' }, null), null, 'equity unavailable');
+  });
+
+  await test('applyGoalPaceTightening: no-op under 25% ahead, scales both drawdown caps down at/above 25%, never increases them', () => {
+    const cfg = { dailyDrawdownPct: 3, weeklyDrawdownPct: 8, pctPerTrade: 1 };
+    assertEqual(applyGoalPaceTightening(cfg, null), cfg, 'null aheadFraction -> unchanged');
+    assertEqual(applyGoalPaceTightening(cfg, 0.1), cfg, 'under 25% ahead -> unchanged');
+    assertEqual(applyGoalPaceTightening(cfg, -0.5), cfg, 'behind pace -> never loosened (and there is nothing to loosen here)');
+    const tightened = applyGoalPaceTightening(cfg, 0.25);
+    assertClose(tightened.dailyDrawdownPct, 3 * 0.75, 0.001, '25% ahead -> 75% of the daily cap');
+    assertClose(tightened.weeklyDrawdownPct, 8 * 0.75, 0.001, '25% ahead -> 75% of the weekly cap');
+    assertEqual(tightened.pctPerTrade, cfg.pctPerTrade, 'only drawdown is touched');
+    const veryAhead = applyGoalPaceTightening(cfg, 0.9);
+    assertClose(veryAhead.dailyDrawdownPct, 3 * 0.1, 0.001, '90% ahead -> 10% of the daily cap');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

@@ -34,7 +34,8 @@ import {
   RULE, MAX_CARD_CHARS, resolveRef, formatPlanCard, formatThesisCard, reasonPhrase, rMultiple, trackEntry, applyTrackChange, formatTrackingList, trackingKeyboard,
   diffTracked, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, candidateSnapshot, swapTrackButton, parseAlertTimeframes,
   TRACK_MAX, TRACK_TTL_MS, NUDGE_AFTER_MS, EXPIRED_REPLY, liveView, formatMarket, marketLean, formatHelp,
-  isOpenReady, parseOrderArgs, parseConfirmArgs, orderIntentFromPlan, formatTicketCard, EXEC_TICKETS_PATH, parseRiskArgs, applyRiskPrefsChange, formatRiskStatus, normalizeRiskPrefs, formatExecStatus, RISK_PREF_KEYS, orderIntentFromCandidate, candidateLevels, openEligible, openSourceKind, withOpenButton, focusRelated, formatFocusState, normalizeLivePositions, LIVE_POSITIONS_CACHE_MS, FOCUS_MODES
+  isOpenReady, parseOrderArgs, parseConfirmArgs, orderIntentFromPlan, formatTicketCard, EXEC_TICKETS_PATH, parseRiskArgs, applyRiskPrefsChange, formatRiskStatus, normalizeRiskPrefs, formatExecStatus, RISK_PREF_KEYS, orderIntentFromCandidate, candidateLevels, openEligible, openSourceKind, withOpenButton, focusRelated, formatFocusState, normalizeLivePositions, LIVE_POSITIONS_CACHE_MS, FOCUS_MODES,
+  PROFILE_NAMES, DEFAULT_PROFILE_NAME, normalizeRiskGoal, ticketKeyboard, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor, config as webhookConfig } from './api/telegram-webhook.js';
@@ -2010,9 +2011,9 @@ async function run() {
       }
     };
     const t = formatRiskStatus(status, { pctPerTrade: 0.3 });
-    for (const f of ['RISK POLICY', '0.3% (owner override)', '25% (env default)', '$1,200.00', '15%', '1.2% day', '3.4% week']) assert(t.includes(f), `missing ${f}: ${t}`);
+    for (const f of ['RISK POLICY', 'profile <b>Steady</b>', '0.3% (owner override)', '25% (steady default)', '$1,200.00', '15%', '1.2% day', '3.4% week']) assert(t.includes(f), `missing ${f}: ${t}`);
     const noOverride = formatRiskStatus(status, {});
-    assert(noOverride.includes('0.3% (env default)'), 'no override -> env default label even if the number happens to differ from RISK_DEFAULTS');
+    assert(noOverride.includes('0.3% (steady default)'), 'no override -> profile-default label even if the number happens to differ from RISK_DEFAULTS');
   });
 
   await test('formatTicketCard: risk line (risk $ (pct% eq) · exposure before% -> after%) and a suggested-size note', () => {
@@ -2157,7 +2158,9 @@ async function run() {
     printed.push(['ticket', t]);
     assert(t.startsWith('⚡ ORDER · ₿ <b>BTC 5m ▲ LONG</b>\n🧪 <b>DRY RUN</b>'), t);
     for (const f of ['side', 'LONG', 'size', '$50.00', 'lev', '3x', 'fill', '84,600.00', 'SL', '84,390.00', 'TP1', '85,146.00', 'max loss', '$0.12', 'fees', '~$0.07', `ticket <code>${NONCE}</code> · expires in 60 s`]) assert(t.includes(f), `ticket missing ${f}`);
-    assertEqual(allCallbackData(lastMarkup(r)).join(), `xok:${NONCE},xno:${NONCE}`, 'Confirm / Cancel');
+    // T-9 v2: the mocked preflight order carries no `tier` (undefined !== 'A'), so the ticket
+    // offers a Boost row by default -- same as any manual/unclassified ('C') order for real.
+    assertEqual(allCallbackData(lastMarkup(r)).join(), `xok:${NONCE},xno:${NONCE},xboost:${NONCE}`, 'Confirm / Cancel / Boost');
     const lines = execLines(r.blob);
     assert(lines.length === 1 && lines[0].event === 'ticket' && lines[0].mode === 'dry' && lines[0].symbol === 'BTC' && lines[0].stop === 84390, JSON.stringify(lines));
     assert(!/\$50\.00|3x|max loss|fees/.test(lines[0].text) && !findSensitiveKeys(lines[0]).length, lines[0].text);
@@ -2421,7 +2424,7 @@ async function run() {
     const ex = mockExecutor({ risk: riskSnap, riskPrefBound: (key) => (key === 'pctPerTrade' ? 0.5 : 25) });
     const blob = fakeBlob();
     const show = await xhook({ text: '/risk', executor: ex, blob });
-    assert(lastText(show).includes('RISK POLICY') && lastText(show).includes('0.5% (env default)') && lastText(show).includes('$900.00'), lastText(show));
+    assert(lastText(show).includes('RISK POLICY') && lastText(show).includes('0.5% (steady default)') && lastText(show).includes('$900.00'), lastText(show));
     const ok = await xhook({ text: '/risk pct 0.3', executor: ex, blob });
     assert(lastText(ok).startsWith('Saved.') && lastText(ok).includes('0.3% (owner override)'), lastText(ok));
     assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.risk.pctPerTrade, 0.3, 'persisted');
@@ -2436,6 +2439,110 @@ async function run() {
     assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.risk), '{}', 'reset clears it');
     const off = await xhook({ text: '/risk', env: ENV }); // TRADE_EXECUTION_ENABLED not true
     assert(lastText(off).includes('Execution off'), lastText(off));
+  });
+
+  console.log('T-9 v2: profiles, boost, goal (pure parsing/formatting)');
+
+  await test('PROFILE_NAMES / DEFAULT_PROFILE_NAME', () => {
+    assertEqual(PROFILE_NAMES.length, 2);
+    assertEqual(DEFAULT_PROFILE_NAME, 'steady');
+  });
+
+  await test('parseRiskArgs: profile subcommand (prompt vs. ready-to-execute) and bad input', () => {
+    assertEqual(JSON.stringify(parseRiskArgs(['profile', 'aggressive'])), JSON.stringify({ action: 'profile_prompt', profile: 'aggressive' }));
+    assertEqual(JSON.stringify(parseRiskArgs(['profile', 'AGGRESSIVE'])), JSON.stringify({ action: 'profile_prompt', profile: 'aggressive' }), 'case-insensitive');
+    assertEqual(JSON.stringify(parseRiskArgs(['profile', 'steady', '1234'])), JSON.stringify({ action: 'profile_set', profile: 'steady', pin: '1234' }));
+    assertEqual(parseRiskArgs(['profile', 'yolo']).action, 'error', 'unknown profile name');
+    assertEqual(parseRiskArgs(['profile']).action, 'error', 'no name');
+    assertEqual(parseRiskArgs(['profile', 'steady', 'abcd']).action, 'error', 'pin must be digits');
+  });
+
+  await test('parseRiskArgs: goal subcommand (set / off / malformed)', () => {
+    const set = parseRiskArgs(['goal', '1000', 'by', '2026-12-31']);
+    assertEqual(set.action, 'goal_set');
+    assertEqual(set.equityUsd, 1000);
+    assertEqual(set.byDate, '2026-12-31');
+    assertEqual(parseRiskArgs(['goal', 'off']).action, 'goal_off');
+    assertEqual(parseRiskArgs(['goal', '1000', 'by', 'not-a-date']).action, 'error', 'unparseable date');
+    assertEqual(parseRiskArgs(['goal', '-5', 'by', '2026-12-31']).action, 'error', 'non-positive equity');
+    assertEqual(parseRiskArgs(['goal']).action, 'error', 'missing args');
+  });
+
+  await test('normalizeRiskGoal: valid, malformed, and pace-baseline fields carried through only when both present', () => {
+    assertEqual(normalizeRiskGoal(null), null);
+    assertEqual(normalizeRiskGoal({ equityUsd: 1000 }), null, 'missing byDate');
+    assertEqual(normalizeRiskGoal({ equityUsd: -5, byDate: '2026-01-01' }), null, 'non-positive equity');
+    const plain = normalizeRiskGoal({ equityUsd: 1000, byDate: '2026-12-31' });
+    assertEqual(JSON.stringify(plain), JSON.stringify({ equityUsd: 1000, byDate: '2026-12-31' }), 'no baseline yet');
+    const withBaseline = normalizeRiskGoal({ equityUsd: 1000, byDate: '2026-12-31', startEquityUsd: 500, startAt: '2026-01-01T00:00:00Z' });
+    assertEqual(withBaseline.startEquityUsd, 500);
+    assertEqual(withBaseline.startAt, '2026-01-01T00:00:00Z');
+    const partialBaseline = normalizeRiskGoal({ equityUsd: 1000, byDate: '2026-12-31', startEquityUsd: 500 }); // startAt missing
+    assertEqual('startEquityUsd' in partialBaseline, true, 'startEquityUsd kept on its own');
+    assertEqual('startAt' in partialBaseline, false, 'startAt absent -> not fabricated');
+  });
+
+  await test('applyRiskPrefsChange: profile / goal / goal_off write and clear independently of the numeric reset', () => {
+    const withProfile = applyRiskPrefsChange(null, { action: 'profile', profile: 'aggressive' });
+    assertEqual(parseState(withProfile).prefs.risk.profile, 'aggressive');
+    assertEqual(parseState(applyRiskPrefsChange(null, { action: 'profile', profile: 'bogus' })).prefs.risk.profile, undefined, 'unknown profile name ignored');
+    const goal = { equityUsd: 1000, byDate: '2026-12-31' };
+    const withGoal = applyRiskPrefsChange(null, { action: 'goal', goal });
+    assertEqual(parseState(withGoal).prefs.risk.goal.equityUsd, 1000);
+    const goalOff = applyRiskPrefsChange(withGoal, { action: 'goal_off' });
+    assertEqual('goal' in parseState(goalOff).prefs.risk, false);
+    // A plain numeric reset leaves profile/goal alone (T-9 v2: reset "returns to the profile", not to steady).
+    const both = applyRiskPrefsChange(withGoal, { action: 'profile', profile: 'aggressive' });
+    const bothThenReset = applyRiskPrefsChange(both, { action: 'reset' });
+    const risk = parseState(bothThenReset).prefs.risk;
+    assertEqual(risk.profile, 'aggressive', 'profile survives a numeric reset');
+    assertEqual(risk.goal.equityUsd, 1000, 'goal survives a numeric reset');
+  });
+
+  await test('formatRiskStatus shows the goal and its pace when one is set', () => {
+    const status = {
+      risk: {
+        equityUsd: 1200, exposurePct: 15, drawdown: { dayPct: 1, weekPct: 2 },
+        profile: { key: 'aggressive', label: 'Aggressive' },
+        goal: { equityUsd: 2000, byDate: '2026-12-31T00:00:00Z' }, goalAhead: 0.4,
+        policy: { pctPerTrade: 2.5, maxExposurePct: 50, maxPerSymbolPct: 30, dailyDrawdownPct: 6, weeklyDrawdownPct: 15, minFreeGasSol: 0.05 }
+      }
+    };
+    const t = formatRiskStatus(status, {});
+    for (const f of ['profile <b>Aggressive</b>', '$2,000.00 by 2026-12-31', '40% ahead of pace', '2.5% (aggressive default)']) assert(t.includes(f), `missing ${f}: ${t}`);
+  });
+
+  await test('ticketKeyboard: boost row only when requested, and only when the nonce fits callback_data', () => {
+    const plain = ticketKeyboard('deadbeef');
+    assertEqual(plain.inline_keyboard.length, 1, 'no boost row by default');
+    const boosted = ticketKeyboard('deadbeef', { boost: true });
+    assertEqual(boosted.inline_keyboard.length, 2, 'boost row added');
+    assertEqual(boosted.inline_keyboard[1][0].callback_data, 'xboost:deadbeef');
+    assertEqual(ticketKeyboard('has a space', { boost: true }), null, 'invalid nonce -> null, same as before');
+    const maxLen = ticketKeyboard('a'.repeat(48), { boost: true }); // NONCE_RE's own max length
+    assertEqual(maxLen.inline_keyboard.length, 2, 'boost row still fits at the longest allowed nonce');
+  });
+
+  await test('riskProfileKeyboard: two buttons, active one checked', () => {
+    const kb = riskProfileKeyboard('aggressive');
+    assertEqual(kb.inline_keyboard[0].length, 2);
+    assertEqual(kb.inline_keyboard[0][1].text, 'Aggressive ✔');
+    assertEqual(kb.inline_keyboard[0][0].text, 'Steady');
+    assertEqual(kb.inline_keyboard[0][0].callback_data, 'riskprofile:steady');
+    assertEqual(kb.inline_keyboard[0][1].callback_data, 'riskprofile:aggressive');
+  });
+
+  await test('formatProfileSwitchPrompt / formatProfileSwitched', () => {
+    assert(formatProfileSwitchPrompt('aggressive').includes('/risk profile aggressive PIN'));
+    const switched = formatProfileSwitched('steady', 'aggressive');
+    assert(switched.includes('steady') && switched.includes('<b>aggressive</b>'), switched);
+  });
+
+  await test('parseCallbackData: xboost and riskprofile', () => {
+    assertEqual(JSON.stringify(parseCallbackData('xboost:deadbeef')), JSON.stringify({ cmd: 'xboost', args: [], rest: '', known: true, nonce: 'deadbeef' }));
+    assertEqual(JSON.stringify(parseCallbackData('riskprofile:steady')), JSON.stringify({ cmd: 'risk_profile_prompt', args: [], rest: '', known: true, profile: 'steady' }));
+    assertEqual(parseCallbackData('riskprofile:yolo'), null, 'unknown profile name');
+    assertEqual(parseCallbackData('xboost:bad nonce'), null, 'invalid nonce characters');
   });
 
   await test('review 2026-09-25: isOpenReady needs class GOOD and GET IN NOW; the intent carries recClass', () => {
