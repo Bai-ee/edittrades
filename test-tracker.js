@@ -20,7 +20,7 @@ import {
 import { runAlerts, findNewGood, alertKey, alertsFile, chartTimeframe, saveChart, ALERT_MAX_AGE_MIN } from './scripts/tracker/alerts.js';
 import {
   readAllCalls, readCandles, readJsonl, writeJsonl, readJson, writeJson, outcomesFile, aggregatesFile, parseArgs, walletFile, readWallet,
-  readJournal, appendJournal, journalOutcomesFile, appendCalls, appendCandles
+  readJournal, appendJournal, journalOutcomesFile, appendCalls, appendCandles, telegramStatusFile
 } from './scripts/tracker/store.js';
 import { extractCalls, scoreCalls, scoreDataDir, callDims, scoreJournal, scoreJournalDataDir, rFromExit, candidateLevels } from './scripts/tracker/score.js';
 import { chartKit, equityRows, journalEquityRows, setupEquityRows, walletMarks, filterValues, driftBucket, hourBucket, callVia, FILTER_DIMS } from './scripts/tracker/charts.js';
@@ -49,6 +49,8 @@ import {
 } from './scripts/tracker/v3-shadow.js';
 import { writeFileSync } from 'node:fs';
 import { esc } from './scripts/tracker/bento.js';
+import { computeProfileCurves, computeProfileCurvesDataDir, BOT_WALLET_START_EQUITY_USD } from './scripts/tracker/profiles.js';
+import { renderRisk } from './scripts/tracker/risk-page.js';
 import {
   renderChangelogPage, parseChangelog, renderMarkdown, renderInline, isNew, groupFields,
   NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS, NO_BOARD, BOARD_BREAKPOINT, boardModel, layoutBoard
@@ -1110,6 +1112,118 @@ async function run() {
     buildPage(dir, out, T0 + 3 * 60 * MIN);
     const html = readFileSync(path.join(out, 'index.html'), 'utf8');
     assert(html.includes('id="journal-log-table"'), 'journal log on the built page');
+  });
+
+  console.log('\nT-9 v2 P5: wallet strategy profile curves + risk.html');
+
+  const isoAt = (mins) => new Date(T0 + mins * MIN).toISOString();
+
+  await test('computeProfileCurves: live curve sized off execRef.profiles.riskUsd stamped at open, real curve off resultUsd', () => {
+    const journalRecords = [
+      { id: 'o1', kind: 'open', source: 'execution', symbol: 'BTC', receivedAt: isoAt(0), execRef: { profiles: { steady: { tier: 'B', riskUsd: 5, ok: true, reasons: [] }, aggressive: { tier: 'B', riskUsd: 10, ok: true, reasons: [] } } } },
+      { id: 'c1', kind: 'close', source: 'execution', resultUsd: 12, receivedAt: isoAt(120) },
+      { id: 'o2', kind: 'open', source: 'telegram', symbol: 'ETH', receivedAt: isoAt(5) } // non-execution open, never counted
+    ];
+    const journalOutcomes = [{ journalId: 'o1', outcome: 'closed', r: 2, calledAt: isoAt(0) }];
+    const out = computeProfileCurves({ journalRecords, journalOutcomes, callOutcomes: [] });
+    assertEqual(out.startEquityUsd, BOT_WALLET_START_EQUITY_USD);
+    assertEqual(out.real.points.length, 2, 'start + one execution close');
+    assertEqual(out.real.points[1].equityUsd, BOT_WALLET_START_EQUITY_USD + 12, 'real: start + resultUsd');
+    assertEqual(out.profiles.steady.live.trades, 1);
+    assertEqual(out.profiles.steady.live.points[1].equityUsd, BOT_WALLET_START_EQUITY_USD + 5 * 2, 'steady: riskUsd(5) x r(2)');
+    assertEqual(out.profiles.aggressive.live.points[1].equityUsd, BOT_WALLET_START_EQUITY_USD + 10 * 2, 'aggressive: riskUsd(10) x r(2)');
+    assertEqual(out.profiles.steady.live.expectancyR, 2);
+  });
+
+  await test('computeProfileCurves: a closed trade with no execRef.profiles (e.g. manual /order) is skipped from the live curve, not crashed on', () => {
+    const journalRecords = [
+      { id: 'o1', kind: 'open', source: 'execution', symbol: 'BTC', receivedAt: isoAt(0) }, // no execRef at all
+      { id: 'c1', kind: 'close', source: 'execution', resultUsd: 3, receivedAt: isoAt(60) }
+    ];
+    const journalOutcomes = [{ journalId: 'o1', outcome: 'closed', r: 1, calledAt: isoAt(0) }];
+    const out = computeProfileCurves({ journalRecords, journalOutcomes, callOutcomes: [] });
+    assertEqual(out.profiles.steady.live.trades, 0, 'no profiles stamp -> not counted');
+    assertEqual(out.profiles.steady.live.points.length, 1, 'curve stays flat at the start');
+    assertEqual(out.real.points[1].equityUsd, BOT_WALLET_START_EQUITY_USD + 3, 'real curve is unaffected (resultUsd only)');
+  });
+
+  await test('computeProfileCurves: as-if curve sizes every scored GOOD call at tier B, whether or not it was ever taken', () => {
+    const callOutcomes = [
+      { class: 'GOOD', outcome: 'tp1', r: 2, calledAt: isoAt(0) },
+      { class: 'GOOD', outcome: 'stop', r: -1, calledAt: isoAt(60) },
+      { class: 'WATCH', outcome: 'tp1', r: 5, calledAt: isoAt(30) } // not GOOD -> excluded
+    ];
+    const out = computeProfileCurves({ journalRecords: [], journalOutcomes: [], callOutcomes });
+    assertEqual(out.profiles.steady.asIf.trades, 2, 'only the two GOOD calls');
+    assertEqual(out.profiles.steady.asIf.expectancyR, 0.5, '(2 + -1) / 2');
+    assert(out.profiles.aggressive.asIf.points.at(-1).equityUsd !== out.profiles.steady.asIf.points.at(-1).equityUsd, 'aggressive and steady size differently');
+  });
+
+  await test('computeProfileCurves: empty inputs never throw, curves start flat at BOT_WALLET_START_EQUITY_USD', () => {
+    const out = computeProfileCurves();
+    assertEqual(out.startEquityUsd, BOT_WALLET_START_EQUITY_USD);
+    assertEqual(out.real.points.length, 1);
+    for (const key of ['steady', 'aggressive']) {
+      assertEqual(out.profiles[key].live.trades, 0);
+      assertEqual(out.profiles[key].asIf.trades, 0);
+      assertEqual(out.profiles[key].live.points[0].equityUsd, BOT_WALLET_START_EQUITY_USD);
+    }
+  });
+
+  await test('computeProfileCurvesDataDir reads the same store buildPage does', async () => {
+    const dir = tmp();
+    appendJournal(dir, [
+      { id: 'o1', schemaVersion: 'journal-1', receivedAt: isoAt(0), kind: 'open', symbol: 'BTC', source: 'execution', execRef: { profiles: { steady: { tier: 'B', riskUsd: 5, ok: true, reasons: [] }, aggressive: { tier: 'B', riskUsd: 10, ok: true, reasons: [] } } } },
+      { id: 'c1', schemaVersion: 'journal-1', receivedAt: isoAt(60), kind: 'close', symbol: 'BTC', source: 'execution', resultUsd: 10 }
+    ]);
+    writeJsonl(journalOutcomesFile(dir), [{ journalId: 'o1', outcome: 'closed', r: 2, calledAt: isoAt(0) }]);
+    const out = await computeProfileCurvesDataDir(dir);
+    assertEqual(out.profiles.steady.live.trades, 1);
+    assertEqual(out.real.points[1].equityUsd, BOT_WALLET_START_EQUITY_USD + 10);
+  });
+
+  await test('renderRisk: no data -> zero-state text, not a crash; the profile table, live badge and evaluation rule always render', () => {
+    const empty = renderRisk(null, null);
+    assert(empty.includes('<!doctype html>') && empty.includes('id="risk-page-title"'), 'page shell');
+    assert(empty.includes('id="risk-profile-table"') && empty.includes('>Steady<') && empty.includes('>Aggressive<'), 'profile table');
+    assert(empty.includes('risk-curve-empty'), 'zero-state chart text');
+    assert(empty.includes('id="risk-live-profile-name">Steady<'), 'defaults to steady with no liveProfileKey');
+    assert(empty.includes('id="risk-evaluation-text"') && empty.includes('40% wins'), 'evaluation rule');
+  });
+
+  await test('renderRisk: with curve data, shows the live profile, curve legend and trade counts', () => {
+    const data = computeProfileCurves({
+      journalRecords: [
+        { id: 'o1', kind: 'open', source: 'execution', symbol: 'BTC', receivedAt: isoAt(0), execRef: { profiles: { steady: { tier: 'B', riskUsd: 5, ok: true, reasons: [] }, aggressive: { tier: 'B', riskUsd: 10, ok: true, reasons: [] } } } },
+        { id: 'c1', kind: 'close', source: 'execution', resultUsd: 10, receivedAt: isoAt(60) }
+      ],
+      journalOutcomes: [{ journalId: 'o1', outcome: 'closed', r: 2, calledAt: isoAt(0) }],
+      callOutcomes: []
+    });
+    const html = renderRisk(data, 'aggressive');
+    assert(html.includes('id="risk-live-profile-name">Aggressive<'), 'live badge shows the active profile');
+    assert(html.includes('risk-curve-legend') && !html.includes('risk-curve-empty'), 'chart rendered, not the zero state');
+    assert(html.includes('1 / 30'), 'trade count toward the 30-trade evaluation');
+  });
+
+  await test('buildPage writes risk.html alongside index.html and how-to.html, linked from all three', () => {
+    const dir = tmp();
+    appendJournal(dir, [
+      { id: 'o1', schemaVersion: 'journal-1', receivedAt: isoAt(0), kind: 'open', symbol: 'BTC', source: 'execution', execRef: { profiles: { steady: { tier: 'B', riskUsd: 5, ok: true, reasons: [] }, aggressive: { tier: 'B', riskUsd: 10, ok: true, reasons: [] } } } },
+      { id: 'c1', schemaVersion: 'journal-1', receivedAt: isoAt(60), kind: 'close', symbol: 'BTC', source: 'execution', resultUsd: 10 }
+    ]);
+    writeJsonl(journalOutcomesFile(dir), [{ journalId: 'o1', outcome: 'closed', r: 2, calledAt: isoAt(0) }]);
+    writeJson(telegramStatusFile(dir), { cronLastRunAt: null, alertsDay: null, alertsToday: 0, lastAlert: null, riskProfile: 'aggressive' });
+    const out = path.join(dir, 'site');
+    const { riskFile } = buildPage(dir, out, T0 + 3 * 60 * MIN);
+    assertEqual(riskFile, path.join(out, 'risk.html'), 'buildPage reports the risk file path');
+    const risk = readFileSync(riskFile, 'utf8');
+    assert(risk.includes('id="risk-live-profile-name">Aggressive<'), 'telegram-status riskProfile flows through to risk.html');
+    const index = readFileSync(path.join(out, 'index.html'), 'utf8');
+    assert(index.includes('id="wallet-strategies-tile"') && index.includes('href="risk.html"'), 'index.html teaser + link');
+    assert(index.includes('id="wallet-strategies-live-name">Aggressive<'), 'index teaser also reflects the live profile');
+    const howTo = readFileSync(path.join(out, 'how-to.html'), 'utf8');
+    assert(howTo.includes('href="risk.html"') && howTo.includes('/risk profile'), 'how-to.html links to risk.html and documents the switch');
   });
 
   // ------------------------------------------------ rec calls scored on candidate levels

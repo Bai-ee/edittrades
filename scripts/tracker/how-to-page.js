@@ -71,7 +71,10 @@ const TG_EXEC = [
   ['/order', 'Manual', '/order BTC long size 200 lev 5 sl 84390 tp 85146. SL and TP are required; the same checks and ticket apply.'],
   ['/positions', 'Manage', 'Live positions from chain with PnL: Close, Close 50%, SL→BE, Set SL/TP (/stops <pos> sl <price> tp <price>). Each makes a ticket and needs /confirm with your PIN.'],
   ['/kill · /arm', 'Stop switch', '/kill stops all execution at once, no PIN. /arm <PIN> clears it (an EXECUTION_KILL set in Vercel stays until removed there). /exec shows mode, kill, caps, loss today, open count and margin.'],
-  ['/risk', 'Wallet-aware sizing', 'Risk policy on top of your caps, sized against your real wallet equity: per-trade risk, exposure, drawdown, gas. Shows equity, exposure, drawdown day/week and the policy; /risk pct 0.3 (or exposure/symbolexposure/dailydd/weeklydd/gas) tightens one, /risk reset clears it. An override can only tighten a knob, never loosen past env or 2% per trade. The ticket shows the risk and a suggested size when yours is larger.']
+  ['/risk', 'Wallet-aware sizing', 'Risk policy on top of your caps, sized against your real wallet equity: per-trade risk, exposure, drawdown, gas. Shows equity, exposure, drawdown day/week and the policy; /risk pct 0.3 (or exposure/symbolexposure/dailydd/weeklydd/gas) tightens one, /risk reset clears it. An override can only tighten a knob, never loosen past your active profile\'s own ceiling. The ticket shows the risk and a suggested size when yours is larger.'],
+  ['/risk profile', 'Switch strategies', 'Steady (default, 1%/trade) vs Aggressive (2.5%/trade, owner target) — both defined and tracked in parallel on every call (see risk.html), only one ever sizes a real order. Tap Steady/Aggressive on the /risk card, or type /risk profile aggressive; either way, reply /risk profile aggressive PIN within 60 s to confirm. /risk reset clears numeric overrides only — it never changes which profile is active.'],
+  ['Boost', 'One-time, next tier only', 'A button on an open-ticket that sizes it up to the next tier\'s multiplier (A/B/C, from the flag\'s own readiness) for that order only — never a standing setting. Refused the same way any order is: drawdown, exposure, equity unavailable, or already at tier A.'],
+  ['/risk goal', '+X% by a date, pace shown', '/risk goal 1000 by 2026-12-31 sets a target from today\'s equity; /risk shows the pace (ahead/behind) and, once 25%+ ahead, drawdown caps tighten by that same fraction — never loosen. /risk goal off clears it.']
 ];
 
 const TG_BUTTONS = [
@@ -204,7 +207,7 @@ export function renderHowTo() {
       ['#howto-what-section', 'What'], ['#howto-routine-section', 'Routine'], ['#howto-telegram-section', 'Telegram'],
       ['#howto-chatgpt-section', 'ChatGPT'], ['#howto-rules-section', 'Rules'], ['#howto-tracker-section', 'Tracker'],
       ['#howto-journal-section', 'Journal'], ['#howto-limits-section', 'Limits'],
-      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
+      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['risk.html', 'Wallet strategies →', 'class="nav-link" id="howto-nav-risk-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
     ]);
 
   const what = zone({

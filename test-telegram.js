@@ -1349,9 +1349,13 @@ async function run() {
   console.log('\ntracker');
 
   await test('tracker keeps only the heartbeat and alert counters, and the Status Alerts fact renders both states', async () => {
-    const state = { ...emptyState(), cron: { lastRunAt: '2026-09-24T14:00:00Z' }, symbols: { BTC: { goodIds: ['secret-ish'] } }, alerts: { day: '2026-09-24', today: 4, last: { at: '2026-09-24T13:55:00Z', symbol: 'ETH', kind: 'SETUP' } } };
+    const state = { ...emptyState(), cron: { lastRunAt: '2026-09-24T14:00:00Z' }, symbols: { BTC: { goodIds: ['secret-ish'] } }, alerts: { day: '2026-09-24', today: 4, last: { at: '2026-09-24T13:55:00Z', symbol: 'ETH', kind: 'SETUP' } }, prefs: { risk: { profile: 'aggressive', pctPerTrade: 2.8 } } };
     const st = telegramStatusFromState(state);
-    assertEqual(Object.keys(st).join(), 'cronLastRunAt,alertsDay,alertsToday,lastAlert', 'whitelist');
+    // T-9 v2: riskProfile (an owner-facing UI preference) joins the whitelist; every numeric
+    // risk override (pctPerTrade above) still stays off it.
+    assertEqual(Object.keys(st).join(), 'cronLastRunAt,alertsDay,alertsToday,lastAlert,riskProfile', 'whitelist');
+    assertEqual(st.riskProfile, 'aggressive', 'active profile carried through');
+    assertEqual(telegramStatusFromState({ ...emptyState() }).riskProfile, 'steady', 'default when unset');
     const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-status-'));
     const fetchImpl = async (url) => (String(url).startsWith(`${BASE}/telegram/state.json?t=`) ? new Response(JSON.stringify(state), { status: 200 }) : new Response('', { status: 404 }));
     const pulled = await pullTelegramStatus(dir, BASE, fetchImpl, 1);
