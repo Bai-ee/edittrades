@@ -184,10 +184,11 @@ export async function handleTelegramCron(req, res, deps = {}) {
       log('journal', ` reason=journal_read_${err && err.name ? err.name : 'Error'}`);
     }
   }
-  // Open (T-3): only on a ready GOOD plan, only when execution is enabled; the webhook gates the rest.
+  // Open (T-3): on a GOOD alert or a tracked GET IN NOW whose candidate is a ready GOOD
+  // plan (never on in-trade updates), only when execution is enabled; the webhook gates the rest (PIN, caps, kill, re-preflight).
   if (env.TRADE_EXECUTION_ENABLED === 'true') {
     const syms = compact && compact.symbols ? compact.symbols : {};
-    alerts = alerts.map((a) => (a.kind === 'GOOD' && a.candidateId && isOpenReadySymbol(a.symbol, syms[a.symbol], a.candidateId)
+    alerts = alerts.map((a) => ((a.kind === 'GOOD' || (a.kind === 'TRACK' && a.event === 'get_in_now')) && a.candidateId && isOpenReadySymbol(a.symbol, syms[a.symbol], a.candidateId)
       ? { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId) } : a));
   }
   const silent = inQuietHours(prefs && prefs.quiet, nowMs);

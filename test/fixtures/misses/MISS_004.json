@@ -1,0 +1,17 @@
+{
+  "id": "MISS_004",
+  "date": "2026-09-25",
+  "symbol": "SOL",
+  "timeframe": "3m",
+  "preImageRead": "21:57Z: engine showed a 3m/5m bear flag, trigger 120.89, measured target 118.82, class WATCH, call WAIT. 21:57-22:09Z price poked below 120.89 several times and closed back above every time; flag confidence stayed high. 1m short failed acceptance_above at 22:04Z, 3m at 22:09Z. By 22:14Z SOL was 121.66 with 3m/5m UPTREND and a 15m confluence zone 121.18-121.45 overhead.",
+  "missingFeature": "No trigger-behavior state: nothing counted probes, wick-throughs, reclaims or a defended extreme, so a defended trigger read as a healthy flag. Messages used engine codes (acceptance_above) and never named the failure destination (opposite range boundary / 15m confluence).",
+  "postImageRead": "The trader read: support at 120.85-120.89 was defended by repeated wick probes; the short was counter-trend vs 4h; failure would rotate to the 15m confluence above. Replaying the 1m closes through lib/trackStory.js updateProbes finds only 1 rejected close-probe; the rest were wicks, which the compact payload does not carry.",
+  "missClass": "WICK_VS_ACCEPTANCE_ERROR",
+  "fixLocation": "lib/trackStory.js + lib/telegram.js diffTracked (prototype: plain-language tracked story, close/mark probe counting, failure zone). Engine-side wick counting (lib/patternDetector.js triggerDefense) still open.",
+  "proposedFeature": "~/Downloads/SOL_flag_engine_feedback_2026-09-25.docx items 1-8: triggerDefense telemetry (triggerTests, wickBreakCount, closeBreakCount, reclaimCount, defendedExtreme, penetrationAtr, defenseScore), failed_breakdown event, opposite-boundary scenario, stronger proof for counter-trend flags.",
+  "status": "proposed",
+  "regressionTest": [
+    { "file": "test-track-story.js", "name": "SOL 2026-09-25 replay: 1m closes 21:57–22:14Z vs trigger 120.89 closes alone catch 1 rejected probe; the other pokes were wicks (engine-side counting needed)" }
+  ],
+  "source": "~/Downloads/SOL_flag_engine_feedback_2026-09-25.docx; episode candles test/fixtures/episodes/SOL_2026-09-25_1m.json (Kraken 1m 21:30-22:30Z)"
+}

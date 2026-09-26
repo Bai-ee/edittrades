@@ -1305,7 +1305,8 @@ async function run() {
     assertEqual(importsOf('api/telegram-webhook.js').filter((i) => i.includes('execution/')).join(), EXECUTOR_IMPORT, 'webhook: one lazy executor import');
     assert(!importsOf('api/telegram-cron.js').some((i) => i.includes('execution')), 'cron never imports execution');
     assert(!readFileSync(path.join(root, 'lib/telegram.js'), 'utf8').includes('TRADE_EXECUTION_ENABLED'), 'lib/telegram.js has no execution gate');
-    assertEqual(importsOf('lib/telegram.js').length, 0, 'lib/telegram.js is import-free');
+    assertEqual(importsOf('lib/telegram.js').join(), './trackStory.js', 'lib/telegram.js imports only the pure story module');
+    assertEqual(importsOf('lib/trackStory.js').length, 0, 'lib/trackStory.js is import-free');
   });
 
   await test('nothing reachable from the Telegram functions (transitive relative imports) is an execution module', () => {
@@ -1639,7 +1640,9 @@ async function run() {
     assertEqual(`${st.tracked.length}|${st.tracked[0].lastState}|${st.tracked[0].took}`, '1|forming|false', 'tracked');
     st.prefs = { level: 'good', quiet: null }; // tracked transitions ignore the alert level
     const step = (sym, m) => { const r = diffAlerts(st, solPayload(sym), T0 + m * MIN); st = r.state; return r.alerts.filter((a) => a.kind === 'TRACK'); };
-    assertEqual(step(solSym({ state: 'forming', plan: null }), 1).length, 0, 'no change, no alert');
+    const intro = step(solSym({ state: 'forming', plan: null }), 1);
+    assert(intro.length === 1 && intro[0].text.includes('TRACK · UPDATE') && ['📍', '⏳', '🚫'].every((k) => intro[0].text.includes(k)), 'first tick: plain story update');
+    assertEqual(step(solSym({ state: 'forming', plan: null }), 1.5).length, 0, 'no change inside the min gap, no alert');
     const trig = step(solSym({ state: 'triggering', plan: null }), 2);
     assertEqual(trig.length, 1, 'triggering');
     assert(trig[0].text.startsWith('🟡 ◎ <b>SOL 3m ▼ SHORT</b> · TRACK · TRIGGERING') && allCallbackData(trig[0].replyMarkup).includes(`untrack:${SOL_REF}`), trig[0].text);
@@ -1672,7 +1675,7 @@ async function run() {
     const snap = candidateSnapshot('SOL', solSym({ state: 'forming', plan: null }), SOL_ID);
     const base = { ...emptyState(), tracked: [trackEntry(snap, T0)] };
     const v = diffAlerts(base, solPayload(solSym({ state: 'forming', plan: null, price: 117.2 })), T0 + MIN);
-    assert(v.alerts.some((a) => a.kind === 'TRACK' && a.text.startsWith('🔴 ◎ <b>SOL 3m ▼ SHORT</b> · TRACK · VOID') && a.text.includes('Closed through void 117.10')) && v.state.tracked.length === 0, 'void');
+    assert(v.alerts.some((a) => a.kind === 'TRACK' && a.text.startsWith('🔴 ◎ <b>SOL 3m ▼ SHORT</b> · TRACK · VOID') && a.text.includes('Price closed above 117.10, the line that had to hold. The short idea is dead.')) && v.state.tracked.length === 0, 'void');
     const g = diffAlerts(base, solPayload({ ...watchSym(), price: 116.7 }), T0 + MIN);
     assert(g.alerts.some((a) => a.text.includes('TRACK · GONE')) && g.state.tracked.length === 0, 'gone');
     const e = diffAlerts(base, solPayload(solSym({ state: 'forming', plan: null })), T0 + TRACK_TTL_MS);
@@ -1990,6 +1993,13 @@ async function run() {
     const c2 = await cron({ env: ENV, build: async () => xpayload() });
     const good2 = c2.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
     assert(good2 && !allCallbackData(good2.replyMarkup).some((d) => d.startsWith('open:')), 'cron GOOD without Open when disabled');
+    // A tracked flag turning ready: TRACK · GET IN NOW carries Open too (never an in-trade update).
+    const tblob = fakeBlob();
+    const tsnap = candidateSnapshot('BTC', goodRiskSym(), GOOD_ID);
+    await tblob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), tracked: [{ ...trackEntry(tsnap, T0), lastState: 'confirmed', setupSeen: true }] }), { allowOverwrite: true });
+    const c3 = await cron({ env: XENV, blob: tblob, build: async () => xpayload() });
+    const tgo = c3.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text).includes('TRACK · GET IN NOW'));
+    assert(tgo && allCallbackData(tgo.replyMarkup)[0] === `open:${GOOD_REF}`, 'tracked GET IN NOW has Open');
     assert(isOpenReady(resolveRef(GOOD_REF, xpayload(), null)) && !isOpenReady(resolveRef(GOOD_REF, xpayload('WAIT'), null)), 'isOpenReady');
     assert(ex.calls.every((c) => c[0] !== 'preflight'), 'plan cards never preflight');
   });
