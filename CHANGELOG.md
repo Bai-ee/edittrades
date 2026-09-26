@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-26 — T-10: call-frequency study on the live rules (research only, no config/lib change)
+
+Branch `frequency-study` (worktree). Owner question: live rules read ~1.3 GOOD calls/day
+(tracker), owner wants ~10/day. `scripts/replay-rules.js` gains 9 new variants (`L0`
+baseline alias of `V0`, `L1a`/`L1b` gross minRR 2.25/2.0, `L2` room-blocked treated as
+WAIT not a hard reject, `L3` readiness on breakout close (retest-hold off), `L4`
+alert/plan timeframes 1m+3m+5m, `L5`/`L6`/`L7` combos) and a new `gate: 'ruleVariant'`
+(`buildRuleVariantPlan`/`evaluateRoom`/`observeBreakoutClose`/`makeRuleVariantCollector`)
+for the two rules `setConfigOverride` cannot reach (room-block and retest-hold live
+inside `lib/flagTradePlan.js`'s private `buildPlanAttempt`) — same precedent as the
+existing `V5`/`V6` alternate-construction gates, never touching detection or `lib/`.
+`coverageStats` gains `daysWithGoodAtLeast5` (`daysWithAtLeast`, exported). Full sweep run
+on `test/fixtures/history/deep60-2026-09-24/` (85.5 days, `--step 5` — step 1 would run
+~45 min/variant, does not fit); report: `docs/FREQUENCY_STUDY_2026-09-26.md`. Headline:
+`L4` is a no-op (GOOD alerts are never `alertTimeframes`-filtered in `lib/telegram.js`);
+every variant is net-negative on this window at every cost convention tried, and mean net
+R is heavily outlier-dominated by a handful of near-zero-stop-distance BTC candidates
+concentrated in the pre-September (backfilled) portion of `deep60` — flagged for the
+owner, not fixed here. No recommendation to change rules; no config/deploy/push.
+`test-replay-rules.js` 26 → 35 (new variant + gate coverage, fixture-gated, fails not
+skips). `npm run test:rules` and `test:replay` green; `git diff --check` clean.
+
 ## 2026-09-25 — T-7: Telegram focus mode + Open from any levelled alert (presentation and routing only, nothing enabled)
 
 Code and tests only; no engine rule, threshold, cap, gate or schema change (frozen until 2026-10-08). Master prompt: pasted by the owner, "Agent G (Sonnet): focus mode + Open from any levelled alert (T-7)". Baseline: HEAD of `upgrade-signal-engine` (live perps trading built T-3 F).
