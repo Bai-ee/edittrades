@@ -102,6 +102,8 @@ Tests: `test-risk-policy.js` (pure math, all reason codes, sizing, mirrored long
 
 ## Profiles (T-9 v2, wallet strategy profiles, 2026-09-26)
 
+**30-trade Steady evaluation — STARTED 2026-09-26T22:08Z** (prod 507cace, the first deploy with profiles live). Starting equity: $523.14 on bot wallet `JEAzPi…TjwT2` (504.30 USDC margin + $18.71 SOL/BTC/ETH holdings; `ACCOUNT_BASELINE_USD=523`). Active profile: `steady` (default). Rule: judge after 30 scored trades (live-taken + as-if-taken shown separately on strategies.html); move to `aggressive` only at ≥ 40 % wins and ≥ 2.5R net; env caps size $150 / loss $5 / day $25 / 1 open / 100x bind throughout.
+
 Two wallet-management profiles (`lib/execution/riskPolicy.js` `PROFILES`), `steady` (default) and `aggressive`, defined and tracked in parallel on every call; only the ACTIVE profile ever sizes a real order.
 
 | Knob | `steady` | `aggressive` |
