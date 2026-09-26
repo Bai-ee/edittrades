@@ -78,7 +78,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Architecture map (source of the tracker's system map page `changelog.html`; `npm run test:archmap` keeps it in step with the code) | `docs/ARCHITECTURE_MAP.json`, `test-architecture-map.js`, `scripts/tracker/changelog-page.js`, `scripts/tracker/build-changelog.js` |
 | Miss log (schema + one JSON per miss) | `test/fixtures/misses/README.md` |
 
-Unreachable from `buildScalpContext()` and not to be revived without a recorded decision: `lib/signalEngine.js`, `services/strategy-refactored.js`, `lib/chartAnalysis.js`, `lib/advancedChartAnalysis.js`, `lib/levels.js`.
+Unreachable from `buildScalpContext()` and not to be revived without a recorded decision: `lib/signalEngine.js`, `lib/advancedChartAnalysis.js`, `lib/levels.js`. (`services/strategy-refactored.js` removed 2026-09-26, zero importers anywhere. `lib/chartAnalysis.js` removed from this list 2026-09-26 — it's actually reachable via `services/indicators.js`, imported by the live `lib/geometry.js`/`lib/topDown.js`.)
 
 ### Tests
 

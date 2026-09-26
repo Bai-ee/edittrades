@@ -65,13 +65,30 @@ const TG_ALWAYS = [
 // [step or command, chip, what it does] - execution (T-3), off unless TRADE_EXECUTION_ENABLED=true
 const TG_EXEC = [
   ['Dry run first', 'Default', 'Mode is DRY RUN until the mode is changed to live in Vercel (env only; /mode shows it). A dry run does everything except sign and send: same checks, same ticket, same PIN, journaled as a note. Do at least 3 dry orders before going live.'],
-  ['Open', 'Ready plans only', 'On a GOOD alert or Plan card when the call is GET IN NOW. Builds the order from the engine plan: entry, stop, TP1; size and leverage = the engine suggestion, capped by your caps.'],
-  ['Ticket', '60 s', '⚡ ORDER card: DRY RUN or LIVE banner, side, size, leverage, expected fill, SL, TP1, max loss, fees. Anything over a cap, a stop over 3%, the kill switch on or a missing cap → ⛔ ORDER REFUSED with the reasons.'],
+  ['Open @ plan', 'Ready plans only', 'On a GOOD alert or Plan card when the call is GET IN NOW. Builds the order from the engine plan: entry, stop, TP1; size and leverage = the engine suggestion, capped by your caps.'],
+  ['Open (early)', 'SETUP / BREAKOUT with levels', 'Available once a SETUP or BREAKOUT already has entry, stop and TP1 but isn\'t ready yet — same checks and ticket as Open @ plan; you\'re choosing to go in ahead of the trigger, not waiting for it.'],
+  ['Focus mode', 'auto (default) · off', 'While you have a position open, focus auto quiets every other alert down to just that symbol (health and kill-switch alerts still always send); off sends everything regardless of open positions. Toggle from the persistent menu or /alerts focus auto|off.'],
+  ['Ticket', '60 s', '⚡ ORDER card: DRY RUN or LIVE banner, side, size, leverage, expected fill, SL, TP1, max loss, fees, and a risk $X (Y% eq) · exposure line once the risk policy is on it (see /risk below). Anything over a cap, a stop over 3%, the kill switch on or a missing cap → ⛔ ORDER REFUSED with the reasons.'],
   ['Confirm + PIN', 'Every time', 'Tap Confirm, then reply /confirm <nonce> <PIN>. The bot deletes that message so the PIN does not stay in the chat. Wrong PIN 3 times → execution auto-kills for 1 hour. Cancel sends nothing.'],
   ['/order', 'Manual', '/order BTC long size 200 lev 5 sl 84390 tp 85146. SL and TP are required; the same checks and ticket apply.'],
-  ['/positions', 'Manage', 'Live positions from chain with PnL: Close, Close 50%, SL→BE, Set SL/TP (/stops <pos> sl <price> tp <price>). Each makes a ticket and needs /confirm with your PIN.'],
-  ['/kill · /arm', 'Stop switch', '/kill stops all execution at once, no PIN. /arm <PIN> clears it (an EXECUTION_KILL set in Vercel stays until removed there). /exec shows mode, kill, caps, loss today, open count and margin.'],
-  ['/risk', 'Wallet-aware sizing', 'Risk policy on top of your caps, sized against your real wallet equity: per-trade risk, exposure, drawdown, gas. Shows equity, exposure, drawdown day/week and the policy; /risk pct 0.3 (or exposure/symbolexposure/dailydd/weeklydd/gas) tightens one, /risk reset clears it. An override can only tighten a knob, never loosen past env or 2% per trade. The ticket shows the risk and a suggested size when yours is larger.']
+  ['/positions', 'Manage', 'Live positions from chain with PnL and a stops: SL ✔ TP ✔ / ⚠ none line: Close, Close 50%, SL→BE, Set SL/TP (/stops <pos> sl <price> tp <price>). Each makes a ticket and needs /confirm with your PIN.'],
+  ['Chart on entry', 'When it lands', 'A chart showing entry, stop and target the moment a plan is ready or taken is planned (T-13) but not yet merged into this build.'],
+  ['/kill · /arm', 'Stop switch', '/kill stops all execution at once, no PIN. /arm <PIN> clears a manual or wrong-PIN kill (an EXECUTION_KILL set in Vercel, or a live drawdown breach, stays until cleared at the source).'],
+  ['/exec', 'Status', 'Mode, caps, kill state, today\'s realized loss and open-position count, plus (once the risk policy is on) equity, exposure and drawdown day/week — one status line for everything execution-related.'],
+  ['/risk', 'Wallet-aware sizing', 'Risk policy on top of your caps, sized against your real wallet equity: per-trade risk, exposure, drawdown, gas. Shows equity, exposure, drawdown day/week and the policy; /risk pct 0.3 (or exposure/symbolexposure/dailydd/weeklydd/gas) tightens one, /risk reset clears it. An override can only tighten a knob, never loosen past env or 2% per trade. The ticket shows the risk and a suggested size when yours is larger. Full breakdown, worked example and current caps: Risk & sizing →.'],
+  ['Leverage cap', '2x today · 100x at the venue', 'Jupiter allows up to 100x; your env cap is far tighter while live-testing. Wider stops also leave less leverage available under the liquidation-safety math regardless of the cap — see Risk & sizing → for the exact numbers.']
+];
+
+// Per-alert verdict + context lines (schema 1.27.0, lib/telegram.js clarity fields).
+const CLARITY_VERDICTS = [
+  ['GET IN NOW', '', 'Ready. Act at the quoted levels or not at all.'],
+  ['BE READY', '', 'Close, but not ready yet — the trigger hasn\'t confirmed.'],
+  ['WAIT (eta)', '', 'Not ready, with an estimate of when that could change.'],
+  ['STAND DOWN', '', 'Nothing here is actionable right now.']
+];
+const CLARITY_CONTEXT = [
+  ['Kill if:', '', 'The one thing that would invalidate this call outright.'],
+  ['Other side:', '', 'What the mirror-direction case looks like, when there is one.']
 ];
 
 const TG_BUTTONS = [
@@ -162,7 +179,8 @@ const TRACKER_TILES = [
   ['Equity curve', 'The running total', 'Cumulative gross R of engine calls, your journal trades dashed beside it. Filters (symbol, timeframe, direction and more) narrow both.'],
   ['Wallet value', 'Your account', 'Wallet total over time with GOOD calls and your journal trades marked.'],
   ['Engine vs you', 'Did you follow it?', 'GOOD calls you took, skipped or overrode, from the journal.'],
-  ['Calls · served calls', 'What was said', 'Open calls, the 7-day call log and by-day table. "Via" and "Seen in chat" mark calls a GPT or Telegram answer actually served.']
+  ['Calls · served calls', 'What was said', 'Open calls, the 7-day call log and by-day table. "Via" and "Seen in chat" mark calls a GPT or Telegram answer actually served.'],
+  ['1-minute GOOD log', 'When it lands (T-12)', 'Planned: scoring GOOD calls straight from a 1-minute Telegram alert log, tighter than today\'s 10-minute capture cadence. Not yet merged into this build.']
 ];
 
 // ---------- journal ----------
@@ -178,8 +196,9 @@ const JOURNAL = [
 // ---------- honest limits ----------
 
 const LIMITS = [
-  'No execution. Neither the bot nor the GPT can place, sign or close an order; you place every trade.',
-  'No real position read. The engine sees wallet balances, not your open perps positions; give entry, size, leverage and liquidation when you ask about one.',
+  'GOOD calls never auto-execute. You tap Open (or Open early) and confirm with your PIN every time — nothing trades on its own.',
+  'Execution stays capped small while live-testing: $20 size, 2x leverage, $2 loss/trade, $25/day, 1 open position — raised only by owner decision, never automatically. Full breakdown: Risk & sizing →.',
+  'The engine\'s own analysis still can\'t see your open positions — give it entry, size, leverage and liquidation when you ask about one. Telegram\'s /positions is separate: a live on-chain read from the execution stack, isolated from what the GPT and MCP see.',
   'One 15-day window of data. Every rate, win percentage and expectancy on the tracker is provisional.',
   'At the old flat 0.20% cost, the 1m-5m flag styles showed negative net expectancy in replay. Fees are a real share of a tight scalp stop.',
   '1 GOOD per hour was about 10× the rate observed under the 3R rule. The 2.5R floor raises volume; it does not make that target realistic on its own.'
@@ -204,7 +223,7 @@ export function renderHowTo() {
       ['#howto-what-section', 'What'], ['#howto-routine-section', 'Routine'], ['#howto-telegram-section', 'Telegram'],
       ['#howto-chatgpt-section', 'ChatGPT'], ['#howto-rules-section', 'Rules'], ['#howto-tracker-section', 'Tracker'],
       ['#howto-journal-section', 'Journal'], ['#howto-limits-section', 'Limits'],
-      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
+      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="howto-nav-risk-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
     ]);
 
   const what = zone({
@@ -213,7 +232,7 @@ export function renderHowTo() {
       tile({
         id: 'howto-what-tile', lg: 8,
         body: `<h1 id="howto-intro-title">The engine calls. You decide.</h1>`
-          + `<p class="howto-lede" id="howto-what-text">EditTrades reads closed candles for BTC, ETH and SOL and turns them into one call per symbol: GOOD, WATCH, BAD or DATA_UNAVAILABLE, plus a SETUP line when a conditional plan is waiting for its trigger. The engine owns every level: entry, stop, TP1 and R:R. You get the calls on your phone from the Telegram bot and in ChatGPT from the EditTrades Custom GPT; the tracker records them every 10 minutes and scores each one on the candles that follow. Nothing here places a trade.</p>`
+          + `<p class="howto-lede" id="howto-what-text">EditTrades reads closed candles for BTC, ETH and SOL and turns them into one call per symbol: GOOD, WATCH, BAD or DATA_UNAVAILABLE, plus a SETUP line when a conditional plan is waiting for its trigger. The engine owns every level: entry, stop, TP1 and R:R. You get the calls on your phone from the Telegram bot and in ChatGPT from the EditTrades Custom GPT; the tracker records them every 10 minutes and scores each one on the candles that follow. Telegram can place a trade from a call, but only when you tap Open and confirm with your PIN — the GPT and MCP still never execute anything.</p>`
       }),
       tile({
         id: 'howto-quickstart-tile', title: 'Quick start', lg: 4,
@@ -244,6 +263,11 @@ export function renderHowTo() {
       tile({
         id: 'howto-telegram-commands-tile', title: 'Commands', lg: 7,
         body: `<dl class="def-list" id="howto-telegram-commands-list">${TG_COMMANDS.map(([cmd, text]) => `<div class="def-row"><dt><span class="cmd-inline" data-tg-command="${esc(cmd)}">${esc(cmd)}</span></dt><dd>${esc(text)}</dd></div>`).join('')}</dl>`
+      }),
+      tile({
+        id: 'howto-telegram-clarity-tile', title: 'Reading the verdict line', tag: 'Every alert', lg: 12,
+        body: defList('howto-telegram-clarity-verdicts-list', CLARITY_VERDICTS) + defList('howto-telegram-clarity-context-list', CLARITY_CONTEXT),
+        foot: 'Kill if and Other side appear per alert when the engine has them; not every call carries both.'
       }),
       tile({
         id: 'howto-telegram-levels-tile', title: 'Alert levels', tag: '/alerts good|setup|watch', lg: 6,
@@ -319,7 +343,7 @@ export function renderHowTo() {
     ]
   });
 
-  const bottomStrip = `<footer class="edge-strip" id="howto-bottom-edge-strip"><span id="howto-footer-note">NOT FINANCIAL ADVICE · THE ENGINE NEVER EXECUTES TRADES · YOU PLACE EVERY ORDER</span></footer>`;
+  const bottomStrip = `<footer class="edge-strip" id="howto-bottom-edge-strip"><span id="howto-footer-note">NOT FINANCIAL ADVICE · NOTHING EXECUTES WITHOUT YOUR PIN · YOU CONFIRM EVERY ORDER</span></footer>`;
 
   return `<!doctype html>
 <html lang="en">
