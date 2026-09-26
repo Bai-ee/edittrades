@@ -261,6 +261,37 @@ async function main() {
     eq(Object.keys(built.meta.triggers).length, 0, 'no triggers');
   });
 
+  await test('buildOpenPosition: collateral sized in the collateral token (SOL 9 dp at referencePrice, BTC 8 dp, USDC 6 dp) and native SOL is wrapped (transfer + syncNative) before the request', async () => {
+    const rpc = fakeRpc();
+    const SYSTEM = '11111111111111111111111111111111';
+    const isTransfer = (ix) => String(ix.programAddress) === SYSTEM && ix.data && ix.data.length === 12 && ix.data[0] === 2;
+    const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const isSyncNative = (ix) => String(ix.programAddress) === TOKEN_PROGRAM && ix.data && ix.data.length === 1 && ix.data[0] === 17;
+    // SOL long, $20 at 2x = $10 margin at $150 -> 0.0666... SOL = 66,666,667 lamports (ceil), wrapped.
+    const sol = await buildOpenPosition({ market: 'SOLUSDT', referencePrice: REF.SOLUSDT, direction: 'long', sizeUsd: 20, leverage: 2, owner: OWNER, connection: rpc });
+    eq(sol.meta.collateralDecimals, 9, 'SOL collateral decimals');
+    eq(sol.meta.collateralTokenDelta, 66_666_667n, 'SOL collateral = margin / price at 9 dp (was USD-6 before 2026-09-26)');
+    eq(sol.meta.wrapsSol, true, 'native SOL collateral is wrapped');
+    const ixs = sol.transaction.instructions;
+    const t = ixs.findIndex(isTransfer);
+    const s = ixs.findIndex(isSyncNative);
+    const inc = ixs.findIndex((ix) => hasDiscriminator(ix, CREATE_INCREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR));
+    assert(t >= 0 && s === t + 1 && s < inc, `transfer then syncNative before the increase request (t=${t}, s=${s}, inc=${inc})`);
+    const lamports = Buffer.from(ixs[t].data.slice(4, 12)).readBigUInt64LE();
+    eq(lamports, 66_666_667n, 'transfer moves exactly collateralTokenDelta lamports');
+    // BTC long: 8 dp, no wrap.
+    const btc = await buildOpenPosition({ market: 'BTCUSDT', referencePrice: REF.BTCUSDT, direction: 'long', sizeUsd: 848, leverage: 2, owner: OWNER, connection: rpc });
+    eq(btc.meta.collateralDecimals, 8, 'BTC collateral decimals');
+    eq(btc.meta.collateralTokenDelta, 500_000n, 'BTC collateral = $424 / $84,800 = 0.005 BTC at 8 dp');
+    eq(btc.meta.wrapsSol, false, 'no wrap for BTC');
+    assert(!btc.transaction.instructions.some(isSyncNative), 'no syncNative for BTC');
+    // Short: USDC (stable, 6 dp) = margin USD at 6 dp.
+    const short = await buildOpenPosition({ market: 'SOLUSDT', referencePrice: REF.SOLUSDT, direction: 'short', sizeUsd: 20, leverage: 2, owner: OWNER, connection: rpc });
+    eq(short.meta.collateralDecimals, 6, 'USDC decimals');
+    eq(short.meta.collateralTokenDelta, 10_000_000n, 'short collateral = $10 USDC at 6 dp');
+    eq(short.meta.wrapsSol, false, 'no wrap for USDC');
+  });
+
   await test('buildOpenPosition: no ATA-create instruction when the account already exists', async () => {
     // Pre-populate the funding ATA so ensureAtaInstruction sees it as existing.
     const collateralMint = new PublicKey(PERP_MINTS.BTC);

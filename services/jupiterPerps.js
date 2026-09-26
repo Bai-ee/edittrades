@@ -41,6 +41,8 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction,
+  createSyncNativeInstruction,
+  NATIVE_MINT,
 } from '@solana/spl-token';
 import { randomInt } from 'crypto';
 import nacl from 'tweetnacl';
@@ -100,6 +102,13 @@ const rpc = createSolanaRpc(
 );
 
 const USD_DECIMALS = 1_000_000;
+/** JSON for error text; @solana/kit RPC results carry BigInt (JSON.stringify would throw). */
+export const safeJson = (v) => JSON.stringify(v, (k, x) => (typeof x === 'bigint' ? x.toString() : x));
+/** Simulation failure -> one Error whose message carries the program error and the last logs. */
+export function simulationError(prefix, sim) {
+  const tail = sim && Array.isArray(sim.logs) && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
+  return new Error(`${prefix}: ${safeJson(sim && sim.err)}${tail}`);
+}
 const TRADED = Object.freeze(['BTC', 'ETH', 'SOL']);
 const isPosNum = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const n6 = (v) => Number(v) / USD_DECIMALS;
@@ -641,7 +650,7 @@ export async function sendSigned(transactionMessage, signer, connection, opts = 
   }
   const landed = await landTransaction(signedTransaction, rpcClient, opts);
   if (landed.status !== 'confirmed') {
-    const err = new Error(`Transaction ${landed.status}${landed.err ? `: ${JSON.stringify(landed.err)}` : ''} (signature ${landed.signature})`);
+    const err = new Error(`Transaction ${landed.status}${landed.err ? `: ${safeJson(landed.err)}` : ''} (signature ${landed.signature})`);
     err.landResult = landed;
     throw err;
   }
@@ -723,10 +732,17 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
   const fundingAccount = getAssociatedTokenAddressSync(collateralMint, ownerPubkey, false);
   const positionRequestAta = getAssociatedTokenAddressSync(collateralMint, positionRequestPDA, true);
 
-  // TODO(T-3 E follow-up, owner 2026-09-25): long collateral is the asset token, but collateralTokenDelta below is sized in USD-6, not the asset's decimals/price; fix in a later phase.
+  // Collateral is transferred in the COLLATERAL TOKEN's own units: a stable collateral
+  // (USDC/USDT, shorts) is USD at its decimals; a long posts the traded asset itself
+  // (SOL 9 dp, BTC/ETH 8 dp), so margin USD is converted at referencePrice. (Before
+  // 2026-09-26 this was always USD-6: a $10 SOL margin became 0.01 SOL and the wallet's
+  // wSOL account was never funded -> "insufficient funds" in simulation.)
   const marginRequired = sizeUsd / leverage;
   const sizeUsdDelta = BigInt(Math.floor(sizeUsd * USD_DECIMALS));
-  const collateralTokenDelta = BigInt(Math.floor(marginRequired * USD_DECIMALS));
+  const collateralDecimals = Number(collateralCustody.data.decimals);
+  const collateralIsStable = Boolean(collateralCustody.data.isStable);
+  const collateralTokens = collateralIsStable ? marginRequired : marginRequired / referencePrice;
+  const collateralTokenDelta = BigInt(Math.ceil(collateralTokens * 10 ** collateralDecimals));
 
   const increaseIx = getCreateIncreasePositionMarketRequestInstruction({
     owner: ownerPubkey.toBase58(),
@@ -758,6 +774,14 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
   const preInstructions = [];
   const fundingAtaIx = await ensureAtaInstruction(rpcClient, { payer: ownerPubkey, ata: fundingAccount, owner: ownerPubkey, mint: collateralMint });
   if (fundingAtaIx) preInstructions.push(fundingAtaIx);
+  // Native SOL collateral: the program pulls from the owner's wrapped-SOL token account, so
+  // move exactly collateralTokenDelta lamports there and sync it first (what the Jupiter UI
+  // does). Any wSOL left over from an earlier open stays wrapped in that account.
+  const wrapsSol = collateralMint.equals(NATIVE_MINT);
+  if (wrapsSol) {
+    preInstructions.push(toKitInstruction(SystemProgram.transfer({ fromPubkey: ownerPubkey, toPubkey: fundingAccount, lamports: collateralTokenDelta })));
+    preInstructions.push(toKitInstruction(createSyncNativeInstruction(fundingAccount, TOKEN_PROGRAM_ID)));
+  }
 
   // Custody's dedicated Doves oracle account vs. its primary oracle account (typically the
   // Pythnet feed). jup-perps-client's Custody decoder exposes both separately (dovesOracle,
@@ -825,6 +849,11 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
       counter: increaseCounter,
       side,
       triggers,
+      marginRequiredUsd: marginRequired,
+      collateralMint: collateralMint.toBase58(),
+      collateralDecimals,
+      collateralTokenDelta,
+      wrapsSol,
     },
     simulate: makeSimulate(transactionMessage),
     send: (signer, conn) => sendSigned(transactionMessage, signer, conn || rpcClient),
@@ -1228,8 +1257,7 @@ export async function openPerpPosition(market, direction, size, leverage = 1, st
   const built = await buildOpenPosition({ market, direction, sizeUsd: size, leverage, stopLoss, takeProfit, owner, referencePrice: opts.referencePrice, maxSlippageBps: opts.maxSlippageBps, connection: rpcClient });
   const sim = await built.simulate(rpcClient);
   if (sim.err) {
-    const tail = sim.logs && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
-    throw new Error(`Transaction simulation failed: ${JSON.stringify(sim.err)}${tail}`);
+    throw simulationError('Transaction simulation failed', sim);
   }
   const signer = opts.signer || createKitSigner(wallet);
   const result = await built.send(signer, rpcClient);
@@ -1278,8 +1306,7 @@ export async function closePerpPosition(positionId, size = null, opts = {}) {
   });
   const sim = await built.simulate(rpcClient);
   if (sim.err) {
-    const tail = sim.logs && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
-    throw new Error(`Transaction simulation failed: ${JSON.stringify(sim.err)}${tail}`);
+    throw simulationError('Transaction simulation failed', sim);
   }
   const signer = opts.signer || createKitSigner(wallet);
   const result = await built.send(signer, rpcClient);
@@ -1314,8 +1341,7 @@ export async function updatePerpPosition(positionId, stopLoss = null, takeProfit
   });
   const sim = await built.simulate(rpcClient);
   if (sim.err) {
-    const tail = sim.logs && sim.logs.length ? ` | ${sim.logs.slice(-5).join(' | ')}` : '';
-    throw new Error(`Transaction simulation failed: ${JSON.stringify(sim.err)}${tail}`);
+    throw simulationError('Transaction simulation failed', sim);
   }
   const signer = opts.signer || createKitSigner(wallet);
   const result = await built.send(signer, rpcClient);
