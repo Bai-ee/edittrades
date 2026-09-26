@@ -47,6 +47,7 @@ import {
 import { PAGE_CSS } from './page-style.js';
 import { tile, zone, sub, jumpNav } from './bento.js';
 import { renderHowTo } from './how-to-page.js';
+import { renderRisk } from './risk-page.js';
 
 export const PROVISIONAL = 'provisional; not evidence of an edge';
 export const EDGE_NOTE = "Not evidence of an edge. Scores the engine's calls against later closed candles.";
@@ -668,7 +669,7 @@ export function renderHtml(agg, data = {}) {
     + jumpNav('tracker-jump-nav', [
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
       ['#zone-calls', 'Calls'], ['#zone-alerts', 'Alerts'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
-      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"']
+      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="tracker-risk-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"']
     ]);
 
   // Primary: hero. Net (fees + slippage, costs.js) shown beside gross (T5 S1).
@@ -974,6 +975,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const htmlFile = path.join(outDir, 'index.html');
   const mdFile = path.join(outDir, 'report.md');
   const howToFile = path.join(outDir, 'how-to.html');
+  const riskFile = path.join(outDir, 'risk.html');
   writeFileSync(htmlFile, renderHtml(agg, {
     outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir),
     journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir)),
@@ -984,7 +986,8 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   }));
   writeFileSync(mdFile, renderReport(agg));
   writeFileSync(howToFile, renderHowTo());
-  return { agg, htmlFile, mdFile, howToFile };
+  writeFileSync(riskFile, renderRisk());
+  return { agg, htmlFile, mdFile, howToFile, riskFile };
 }
 
 function main() {

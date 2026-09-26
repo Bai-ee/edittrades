@@ -738,6 +738,31 @@ async function run() {
     assert(howTo.includes('prefers-color-scheme: dark') && howTo.includes('prefers-color-scheme: light'), 'both schemes');
   });
 
+  await test('page: risk page is written beside index, linked from index and how-to, static, no secrets', () => {
+    const dir = tmp();
+    const { htmlFile, howToFile, riskFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
+    const index = readFileSync(htmlFile, 'utf8');
+    const howTo = readFileSync(howToFile, 'utf8');
+    const risk = readFileSync(riskFile, 'utf8');
+    assert(/<a href="risk.html"[^>]*id="tracker-risk-link"/.test(index), 'index links to risk');
+    assert(/<a href="risk.html"[^>]*id="howto-nav-risk-link"/.test(howTo), 'how-to links to risk');
+    assert(risk.includes('href="index.html"') && risk.includes('href="how-to.html"'), 'risk links back to both');
+    for (const id of ['risk-intro-section', 'risk-layers-section', 'risk-example-section', 'risk-net-r-section', 'risk-steps-section', 'risk-growing-section', 'risk-tracker-section',
+      'risk-layer-venue-tile', 'risk-layer-env-tile', 'risk-layer-wallet-tile', 'risk-sizing-table', 'risk-net-floor-tile', 'risk-steps-list']) {
+      assert(risk.includes(`id="${id}"`), `missing #${id}`);
+      if (id.endsWith('-section')) assert(risk.includes(`href="#${id}"`), `jump nav to #${id}`);
+    }
+    // Every cap/default cited must match its live source (lib/execution/gates.js CAP_ENV,
+    // lib/execution/riskPolicy.js RISK_DEFAULTS, config/engine.json risk, docs/AGENT_SESSION_RULES.md).
+    for (const fact of ['100x', '0.34%', '0.14%', '$20', '2x', '$2', '$25', 'RISK_PCT_PER_TRADE', '0.5%', '25%', '15%', '3%', '8%', '0.05 SOL',
+      '+0.47R gross', '-2.37R net', '0.02–0.07%', 'JEAzPi']) {
+      assert(risk.includes(esc(fact)), `risk states: ${fact}`);
+    }
+    assert(!/<script/i.test(risk), 'no scripts');
+    assert(!/SCALP_CONTEXT_API_KEY|Bearer|SOLANA_PRIVATE_KEY|EXECUTION_PIN=|RPC_URL/i.test(risk), 'no secrets or key material');
+    assert(risk.includes('prefers-color-scheme: dark') && risk.includes('prefers-color-scheme: light'), 'both schemes');
+  });
+
   await test('page: index states current rules, frozen-until date, Telegram alerts line; no stale net-gate copy', () => {
     const dir = tmp();
     const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
