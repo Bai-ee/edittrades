@@ -92,6 +92,7 @@ const CLARITY_VERDICTS = [
 const CLARITY_CONTEXT = [
   ['Kill if:', '', 'The one thing that would invalidate this call outright.'],
   ['Other side:', '', 'What the mirror-direction case looks like, when there is one.']
+];
 
 const TG_BUTTONS = [
   ['Plan', 'Levels + size', 'Entry, stop, TP1 / TP2, R gross and net, max and suggested leverage, collateral, size, loss at stop, mark vs Kraken, expected length (n/a unless measured) and the call. Engine fields only.'],

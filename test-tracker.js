@@ -56,7 +56,7 @@ import { ENGINE_CONFIG } from './config/engine.js';
 import { writeFileSync } from 'node:fs';
 import { esc } from './scripts/tracker/bento.js';
 import { computeProfileCurves, computeProfileCurvesDataDir, BOT_WALLET_START_EQUITY_USD } from './scripts/tracker/profiles.js';
-import { renderRisk } from './scripts/tracker/risk-page.js';
+import { renderStrategies } from './scripts/tracker/strategies-page.js';
 import {
   renderChangelogPage, parseChangelog, renderMarkdown, renderInline, isNew, groupFields,
   NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS, NO_BOARD, BOARD_BREAKPOINT, boardModel, layoutBoard
@@ -1150,7 +1150,7 @@ async function run() {
     assert(html.includes('id="journal-log-table"'), 'journal log on the built page');
   });
 
-  console.log('\nT-9 v2 P5: wallet strategy profile curves + risk.html');
+  console.log('\nT-9 v2 P5: wallet strategy profile curves + strategies.html');
 
   const isoAt = (mins) => new Date(T0 + mins * MIN).toISOString();
 
@@ -1218,16 +1218,16 @@ async function run() {
     assertEqual(out.real.points[1].equityUsd, BOT_WALLET_START_EQUITY_USD + 10);
   });
 
-  await test('renderRisk: no data -> zero-state text, not a crash; the profile table, live badge and evaluation rule always render', () => {
-    const empty = renderRisk(null, null);
-    assert(empty.includes('<!doctype html>') && empty.includes('id="risk-page-title"'), 'page shell');
-    assert(empty.includes('id="risk-profile-table"') && empty.includes('>Steady<') && empty.includes('>Aggressive<'), 'profile table');
-    assert(empty.includes('risk-curve-empty'), 'zero-state chart text');
-    assert(empty.includes('id="risk-live-profile-name">Steady<'), 'defaults to steady with no liveProfileKey');
-    assert(empty.includes('id="risk-evaluation-text"') && empty.includes('40% wins'), 'evaluation rule');
+  await test('renderStrategies: no data -> zero-state text, not a crash; the profile table, live badge and evaluation rule always render', () => {
+    const empty = renderStrategies(null, null);
+    assert(empty.includes('<!doctype html>') && empty.includes('id="strategies-page-title"'), 'page shell');
+    assert(empty.includes('id="strategies-profile-table"') && empty.includes('>Steady<') && empty.includes('>Aggressive<'), 'profile table');
+    assert(empty.includes('strategies-curve-empty'), 'zero-state chart text');
+    assert(empty.includes('id="strategies-live-profile-name">Steady<'), 'defaults to steady with no liveProfileKey');
+    assert(empty.includes('id="strategies-evaluation-text"') && empty.includes('40% wins'), 'evaluation rule');
   });
 
-  await test('renderRisk: with curve data, shows the live profile, curve legend and trade counts', () => {
+  await test('renderStrategies: with curve data, shows the live profile, curve legend and trade counts', () => {
     const data = computeProfileCurves({
       journalRecords: [
         { id: 'o1', kind: 'open', source: 'execution', symbol: 'BTC', receivedAt: isoAt(0), execRef: { profiles: { steady: { tier: 'B', riskUsd: 5, ok: true, reasons: [] }, aggressive: { tier: 'B', riskUsd: 10, ok: true, reasons: [] } } } },
@@ -1236,13 +1236,13 @@ async function run() {
       journalOutcomes: [{ journalId: 'o1', outcome: 'closed', r: 2, calledAt: isoAt(0) }],
       callOutcomes: []
     });
-    const html = renderRisk(data, 'aggressive');
-    assert(html.includes('id="risk-live-profile-name">Aggressive<'), 'live badge shows the active profile');
-    assert(html.includes('risk-curve-legend') && !html.includes('risk-curve-empty'), 'chart rendered, not the zero state');
+    const html = renderStrategies(data, 'aggressive');
+    assert(html.includes('id="strategies-live-profile-name">Aggressive<'), 'live badge shows the active profile');
+    assert(html.includes('strategies-curve-legend') && !html.includes('strategies-curve-empty'), 'chart rendered, not the zero state');
     assert(html.includes('1 / 30'), 'trade count toward the 30-trade evaluation');
   });
 
-  await test('buildPage writes risk.html alongside index.html and how-to.html, linked from all three', () => {
+  await test('buildPage writes strategies.html alongside index.html, risk.html and how-to.html, linked from all three', () => {
     const dir = tmp();
     appendJournal(dir, [
       { id: 'o1', schemaVersion: 'journal-1', receivedAt: isoAt(0), kind: 'open', symbol: 'BTC', source: 'execution', execRef: { profiles: { steady: { tier: 'B', riskUsd: 5, ok: true, reasons: [] }, aggressive: { tier: 'B', riskUsd: 10, ok: true, reasons: [] } } } },
@@ -1251,15 +1251,15 @@ async function run() {
     writeJsonl(journalOutcomesFile(dir), [{ journalId: 'o1', outcome: 'closed', r: 2, calledAt: isoAt(0) }]);
     writeJson(telegramStatusFile(dir), { cronLastRunAt: null, alertsDay: null, alertsToday: 0, lastAlert: null, riskProfile: 'aggressive' });
     const out = path.join(dir, 'site');
-    const { riskFile } = buildPage(dir, out, T0 + 3 * 60 * MIN);
-    assertEqual(riskFile, path.join(out, 'risk.html'), 'buildPage reports the risk file path');
-    const risk = readFileSync(riskFile, 'utf8');
-    assert(risk.includes('id="risk-live-profile-name">Aggressive<'), 'telegram-status riskProfile flows through to risk.html');
+    const { strategiesFile } = buildPage(dir, out, T0 + 3 * 60 * MIN);
+    assertEqual(strategiesFile, path.join(out, 'strategies.html'), 'buildPage reports the strategies file path');
+    const strategies = readFileSync(strategiesFile, 'utf8');
+    assert(strategies.includes('id="strategies-live-profile-name">Aggressive<'), 'telegram-status riskProfile flows through to strategies.html');
     const index = readFileSync(path.join(out, 'index.html'), 'utf8');
-    assert(index.includes('id="wallet-strategies-tile"') && index.includes('href="risk.html"'), 'index.html teaser + link');
+    assert(index.includes('id="wallet-strategies-tile"') && index.includes('href="strategies.html"'), 'index.html teaser + link');
     assert(index.includes('id="wallet-strategies-live-name">Aggressive<'), 'index teaser also reflects the live profile');
     const howTo = readFileSync(path.join(out, 'how-to.html'), 'utf8');
-    assert(howTo.includes('href="risk.html"') && howTo.includes('/risk profile'), 'how-to.html links to risk.html and documents the switch');
+    assert(howTo.includes('href="strategies.html"') && howTo.includes('/risk profile'), 'how-to.html links to strategies.html and documents the switch');
   });
 
   // ------------------------------------------------ rec calls scored on candidate levels
