@@ -99,3 +99,36 @@ A wallet-relative layer on top of the env caps above (`EXECUTION_MAX_*` stay har
 **Telegram**: the order ticket gets a `risk $X (Y% eq) · exposure B% → A%` line and, when the intent's own size exceeds the suggestion, a `suggested $X` note (Open uses the suggestion unless the owner typed an explicit `size` in `/order`). `/exec` adds equity, exposure, drawdown day/week and a policy summary line. New `/risk` shows the effective policy (env default vs. owner override) and the same live snapshot; `/risk pct|exposure|symbolexposure|dailydd|weeklydd|gas VALUE` sets one override, `/risk reset` clears all. Refusal cards render every reason code (existing ones plus the risk-policy ones) as plain words, unchanged mechanism.
 
 Tests: `test-risk-policy.js` (pure math, all reason codes, sizing, mirrored long/short, prefs bounds), `test-execution.js` (equity source, 60 s cache, drawdown kill + arm, order/audit risk fields), `test-telegram.js` (ticket/exec/risk rendering, `/risk` end to end, prefs survive `/alerts`).
+
+## Profiles (T-9 v2, wallet strategy profiles, 2026-09-26)
+
+Two wallet-management profiles (`lib/execution/riskPolicy.js` `PROFILES`), `steady` (default) and `aggressive`, defined and tracked in parallel on every call; only the ACTIVE profile ever sizes a real order.
+
+| Knob | `steady` | `aggressive` |
+| --- | --- | --- |
+| Risk per trade (default) | 1% | 2.5% |
+| Risk per trade (owner override ceiling) | 2% | 3% |
+| Max exposure (all open) | 25% | 50% |
+| Max exposure (one symbol) | 15% | 30% |
+| Daily drawdown → kill | 3% | 6% |
+| Weekly drawdown → kill | 8% | 15% |
+| Min stop, long / short (fee floor) | 1.5% / 1.0% | 1.0% / 0.7% |
+| Tier multiplier A / B / C | 1.5x / 1x / 0.5x | 2x / 1x / 0.5x |
+| Boost cap (one-time, next tier) | 1.5x | 2x |
+| Leverage, non-A tiers | half the stop-allowed max | the full stop-allowed max |
+| Goal (descriptive, never gates a trade) | +2%/10 trades, +5–10%/mo | +25%/10 trades (owner target, expected to fail on a 30%/3R edge — tracked to test it) |
+| Judged after | 30 scored trades | 30 scored trades |
+
+**Tier** (`lib/tier.js` `classifyTier`, pure, off a flagRecommendation record's own fields, never re-scored): `readiness==='ready'` + `qualityBand==='high'` + `clarity.gate.passable` + (T-13 net-floor `setup.shadowNF.ready` when that field is present) = **A**; `readiness==='ready'` otherwise = **B**; everything else, including a manual `/order` (no record at all) = **C**. A tier scales that profile's `pctPerTrade` budget by its multiplier (`tieredPolicyConfig`) and, for `leverageRule: 'half'`, halves `suggestedLeverage` for non-A tiers (`applyLeverageRule`).
+
+**Switch** (`state.prefs.risk.profile`, default `steady` when absent — never written until the owner switches): `/risk profile steady|aggressive` prompts `Reply /risk profile aggressive PIN within 60 s`; `/risk profile aggressive PIN` (or the same text typed directly) executes it. Owner + PIN, same auto-kill guard as `/arm` (`lib/execution/executor.js` `switchProfile`) — refuses without ever evaluating the PIN while an auto-kill is active. `/risk` also carries `[Steady ✔] [Aggressive]` inline buttons (`riskProfileKeyboard`) that trigger the same prompt. `/risk pct` overrides `pctPerTrade` bounded by the ACTIVE profile's own ceiling (2%/3% above), every other knob stays tighten-only against that profile's default; `/risk reset` clears numeric overrides only — the active profile itself is untouched ("returns to the profile", not to steady).
+
+**Parallel tracking** (P3): every `preflight`/`createTicket` call evaluates the SAME intent against BOTH profiles (`evaluateAllProfiles`), stamping `order.profile` / `order.tier` / `order.profiles` (`{steady, aggressive}`, each `{tier, riskUsd, sizeUsd, leverage, ok, reasons}`) on the order, the audit `preflight`/`ticket`/`fill` lines, and the journal open record's `execRef.profiles` (`lib/journalSchema.js`, sanitized, additive). Informational only — it never gates the order; only the ACTIVE profile's own `evaluateRiskPolicy` call does that.
+
+**Boost** (P4, `lib/execution/executor.js` `boostTicket`): single-use, replaces an open ticket with one sized at the next tier's multiplier — scaling the ORIGINAL requested size by (next tier's multiplier ÷ this ticket's own tier multiplier), never the wallet-based `suggestedSizeUsd` (which is sized off the stop distance alone and routinely runs to several multiples of equity on a tight stop — appropriate as a ceiling note, not a size to boost toward, since it would blow through `maxExposurePct` on most calls). The boosted ticket runs the full preflight gate again; a refusal (drawdown, exposure, equity-unavailable, already at tier A, or a close/update ticket) leaves the original ticket untouched — only a gate-passing boost consumes it. A ⚡ Boost button rides the ticket card (`ticketKeyboard(nonce, {boost: true})`) whenever the order is not already tier A.
+
+**Goal** (P4, `/risk goal EQUITY_USD by DATE` / `/risk goal off`): a straight-line pace check, descriptive only — `startEquityUsd`/`startAt` are stamped from a fresh equity read the moment the goal is set (`lib/telegram.js` `normalizeRiskGoal`), and `goalAheadFraction` (`lib/execution/riskPolicy.js`) compares current equity's fraction of the target against elapsed time's fraction of the deadline. At **≥25% ahead** of pace, `applyGoalPaceTightening` scales BOTH drawdown caps by `(1 - aheadFraction)` for that profile — tightened, never loosened (behind pace changes nothing).
+
+**Website** (`scripts/tracker/risk-page.js`, `scripts/tracker/profiles.js`): `risk.html` — the profile table above, which profile is live (`data/telegram-status.json` `riskProfile`, an owner-facing preference added to the `telegramStatusFromState` whitelist), an equity-curve chart (the real wallet, reconstructed from execution journal closes' `resultUsd` starting at the documented `BOT_WALLET_START_EQUITY_USD`, overlaid with both profiles' VIRTUAL live curves sized off `execRef.profiles[profile].riskUsd`), trades toward each profile's 30-trade evaluation (live-taken vs. as-if-taken on every scored GOOD call, counted separately), and the evaluation rule (≥40% wins and ≥2.5R net to move up). A teaser tile on `index.html` links to it. As-if sizing uses tier B (multiplier 1) as a documented simplification — the qualityBand/clarity.gate fields a real A/B/C read needs are not carried through the scored-call row shape.
+
+Tests: `test-risk-policy.js` (profile math, tier scaling, leverage rule, boost multiplier, goal pace — additive, all pre-T-9 assertions unchanged), `test-execution.js` (profile/tier/profiles stamped on the order/audit/journal, `switchProfile`, `boostTicket`), `test-telegram.js` (parsing, formatting, keyboards, callback data), `test-tracker.js` (`computeProfileCurves`, `renderRisk`, `buildPage` risk.html + teaser).
