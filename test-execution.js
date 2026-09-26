@@ -570,17 +570,20 @@ async function run() {
     has((await forced.ex.updateStops('PosAAA', 84600, null, PIN, ctx)).reasons, 'update_failed', 'placeholder update rejected');
     eq(forced.journal.length, 0, 'nothing journaled');
   });
-  await test('T-3 F live close / update: verify after send -- a close/update that lands but does not reflect on chain is rejected before journaling', async () => {
+  await test('T-3 F live close / update: verify after send -- a close/update that lands but does not reflect on chain is rejected before journaling; live close passes a USD referencePrice', async () => {
+    let closeOpts = null;
     const noVerifyClose = setup({
       env: baseEnv({ EXECUTION_MODE: 'live' }),
       // closePerpPosition returns a real signature but (unlike the default fake) does NOT
       // remove/shrink the position -- simulating a send that landed without taking effect.
-      jupiter: fakeJupiter({ closePerpPosition: async () => ({ success: true, signature: '3xRealButNoEffect' + 'a'.repeat(63) }) })
+      jupiter: fakeJupiter({ closePerpPosition: async (positionId, sizeUsd, opts) => { closeOpts = opts; return { success: true, signature: '3xRealButNoEffect' + 'a'.repeat(63) }; } })
     });
     noVerifyClose.jupiter.positions = [openPos];
     const c = await noVerifyClose.ex.closePosition('PosAAA', null, PIN, ctx);
     has(c.reasons, 'close_failed', 'close rejected when it does not verify on chain');
     eq(noVerifyClose.journal.length, 0, 'nothing journaled');
+    // 2026-09-26 live: the wrapper threw "referencePrice (USD) is required" on Close 50 %.
+    assert(closeOpts && closeOpts.referencePrice > 0, `live close passes referencePrice (got ${JSON.stringify(closeOpts)})`);
 
     const updateJupiter = fakeJupiter();
     updateJupiter.updatePerpPosition = async (positionId) => {
