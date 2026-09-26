@@ -44,6 +44,7 @@
     "tracker:calibration": "node scripts/tracker/calibration.js",
     "tracker:shadow": "node scripts/tracker/shadow.js",
     "tracker:vb-shadow": "node scripts/tracker/vb-shadow.js",
+    "tracker:nf-shadow": "node scripts/tracker/nf-shadow.js",
     "tracker:page": "node scripts/tracker/build-page.js",
     "tracker:sync": "node scripts/tracker/sync.js",
     "tracker:changelog": "node scripts/tracker/build-changelog.js",
