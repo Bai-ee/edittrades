@@ -44,7 +44,7 @@ jobs:
           node scripts/paths.js --data data
           node scripts/calibration.js --data data
           node scripts/shadow.js --data data
-          node scripts/vb-shadow.js --data data
+          node scripts/v3-shadow.js --data data
           node scripts/aggregate.js --data data
           node scripts/build-page.js --data data --out docs
           node scripts/build-changelog.js --data data --out docs
