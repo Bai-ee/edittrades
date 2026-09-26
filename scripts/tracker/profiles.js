@@ -25,7 +25,7 @@
  * `resultUsd`, cumulative — an approximation from already-synced data, not a live
  * `walletEquitySnapshot` read (the tracker has no such live path).
  */
-import { PROFILES, PROFILE_KEYS, tieredPolicyConfig } from '../../lib/execution/riskPolicy.js';
+import { PROFILES, PROFILE_KEYS, tieredPolicyConfig } from './profileConfig.js';
 
 export const BOT_WALLET_START_EQUITY_USD = 520;
 const ASIF_TIER = 'B'; // documented simplification, see module header

@@ -1199,6 +1199,20 @@
           "schemaSince": "1.27.0"
         },
         {
+          "path": "scripts/tracker/profileConfig.js",
+          "name": "profileConfig",
+          "role": "Vendored, dependency-free copy of PROFILES/PROFILE_KEYS/tieredPolicyConfig from lib/execution/riskPolicy.js, so the tracker repo runs profiles.js/strategies-page.js with no engine checkout (same pattern as walk-outcome.js and nf-shadow.js NF_RULE).",
+          "publishes": [
+            "profile config"
+          ],
+          "consumes": [],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-26",
+          "schemaSince": "1.27.0"
+        },
+        {
           "path": "scripts/tracker/profiles.js",
           "name": "profiles",
           "role": "Reconstructs the real bot-wallet equity curve and both wallet-strategy profiles' virtual live/as-if curves from journal and scored-call data (strategies.html).",
@@ -1207,7 +1221,8 @@
           ],
           "consumes": [
             "journal record",
-            "outcomes.jsonl"
+            "outcomes.jsonl",
+            "profile config"
           ],
           "tests": [
             "test:tracker"
@@ -1224,6 +1239,7 @@
           ],
           "consumes": [
             "profile curves",
+            "profile config",
             "data/telegram-status.json"
           ],
           "tests": [

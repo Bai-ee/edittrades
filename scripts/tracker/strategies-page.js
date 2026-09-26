@@ -17,7 +17,7 @@
 
 import { PAGE_CSS } from './page-style.js';
 import { esc, tile, zone, jumpNav } from './bento.js';
-import { PROFILES, PROFILE_KEYS } from '../../lib/execution/riskPolicy.js';
+import { PROFILES, PROFILE_KEYS } from './profileConfig.js';
 
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const usd = (v) => (isNum(v) ? `$${v.toFixed(2)}` : '–');

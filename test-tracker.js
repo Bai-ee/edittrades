@@ -57,6 +57,8 @@ import { writeFileSync } from 'node:fs';
 import { esc } from './scripts/tracker/bento.js';
 import { computeProfileCurves, computeProfileCurvesDataDir, BOT_WALLET_START_EQUITY_USD } from './scripts/tracker/profiles.js';
 import { renderStrategies } from './scripts/tracker/strategies-page.js';
+import { PROFILES as VENDORED_PROFILES, PROFILE_KEYS as VENDORED_PROFILE_KEYS, tieredPolicyConfig as vendoredTieredPolicyConfig } from './scripts/tracker/profileConfig.js';
+import { PROFILES as ENGINE_PROFILES, PROFILE_KEYS as ENGINE_PROFILE_KEYS, tieredPolicyConfig as engineTieredPolicyConfig } from './lib/execution/riskPolicy.js';
 import {
   renderChangelogPage, parseChangelog, renderMarkdown, renderInline, isNew, groupFields,
   NO_MAP, NO_ENTRIES, NO_VERIFY, NO_CAPTURE, NEW_DAYS, NO_BOARD, BOARD_BREAKPOINT, boardModel, layoutBoard
@@ -360,6 +362,16 @@ async function run() {
     for (const c of cases) {
       const args = { candles1m: cs, fromMs: T0 + 3 * MIN, fillWindowCandles: 15, maxHoldCandles: 40, ...c };
       assertEqual(JSON.stringify(vendoredWalk(args)), JSON.stringify(sourceWalk(args)), `parity ${JSON.stringify(c)}`);
+    }
+  });
+
+  await test('profileConfig.js: vendored PROFILES/tieredPolicyConfig match lib/execution/riskPolicy.js', () => {
+    assertEqual(JSON.stringify(VENDORED_PROFILE_KEYS), JSON.stringify(ENGINE_PROFILE_KEYS), 'PROFILE_KEYS parity');
+    assertEqual(JSON.stringify(VENDORED_PROFILES), JSON.stringify(ENGINE_PROFILES), 'PROFILES parity');
+    for (const key of ENGINE_PROFILE_KEYS) {
+      for (const tier of ['A', 'B', 'C', 'unknown']) {
+        assertEqual(JSON.stringify(vendoredTieredPolicyConfig(key, tier)), JSON.stringify(engineTieredPolicyConfig(key, tier)), `tieredPolicyConfig(${key}, ${tier}) parity`);
+      }
     }
   });
 
