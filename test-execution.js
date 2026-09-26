@@ -16,7 +16,8 @@ import { createExecutor, checkIntent, baseSymbol } from './lib/execution/executo
 import { readExecutionConfig, pinMatches, KILL_PATH, AUTO_KILL_MS, autoKillUntil, recordWrongPin } from './lib/execution/gates.js';
 import { readBlobFresh } from './lib/blobJsonl.js';
 import { redact, appendAudit, auditDayPath, idHash } from './lib/execution/audit.js';
-import { TICKETS_PATH, consumeTicket, storeTicket } from './lib/execution/tickets.js';
+import { TICKETS_PATH, consumeTicket, storeTicket, peekTicket, forgetRecentTickets, configureTicketReads } from './lib/execution/tickets.js';
+configureTicketReads({ retryMs: 0 }); // no real sleeps in tests
 import { validateJournalEntry } from './lib/journalSchema.js';
 import {
   derivePerpPositionCandidates, decodePerpPositionAccount, getPerpPositions, DEFAULT_PERP_CUSTODIES, POSITION_SIDE_SEED
@@ -381,6 +382,36 @@ async function run() {
     const rs = await Promise.all([consumeTicket(store, t.nonce, { nowMs: T0, userId: OWNER }), consumeTicket(store, t.nonce, { nowMs: T0, userId: OWNER }), consumeTicket(store, t.nonce, { nowMs: T0, userId: OWNER })]);
     eq(rs.filter((r) => r.ok).length, 1, 'one winner');
     assert(rs.filter((r) => !r.ok).every((r) => r.reason === 'nonce_used' || r.reason === 'tickets_unavailable'), 'losers refused');
+  });
+  await test('stale ticket store (2026-09-26 live nonce_unknown): the writing instance answers from memory; a cold instance retries the fresh read; a used nonce stays used', async () => {
+    forgetRecentTickets();
+    const store = fakeBlob();
+    const t = await storeTicket(store, { action: 'open' }, { nowMs: T0, userId: OWNER });
+    // Regional lag: every read returns the body from BEFORE the ticket was written.
+    const realGet = store.get;
+    const staleText = `{"schemaVersion":"execution-tickets-1","tickets":{}}\n`;
+    let reads = 0;
+    store.get = async (p) => { reads++; const r = await realGet(p); return p === TICKETS_PATH ? { ...r, stream: new Response(staleText).body } : r; };
+    // Same (warm) instance: memory has the ticket -> peek and consume succeed without ever seeing it in the body.
+    eq((await peekTicket(store, t.nonce, { nowMs: T0, userId: OWNER })).ok, true, 'peek from memory');
+    const used = await consumeTicket(store, t.nonce, { nowMs: T0, userId: OWNER });
+    eq(used.ok, true, 'consume injects the remembered ticket into the stale body and marks it used');
+    assert(JSON.parse(store.text(TICKETS_PATH)).tickets[t.nonce].usedAt, 'usedAt persisted');
+    eq((await consumeTicket(store, t.nonce, { nowMs: T0, userId: OWNER })).reason, 'nonce_used', 'second confirm on the same instance: used');
+    // Cold instance, store still stale: retries, then nonce_unknown (never a phantom success).
+    forgetRecentTickets();
+    reads = 0;
+    const cold = await peekTicket(store, 'deadbeef', { nowMs: T0, userId: OWNER, retries: 2 });
+    eq(cold.reason, 'nonce_unknown', 'cold + stale = unknown');
+    assert(reads >= 3, `re-read the store on a miss (reads=${reads})`);
+    // Cold instance, store catches up on the 2nd read: found.
+    store.get = realGet;
+    const t2 = await storeTicket(store, { action: 'open' }, { nowMs: T0, userId: OWNER });
+    forgetRecentTickets();
+    let n = 0;
+    store.get = async (p) => { n++; const r = await realGet(p); return p === TICKETS_PATH && n === 1 ? { ...r, stream: new Response(staleText).body } : r; };
+    eq((await peekTicket(store, t2.nonce, { nowMs: T0, userId: OWNER })).ok, true, 'found on retry once the store catches up');
+    store.get = realGet;
   });
   await test('wrong PIN keeps the ticket; 3 wrong PINs auto-kill for 1 h; kill lapses after', async () => {
     const { ex, store, clock } = setup();
