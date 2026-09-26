@@ -49,14 +49,14 @@ import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
-  migrateState, parseHealth, errText, TELEGRAM_HEALTH_PATH, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, fmtQuiet,
+  migrateState, parseHealth, errText, TELEGRAM_HEALTH_PATH, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, formatFocusState, fmtQuiet,
   parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot,
   collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS,
   resolveRef, formatPlanCard, formatThesisCard, tradeKeyboard, swapTrackButton, candidateSnapshot, trackEntry, applyTrackChange, formatTrackingList,
   trackingKeyboard, signalsSnapshots, applyButtonSnapshots, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, livePrice,
   EXPIRED_REPLY, TRACK_MAX, formatMarket, fmtTag, fmtLvl, RULE,
-  EXEC_OFF_REPLY, ORDER_USAGE, CONFIRM_USAGE, STOPS_USAGE, EXEC_TICKETS_PATH, EXEC_TICKET_TTL_MS, isOpenReady, withOpenButton, execCaps, execMode,
-  orderIntentFromPlan, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
+  EXEC_OFF_REPLY, ORDER_USAGE, CONFIRM_USAGE, STOPS_USAGE, EXEC_TICKETS_PATH, EXEC_TICKET_TTL_MS, withOpenButton, execCaps, execMode,
+  orderIntentFromCandidate, candidateLevels, openSourceKind, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
   formatResultCard, formatConfirmFail, formatOpenPhaseCard, formatEmergencyCloseCard, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
   formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket
 } from '../lib/telegram.js';
@@ -351,7 +351,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     }
   };
   /** Preflight -> refused card, or createTicket -> ticket card with Confirm / Cancel. */
-  const runOrder = async (intent, { timeframe = null, snap = null, mark = null } = {}) => {
+  const runOrder = async (intent, { timeframe = null, snap = null, mark = null, from = null } = {}) => {
     const status = await safeStatus();
     const mode = execMode(status);
     const meta = { symbol: intent.symbol, timeframe, direction: intent.direction, candidateId: intent.candidateId || null, entry: intent.entry, stop: intent.stop, tp1: intent.tp1, mode };
@@ -370,7 +370,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         candidateId: intent.candidateId || null, snap
       });
     }
-    return execSend(formatTicketCard(intent, pf, { ...ticket, expiresAt }, { mode, timeframe, nowMs: now() }), ticketKeyboard(ticket.nonce), { ...meta, event: 'ticket' });
+    return execSend(formatTicketCard(intent, pf, { ...ticket, expiresAt }, { mode, timeframe, nowMs: now(), from }), ticketKeyboard(ticket.nonce), { ...meta, event: 'ticket' });
   };
   /** Chain positions (normalized) or null when the read fails. */
   const chainPositions = async () => { try { return normalizeChainPositions(await ex.listPositions()); } catch (err) { log('exec', ` reason=positions_${errName(err)}`); return null; } };
@@ -425,9 +425,16 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       if (!v) await reply(EXPIRED_REPLY);
       else {
         const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
-        const built = orderIntentFromPlan(v, execCaps(await safeStatus(), env));
-        if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || v.candidate.direction }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
-        else await runOrder(built.intent, { timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null) });
+        // T-7: any levelled alert with entry/stop/TP1 on file can Open, not only a ready
+        // GOOD plan -- orderIntentFromCandidate falls back to the candidate's own
+        // breakout/invalidation/measured-target levels; preflight (below, via runOrder)
+        // still re-checks every gate (caps, drift, 3% stop, kill, PIN) against them.
+        const built = orderIntentFromCandidate(v, execCaps(await safeStatus(), env));
+        if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || (v.candidate && v.candidate.direction) }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
+        else await runOrder(built.intent, {
+          timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null),
+          from: { kind: openSourceKind(v), timeframe: tf, ref: parsed.ref }
+        });
       }
     } else if (cmd === 'order') {
       const o = parseOrderArgs(parsed.args);
@@ -538,7 +545,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     } else if (cmd === 'exec') {
       const status = await safeStatus();
       if (!status) await execSend('Execution status could not be read; try again in a minute.', null, { event: 'status_failed' });
-      else await execSend(formatExecStatus(status, env), null, { event: 'status', mode: execMode(status) });
+      else {
+        const tgState = hasStore ? await readState() : null;
+        await execSend(formatExecStatus(status, env, tgState), null, { event: 'status', mode: execMode(status) });
+      }
     } else if (cmd === 'mode') {
       const status = await safeStatus();
       await execSend(formatModeCard(status), null, { event: 'mode', mode: execMode(status) });
@@ -662,7 +672,8 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         // Same ETag-guarded update as the cron, so a concurrent cron run cannot lose it.
         const change = a.action === 'level' ? { level: a.level }
           : a.action === 'tf' ? { alertTimeframes: a.alertTimeframes }
-            : { quiet: a.action === 'quiet_off' ? null : a.quiet };
+            : a.action === 'focus' ? { focus: a.focus }
+              : { quiet: a.action === 'quiet_off' ? null : a.quiet };
         let prefs = null;
         let resetCause = null;
         let saved = true;
@@ -681,6 +692,30 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         if (resetCause) log('state', ` reason=state_reset cause=${resetCause}`);
         if (saved) await reply(`Saved.\n${formatAlertPrefs(prefs)}`, alertsKeyboard());
         else await reply('Alert settings could not be saved; try again in a minute.');
+      }
+    } else if (cmd === 'focus') {
+      // The persistent-menu Focus button: toggles auto <-> off and replies with the new
+      // state (unlike /alerts focus auto|off, which sets it explicitly).
+      if (!hasStore) await reply('Alert settings store unavailable.');
+      else {
+        let prefs = null;
+        let livePositions = null;
+        let saved = true;
+        try {
+          await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => {
+            const cur = migrateState(text).state;
+            const next = applyPrefsChange(text, { focus: cur.prefs.focus === 'off' ? 'auto' : 'off' });
+            const migrated = migrateState(next).state;
+            prefs = migrated.prefs;
+            livePositions = migrated.livePositions;
+            return next;
+          });
+        } catch (err) {
+          saved = false;
+          log('state', ` reason=state_write_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`);
+        }
+        if (saved) await reply(`Focus: <b>${formatFocusState(prefs, livePositions)}</b>`, alertsKeyboard());
+        else await reply('Focus setting could not be saved; try again in a minute.');
       }
     } else if (cmd === 'button_log') {
       if (!hasStore) await reply('Journal store unavailable.');
@@ -713,7 +748,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       else {
         const tracked = Boolean(state && Array.isArray(state.tracked) && state.tracked.some((t) => t && t.ref === parsed.ref));
         let kb = v.source === 'live' ? tradeKeyboard(v.symbol, v.candidate.timeframe, v.candidateId, { tracked }) : menuKeyboard();
-        if (cmd === 'plan' && ex && isOpenReady(v)) kb = withOpenButton(kb, v.candidateId);
+        if (cmd === 'plan' && ex) {
+          const lv = candidateLevels(v);
+          if (lv) kb = withOpenButton(kb, v.candidateId, lv.ready);
+        }
         await reply(cmd === 'plan' ? formatPlanCard(v) : formatThesisCard(v), kb);
       }
     } else if (cmd === 'track' || cmd === 'untrack') {

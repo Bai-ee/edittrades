@@ -32,10 +32,20 @@
  *
  * Auth: `Authorization: Bearer <CRON_SECRET>` (Vercel Cron sends it when CRON_SECRET is
  * set), else 401. Missing CRON_SECRET, bot token, allowlist or Blob store -> 503 with a
- * reason. Read-only toward the engine; never imports execution, signing or wallet code.
- * With TRADE_EXECUTION_ENABLED=true a GOOD alert whose plan is ready (GET IN NOW) gets an
- * `Open` button on top (open:<ref>, handled by the webhook); the cron itself never reaches
- * the executor.
+ * reason. Read-only toward the engine; never signs, sends or builds a transaction, and
+ * never imports a signing or wallet module.
+ * With TRADE_EXECUTION_ENABLED=true, a GOOD/GET IN NOW alert gets an `Open @ plan` button
+ * and a SETUP, BREAKOUT or tracked-setup alert with entry/stop/TP1 on file gets
+ * `Open (early)` (open:<ref>, handled by the webhook, which re-runs every gate before
+ * anything is sent). The cron's only touch on the executor is the read-only
+ * `listPositions()` call (via the webhook's `resolveExecutor` factory, T-7 focus mode)
+ * cached in `state.livePositions` (reused under 60 s old); it never builds a ticket.
+ *
+ * Focus mode (T-7, `prefs.focus`, default 'auto'): while a live position is open, every
+ * alert not on that symbol (and not a tracked candidate on it, or a health/data alert) is
+ * held back and logged `delivered:false, suppressed:'focus'` instead of sent; the moment
+ * the last position closes, one resume line goes out unfiltered. `prefs.focus = 'off'`
+ * (`/alerts focus off`, the Focus button, or the alerts picker) disables the filter.
  */
 
 import crypto from 'crypto';
@@ -46,10 +56,15 @@ import { updateBlob, readBlob } from '../lib/blobJsonl.js';
 import { readRecent } from './journal.js';
 import { alertLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 import {
-  isOpenReadySymbol, withOpenButton,
+  withOpenButton, openEligible, candidateLevels, liveView, focusRelated, LIVE_POSITIONS_CACHE_MS,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef
 } from '../lib/telegram.js';
+// Read-only door to the executor's live position read (T-7 focus mode): the same
+// resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
+// deps.importExecutor injection for tests). This cron never builds, signs or sends a
+// transaction; it only calls listPositions() to know which symbols are open.
+import { resolveExecutor } from './telegram-webhook.js';
 
 /**
  * Record one cron outcome in telegram/health.json and send the FAILING / RECOVERED
@@ -75,6 +90,43 @@ async function recordHealth({ get, put, bot, chats, nowMs, outcome, log }) {
   } catch (err) {
     log('health', ` reason=health_write_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err))}`);
     return { health: null, message: null };
+  }
+}
+
+/**
+ * Live-position snapshot for focus mode (T-7): {snapshot, previous} where `previous` is
+ * whatever was cached in telegram/state.json before this run (peeked separately, since
+ * updateBlob's change() callback must stay synchronous) and `snapshot` is what this run
+ * decides to persist -- the cache reused as-is when younger than LIVE_POSITIONS_CACHE_MS,
+ * else a fresh executor.listPositions() read, falling back to `previous` (age keeps
+ * growing) on any failure or when the executor is unavailable. A failed read is NEVER
+ * read as "no positions": symbols/positionIds stay whatever they last were.
+ */
+async function resolveLivePositions({ get, env, deps, nowMs, log }) {
+  let previous = null;
+  try {
+    const peek = await readBlob(get, TELEGRAM_STATE_PATH);
+    previous = migrateState(peek ? peek.text : null).state.livePositions;
+  } catch { previous = null; }
+  if (previous && Number.isFinite(Date.parse(previous.at)) && nowMs - Date.parse(previous.at) < LIVE_POSITIONS_CACHE_MS) {
+    return { snapshot: previous, previous };
+  }
+  let ex = null;
+  try { ex = await resolveExecutor(env, deps); } catch { ex = null; }
+  if (!ex) return { snapshot: previous, previous };
+  try {
+    const r = await ex.listPositions();
+    if (!r || r.ok === false) throw Object.assign(new Error('listPositions not ok'), { name: (r && r.error) || 'PositionsUnavailable' });
+    const positions = Array.isArray(r.positions) ? r.positions : (Array.isArray(r) ? r : []);
+    const snapshot = {
+      at: new Date(nowMs).toISOString(),
+      symbols: [...new Set(positions.map((p) => p && p.symbol).filter((s) => typeof s === 'string'))],
+      positionIds: positions.map((p) => p && p.positionId).filter((s) => typeof s === 'string')
+    };
+    return { snapshot, previous };
+  } catch (err) {
+    log('positions', ` reason=positions_read_${err && err.name ? err.name : 'Error'}`);
+    return { snapshot: previous, previous };
   }
 }
 
@@ -137,6 +189,21 @@ export async function handleTelegramCron(req, res, deps = {}) {
 
   const bot = createBotClient({ token: env.TELEGRAM_BOT_TOKEN, fetchImpl });
   const secrets = [env.TELEGRAM_BOT_TOKEN, env.CRON_SECRET, env.BLOB_READ_WRITE_TOKEN];
+
+  // Live-position snapshot for focus mode (T-7): resolved BEFORE the guarded state
+  // transaction below, since updateBlob's change() callback must stay synchronous. Never
+  // touches state.livePositions when execution is off (livePositionsRead stays false), so
+  // an earlier cached snapshot from an enabled period is left exactly as it was.
+  let livePositions = null;
+  let livePositionsPrev = null;
+  let livePositionsRead = false;
+  if (env.TRADE_EXECUTION_ENABLED === 'true') {
+    const r = await resolveLivePositions({ get, env, deps, nowMs, log });
+    livePositions = r.snapshot;
+    livePositionsPrev = r.previous;
+    livePositionsRead = true;
+  }
+
   let alerts = [];
   let transitions = [];
   let trackedIds = new Set();
@@ -161,7 +228,12 @@ export async function handleTelegramCron(req, res, deps = {}) {
       transitions = diff.transitions || [];
       trackedIds = new Set((Array.isArray(m.state.tracked) ? m.state.tracked : []).map((t) => t && t.candidateId).filter(Boolean));
       prefs = diff.state.prefs;
-      return diff.changed || m.migrated || resetReason ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
+      let livePositionsChanged = false;
+      if (livePositionsRead) {
+        livePositionsChanged = JSON.stringify(m.state.livePositions) !== JSON.stringify(livePositions);
+        diff.state.livePositions = livePositions;
+      }
+      return diff.changed || m.migrated || resetReason || livePositionsChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
   } catch (err) {
@@ -184,17 +256,42 @@ export async function handleTelegramCron(req, res, deps = {}) {
       log('journal', ` reason=journal_read_${err && err.name ? err.name : 'Error'}`);
     }
   }
-  // Open (T-3): on a GOOD alert or a tracked GET IN NOW whose candidate is a ready GOOD
-  // plan (never on in-trade updates), only when execution is enabled; the webhook gates the rest (PIN, caps, kill, re-preflight).
+  const silent = inQuietHours(prefs && prefs.quiet, nowMs);
+
+  // Focus mode (T-7, prefs.focus, default 'auto'): while a position is open, only that
+  // symbol's alerts, its tracking and health/data alerts send; everything else is still
+  // logged (delivered:false, suppressed:'focus') for the tracker, just not sent. The
+  // transition from >=1 open position to 0 gets one unfiltered resume line.
+  const hadOpenBefore = Boolean(livePositionsPrev && Array.isArray(livePositionsPrev.symbols) && livePositionsPrev.symbols.length);
+  const hasOpenNow = Boolean(livePositions && Array.isArray(livePositions.symbols) && livePositions.symbols.length);
+  if (hadOpenBefore && !hasOpenNow) alerts.push({ kind: 'FOCUS', symbol: null, text: '🔎 Focus off — position closed, all alerts resumed.' });
+  const focusSuppressed = [];
+  if (hasOpenNow && prefs && prefs.focus !== 'off') {
+    const openSymbols = new Set(livePositions.symbols);
+    const kept = [];
+    for (const [i, a] of alerts.entries()) {
+      if (focusRelated(a, openSymbols)) { kept.push(a); continue; }
+      try {
+        focusSuppressed.push(alertLogLine(a, { payload: compact, id: `${new Date(nowMs).toISOString()}#f${i}`, sentAtMs: nowMs, silent, level: prefs && prefs.level, trackedIds, delivered: false, suppressed: 'focus' }));
+      } catch { /* best effort: the alert is still dropped even if its log line fails */ }
+    }
+    alerts = kept;
+  }
+
+  // Open (T-3, extended T-7): a ready GOOD/GET IN NOW plan gets "Open @ plan"; a SETUP,
+  // BREAKOUT or tracked-setup alert with entry/stop/TP1 on file (never WATCH/TRIGGERING)
+  // gets "Open (early)". Only when execution is enabled; the webhook gates the rest (PIN, caps, kill, re-preflight, drift, stop cap).
   if (env.TRADE_EXECUTION_ENABLED === 'true') {
     const syms = compact && compact.symbols ? compact.symbols : {};
-    alerts = alerts.map((a) => ((a.kind === 'GOOD' || (a.kind === 'TRACK' && a.event === 'get_in_now')) && a.candidateId && isOpenReadySymbol(a.symbol, syms[a.symbol], a.candidateId)
-      ? { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId) } : a));
+    alerts = alerts.map((a) => {
+      if (!openEligible(a) || !a.candidateId || !a.symbol) return a;
+      const lv = candidateLevels(liveView(a.symbol, syms[a.symbol] || {}, a.candidateId, compact));
+      return lv ? { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId, lv.ready) } : a;
+    });
   }
-  const silent = inQuietHours(prefs && prefs.quiet, nowMs);
   let sent = 0;
   let failed = 0;
-  const alertLines = [];
+  const alertLines = [...focusSuppressed];
   for (const [i, alert] of alerts.entries()) {
     let delivered = false;
     let png = null;
