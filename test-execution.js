@@ -16,7 +16,8 @@ import { createExecutor, checkIntent, baseSymbol } from './lib/execution/executo
 import { readExecutionConfig, pinMatches, KILL_PATH, AUTO_KILL_MS, autoKillUntil, recordWrongPin } from './lib/execution/gates.js';
 import { readBlobFresh } from './lib/blobJsonl.js';
 import { redact, appendAudit, auditDayPath, idHash } from './lib/execution/audit.js';
-import { TICKETS_PATH, consumeTicket, storeTicket } from './lib/execution/tickets.js';
+import { TICKETS_PATH, consumeTicket, storeTicket, peekTicket, forgetRecentTickets, configureTicketReads } from './lib/execution/tickets.js';
+configureTicketReads({ retryMs: 0 }); // no real sleeps in tests
 import { validateJournalEntry } from './lib/journalSchema.js';
 import {
   derivePerpPositionCandidates, decodePerpPositionAccount, getPerpPositions, DEFAULT_PERP_CUSTODIES, POSITION_SIDE_SEED
@@ -407,6 +408,36 @@ async function run() {
     eq(rs.filter((r) => r.ok).length, 1, 'one winner');
     assert(rs.filter((r) => !r.ok).every((r) => r.reason === 'nonce_used' || r.reason === 'tickets_unavailable'), 'losers refused');
   });
+  await test('stale ticket store (2026-09-26 live nonce_unknown): the writing instance answers from memory; a cold instance retries the fresh read; a used nonce stays used', async () => {
+    forgetRecentTickets();
+    const store = fakeBlob();
+    const t = await storeTicket(store, { action: 'open' }, { nowMs: T0, userId: OWNER });
+    // Regional lag: every read returns the body from BEFORE the ticket was written.
+    const realGet = store.get;
+    const staleText = `{"schemaVersion":"execution-tickets-1","tickets":{}}\n`;
+    let reads = 0;
+    store.get = async (p) => { reads++; const r = await realGet(p); return p === TICKETS_PATH ? { ...r, stream: new Response(staleText).body } : r; };
+    // Same (warm) instance: memory has the ticket -> peek and consume succeed without ever seeing it in the body.
+    eq((await peekTicket(store, t.nonce, { nowMs: T0, userId: OWNER })).ok, true, 'peek from memory');
+    const used = await consumeTicket(store, t.nonce, { nowMs: T0, userId: OWNER });
+    eq(used.ok, true, 'consume injects the remembered ticket into the stale body and marks it used');
+    assert(JSON.parse(store.text(TICKETS_PATH)).tickets[t.nonce].usedAt, 'usedAt persisted');
+    eq((await consumeTicket(store, t.nonce, { nowMs: T0, userId: OWNER })).reason, 'nonce_used', 'second confirm on the same instance: used');
+    // Cold instance, store still stale: retries, then nonce_unknown (never a phantom success).
+    forgetRecentTickets();
+    reads = 0;
+    const cold = await peekTicket(store, 'deadbeef', { nowMs: T0, userId: OWNER, retries: 2 });
+    eq(cold.reason, 'nonce_unknown', 'cold + stale = unknown');
+    assert(reads >= 3, `re-read the store on a miss (reads=${reads})`);
+    // Cold instance, store catches up on the 2nd read: found.
+    store.get = realGet;
+    const t2 = await storeTicket(store, { action: 'open' }, { nowMs: T0, userId: OWNER });
+    forgetRecentTickets();
+    let n = 0;
+    store.get = async (p) => { n++; const r = await realGet(p); return p === TICKETS_PATH && n === 1 ? { ...r, stream: new Response(staleText).body } : r; };
+    eq((await peekTicket(store, t2.nonce, { nowMs: T0, userId: OWNER })).ok, true, 'found on retry once the store catches up');
+    store.get = realGet;
+  });
   await test('wrong PIN keeps the ticket; 3 wrong PINs auto-kill for 1 h; kill lapses after', async () => {
     const { ex, store, clock } = setup();
     const order = (await ex.preflight(intent(), ctx)).order;
@@ -546,7 +577,11 @@ async function run() {
     // (e.g. the process crashed after recording it but before the caller saw the result).
     store.files.set('execution/actions.json', { text: `${JSON.stringify({ schemaVersion: 'execution-actions-1', actions: { [`open_${t.nonce}`]: priorResult } })}\n`, etag: '"a1"' });
     const r = await ex.confirm(t.nonce, PIN, ctx);
-    eq(JSON.stringify(r), JSON.stringify(priorResult), 'the recorded terminal result is returned verbatim');
+    // confirm() prefixes every result with the order's identity (action, symbol, ...); the
+    // recorded terminal result itself comes back verbatim underneath.
+    eq(r.action, 'open', 'result is tagged with its action');
+    const { action, symbol, direction, positionId, sizeUsd, positionSizeUsd, stop, tp, ...recorded } = r;
+    eq(JSON.stringify(recorded), JSON.stringify(priorResult), 'the recorded terminal result is returned verbatim');
     eq(jupiter.calls.buildOpen.length, 0, 'nothing was rebuilt');
     eq(jupiter.calls.waitForFill.length, 0, 'nothing was resent/awaited again');
   });
@@ -609,6 +644,18 @@ async function run() {
     eq(noVerifyClose.journal.length, 0, 'nothing journaled');
     // 2026-09-26 live: the wrapper threw "referencePrice (USD) is required" on Close 50 %.
     assert(closeOpts && closeOpts.referencePrice > 0, `live close passes referencePrice (got ${JSON.stringify(closeOpts)})`);
+
+    // Keeper-filled close (2026-09-26 live Close 50 %): the request lands, the position only
+    // shrinks a few seconds later. verifyClose polls instead of reading once.
+    let reads = 0;
+    const lateJupiter = fakeJupiter({ closePerpPosition: async () => ({ success: true, signature: '3xLandsThenFills' + 'b'.repeat(63) }) });
+    lateJupiter.positions = [{ ...openPos }];
+    const origGet = lateJupiter.getPerpPositions;
+    lateJupiter.getPerpPositions = async (...a) => { reads++; if (reads === 4) lateJupiter.positions = [{ ...openPos, sizeUsd: openPos.sizeUsd / 2 }]; return origGet(...a); };
+    const late = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), jupiter: lateJupiter });
+    const half = await late.ex.closePosition('PosAAA', openPos.sizeUsd / 2, PIN, ctx);
+    eq(half.ok, true, `partial close verifies once the keeper fills (reads=${reads}): ${JSON.stringify(half.reasons)}`);
+    eq(late.journal.filter((j) => j.kind === 'close').length, 1, 'journaled after the fill');
 
     const updateJupiter = fakeJupiter();
     updateJupiter.updatePerpPosition = async (positionId) => {
