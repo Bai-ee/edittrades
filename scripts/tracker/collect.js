@@ -33,8 +33,11 @@
  *
  * Telegram alerts (T-1, docs/PLAN_TELEGRAM.md): pullTelegramStatus fetches
  * telegram/state.json from the same Blob base and writes data/telegram-status.json with
- * only the cron heartbeat and alert counters (telegramStatusFromState whitelist) for the
- * page's Status "Alerts" fact. A failed pull warns; it never fails the run.
+ * only the cron heartbeat, alert counters and the active wallet-strategy profile name
+ * (telegramStatusFromState whitelist) for the page's Status "Alerts" fact and the T-9 v2
+ * "Wallet strategies" section (the profile name is an owner-facing UI preference, not a
+ * secret - unlike everything else in state.prefs, which stays off this whitelist). A
+ * failed pull warns; it never fails the run.
  *
  * Telegram sent alerts + transitions: pullTelegramLogs fetches telegram/alerts/ and
  * telegram/transitions/ (manifest, then the day files from the newest stored day minus
@@ -307,19 +310,25 @@ export async function pullServed(dataDir, base, fetchImpl = fetch, nowMs = Date.
 const isoOrNull = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(Date.parse(v)).toISOString() : null);
 const shortWord = (v) => (typeof v === 'string' && /^[A-Z_]{1,20}$/.test(v) ? v : null);
 
+const PROFILE_NAMES = Object.freeze(['steady', 'aggressive']); // kept in sync by hand with lib/execution/riskPolicy.js PROFILE_KEYS
+
 /**
- * The only Telegram fields the tracker keeps: cron heartbeat, today's alert count and the
- * last alert's time/symbol/kind. Everything else in the state (ids, reasons) is dropped.
+ * The only Telegram fields the tracker keeps: cron heartbeat, today's alert count, the
+ * last alert's time/symbol/kind, and the active wallet-strategy profile name (T-9 v2 -
+ * an owner-facing preference, not a secret). Everything else in the state (ids, reasons,
+ * numeric risk overrides, goal) is dropped.
  */
 export function telegramStatusFromState(state) {
   const s = state && typeof state === 'object' ? state : {};
   const alerts = s.alerts && typeof s.alerts === 'object' ? s.alerts : {};
   const last = alerts.last && typeof alerts.last === 'object' ? alerts.last : null;
+  const riskProfile = s.prefs && s.prefs.risk && PROFILE_NAMES.includes(s.prefs.risk.profile) ? s.prefs.risk.profile : 'steady';
   return {
     cronLastRunAt: isoOrNull(s.cron && s.cron.lastRunAt),
     alertsDay: typeof alerts.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(alerts.day) ? alerts.day : null,
     alertsToday: Number.isInteger(alerts.today) && alerts.today >= 0 ? alerts.today : 0,
-    lastAlert: last && isoOrNull(last.at) ? { at: isoOrNull(last.at), symbol: shortWord(last.symbol), kind: shortWord(last.kind) } : null
+    lastAlert: last && isoOrNull(last.at) ? { at: isoOrNull(last.at), symbol: shortWord(last.symbol), kind: shortWord(last.kind) } : null,
+    riskProfile
   };
 }
 

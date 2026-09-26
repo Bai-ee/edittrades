@@ -153,7 +153,7 @@ export function renderRisk() {
     + jumpNav('risk-jump-nav', [
       ['#risk-intro-section', 'Overview'], ['#risk-layers-section', 'Layers'], ['#risk-example-section', 'Sizing example'], ['#risk-net-r-section', 'Net R'],
       ['#risk-steps-section', 'Step by step'], ['#risk-growing-section', 'Growing size'], ['#risk-tracker-section', 'Tracker numbers'],
-      ['how-to.html', '← How to use', 'class="nav-link" id="risk-nav-howto-link"'], ['index.html', 'Call tracker →', 'class="nav-link" id="risk-nav-tracker-link"']
+      ['how-to.html', '← How to use', 'class="nav-link" id="risk-nav-howto-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="risk-nav-strategies-link"'], ['index.html', 'Call tracker →', 'class="nav-link" id="risk-nav-tracker-link"']
     ]);
 
   const intro = zone({
@@ -162,6 +162,7 @@ export function renderRisk() {
       id: 'risk-intro-tile', lg: 12,
       body: `<h1 id="risk-intro-title">Three layers decide every trade's size.</h1>`
         + `<p class="howto-lede" id="risk-intro-text">The venue sets what's possible, an env cap sets a hard ceiling regardless of your wallet, and a wallet-aware policy sizes the trade against what you actually have. None of these numbers are guesses — the ticket you get on Telegram is this same math, run live.</p>`
+        + `<p class="note" id="risk-strategies-crosslink">Which profile is live and how the wallet is actually tracking: <a href="strategies.html">Wallet strategies →</a>.</p>`
     })]
   });
 

@@ -54,6 +54,8 @@ import { PAGE_CSS } from './page-style.js';
 import { tile, zone, sub, jumpNav } from './bento.js';
 import { renderHowTo } from './how-to-page.js';
 import { renderRisk } from './risk-page.js';
+import { renderStrategies } from './strategies-page.js';
+import { computeProfileCurves } from './profiles.js';
 
 export const PROVISIONAL = 'provisional; not evidence of an edge';
 export const EDGE_NOTE = "Not evidence of an edge. Scores the engine's calls against later closed candles.";
@@ -338,6 +340,21 @@ export function engineVsYou(outcomes, journal, journalOutcomes) {
 }
 
 const statsText = (s) => (s.n ? `N=${s.n} · WIN ${pct(s.winRate)} · CUM ${rVal(s.cum)}` : `N=0${s.open ? ` · ${s.open} OPEN` : ''}`);
+
+const WALLET_STRATEGY_LABEL = Object.freeze({ steady: 'Steady', aggressive: 'Aggressive' });
+
+/** Teaser for the full strategies.html page (T-9 v2 P5): which profile is live, trades toward 30, a link. */
+function walletStrategiesBody(curves, liveKey) {
+  const label = WALLET_STRATEGY_LABEL[liveKey] || 'Steady';
+  const rows = ['steady', 'aggressive'].map((key) => {
+    const p = curves && curves.profiles && curves.profiles[key];
+    const trades = p ? `${p.live.trades} / ${p.evaluateAfterTrades} live-taken` : 'no scored trades yet';
+    return `<div class="def-row"><dt>${esc(WALLET_STRATEGY_LABEL[key])}</dt><dd>${esc(trades)}</dd></div>`;
+  }).join('');
+  return `<p id="wallet-strategies-live">Live: <b id="wallet-strategies-live-name">${esc(label)}</b> — the other runs in parallel on every call, never sizes a real order.</p>`
+    + `<dl class="def-list" id="wallet-strategies-counts">${rows}</dl>`
+    + `<p id="wallet-strategies-link-row"><a class="nav-link" id="wallet-strategies-link" href="strategies.html">Compare profiles & equity curves →</a></p>`;
+}
 
 function engineVsYouBody(ev) {
   if (!ev.records) return `<p class="empty" id="engine-vs-you-empty">${esc(NO_JOURNAL)}</p><p class="note" id="engine-vs-you-note">Tell the GPT "log took BTC long 84600 stop 84390 tp 85100", "log closed BTC +1.2R" or "log skipped SOL"; the next tracker run pulls it here.</p>`;
@@ -707,6 +724,9 @@ export function renderHtml(agg, data = {}) {
   const v3ShadowSum = data.v3ShadowSummary && typeof data.v3ShadowSummary === 'object' ? data.v3ShadowSummary : EMPTY_V3_SHADOW_SUMMARY;
   const nfShadowRows = Array.isArray(data.nfShadowOutcomes) ? data.nfShadowOutcomes : [];
   const nfShadowSum = data.nfShadowSummary && typeof data.nfShadowSummary === 'object' ? data.nfShadowSummary : EMPTY_NF_SHADOW_SUMMARY;
+  // T-9 v2 P5: wallet strategy profiles teaser (full detail on strategies.html).
+  const profileCurves = data.profileCurves && typeof data.profileCurves === 'object' ? data.profileCurves : null;
+  const liveProfileKey = data.telegram && data.telegram.riskProfile === 'aggressive' ? 'aggressive' : 'steady';
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
   const scored7 = t7.wins + t7.losses;
@@ -718,8 +738,9 @@ export function renderHtml(agg, data = {}) {
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
     + jumpNav('tracker-jump-nav', [
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
+      ['#zone-wallet-strategies', 'Strategies'],
       ['#zone-calls', 'Calls'], ['#zone-alerts', 'Alerts'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
-      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="tracker-risk-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"']
+      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="tracker-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="tracker-strategies-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"']
     ]);
 
   // Primary: hero. Net (fees + slippage, costs.js) shown beside gross (T5 S1).
@@ -925,6 +946,10 @@ export function renderHtml(agg, data = {}) {
       ]
     }),
     zone({
+      id: 'zone-wallet-strategies', title: 'Wallet strategies', sub: 'Steady (default) vs Aggressive (parallel) — T-9 v2',
+      tiles: [tile({ id: 'wallet-strategies-tile', as: 'div', lg: 12, body: walletStrategiesBody(profileCurves, liveProfileKey) })]
+    }),
+    zone({
       id: 'zone-calls', title: 'Calls', sub: 'Open now, recent, by day',
       tiles: [
         section('open-calls-section', 'Open calls now', table('open-calls-table', ['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status', 'Filled', 'Net R:R'], openRows, '[NO OPEN CALLS]')),
@@ -1036,19 +1061,27 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const mdFile = path.join(outDir, 'report.md');
   const howToFile = path.join(outDir, 'how-to.html');
   const riskFile = path.join(outDir, 'risk.html');
+  const strategiesFile = path.join(outDir, 'strategies.html');
+  const journal = readJournal(dataDir);
+  const journalOutcomes = readJsonl(journalOutcomesFile(dataDir));
+  const outcomes = readJsonl(outcomesFile(dataDir));
+  const telegram = readJson(telegramStatusFile(dataDir), null);
+  const profileCurves = computeProfileCurves({ journalRecords: journal, journalOutcomes, callOutcomes: outcomes });
   writeFileSync(htmlFile, renderHtml(agg, {
-    outcomes: readJsonl(outcomesFile(dataDir)), wallet: readWallet(dataDir),
-    journal: readJournal(dataDir), journalOutcomes: readJsonl(journalOutcomesFile(dataDir)),
-    telegram: readJson(telegramStatusFile(dataDir), null),
+    outcomes, wallet: readWallet(dataDir),
+    journal, journalOutcomes,
+    telegram,
     paths: readJsonl(pathsFile(dataDir)), calibration: readJson(calibrationFile(dataDir), null),
     shadowOutcomes: readJsonl(shadowOutcomesFile(dataDir)), shadowSummary: readJson(shadowSummaryFile(dataDir), null),
     v3ShadowOutcomes: readJsonl(v3ShadowOutcomesFile(dataDir)), v3ShadowSummary: readJson(v3ShadowSummaryFile(dataDir), null),
-    nfShadowOutcomes: readJsonl(nfShadowOutcomesFile(dataDir)), nfShadowSummary: readJson(nfShadowSummaryFile(dataDir), null)
+    nfShadowOutcomes: readJsonl(nfShadowOutcomesFile(dataDir)), nfShadowSummary: readJson(nfShadowSummaryFile(dataDir), null),
+    profileCurves
   }));
   writeFileSync(mdFile, renderReport(agg, { nfShadowSummary: readJson(nfShadowSummaryFile(dataDir), null) }));
   writeFileSync(howToFile, renderHowTo());
   writeFileSync(riskFile, renderRisk());
-  return { agg, htmlFile, mdFile, howToFile, riskFile };
+  writeFileSync(strategiesFile, renderStrategies(profileCurves, telegram && telegram.riskProfile));
+  return { agg, htmlFile, mdFile, howToFile, riskFile, strategiesFile };
 }
 
 function main() {

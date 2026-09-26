@@ -609,6 +609,22 @@
           "schemaSince": "1.18.0"
         },
         {
+          "path": "lib/tier.js",
+          "name": "tier",
+          "role": "Classifies a flagRecommendation record A/B/C off readiness/qualityBand/clarity, scaling a wallet profile's risk budget and (Steady) non-A leverage.",
+          "publishes": [
+            "tier classification"
+          ],
+          "consumes": [
+            "flagRecommendation record"
+          ],
+          "tests": [
+            "test:riskpolicy"
+          ],
+          "since": "2026-09-26",
+          "schemaSince": "1.27.0"
+        },
+        {
           "path": "lib/blobJsonl.js",
           "name": "blobJsonl",
           "role": "Appends journal and served-call lines to Vercel Blob safely when two writes race.",
@@ -1176,6 +1192,40 @@
             "risk.html"
           ],
           "consumes": [],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-26",
+          "schemaSince": "1.27.0"
+        },
+        {
+          "path": "scripts/tracker/profiles.js",
+          "name": "profiles",
+          "role": "Reconstructs the real bot-wallet equity curve and both wallet-strategy profiles' virtual live/as-if curves from journal and scored-call data (strategies.html).",
+          "publishes": [
+            "profile curves"
+          ],
+          "consumes": [
+            "journal record",
+            "outcomes.jsonl"
+          ],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-26",
+          "schemaSince": "1.27.0"
+        },
+        {
+          "path": "scripts/tracker/strategies-page.js",
+          "name": "strategies-page",
+          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) — split from risk-page.js at merge, same slot originally contested.",
+          "publishes": [
+            "strategies.html"
+          ],
+          "consumes": [
+            "profile curves",
+            "data/telegram-status.json"
+          ],
           "tests": [
             "test:tracker"
           ],

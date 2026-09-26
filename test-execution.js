@@ -209,7 +209,10 @@ function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs =
   return { ex, store, clock, journal, jupiter, env, market, wallet, alerts };
 }
 
-const intent = (over = {}) => ({ symbol: 'BTC', direction: 'long', sizeUsd: 200, leverage: 5, entry: 84600, stop: 84390, tp1: 85146, planId: 'plan_abc', candidateId: 'cand_1', recClass: 'GOOD', source: 'telegram', ...over });
+// stop is 2% from entry (T-9 v2: clears the default 'steady' profile's 1.5%/1.0% long/short
+// minStopPct fee floor -- lib/execution/riskPolicy.js PROFILES.steady.minStopPct -- while
+// staying under the 3% absolute cap).
+const intent = (over = {}) => ({ symbol: 'BTC', direction: 'long', sizeUsd: 200, leverage: 5, entry: 84600, stop: 82908, tp1: 85146, planId: 'plan_abc', candidateId: 'cand_1', recClass: 'GOOD', source: 'telegram', ...over });
 const ctx = { userId: OWNER };
 const auditRows = (store, day = '2026-09-25') => String(store.text(auditDayPath(day)) || '').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
@@ -291,7 +294,7 @@ async function run() {
     eq(r.order.action, 'open', 'action');
     eq(r.order.market, 'BTCUSDT', 'market');
     eq(r.order.mode, 'dry', 'mode');
-    eq(r.order.maxLossUsd, 1.18, 'max loss = size x stop% + dir cost');
+    eq(r.order.maxLossUsd, 4.68, 'max loss = size x stop% + dir cost'); // 200 * (2% + 0.34% long cost)
     eq(r.quote.marginRequiredUsd, 40, 'quote margin');
     eq(jupiter.calls.open.length, 0, 'no open');
     const a = auditRows(store);
@@ -325,7 +328,7 @@ async function run() {
     has((await ex.preflight(intent({ stop: 84700 }), ctx)).reasons, 'stop_wrong_side', 'long stop above');
     has((await ex.preflight(intent({ tp1: 84000 }), ctx)).reasons, 'tp_wrong_side', 'long tp below');
     has((await ex.preflight(intent({ direction: 'short' }), ctx)).reasons, 'stop_wrong_side', 'short stop below');
-    eq((await ex.preflight(intent({ direction: 'short', stop: 84810, tp1: 84054 }), ctx)).ok, true, 'valid short');
+    eq((await ex.preflight(intent({ direction: 'short', stop: 85700, tp1: 84054 }), ctx)).ok, true, 'valid short'); // 1.3% > steady's 1.0% short floor
   });
   await test('stop cap 3% is absolute (planMaxStopPct ignored); caps and liquidation buffer', () => {
     const caps = readExecutionConfig(baseEnv()).caps;
@@ -478,7 +481,7 @@ async function run() {
     eq(jupiter.calls.buildOpen[0].stopLoss, null, 'the increase is built WITHOUT stops');
     eq(jupiter.calls.buildOpen[0].takeProfit, null, 'the increase is built WITHOUT stops');
     eq(jupiter.calls.waitForFill.length, 1, 'waitForFill polled once (mocked to resolve immediately)');
-    eq(jupiter.calls.buildStops[0].stop, 84390, 'stops built from the order SL');
+    eq(jupiter.calls.buildStops[0].stop, 82908, 'stops built from the order SL');
     eq(jupiter.calls.buildStops[0].tp, 85146, 'stops built from the order TP1');
     eq(r.fillPrice, 84612, 'fill price comes from waitForFill\'s on-chain read, not the pre-fill estimate');
     eq(journal[0].kind, 'open', 'journal open');
@@ -727,7 +730,8 @@ async function run() {
     eq(s.risk.equityUsd, 101500, 'margin 100000 + SOL holding 1500');
     eq(s.risk.equitySource, 'AbCd...WxYz', 'masked address from the wallet snapshot');
     eq(s.risk.equityAgeSec, 0, 'freshly read');
-    eq(s.risk.policy.pctPerTrade, 0.5, 'default');
+    eq(s.risk.policy.pctPerTrade, 1, 'default profile (steady) per-trade %'); // T-9 v2: steady's own 1% default, not the pre-profile 0.5%
+    eq(s.risk.profile.key, 'steady', 'default profile key');
     eq(wallet.calls, 1, 'one wallet read');
   });
   await test('an unreadable signing wallet address refuses preflight with equity_unavailable, never infinite equity', async () => {
@@ -755,17 +759,17 @@ async function run() {
     eq(wallet.calls, 2, 'cache expired, read again');
   });
   await test('preflight order carries riskUsd, riskPct, exposurePct and a suggested size', async () => {
-    const { ex } = setup(); // stop distance ~0.248%, equity 101500
+    const { ex } = setup(); // stop distance 2%, equity 101500
     const r = await ex.preflight(intent(), ctx);
     eq(r.ok, true, `ok (${r.reasons})`);
-    assertClose(r.order.riskUsd, 0.5, 0.02, 'riskUsd ~= 200 * 0.248%');
-    assert(r.order.riskPct < 0.5, 'well under the 0.5% default per-trade cap');
+    assertClose(r.order.riskUsd, 4, 0.02, 'riskUsd ~= 200 * 2%');
+    assert(r.order.riskPct < 1, 'well under steady\'s 1% default per-trade cap');
     assertClose(r.order.exposurePct, 0.2, 0.02, '200 / 101500');
     assert(isFinitePositive(r.order.suggestedSizeUsd), 'a positive suggested size');
   });
   await test('risk_pct_over refuses when the intent risks more than the per-trade cap, relative to a small wallet', async () => {
-    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: { USDC: 40 } }, holdings: [] }) }); // equity $40, 0.5% = $0.20 budget
-    // 200 * 0.248% stop ~= $0.50 risk > $0.20 budget
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: { USDC: 40 } }, holdings: [] }) }); // equity $40, steady's 1% default = $0.40 budget
+    // 200 * 2% stop = $4 risk > $0.40 budget
     has((await ex.preflight(intent(), ctx)).reasons, 'risk_pct_over', 'refused');
   });
   await test('exposure_over and symbol_exposure_over refuse relative to open positions', async () => {
@@ -777,15 +781,15 @@ async function run() {
   });
   await test('a prefs.risk override tightens pct-per-trade below the env default, in bounds', async () => {
     // equity 2000: exposure 200/2000 = 10% (under both the 15% per-symbol and 25% overall
-    // default caps), riskPct ~0.025% (under the 0.5% default per-trade cap).
+    // default caps), riskPct 0.2% (under steady's 1% default per-trade cap).
     const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 2000, byAsset: {} }, holdings: [] }) });
     const loose = await ex.preflight(intent(), { ...ctx });
     eq(loose.ok, true, `default pct passes (${loose.reasons})`);
-    const tight = await ex.preflight(intent(), { ...ctx, riskPrefs: { pctPerTrade: 0.01 } }); // tighter than the ~0.025% risk at this stop
+    const tight = await ex.preflight(intent(), { ...ctx, riskPrefs: { pctPerTrade: 0.01 } }); // tighter than the 0.2% risk at this stop
     has(tight.reasons, 'risk_pct_over', 'the tighter owner override now refuses the same intent');
   });
   await test('an out-of-bound prefs.risk override (above env, or above the 2% absolute ceiling) is ignored, never loosens the gate', async () => {
-    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: {} }, holdings: [] }) }); // equity $40, would refuse at the 0.5% default
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: {} }, holdings: [] }) }); // equity $40, would refuse at steady's 1% default
     const r = await ex.preflight(intent(), { ...ctx, riskPrefs: { pctPerTrade: 50 } }); // absurd override, ignored
     has(r.reasons, 'risk_pct_over', 'still refused: the override never loosens beyond env / the 2% ceiling');
   });
@@ -926,14 +930,14 @@ async function run() {
     eq(s.market.builds, 1, 'one engine build for T-8 equity SOL pricing, not for the fill (ctx.mark covers that, and is cached 60s)');
     eq(r.order.expectedFill, 84605, 'ctx mark');
     const b = setup({ env: baseEnv({ EXECUTION_MAX_ENTRY_DRIFT_BPS: '1000' }) });
-    b.market.symbols.BTC.mark.price = 84380; // below the long stop 84390
+    b.market.symbols.BTC.mark.price = 82800; // below the long stop 82908
     has((await b.ex.preflight(intent(), ctx)).reasons, 'stop_wrong_side_at_fill', 'stop side at fill');
-    b.market.symbols.BTC.mark.price = 87100; // stop 84390 is 3.1% away
+    b.market.symbols.BTC.mark.price = 87100; // stop 82908 is 4.8% away
     has((await b.ex.preflight(intent(), ctx)).reasons, 'stop_too_wide_at_fill', 'stop cap at fill');
     const l = setup({ env: baseEnv({ EXECUTION_MAX_ENTRY_DRIFT_BPS: '1000', EXECUTION_MAX_LOSS_USD_PER_TRADE: '5' }) });
-    eq(checkIntent(intent({ sizeUsd: 500, leverage: 2 }), readExecutionConfig(l.env).caps).reasons.length, 0, 'passes at plan entry ($2.94)');
-    l.market.symbols.BTC.mark.price = 85100; // loss at fill ~$5.87 > $5
-    const lr = await l.ex.preflight(intent({ sizeUsd: 500, leverage: 2 }), ctx);
+    eq(checkIntent(intent({ sizeUsd: 200, leverage: 2 }), readExecutionConfig(l.env).caps).reasons.length, 0, 'passes at plan entry ($4.68)');
+    l.market.symbols.BTC.mark.price = 85700; // stop is farther from this fill -> loss at fill ~$7.20 > $5
+    const lr = await l.ex.preflight(intent({ sizeUsd: 200, leverage: 2 }), ctx);
     has(lr.reasons, 'loss_over_cap_at_fill', 'max loss at fill');
     assert(lr.order.maxLossUsd > 5, 'order carries the worse (fill) max loss');
   });
@@ -1044,6 +1048,31 @@ async function run() {
     eq(validateJournalEntry(body, { now: T0, newId: () => 'x_12345678', source: 'execution' }).record.execRef.ticketNonce, 'abcd1234', 'execution keeps it');
     eq(validateJournalEntry({ text: 'x', execRef: { ticketNonce: 'bad nonce!' } }, { now: T0, newId: () => 'x_12345678', source: 'execution' }).ok, false, 'validated');
   });
+  await test('T-9 v2: execRef.profiles keeps a well-formed {steady, aggressive} block, drops garbage, never errors the record', () => {
+    const opts = { now: T0, newId: () => 'x_12345678', source: 'execution' };
+    const good = {
+      steady: { tier: 'B', riskUsd: 4, sizeUsd: 200, leverage: 5, ok: true, reasons: [] },
+      aggressive: { tier: 'B', riskUsd: 8, sizeUsd: 400, leverage: 5, ok: false, reasons: ['exposure_over'] }
+    };
+    const r1 = validateJournalEntry({ text: 'x', execRef: { profiles: good } }, opts);
+    eq(r1.ok, true, 'valid profiles block accepted');
+    eq(r1.record.execRef.profiles.steady.tier, 'B');
+    eq(r1.record.execRef.profiles.aggressive.reasons[0], 'exposure_over');
+    const r2 = validateJournalEntry({ text: 'x', execRef: { profiles: { steady: good.steady, notAProfile: { tier: 'A' } } } }, opts);
+    eq(r2.ok, true, 'unknown profile keys dropped, not an error');
+    assert(!('notAProfile' in r2.record.execRef.profiles), 'unknown key dropped');
+    eq(r2.record.execRef.profiles.steady.tier, 'B');
+    const r3 = validateJournalEntry({ text: 'x', execRef: { profiles: { steady: { tier: 'not-a-tier', riskUsd: 'nope', ok: 'yes', reasons: 'nope' } } } }, opts);
+    eq(r3.ok, true, 'malformed fields sanitized, not rejected');
+    eq(r3.record.execRef.profiles.steady.tier, null, 'bad tier -> null');
+    eq(r3.record.execRef.profiles.steady.riskUsd, null, 'bad number -> null');
+    eq(r3.record.execRef.profiles.steady.ok, false, 'non-true ok -> false');
+    eq(r3.record.execRef.profiles.steady.reasons.length, 0, 'non-array reasons -> []');
+    const r4 = validateJournalEntry({ text: 'x', execRef: { profiles: { notAProfile: { tier: 'A' } } } }, opts);
+    eq(r4.ok, false, 'no recognized profile at all -> rejected');
+    const r5 = validateJournalEntry({ text: 'x', execRef: { ticketNonce: 'abcd1234' } }, opts);
+    assert(!('profiles' in r5.record.execRef), 'profiles omitted entirely when absent from the body');
+  });
   await test('F8 cancelTicket consumes the ticket without acting; owner only; audited', async () => {
     const { ex, store, journal } = setup();
     const t = await ex.createTicket((await ex.preflight(intent(), ctx)).order, ctx);
@@ -1067,6 +1096,127 @@ async function run() {
       const src = readFileSync(path.join(root, f), 'utf8');
       assert(!/console\.[a-z]+\([^)]*\brpcUrl\b(?!\))/.test(src.replace(/rpcHostForLog\(rpcUrl\)/g, '')), `${f} logs rpcUrl`);
     }
+  });
+
+  console.log('T-9 v2: profiles, tier, boost');
+  await test('preflight stamps profile/tier/profiles on the order and the audit line; default profile steady, default tier C (manual)', async () => {
+    const { ex, store } = setup();
+    const r = await ex.preflight(intent(), ctx);
+    eq(r.ok, true, `ok (${r.reasons})`);
+    eq(r.order.profile, 'steady', 'default profile');
+    eq(r.order.tier, 'C', 'no intent.tier -> manual -> C');
+    assert(r.order.profiles && r.order.profiles.steady && r.order.profiles.aggressive, 'parallel profiles block');
+    for (const key of ['steady', 'aggressive']) {
+      assert(typeof r.order.profiles[key].ok === 'boolean', `${key}.ok`);
+      assert(Array.isArray(r.order.profiles[key].reasons), `${key}.reasons`);
+      eq(r.order.profiles[key].tier, 'C', `${key}.tier echoes the order's own tier`);
+    }
+    const a = auditRows(store).find((l) => l.event === 'preflight');
+    eq(a.profile, 'steady', 'audit carries profile');
+    eq(a.tier, 'C', 'audit carries tier');
+    assert(a.profiles && a.profiles.steady && a.profiles.aggressive, 'audit carries parallel profiles');
+  });
+  await test('intent.tier flows through to the order and scales sizing (tier A > tier C at the same stop)', async () => {
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 1000, byAsset: {} }, holdings: [] }) });
+    const rc = await ex.preflight(intent({ tier: 'C' }), ctx);
+    const ra = await ex.preflight(intent({ tier: 'A' }), ctx);
+    eq(rc.order.tier, 'C');
+    eq(ra.order.tier, 'A');
+    assert(ra.order.suggestedSizeUsd > rc.order.suggestedSizeUsd, 'tier A suggests more size than tier C at the same stop');
+  });
+  await test('a ticket carries profile/tier/profiles through to the journal execRef on a dry fill', async () => {
+    const { ex, journal, store } = setup();
+    const pf = await ex.preflight(intent({ tier: 'B' }), ctx);
+    const t = await ex.createTicket(pf.order, ctx);
+    const ticketAudit = auditRows(store).find((l) => l.event === 'ticket');
+    eq(ticketAudit.profile, 'steady', 'ticket audit profile');
+    eq(ticketAudit.tier, 'B', 'ticket audit tier');
+    const r = await ex.confirm(t.nonce, PIN, ctx);
+    eq(r.ok, true, `confirmed (${r.reasons})`);
+    eq(journal[0].execRef.profiles.steady.tier, 'B', 'journal execRef.profiles.steady.tier');
+    assert(journal[0].execRef.profiles.aggressive, 'journal execRef.profiles.aggressive present');
+    const fillAudit = auditRows(store).find((l) => l.event === 'fill');
+    eq(fillAudit.profile, 'steady', 'fill audit profile');
+    eq(fillAudit.tier, 'B', 'fill audit tier');
+  });
+
+  await test('riskPrefBound(key, profileKey): aggressive raises the pctPerTrade ceiling to 3%, steady stays at 2%', () => {
+    const { ex } = setup();
+    eq(ex.riskPrefBound('pctPerTrade', 'aggressive'), 3, 'aggressive ceiling');
+    eq(ex.riskPrefBound('pctPerTrade', 'steady'), 2, 'steady ceiling');
+    eq(ex.riskPrefBound('pctPerTrade'), 2, 'no profile -> pre-profile default (steady-equivalent)');
+  });
+
+  console.log('T-9 v2: switchProfile');
+  await test('switchProfile: owner + PIN required, audited profile_switch from/to', async () => {
+    const { ex, store } = setup();
+    has((await ex.switchProfile('aggressive', PIN, { userId: 5 })).reasons, 'not_owner', 'stranger');
+    has((await ex.switchProfile('yolo', PIN, ctx)).reasons, 'profile_invalid', 'bad name');
+    has((await ex.switchProfile('aggressive', '0000', ctx)).reasons, 'pin_wrong', 'wrong pin');
+    const r = await ex.switchProfile('aggressive', PIN, { ...ctx, currentProfile: 'steady' });
+    eq(r.ok, true, `switched (${r.reasons})`);
+    eq(r.profile, 'aggressive');
+    const a = auditRows(store).find((l) => l.event === 'profile_switch' && l.to === 'aggressive');
+    eq(a.from, 'steady', 'audit from');
+    eq(a.to, 'aggressive', 'audit to');
+  });
+  await test('switchProfile refuses without ever checking the PIN while an auto-kill is active (same guard order as arm)', async () => {
+    const { ex } = setup();
+    for (let i = 0; i < 3; i++) await ex.arm('0000', ctx); // 3 wrong PINs -> auto-kill
+    const r = await ex.switchProfile('aggressive', PIN, ctx); // right PIN, still refused
+    has(r.reasons, 'auto_kill_active', 'refused without evaluating the PIN');
+  });
+  await test('switchProfile refuses when no PIN is configured, without touching the profile', async () => {
+    const { ex } = setup({ env: baseEnv({ EXECUTION_PIN: '' }) });
+    has((await ex.switchProfile('aggressive', PIN, ctx)).reasons, 'pin_not_configured');
+  });
+
+  console.log('T-9 v2: boostTicket');
+  await test('boostTicket replaces a tier C ticket with a bigger tier B one; the original nonce is consumed', async () => {
+    const { ex, store } = setup({ wallet: fakeWallet({ margin: { usd: 5000, byAsset: {} }, holdings: [] }) });
+    const pf = await ex.preflight(intent({ tier: 'C' }), ctx);
+    const t = await ex.createTicket(pf.order, ctx);
+    const b = await ex.boostTicket(t.nonce, ctx);
+    eq(b.ok, true, `boosted (${b.reasons})`);
+    eq(b.order.tier, 'B', 'boosted to the next tier up');
+    assert(b.order.sizeUsd > pf.order.sizeUsd, 'boosted size is bigger than the original request');
+    has((await ex.confirm(t.nonce, PIN, ctx)).reasons, 'nonce_used', 'original ticket consumed by the boost');
+    eq((await ex.confirm(b.nonce, PIN, ctx)).ok, true, 'the boosted ticket itself still confirms');
+    const boostAudit = auditRows(store).find((l) => l.event === 'boost');
+    eq(boostAudit.ok, true);
+    eq(boostAudit.fromTier, 'C');
+    eq(boostAudit.toTier, 'B');
+  });
+  await test('boostTicket refuses at tier A (nothing to boost to); the original ticket survives', async () => {
+    const { ex } = setup();
+    const pf = await ex.preflight(intent({ tier: 'A' }), ctx);
+    const t = await ex.createTicket(pf.order, ctx);
+    has((await ex.boostTicket(t.nonce, ctx)).reasons, 'boost_already_top_tier');
+    eq((await ex.confirm(t.nonce, PIN, ctx)).ok, true, 'untouched ticket still confirms');
+  });
+  await test('boostTicket refuses a close/update ticket (nothing to size up)', async () => {
+    const { ex } = setup();
+    const t = await ex.createTicket({ action: 'close', mode: 'dry', positionId: 'PosAAA', symbol: 'BTC', direction: 'long' }, ctx);
+    has((await ex.boostTicket(t.nonce, ctx)).reasons, 'boost_open_only');
+  });
+  await test('boostTicket on an unknown/expired nonce refuses like any other ticket lookup', async () => {
+    const { ex } = setup();
+    has((await ex.boostTicket('deadbeef', ctx)).reasons, 'nonce_unknown');
+  });
+  await test('boostTicket refused by drawdown leaves the original ticket usable (validated before consuming)', async () => {
+    const { ex, store, clock } = setup({ wallet: fakeWallet({ margin: { usd: 10000, byAsset: {} }, holdings: [] }) });
+    const pf = await ex.preflight(intent({ tier: 'C' }), ctx);
+    const t = await ex.createTicket(pf.order, ctx);
+    // Engage the daily-drawdown kill so the boosted preflight (re-run) refuses. (Left in
+    // place deliberately: a plain /confirm of the original ticket would ALSO now hit the
+    // same drawdown gate, so "survives" is checked via peekTicket -- still unused/valid --
+    // rather than a full confirm, which is not what this test is about.)
+    store.files.set('journal/2026-09-25.jsonl', { text: `${JSON.stringify({ id: 'j1', kind: 'close', resultUsd: -400 })}\n`, etag: '"j"' });
+    const b = await ex.boostTicket(t.nonce, ctx);
+    eq(b.ok, false, 'boost refused');
+    has(b.reasons, 'daily_drawdown', 'refused specifically by the drawdown gate');
+    const peek = await peekTicket(store, t.nonce, { nowMs: clock.t, userId: OWNER });
+    eq(peek.ok, true, 'original ticket is still there, unused');
   });
 
   console.log('Positions read (services/jupiterPerps.js)');
