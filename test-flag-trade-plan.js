@@ -13,7 +13,8 @@
  * Run: node test-flag-trade-plan.js
  */
 
-import { buildFlagTradePlan, costRFraction, netRiskReward } from './lib/flagTradePlan.js';
+import { buildFlagTradePlan, costRFraction, netRiskReward, netFloorStopDistance } from './lib/flagTradePlan.js';
+import { FLAG_PLAN_SHADOW_VARIANTS } from './services/scalpContext.js';
 import { buildScalpContext, INTERVAL_MS } from './services/scalpContext.js';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { FIXTURE_PIVOT, withTimes, regression001, mirror } from './test/fixtures/flagFixtures.js';
@@ -762,6 +763,92 @@ async function run() {
       candles: levelCandles('long', 'retest'), shadowVariants: V3_VARIANT
     }));
     assertEqual(JSON.stringify(a.shadow), JSON.stringify(b.shadow), 'identical inputs produce a byte-identical shadow object');
+  });
+
+  // -------------------------------------------------------------------------
+  // Section 1b2: T-13 NF net floor shadow - stop floored at max(0.5 x ATR(15m),
+  // 3 x round-trip cost), TP1 unchanged, gross >= 2.5 and net >= 1.0. Always published
+  // for the live plan's own candidate; never changes the live plan.
+  // -------------------------------------------------------------------------
+  console.log('\n1b2) T-13 NF net floor shadow\n');
+
+  const NF_VARIANT = FLAG_PLAN_SHADOW_VARIANTS.filter((v) => v.id === 'NF');
+  const geo15 = (atr) => ({ '15m': { atr, horizontalResistanceZones: [], horizontalSupportZones: [] } });
+
+  await test('NF math: floor = max(0.5 x ATR(15m), 3 x direction cost); own stop wins when wider; missing ATR leaves the cost floor', () => {
+    const cfg = ENGINE_CONFIG.risk;
+    const atrBound = netFloorStopDistance({ direction: 'long', entry: 1000, stop: 999, atr15m: 30, riskCfg: cfg });
+    assertClose(atrBound.distance, 15, 1e-9, 'ATR binds: 0.5 x 30 = 15 > 3 x 0.34% x 1000 = 10.2');
+    assertEqual(atrBound.binding, 'atr', 'binding');
+    const costBound = netFloorStopDistance({ direction: 'long', entry: 1000, stop: 999, atr15m: 4, riskCfg: cfg });
+    assertClose(costBound.distance, 10.2, 1e-9, 'cost binds for a long (34 bps x 3)');
+    assertEqual(costBound.floorPct, 1.02, 'floorPct');
+    assertEqual(costBound.binding, 'cost', 'binding');
+    const shortCost = netFloorStopDistance({ direction: 'short', entry: 1000, stop: 1001, atr15m: 4, riskCfg: cfg });
+    assertClose(shortCost.distance, 4.2, 1e-9, 'short pays 14 bps: 3 x 0.14% x 1000 = 4.2');
+    const own = netFloorStopDistance({ direction: 'long', entry: 1000, stop: 980, atr15m: 4, riskCfg: cfg });
+    assertEqual(own.distance, 20, 'own 2% stop is already wider than the floor');
+    assertEqual(own.binding, 'own', 'binding');
+    const noAtr = netFloorStopDistance({ direction: 'long', entry: 1000, stop: 999, atr15m: null, riskCfg: cfg });
+    assertClose(noAtr.distance, 10.2, 1e-9, 'no ATR: cost floor only, never a guess');
+  });
+
+  await test('NF shadow READY (long, ATR-bound): stop widened to 985, TP1 unchanged, gross 2.9, net >= 1.0; live plan untouched', () => {
+    const cand = longCandidate({ invalidation: 999, measuredTarget: 1043.5 });
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand, price: 1003, candles: levelCandles('long', 'retest'), geometryContext: geo15(30), shadowVariants: NF_VARIANT }));
+    assertEqual(plan.status, 'ready', 'live plan ready');
+    assertEqual(plan.stop, 999, 'live stop untouched');
+    const nf = plan.shadow && plan.shadow.NF;
+    assert(nf, 'shadow.NF always published');
+    assertEqual(JSON.stringify(Object.keys(nf)), JSON.stringify(['candidateId', 'status', 'reasonCode', 'ready', 'stop', 'tp1', 'grossRR', 'netRR', 'stopPct', 'floorPct']), 'compact NF keys');
+    assertEqual(nf.candidateId, cand.candidateId, 'anchored to the live candidate');
+    assertEqual(nf.stop, 985, 'stop floored at 0.5 x ATR(15m)');
+    assertEqual(nf.tp1, 1043.5, 'TP1 kept at the measured move');
+    assertEqual(nf.grossRR, 2.9, 'gross falls as the stop widens');
+    assertClose(nf.netRR, (43.5 - 3.4) / (15 + 3.4), 0.001, 'net RR with the 34 bps long cost');
+    assertEqual(nf.status, 'ready', 'retest held (the wider stop is not breached)');
+    assertEqual(nf.ready, true, 'clears the net floor');
+    assertEqual(nf.stopPct, 1.5, 'stopPct');
+    assertEqual(nf.floorPct, 1.5, 'floorPct');
+  });
+
+  await test('NF shadow NOT ready (long, cost-bound): the floored stop drops gross under 2.5 while the live plan is ready', () => {
+    const cand = longCandidate({ invalidation: 999, measuredTarget: 1020 });
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand, price: 1003, candles: levelCandles('long', 'retest'), geometryContext: geo15(4), shadowVariants: NF_VARIANT }));
+    assertEqual(plan.status, 'ready', 'live plan ready (gross 20R on a 0.1% stop)');
+    const nf = plan.shadow.NF;
+    assertEqual(nf.status, 'rejected', 'NF rejected');
+    assertEqual(nf.reasonCode, 'rr_below_min', 'gross 20/10.2 = 1.96 < 2.5');
+    assertEqual(nf.ready, false, 'not ready');
+    assertEqual(nf.stop, 989.8, 'stop at the 3 x cost floor');
+    assertEqual(nf.floorPct, 1.02, 'floorPct');
+  });
+
+  await test('NF shadow mirrored short: the 14 bps short cost gives a 0.42% floor, so the same geometry is READY short but NOT long', () => {
+    const cand = shortCandidate({ invalidation: 1001, measuredTarget: 980 });
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand, price: 997, candles: levelCandles('short', 'retest'), geometryContext: geo15(4), shadowVariants: NF_VARIANT }));
+    const nf = plan.shadow.NF;
+    assertEqual(nf.stop, 1004.2, 'short stop floored above entry');
+    assertEqual(nf.ready, true, 'gross 20/4.2 = 4.76, net (20-1.4)/(4.2+1.4) = 3.32');
+    assertEqual(nf.status, 'ready', 'status');
+    assertClose(nf.netRR, 18.6 / 5.6, 0.001, 'netRR');
+    const long = buildFlagTradePlan(baseParams({ candidate: longCandidate({ invalidation: 999, measuredTarget: 1020 }), price: 1003, candles: levelCandles('long', 'retest'), geometryContext: geo15(4), shadowVariants: NF_VARIANT }));
+    assertEqual(long.shadow.NF.ready, false, 'long mirror fails the floor');
+  });
+
+  await test('NF shadow: setup.shadowNF = {ready, netRR} for the SETUP candidate; v3 behaviour unchanged beside it', () => {
+    const live = longCandidate({ invalidation: 985, measuredTarget: 1043.5 });
+    const setupCand = shortCandidate({ candidateId: 'BTC:3m:short:2026-09-23T11:45:00.000Z', timeframe: '3m', invalidation: 1001, measuredTarget: 980, confidence: 60 });
+    const params = baseParams({ candidate: live, price: 1003, candles: levelCandles('long', 'retest'), geometryContext: geo15(4), shadowVariants: FLAG_PLAN_SHADOW_VARIANTS });
+    params.candidateSetups = [live, setupCand];
+    params.tfEntries['3m'] = { closedThrough: FRESH_1M };
+    params.marketByTf['3m'] = { price: 1000.5, atr: 5 };
+    const plan = buildFlagTradePlan(params);
+    assertEqual(plan.status, 'ready', 'live ready');
+    assert(plan.setup && plan.setup.candidateId === setupCand.candidateId, 'setup is the conditional 3m short');
+    assertEqual(JSON.stringify(Object.keys(plan.setup.shadowNF)), JSON.stringify(['ready', 'netRR']), 'setup.shadowNF shape');
+    assertEqual(plan.setup.shadowNF.ready, true, 'the short setup clears the net floor');
+    assert(plan.shadow.NF && plan.shadow.v3, 'both shadows published (v3 differs: gross 2.9 < 3.0)');
   });
 
   // -------------------------------------------------------------------------

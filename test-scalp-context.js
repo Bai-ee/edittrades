@@ -156,6 +156,17 @@ function isSortedAsc(arr) {
   return true;
 }
 
+// T-13: every build now carries flagTradePlan.shadow (NF is always published), and
+// filterPayload strips shadow from every non-model response by design - so "identity"
+// means identical to the build minus that one research-only key.
+function withoutShadow(payload) {
+  const out = JSON.parse(JSON.stringify(payload));
+  for (const sym of Object.values(out.symbols || {})) {
+    if (sym && sym.flagTradePlan && typeof sym.flagTradePlan === 'object') delete sym.flagTradePlan.shadow;
+  }
+  return out;
+}
+
 function deepEqual(a, b) {
   if (typeof a === 'number' && typeof b === 'number' && Number.isNaN(a) && Number.isNaN(b)) return true;
   if (a === b) return true;
@@ -1494,7 +1505,7 @@ async function main() {
     assert(case6Result, 'case 6 result not available');
     const before = JSON.stringify(case6Result);
     const filtered = filterPayload(case6Result, {});
-    assertEqual(JSON.stringify(filtered), before, 'filterPayload({}) must be byte-identical to the unfiltered payload');
+    assertEqual(JSON.stringify(filtered), JSON.stringify(withoutShadow(case6Result)), 'filterPayload({}) must be byte-identical to the unfiltered payload (minus research-only flagTradePlan.shadow)');
     assertEqual(JSON.stringify(case6Result), before, 'filterPayload must not mutate its input');
   });
 
@@ -1502,7 +1513,7 @@ async function main() {
     assert(case6Result, 'case 6 result not available');
     const before = JSON.stringify(case6Result);
     const filtered = filterPayload(case6Result);
-    assertEqual(JSON.stringify(filtered), before, 'omitting opts entirely must behave like {}');
+    assertEqual(JSON.stringify(filtered), JSON.stringify(withoutShadow(JSON.parse(before))), 'omitting opts entirely must behave like {}');
   });
 
   await test('filterPayload never mutates the input payload (symbols/include/compact all set)', () => {
@@ -1785,7 +1796,7 @@ async function main() {
       assert('biasMatrix' in only.symbols[HEALTHY_A] && !('timeframes' in only.symbols[HEALTHY_A]), 'bias only');
       const without = filterPayload(biasResult, { include: ['strategies', 'trace'] });
       for (const k of BIAS_KEYS) assert(!(k in without.symbols[HEALTHY_A]), `${k} dropped`);
-      assertEqual(JSON.stringify(filterPayload(biasResult, {})), JSON.stringify(biasResult), '{} identity');
+      assertEqual(JSON.stringify(filterPayload(biasResult, {})), JSON.stringify(withoutShadow(biasResult)), '{} identity (minus flagTradePlan.shadow)');
       assert(INCLUDE_TOKENS.includes('bias'), 'bias is a known include token');
       assert(!filterPayload(biasResult, { include: ['bias'] }).warnings.some((w) => w.includes('bias')), 'no unknown-token warning');
     });
@@ -1812,8 +1823,11 @@ async function main() {
       assert(INCLUDE_TOKENS.includes('model'), 'model is a known include token');
     });
 
-    await test('T6 completion plan D-variant: FLAG_PLAN_SHADOW_VARIANTS is exactly the one owner-approved V-B variant', () => {
-      assertEqual(JSON.stringify(FLAG_PLAN_SHADOW_VARIANTS), JSON.stringify([{ id: 'v3', minRR: 3.0 }]), 'shadow variant list ("D-variant revised" 2026-09-24: v3, the former live rule, is now the shadow)');
+    await test('T6 completion plan D-variant + T-13: FLAG_PLAN_SHADOW_VARIANTS is exactly v3 (former live rule) and NF (net floor)', () => {
+      assertEqual(JSON.stringify(FLAG_PLAN_SHADOW_VARIANTS), JSON.stringify([
+        { id: 'v3', minRR: 3.0 },
+        { id: 'NF', minRR: 2.5, minNetRR: 1.0, netFloor: { atrTimeframe: '15m', atrMult: 0.5, costMult: 3 } }
+      ]), 'shadow variant list ("D-variant revised" 2026-09-24: v3; T-13 2026-09-26: NF)');
     });
 
     await test('T6 completion plan D-variant: flagTradePlan.shadow is stripped from the default payload (include-less too), kept only under include=model', () => {
@@ -1837,6 +1851,26 @@ async function main() {
       assertEqual(JSON.stringify(modelInclude.symbols.BTC.flagTradePlan.shadow), JSON.stringify(shadowPlan.shadow), 'shadow object itself is untouched under include=model');
     });
 
+    await test('T-13: every built flagTradePlan carries shadow.NF (compact keys), stripped by default, kept under include=model; setup.shadowNF is {ready, netRR}', () => {
+      let plans = 0;
+      for (const [sym, symData] of Object.entries(case6Result.symbols)) {
+        const plan = symData.flagTradePlan;
+        if (!plan) continue;
+        plans++;
+        const nf = plan.shadow && plan.shadow.NF;
+        assert(nf, `${sym}: shadow.NF published`);
+        assertEqual(JSON.stringify(Object.keys(nf)), JSON.stringify(['candidateId', 'status', 'reasonCode', 'ready', 'stop', 'tp1', 'grossRR', 'netRR', 'stopPct', 'floorPct']), `${sym}: NF keys`);
+        assertEqual(nf.candidateId, plan.candidateId, `${sym}: anchored to the live candidate`);
+        assert(!('shadow' in filterPayload(case6Result, {}).symbols[sym].flagTradePlan), `${sym}: stripped by default`);
+        assert('NF' in filterPayload(case6Result, { include: ['model'] }).symbols[sym].flagTradePlan.shadow, `${sym}: kept under include=model`);
+        const setup = symData.flagRecommendation && symData.flagRecommendation.setup;
+        if (setup) assertEqual(JSON.stringify(Object.keys(setup.shadowNF || {})), JSON.stringify(['ready', 'netRR']), `${sym}: setup.shadowNF`);
+      }
+      console.log(`      (${plans} built plan(s) checked)`);
+      const trace = Object.values(case6Result.symbols).map((x) => x.flagRecommendation && x.flagRecommendation.trace).find(Boolean);
+      if (trace) assert(!('symbol' in trace) && !('class' in trace), 'compact trace drops symbol/class (T-13 byte budget)');
+    });
+
     await test('T6 completion plan D-variant: a flagTradePlan with no shadow field passes through unchanged either way', () => {
       const plainPlan = { status: 'ready', reasonCode: null, candidateId: 'BTC:1m:long:y', entry: 1000, stop: 990, tp1: 1040 };
       const payload = { warnings: [], symbols: { BTC: { price: 1000, flagTradePlan: plainPlan } } };
@@ -1855,7 +1889,7 @@ async function main() {
 
     await test('review fix 6a: default flagRecommendation is codes + one-line text; the full record is model.recommendation only', async () => {
       // Phase 2 (schema 1.18.0): `candidate` names the nearest flag on a no-plan WATCH (else null).
-      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'setup', 'action', 'room', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
+      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'setup', 'action', 'room', 'clarity', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
       for (const [sym, symData] of Object.entries(case6Result.symbols)) {
         const r = symData.flagRecommendation;
         assertEqual(JSON.stringify(Object.keys(r)), JSON.stringify(COMPACT_KEYS), `${sym}: compact keys`);
@@ -1990,7 +2024,10 @@ async function main() {
             tp1: 109.4,
             grossRR: 3.06,
             netRR: 2.51,
-            entryCondition: 'a closed candle closes below 114.9, then a later closed candle\'s high reaches within 0.1 ATR of 114.9 and closes at or below it'
+            entryCondition: 'a closed candle closes below 114.9, then a later closed candle\'s high reaches within 0.1 ATR of 114.9 and closes at or below it',
+            // T-13: the NF net floor verdict for the SETUP candidate (worst case: a
+            // two-decimal netRR, the longest value it can publish).
+            shadowNF: { ready: false, netRR: 0.87 }
           },
           qualityBand: 'high',
           policyVersion: 'flag-21-decision-v1',
@@ -1998,7 +2035,9 @@ async function main() {
           opposes: ['chan:15m:top:elevated', 'level:15m:118.90'],
           unknowns: ['ema200:1w:missing'],
           changeConditions: [{ code: 'entry_condition', text: 'a closed candle closes above 114.05, then a later closed candle\'s low reaches within 0.1 ATR of 114.05 and closes at or above it' }],
-          trace: { symbol, class: 'GOOD', code: 'ready_flag_plan', score: 92, planStatus: 'ready', planReasonCode: null }
+          // T-13: compactRecommendation drops trace.symbol/trace.class (repeats of the
+          // symbols key and `class`) from the default form - mirrored here.
+          trace: { code: 'ready_flag_plan', score: 92, planStatus: 'ready', planReasonCode: null }
         };
       }
 
