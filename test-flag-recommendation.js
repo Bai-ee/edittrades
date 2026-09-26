@@ -432,17 +432,17 @@ async function run() {
   await test('1.27.0 clarity gate: rr under the plan floor, room, chase block; rr over the floor and non-blocking codes pass (long + short)', () => {
     for (const dir of ['long', 'short']) {
       const rr = buildClarity({ candidate: clarCand(dir, ['rr:1.9']), minRR: 2.5 }).gate;
-      assertEqual(JSON.stringify(rr), JSON.stringify({ passable: false, blockers: ['rr:1.9'], text: `R 1.9 under 2.5 floor; needs TP beyond ${dir === 'long' ? '83,700.00' : '82,300.00'}` }), `${dir}: rr`);
+      assertEqual(JSON.stringify(rr), JSON.stringify({ passable: false, blockers: ['rr:1.9'], text: `R 1.9 under 2.5 floor; needs TP beyond ${dir === 'long' ? '83,700.00' : '82,300.00'}`, minRR: 2.5 }), `${dir}: rr`);
       const room = buildClarity({ candidate: clarCand(dir, ['conflict:5m-short', 'room:blocked-15m']), minRR: 2.5 }).gate;
-      assertEqual(JSON.stringify(room), JSON.stringify({ passable: false, blockers: ['room:blocked-15m'], text: 'a 15m level blocks the measured target' }), `${dir}: room`);
+      assertEqual(JSON.stringify(room), JSON.stringify({ passable: false, blockers: ['room:blocked-15m'], text: 'a 15m level blocks the measured target', minRR: 2.5 }), `${dir}: room`);
       const chase = buildClarity({ candidate: clarCand(dir, ['chase', 'rr:2.1']), minRR: 2.5 }).gate;
       assertEqual(chase.passable, false, `${dir}: chase`);
       assertEqual(JSON.stringify(chase.blockers), JSON.stringify(['chase', 'rr:2.1']), `${dir}: chase + rr, qual order`);
       assert(chase.text.startsWith('price ran past the breakout; R 2.1 under 2.5 floor'), chase.text);
       const none = buildClarity({ candidate: clarCand(dir, ['rr:2.8', 'ct:4h', 'ema200:counter', 'stoch:ob-cross']), minRR: 2.5 }).gate;
-      assertEqual(JSON.stringify(none), JSON.stringify({ passable: true, blockers: [], text: null }), `${dir}: nothing blocking`);
+      assertEqual(JSON.stringify(none), JSON.stringify({ passable: true, blockers: [], text: null, minRR: 2.5 }), `${dir}: nothing blocking`);
       const dead = buildClarity({ candidate: clarCand(dir, [], { state: 'failed', qual: { decision: 'dont', reasons: [] } }) }).gate;
-      assertEqual(JSON.stringify(dead), JSON.stringify({ passable: false, blockers: [], text: 'flag failed' }), `${dir}: dont`);
+      assertEqual(JSON.stringify(dead), JSON.stringify({ passable: false, blockers: [], text: 'flag failed', minRR: 2.5 }), `${dir}: dont`);
     }
   });
 
@@ -471,7 +471,7 @@ async function run() {
     }
   });
 
-  await test('1.27.0 clarity context: every qual code in words, blocking first; td 2/4 = split; divergence one line with counts', () => {
+  await test('1.27.0 clarity context: non-blocking qual codes in words (blockers live in gate.text); td 2/4 = split; divergence one line with counts', () => {
     const words = {
       'room:blocked-15m': 'a 15m level blocks the measured target', chase: 'price ran past the breakout', 'rr:1.9': 'measured move only 1.9R',
       'conflict:5m-short': 'opposite 5m short flag active', 'stoch:ob-cross': 'Stoch RSI overbought with a bearish cross',
@@ -480,8 +480,8 @@ async function run() {
     for (const [code, text] of Object.entries(words)) assertEqual(qualWords(code), text, code);
     const c = clarCand('long', ['conflict:5m-short', 'stoch:ob-cross', 'ema200:counter', 'ct:4h', 'chase', 'rr:1.9', 'room:blocked-15m']);
     const cl = buildClarity({ candidate: c, topDown: { sentiment: 'bull', aligned: 2 }, divergence: { bullish: 1, bearish: 2 } });
+    assertEqual(JSON.stringify(cl.gate.blockers), JSON.stringify(['chase', 'rr:1.9', 'room:blocked-15m']), 'blockers in gate');
     assertEqual(JSON.stringify(cl.context), JSON.stringify([
-      'price ran past the breakout', 'measured move only 1.9R', 'a 15m level blocks the measured target',
       'opposite 5m short flag active', 'Stoch RSI overbought with a bearish cross', 'against EMA200', '4h lean against the trade',
       'Top-down: split 2/4', 'Divergence: 1 tf agrees, 2 against'
     ]), 'order + words');

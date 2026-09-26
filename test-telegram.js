@@ -473,7 +473,7 @@ async function run() {
     checkAlert(t, ['🟡 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>WAIT (2m)</b> — R 1.9 under 2.5 floor; needs TP beyond 83,700.00'], 'rr');
     assert(!t.includes('BE READY'), t);
     assertEqual(secs(t)[3], [
-      'measured move only 1.9R', 'Top-down: bull 3/4', 'Divergence: 1 tf agrees, 2 against',
+      'Top-down: bull 3/4', 'Divergence: 1 tf agrees, 2 against',
       'Kill if: close back below 83,000.00 after a probe = defended, stand down',
       'Other side: if it fails, rotation to 82,500.00–82,600.00 (15m support)'
     ].join('\n'), 'context: qual words, top-down, one divergence line with counts, kill, other side');
@@ -481,7 +481,7 @@ async function run() {
     const room = { ...base, measuredRR: 3.2, qual: { decision: 'wait', reasons: ['conflict:5m-short', 'room:blocked-15m'] } };
     const tr = formatWatchAlert('BTC', room, recFor(room), { asOf: ASOF_3M });
     checkAlert(tr, ['🔴 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>STAND DOWN</b> — a 15m level blocks the measured target'], 'room');
-    assert(secs(tr)[3].startsWith('a 15m level blocks the measured target\nopposite 5m short flag active'), 'blocking first');
+    assert(secs(tr)[3].startsWith('opposite 5m short flag active'), 'blocker only in the verdict, not repeated in context');
     // chase on a candidate that is NOT the record's subject -> read from its own qual, short mirror.
     const chase = { ...base, candidateId: 'BTC:3m:short:other', direction: 'short', invalidation: 83280, measuredRR: 3.4, qual: { decision: 'wait', reasons: ['chase'] } };
     const tc = formatWatchAlert('BTC', chase, recFor(rr), { asOf: ASOF_3M });

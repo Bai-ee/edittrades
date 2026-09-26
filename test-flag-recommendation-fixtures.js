@@ -426,7 +426,7 @@ async function run() {
       const good = build(dir, { dir });
       assertEqual(JSON.stringify(good.clarity), JSON.stringify({
         candidateId: `BTC:1m:${dir}:2026-09-23T11:50:00.000Z`,
-        gate: { passable: true, blockers: [], text: null },
+        gate: { passable: true, blockers: [], text: null, minRR: 2.5 },
         killIf: { level: 1000, text: `close back ${up ? 'below' : 'above'} 1,000.00 after a probe = defended, stand down` },
         otherSide: { low: null, high: null, source: null, text: null },
         context: [`Top-down: ${withSent(dir)} 4/4`, 'Divergence: 1 tf agrees'],
@@ -438,8 +438,8 @@ async function run() {
       const c = [candidate(dir, { breakoutLevel: 2678.79, invalidation: up ? 2670 : 2687, measuredTarget: up ? 2710 : 2647, qual: { reasons: ['chase', `conflict:5m-${up ? 'short' : 'long'}`] } })];
       const chase = build(dir, { dir, p, c, g: {} });
       assertEqual(chase.class, 'BAD', `${dir}: class unchanged`);
-      assertEqual(JSON.stringify(chase.clarity.gate), JSON.stringify({ passable: false, blockers: ['chase'], text: 'price ran past the breakout' }), `${dir}: chase gate`);
-      assertEqual(JSON.stringify(chase.clarity.context.slice(0, 2)), JSON.stringify(['price ran past the breakout', `opposite 5m ${up ? 'short' : 'long'} flag active`]), `${dir}: blocking first`);
+      assertEqual(JSON.stringify(chase.clarity.gate), JSON.stringify({ passable: false, blockers: ['chase'], text: 'price ran past the breakout', minRR: 2.5 }), `${dir}: chase gate`);
+      assertEqual(chase.clarity.context[0], `opposite 5m ${up ? 'short' : 'long'} flag active`, `${dir}: blocker stays out of context`);
 
       const forming = candidate(dir, { candidateId: `BTC:3m:${dir}:f`, timeframe: '3m', state: 'forming', breakoutLevel: 84466.1, invalidation: up ? 84300 : 84632.2, measuredRR: 1.9, qual: { decision: 'watch', reasons: ['rr:1.9'] } });
       const zone = up ? { low: 84100, high: 84200 } : { low: 84732.2, high: 84832.2 };
