@@ -616,6 +616,18 @@ async function run() {
     // 2026-09-26 live: the wrapper threw "referencePrice (USD) is required" on Close 50 %.
     assert(closeOpts && closeOpts.referencePrice > 0, `live close passes referencePrice (got ${JSON.stringify(closeOpts)})`);
 
+    // Keeper-filled close (2026-09-26 live Close 50 %): the request lands, the position only
+    // shrinks a few seconds later. verifyClose polls instead of reading once.
+    let reads = 0;
+    const lateJupiter = fakeJupiter({ closePerpPosition: async () => ({ success: true, signature: '3xLandsThenFills' + 'b'.repeat(63) }) });
+    lateJupiter.positions = [{ ...openPos }];
+    const origGet = lateJupiter.getPerpPositions;
+    lateJupiter.getPerpPositions = async (...a) => { reads++; if (reads === 4) lateJupiter.positions = [{ ...openPos, sizeUsd: openPos.sizeUsd / 2 }]; return origGet(...a); };
+    const late = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }), jupiter: lateJupiter });
+    const half = await late.ex.closePosition('PosAAA', openPos.sizeUsd / 2, PIN, ctx);
+    eq(half.ok, true, `partial close verifies once the keeper fills (reads=${reads}): ${JSON.stringify(half.reasons)}`);
+    eq(late.journal.filter((j) => j.kind === 'close').length, 1, 'journaled after the fill');
+
     const updateJupiter = fakeJupiter();
     updateJupiter.updatePerpPosition = async (positionId) => {
       const idx = updateJupiter.positions.findIndex((p) => p.positionId === positionId);
