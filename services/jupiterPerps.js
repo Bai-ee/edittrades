@@ -786,7 +786,10 @@ export async function buildOpenPosition({ market, direction, sizeUsd, leverage =
   // Custody's dedicated Doves oracle account vs. its primary oracle account (typically the
   // Pythnet feed). jup-perps-client's Custody decoder exposes both separately (dovesOracle,
   // oracle.oracleAccount); this mapping is a documented assumption pending official IDL docs.
-  const custodyDovesPriceAccount = String(custody.data.dovesOracle);
+  // The program's constraint on this account is the custody's AGGREGATED Doves oracle
+  // (dovesAgOracle), not dovesOracle: verified live 2026-09-26 (InvalidOracleAccount 6002,
+  // Anchor "Right:" log = dovesAgOracle) after the first real open's stops failed.
+  const custodyDovesPriceAccount = String(custody.data.dovesAgOracle);
   const custodyPythnetPriceAccount = custody.data.oracle?.oracleAccount ? String(custody.data.oracle.oracleAccount) : PublicKey.default.toBase58();
 
   const triggerIxs = [];
@@ -974,7 +977,10 @@ export async function buildUpdateStops({ positionId, market, direction, stop = n
   const [perpetualsPDA] = await derivePerpetualsPDA();
   const collateralMint = new PublicKey(collateralCustody.data.mint);
   const ownerAta = getAssociatedTokenAddressSync(collateralMint, ownerPubkey, false);
-  const custodyDovesPriceAccount = String(custody.data.dovesOracle);
+  // The program's constraint on this account is the custody's AGGREGATED Doves oracle
+  // (dovesAgOracle), not dovesOracle: verified live 2026-09-26 (InvalidOracleAccount 6002,
+  // Anchor "Right:" log = dovesAgOracle) after the first real open's stops failed.
+  const custodyDovesPriceAccount = String(custody.data.dovesAgOracle);
   const custodyPythnetPriceAccount = custody.data.oracle?.oracleAccount ? String(custody.data.oracle.oracleAccount) : PublicKey.default.toBase58();
 
   const sizeUsdDelta = BigInt(Math.floor((positionSizeUsd || 0) * USD_DECIMALS));
@@ -1057,7 +1063,10 @@ export async function buildReplaceTriggerRequest({ positionId, positionRequestId
   const poolPubkey = new PublicKey(JUPITER_PERPS_POOL);
   const positionPDA = new PublicKey(positionId);
   const [perpetualsPDA] = await derivePerpetualsPDA();
-  const custodyDovesPriceAccount = String(custody.data.dovesOracle);
+  // The program's constraint on this account is the custody's AGGREGATED Doves oracle
+  // (dovesAgOracle), not dovesOracle: verified live 2026-09-26 (InvalidOracleAccount 6002,
+  // Anchor "Right:" log = dovesAgOracle) after the first real open's stops failed.
+  const custodyDovesPriceAccount = String(custody.data.dovesAgOracle);
   const custodyPythnetPriceAccount = custody.data.oracle?.oracleAccount ? String(custody.data.oracle.oracleAccount) : PublicKey.default.toBase58();
 
   const ix = getUpdateDecreasePositionRequest2Instruction({
