@@ -16,6 +16,7 @@
     "test:wallet": "node test-wallet-tracker.js",
     "test:config": "node test-engine-config.js",
     "test:risk": "node test-risk-engine.js",
+    "test:riskpolicy": "node test-risk-policy.js",
     "test:pattern": "node test-pattern-detector.js",
     "test:geometry": "node test-geometry.js",
     "test:chart": "node test-chart-render.js",

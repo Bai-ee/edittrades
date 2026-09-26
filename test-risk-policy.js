@@ -152,6 +152,13 @@ async function run() {
     assert(r.reasons.includes('exposure_over'), `expected exposure_over, got ${r.reasons}`);
   });
 
+  await test('exposurePctBefore is the existing exposure only, exposurePct includes the new intent (for a before -> after ticket line)', () => {
+    const equityUsd = 10000;
+    const r = evaluateRiskPolicy({ equityUsd, openPositions: [{ symbol: 'ETH', sizeUsd: 300 }], intent: { ...LONG_INTENT, sizeUsd: 200 } });
+    assertClose(r.exposurePctBefore, 3, 0.01);
+    assertClose(r.exposurePct, 5, 0.01);
+  });
+
   await test('exposure under the cap does not refuse', () => {
     const equityUsd = 10000;
     const r = evaluateRiskPolicy({ equityUsd, openPositions: [{ symbol: 'ETH', sizeUsd: 500 }], intent: { ...LONG_INTENT, sizeUsd: 500 } });

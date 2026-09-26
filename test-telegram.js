@@ -34,7 +34,8 @@ import {
   RULE, MAX_CARD_CHARS, resolveRef, formatPlanCard, formatThesisCard, reasonPhrase, rMultiple, trackEntry, applyTrackChange, formatTrackingList, trackingKeyboard,
   diffTracked, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, candidateSnapshot, swapTrackButton, parseAlertTimeframes,
   TRACK_MAX, TRACK_TTL_MS, NUDGE_AFTER_MS, EXPIRED_REPLY, liveView, formatMarket, marketLean, formatHelp,
-  isOpenReady, parseOrderArgs, parseConfirmArgs, orderIntentFromPlan, formatTicketCard, EXEC_TICKETS_PATH
+  isOpenReady, parseOrderArgs, parseConfirmArgs, orderIntentFromPlan, formatTicketCard, EXEC_TICKETS_PATH,
+  parseRiskArgs, applyRiskPrefsChange, formatRiskStatus, normalizeRiskPrefs, formatExecStatus, RISK_PREF_KEYS
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor, config as webhookConfig } from './api/telegram-webhook.js';
@@ -778,13 +779,13 @@ async function run() {
   });
 
   await test('prefs persist in state: normalize, apply, parseState keeps off, diffAlerts carries prefs', () => {
-    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"]}', 'garbage -> defaults');
+    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"risk":{}}', 'garbage -> defaults');
     const off = parseState(applyPrefsChange(null, { quiet: null }));
     assertEqual(off.prefs.quiet, null, 'off persists as null');
     const lv = parseState(applyPrefsChange(JSON.stringify({ ...emptyState(), symbols: { BTC: { goodIds: ['k'] } } }), { level: 'watch' }));
     assertEqual(`${lv.prefs.level}|${lv.symbols.BTC.goodIds[0]}`, 'watch|k', 'level saved, alert memory kept');
     const d = diffAlerts(withPrefs('good', null), payload(), T0);
-    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"]}', 'diff keeps prefs');
+    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"risk":{}}', 'diff keeps prefs');
     assert(formatAlertPrefs(d.state.prefs).includes('Alert level: <b>good</b>') && formatAlertPrefs(d.state.prefs).includes('Quiet hours: off'), 'prefs text');
   });
 
@@ -796,7 +797,7 @@ async function run() {
     assert(set.tg.calls[0].text.startsWith('Saved.') && set.tg.calls[0].text.includes('<b>watch</b>'), set.tg.calls[0].text);
     await hook({ text: '/alerts quiet 22-06', blob });
     let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
-    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"]}', 'persisted');
+    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"risk":{}}', 'persisted');
     const q = await hook({ text: '/alerts quiet', blob });
     assertEqual(q.tg.calls[0].text, 'Quiet hours: 22:00–06:00 America/Chicago, every day (alerts arrive silently)', 'quiet show');
     await hook({ text: '/alerts quiet off', blob });
@@ -1082,7 +1083,7 @@ async function run() {
     const blob = fakeBlob();
     await tap({ data: 'alerts:watch', blob });
     await tap({ data: 'alerts:quiet:off', blob });
-    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"]}', 'level + off');
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"risk":{}}', 'level + off');
     const on = await tap({ data: 'alerts:quiet:on', blob });
     assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.quiet), '{"start":1,"end":5}', 'on = default');
     assert(on.tg.calls[1].replyMarkup.inline_keyboard, 'alerts buttons again');
@@ -1160,7 +1161,7 @@ async function run() {
     const v1 = toV1(first);
     const m = migrateState(JSON.stringify(v1));
     assertEqual(`${m.fromVersion}|${m.migrated}|${m.reset}|${m.state.stateVersion}`, `1|true|false|${STATE_VERSION}`, 'migration flags');
-    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'] }), 'default prefs');
+    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], risk: {} }), 'default prefs');
     assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
     const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
     const fromV1 = diffAlerts(m.state, next, T0 + MIN);
@@ -1884,11 +1885,67 @@ async function run() {
 
   await test('help and menu list the new commands; no execution import (Plan / Track / Positions are read + journal only)', () => {
     const help = formatHelp();
-    for (const f of ['/positions', '/tracking', '/market', '/alerts tf', 'Plan (levels + sizing)', 'Took it (journals an open and tracks TP1 / stop)', 'Closed here / Partial / Still in']) assert(help.includes(f), `help missing ${f}`);
+    for (const f of ['/positions', '/tracking', '/market', '/alerts tf', '/risk', 'Plan (levels + sizing)', 'Took it (journals an open and tracks TP1 / stop)', 'Closed here / Partial / Still in']) assert(help.includes(f), `help missing ${f}`);
     for (const f of ['lib/telegram.js', 'api/telegram-webhook.js', 'api/telegram-cron.js']) {
       const src = readFileSync(path.join(root, f), 'utf8');
       assert(!/execute-trade|jupiterPerps|walletManager|signTransaction|Keypair/.test(src), `${f} reaches execution`);
     }
+  });
+
+  console.log('\nrisk policy prefs (T-8, pure)');
+
+  await test('normalizeRiskPrefs keeps only known keys, positive finite numbers; never throws on garbage', () => {
+    assertEqual(JSON.stringify(normalizeRiskPrefs({ pctPerTrade: 0.3, maxExposurePct: -1, notAKey: 9, minFreeGasSol: 'x' })), '{"pctPerTrade":0.3}', 'sanitized');
+    assertEqual(JSON.stringify(normalizeRiskPrefs(null)), '{}', 'null');
+    assertEqual(JSON.stringify(normalizeRiskPrefs('nonsense')), '{}', 'garbage');
+    assertEqual(RISK_PREF_KEYS.length, 6, 'six known knobs');
+  });
+
+  await test('parseRiskArgs: show, reset, KEY VALUE for every alias, and errors', () => {
+    assertEqual(JSON.stringify(parseRiskArgs([])), '{"action":"show"}', 'show');
+    assertEqual(JSON.stringify(parseRiskArgs(['reset'])), '{"action":"reset"}', 'reset');
+    assertEqual(JSON.stringify(parseRiskArgs(['pct', '0.3'])), '{"action":"set","key":"pctPerTrade","value":0.3}', 'pct');
+    assertEqual(JSON.stringify(parseRiskArgs(['exposure', '20'])), '{"action":"set","key":"maxExposurePct","value":20}', 'exposure');
+    assertEqual(JSON.stringify(parseRiskArgs(['symbolexposure', '10'])), '{"action":"set","key":"maxPerSymbolPct","value":10}', 'symbolexposure');
+    assertEqual(JSON.stringify(parseRiskArgs(['dailydd', '2'])), '{"action":"set","key":"dailyDrawdownPct","value":2}', 'dailydd');
+    assertEqual(JSON.stringify(parseRiskArgs(['weeklydd', '6'])), '{"action":"set","key":"weeklyDrawdownPct","value":6}', 'weeklydd');
+    assertEqual(JSON.stringify(parseRiskArgs(['gas', '0.1'])), '{"action":"set","key":"minFreeGasSol","value":0.1}', 'gas');
+    for (const bad of [['pct'], ['pct', '0'], ['pct', '-1'], ['pct', 'x'], ['bogus', '1'], ['pct', '1', 'extra']]) assertEqual(parseRiskArgs(bad).action, 'error', `error ${bad}`);
+  });
+
+  await test('applyRiskPrefsChange: set writes one key, reset clears all, untouched prefs survive', () => {
+    const withLevel = applyPrefsChange(null, { level: 'watch' });
+    const withRisk = applyRiskPrefsChange(withLevel, { action: 'set', key: 'pctPerTrade', value: 0.3 });
+    const st = parseState(withRisk);
+    assertEqual(st.prefs.level, 'watch', 'unrelated pref survives');
+    assertEqual(st.prefs.risk.pctPerTrade, 0.3, 'risk override written');
+    // A later /alerts change must not wipe the risk override (normalizePrefs carries it through).
+    const afterAlerts = applyPrefsChange(withRisk, { level: 'good' });
+    assertEqual(parseState(afterAlerts).prefs.risk.pctPerTrade, 0.3, 'risk override survives an unrelated /alerts change');
+    const cleared = applyRiskPrefsChange(afterAlerts, { action: 'reset' });
+    assertEqual(JSON.stringify(parseState(cleared).prefs.risk), '{}', 'reset clears every override');
+  });
+
+  await test('formatRiskStatus: renders the effective policy, equity/exposure/drawdown, and marks owner overrides', () => {
+    const status = {
+      risk: {
+        equityUsd: 1200, exposurePct: 15, drawdown: { dayPct: 1.2, weekPct: 3.4 },
+        policy: { pctPerTrade: 0.3, maxExposurePct: 25, maxPerSymbolPct: 15, dailyDrawdownPct: 3, weeklyDrawdownPct: 8, minFreeGasSol: 0.05 }
+      }
+    };
+    const t = formatRiskStatus(status, { pctPerTrade: 0.3 });
+    for (const f of ['RISK POLICY', '0.3% (owner override)', '25% (env default)', '$1,200.00', '15%', '1.2% day', '3.4% week']) assert(t.includes(f), `missing ${f}: ${t}`);
+    const noOverride = formatRiskStatus(status, {});
+    assert(noOverride.includes('0.3% (env default)'), 'no override -> env default label even if the number happens to differ from RISK_DEFAULTS');
+  });
+
+  await test('formatTicketCard: risk line (risk $ (pct% eq) · exposure before% -> after%) and a suggested-size note', () => {
+    const pf = { order: { symbol: 'BTC', direction: 'long', sizeUsd: 500, leverage: 5, expectedFill: 84600, stop: 84390, tp1: 85146, maxLossUsd: 1.18, feesUsd: 0.07, riskUsd: 2, riskPct: 0.2, exposurePctBefore: 3, exposurePct: 8, suggestedSizeUsd: 300 } };
+    const t = formatTicketCard({ symbol: 'BTC', direction: 'long' }, pf, { nonce: 'abcd1234', expiresAt: new Date(T0 + 60_000).toISOString() }, { mode: 'dry', nowMs: T0 });
+    assert(t.includes('risk') && t.includes('0.2') && t.includes('3%') && t.includes('8%'), `risk row missing: ${t}`);
+    assert(t.includes('suggested $300.00'), `suggested-size note missing: ${t}`);
+    const under = formatTicketCard({ symbol: 'BTC', direction: 'long' }, { order: { ...pf.order, sizeUsd: 100, suggestedSizeUsd: 300 } }, { nonce: 'abcd1234', expiresAt: new Date(T0 + 60_000).toISOString() }, { mode: 'dry', nowMs: T0 });
+    assert(!under.includes('suggested $'), 'no suggestion note when the intent size is already under the suggestion');
   });
 
   console.log('\nexecution (T-3 B, mocked executor)');
@@ -1909,7 +1966,7 @@ async function run() {
   }
   const xpayload = (call) => payload({ BTC: goodRiskSym(call) });
   const chainPos = { positionId: POS_ID, market: 'BTCUSDT', symbol: 'BTC', direction: 'long', sizeUsd: 50, collateralUsd: 16.67, leverage: 3, entryPrice: 84600, markPrice: 84650, liquidationPrice: 57000, unrealizedPnlUsd: 0.03 };
-  function mockExecutor({ mode = 'dry', preflight = null, positions = [chainPos], withPrepare = true, killOk = true, openOutcome = null } = {}) {
+  function mockExecutor({ mode = 'dry', preflight = null, positions = [chainPos], withPrepare = true, killOk = true, openOutcome = null, risk = null, riskPrefBound = null } = {}) {
     const calls = [];
     const orders = new Map();
     const ex = {
@@ -1948,7 +2005,13 @@ async function run() {
       async closePosition(positionId, sizeUsd, pin, ctx) { calls.push(['closePosition', positionId, sizeUsd, pin]); return pin === PIN ? { ok: true, mode, dryRunId: 'dry_close_2', reasons: [] } : { ok: false, mode, reasons: ['pin_wrong'], error: 'pin_wrong' }; },
       async updateStops(positionId, stop, tp, pin, ctx) { calls.push(['updateStops', positionId, stop, tp, pin]); return { ok: true, mode, dryRunId: 'dry_upd_1', reasons: [] }; },
       async listPositions() { calls.push(['listPositions']); return positions === null ? { ok: false, positions: [], error: 'wallet_unavailable' } : { ok: true, positions, error: null }; },
-      async status() { calls.push(['status']); return { ok: true, enabled: true, mode, kill: { active: false, source: null }, caps: { maxSizeUsd: 50, maxLeverage: 3, maxLossUsdPerTrade: 5, maxDailyLossUsd: 15, maxOpenPositions: 2 }, dailyLossUsd: 1.25, openCount: 1, walletMarginUsd: 120.5 }; },
+      // A real status(prefsRisk) folds prefsRisk into risk.policy (lib/execution/riskPolicy.js
+      // applyRiskPrefs); this mock mirrors that so a T-8 test can see the effective number.
+      async status(prefsRisk) {
+        calls.push(['status', prefsRisk]);
+        const mergedRisk = risk ? { ...risk, policy: { ...risk.policy, ...(prefsRisk || {}) } } : null;
+        return { ok: true, enabled: true, mode, kill: { active: false, source: null }, caps: { maxSizeUsd: 50, maxLeverage: 3, maxLossUsdPerTrade: 5, maxDailyLossUsd: 15, maxOpenPositions: 2 }, dailyLossUsd: 1.25, openCount: 1, walletMarginUsd: 120.5, ...(mergedRisk ? { risk: mergedRisk } : {}) };
+      },
       async kill(ctx, reason) { calls.push(['kill', ctx, reason]); return killOk ? { ok: true, reasons: [] } : { ok: false, reasons: ['kill_write_failed'] }; },
       async arm(pin, ctx) { calls.push(['arm', pin]); return pin === PIN ? { ok: true, reasons: [], envKillStill: false } : { ok: false, reasons: ['pin_wrong'] }; },
       async cancelTicket(nonce, ctx) { calls.push(['cancelTicket', nonce, ctx]); const had = orders.delete(nonce); return had ? { ok: true, reasons: [] } : { ok: false, reasons: ['nonce_unknown'] }; }
@@ -1957,6 +2020,7 @@ async function run() {
       ex.prepareClose = async (positionId, sizeUsd, ctx) => { calls.push(['prepareClose', positionId, sizeUsd]); return { ok: true, reasons: [], order: { action: 'close', mode, positionId, symbol: 'BTC', direction: 'long', sizeUsd, positionSizeUsd: 50 } }; };
       ex.prepareUpdate = async (positionId, stop, tp, ctx) => { calls.push(['prepareUpdate', positionId, stop, tp]); return { ok: true, reasons: [], order: { action: 'update', mode, positionId, symbol: 'BTC', direction: 'long', stop, tp } }; };
     }
+    if (riskPrefBound) ex.riskPrefBound = (key) => { calls.push(['riskPrefBound', key]); return riskPrefBound(key); };
     return ex;
   }
   const deps = (o) => ({ build: o.build || (async () => xpayload()), put: o.blob.put, get: o.blob.get, fetchImpl: o.tg.fetchImpl, render: fakeRender, now: () => o.nowMs ?? T0, env: o.env || XENV, ...(o.executor !== undefined ? { executor: o.executor } : {}), ...(o.importExecutor ? { importExecutor: o.importExecutor } : {}) });
@@ -2260,6 +2324,28 @@ async function run() {
     assert(lastText(aw).startsWith('❌ <b>PIN</b>'), lastText(aw));
     const m = await xhook({ text: '/mode', executor: ex });
     assert(lastText(m).includes('DRY RUN') && lastText(m).includes('env-only'), lastText(m));
+  });
+
+  await test('/risk (T-8): show renders the policy + snapshot; set/reset writes state.prefs.risk, bounded via riskPrefBound', async () => {
+    const riskSnap = { equityUsd: 900, exposurePct: 12, drawdown: { dayPct: 0.5, weekPct: 1.1 }, policy: { pctPerTrade: 0.5, maxExposurePct: 25, maxPerSymbolPct: 15, dailyDrawdownPct: 3, weeklyDrawdownPct: 8, minFreeGasSol: 0.05 } };
+    const ex = mockExecutor({ risk: riskSnap, riskPrefBound: (key) => (key === 'pctPerTrade' ? 0.5 : 25) });
+    const blob = fakeBlob();
+    const show = await xhook({ text: '/risk', executor: ex, blob });
+    assert(lastText(show).includes('RISK POLICY') && lastText(show).includes('0.5% (env default)') && lastText(show).includes('$900.00'), lastText(show));
+    const ok = await xhook({ text: '/risk pct 0.3', executor: ex, blob });
+    assert(lastText(ok).startsWith('Saved.') && lastText(ok).includes('0.3% (owner override)'), lastText(ok));
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.risk.pctPerTrade, 0.3, 'persisted');
+    const rejected = await xhook({ text: '/risk pct 5', executor: ex, blob });
+    assert(rejected.res, 'sent');
+    assert(lastText(rejected).includes('REJECTED') && lastText(rejected).includes('0.5'), lastText(rejected));
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.risk.pctPerTrade, 0.3, 'unchanged after rejection');
+    const bad = await xhook({ text: '/risk bogus', executor: ex, blob });
+    assert(lastText(bad).includes('Usage'), lastText(bad));
+    const reset = await xhook({ text: '/risk reset', executor: ex, blob });
+    assert(lastText(reset).startsWith('Saved.'), lastText(reset));
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.risk), '{}', 'reset clears it');
+    const off = await xhook({ text: '/risk', env: ENV }); // TRADE_EXECUTION_ENABLED not true
+    assert(lastText(off).includes('Execution off'), lastText(off));
   });
 
   await test('review 2026-09-25: isOpenReady needs class GOOD and GET IN NOW; the intent carries recClass', () => {
