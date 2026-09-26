@@ -1449,7 +1449,7 @@ async function main() {
 
   await test('buildScalpContext (case 6) carries schemaVersion 1.25.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.25.0', 'schemaVersion must be bumped to 1.25.0');
+    assertEqual(case6Result.schemaVersion, '1.27.0', 'schemaVersion must be bumped to 1.27.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1855,7 +1855,8 @@ async function main() {
 
     await test('review fix 6a: default flagRecommendation is codes + one-line text; the full record is model.recommendation only', async () => {
       // Phase 2 (schema 1.18.0): `candidate` names the nearest flag on a no-plan WATCH (else null).
-      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'setup', 'action', 'room', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
+      // Alert clarity (schema 1.27.0): `clarity` (gate / killIf / otherSide / context) follows `room`.
+      const COMPACT_KEYS = ['class', 'setupId', 'candidateId', 'candidate', 'asOf', 'primaryReason', 'readiness', 'setup', 'action', 'room', 'clarity', 'qualityBand', 'policyVersion', 'supports', 'opposes', 'unknowns', 'changeConditions', 'trace'];
       for (const [sym, symData] of Object.entries(case6Result.symbols)) {
         const r = symData.flagRecommendation;
         assertEqual(JSON.stringify(Object.keys(r)), JSON.stringify(COMPACT_KEYS), `${sym}: compact keys`);

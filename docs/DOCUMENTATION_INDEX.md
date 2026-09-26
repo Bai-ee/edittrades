@@ -21,6 +21,7 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 - **[PLAN_SERVED_CALLS.md](./PLAN_SERVED_CALLS.md)** — T3, served calls (built 2026-09-24): every call the GPT is served through `GET /api/scalp-context` is recorded to Blob `served/` (1500 ms cap, response unchanged, `TRACK_SERVED_CALLS=false` kill switch) and scored by the tracker as `source: served`.
 - **[PLAN_TRADE_JOURNAL.md](./PLAN_TRADE_JOURNAL.md)** — T2, trade journal (built 2026-09-24, not deployed): `POST`/`GET /api/journal` (bearer `JOURNAL_API_KEY`, Vercel Blob), GPT commands `log <text>` / `journal`, tracker pulls it into "your trades" beside the engine's calls.
 - **[PLAN_TELEGRAM.md](./PLAN_TELEGRAM.md)** — T-1, Telegram alerts + read commands (built 2026-09-24, not deployed): `POST /api/telegram-webhook` (secret header + owner allowlist), `GET /api/telegram-cron` every minute (`CRON_SECRET`), alert state in Blob `telegram/state.json`, `/log` through the journal's append path. Read-only; never execution.
+- **[PLAN_ALERT_CLARITY.md](./PLAN_ALERT_CLARITY.md)** — Alert clarity Phase A (built 2026-09-25, schema 1.27.0, not deployed): `flagRecommendation.clarity` (gate / killIf / otherSide in the default payload; context in words in the full record); Telegram WATCH/TRIGGERING verdicts never say BE READY on a flag that cannot pass the plan gates (rr/room WAIT, chase STAND DOWN); GPT prints gate text, Kill if, Other side. Presentation only. Phase B (probe counts, defended extreme, `failed_breakdown`) is a separate thread.
 - **[PLAN_PYTH_MARK_PRICE.md](./PLAN_PYTH_MARK_PRICE.md)** — P1, Pyth mark price beside the Kraken price (done 2026-09-23, schema 1.16.0, not deployed): `symbols.<SYM>.mark`, `decisionTrace.bias` `mark:` token, `lib/pythMark.js`.
 - **[PLAN_FLAG_PATHS.md](./PLAN_FLAG_PATHS.md)** — T4 plan: measured scenario weights (retest_go / runner / false_break / fail_first / chop) at the moment a flag tightens; P0 done, P1–P4 not approved.
 - **[MASTER_PLAN_T6_FEE_AWARE_FLAGS.md](./MASTER_PLAN_T6_FEE_AWARE_FLAGS.md)** — T6 master plan (current workstream): fee-aware stops/targets and net gate, swing horizon from lower-timeframe flags, four-layer state model, `?track=`, FAILED_FLAG_REVERSAL scouts, GPT rewrite, 60-day recalibration. Phase 0: **[GOOD_QUALITY_REPLAY.md](./GOOD_QUALITY_REPLAY.md)**. Phase 1 code shipped 2026-09-24 (owner decision D1, variant V1c): `flagPlan.minNetRR` 2.0, schema 1.21.0, configVersion 2026.09.24-3 - committed and pushed, **not yet deployed** (Vercel daily deploy cap).
@@ -53,7 +54,8 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 | Data-freshness gate (signal-reliability minimum plan) | `lib/freshness.js` |
 | Flag trade plan (`flagTradePlan`, signal-reliability minimum plan) | `lib/flagTradePlan.js` |
 | 21/200 model evidence (`include=model`) | `lib/modelEvidence.js` |
-| 21/200 recommendation (`flagRecommendation`) | `lib/flagRecommendation.js` |
+| 21/200 recommendation (`flagRecommendation`, `clarity`) | `lib/flagRecommendation.js` |
+| Tracked-trade story (Telegram TRACK lines) | `lib/trackStory.js` |
 | Recommendation acceptance fixtures (Phase 2, `test:flagrec:fixtures`) | `test-flag-recommendation-fixtures.js` |
 | Geometry (zones, ATR, diagonals, channel, confluence) | `lib/geometry.js` |
 | Structure | `lib/structure.js`, `lib/candleFeatures.js` |

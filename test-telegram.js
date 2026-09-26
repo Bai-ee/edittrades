@@ -463,7 +463,7 @@ async function run() {
   });
 
   // Alert clarity (schema 1.27.0, docs/PLAN_ALERT_CLARITY.md).
-  await test('1.27.0 clarity: TRIGGERING with a blocking gate -> WAIT (rr) / STAND DOWN (room, chase), never BE READY; passable -> BE READY unchanged', () => {
+  await test('1.27.0 clarity: TRIGGERING with a blocking gate -> WAIT (rr, room) / STAND DOWN (chase), never BE READY; passable -> BE READY unchanged', () => {
     const base = { candidateId: 'BTC:3m:long:clar', timeframe: '3m', direction: 'long', state: 'triggering', breakoutLevel: 83000, invalidation: 82720, measuredRR: 1.9 };
     const G15 = { '15m': { horizontalSupportZones: [{ low: 82500, high: 82600 }], horizontalResistanceZones: [], confluenceZones: [] } };
     const recFor = (c) => ({ supports: ['td:bull:3/4'], opposes: [], unknowns: [], clarity: buildClarity({ candidate: c, topDown: { sentiment: 'bull', aligned: 3 }, divergence: { bullish: 1, bearish: 2 }, geometryContext: G15 }) });
@@ -476,12 +476,12 @@ async function run() {
       'Top-down: bull 3/4', 'Divergence: 1 tf agrees, 2 against',
       'Kill if: close back below 83,000.00 after a probe = defended, stand down',
       'Other side: if it fails, rotation to 82,500.00–82,600.00 (15m support)'
-    ].join('\n'), 'context: qual words, top-down, one divergence line with counts, kill, other side');
-    // room blocked -> STAND DOWN (🔴).
+    ].join('\n'), 'context: top-down, one divergence line with counts, kill, other side (the rr blocker is in the verdict, not repeated)');
+    // room blocked -> WAIT (orchestrator decision 2026-09-26: only chase is STAND DOWN).
     const room = { ...base, measuredRR: 3.2, qual: { decision: 'wait', reasons: ['conflict:5m-short', 'room:blocked-15m'] } };
     const tr = formatWatchAlert('BTC', room, recFor(room), { asOf: ASOF_3M });
-    checkAlert(tr, ['🔴 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>STAND DOWN</b> — a 15m level blocks the measured target'], 'room');
-    assert(secs(tr)[3].startsWith('opposite 5m short flag active'), 'blocker only in the verdict, not repeated in context');
+    checkAlert(tr, ['🟡 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>WAIT (2m)</b> — a 15m level blocks the measured target'], 'room');
+    assert(secs(tr)[3].startsWith('opposite 5m short flag active') && !secs(tr)[3].includes('blocks the measured target'), 'blocker not repeated in context');
     // chase on a candidate that is NOT the record's subject -> read from its own qual, short mirror.
     const chase = { ...base, candidateId: 'BTC:3m:short:other', direction: 'short', invalidation: 83280, measuredRR: 3.4, qual: { decision: 'wait', reasons: ['chase'] } };
     const tc = formatWatchAlert('BTC', chase, recFor(rr), { asOf: ASOF_3M });
@@ -493,9 +493,21 @@ async function run() {
     // passable (rr:2.8 is over the 2.5 plan floor; ct only) -> BE READY unchanged.
     const ok = { ...base, measuredRR: 2.8, qual: { decision: 'wait', reasons: ['rr:2.8', 'ct:4h'] } };
     checkAlert(formatWatchAlert('BTC', ok, recFor(ok), { asOf: ASOF_3M }), ['🟡 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>BE READY (2m)</b> — close above 83,000.00 confirms; then retest &amp; hold to enter'], 'passable');
-    // WATCH (forming) with a room blocker -> STAND DOWN, dot stays ⚪.
+    // WATCH (forming) with a room blocker -> WAIT, dot stays ⚪.
     const formingRoom = { ...room, state: 'forming' };
-    checkAlert(formatWatchAlert('BTC', formingRoom, recFor(formingRoom), { asOf: ASOF_3M }), ['⚪ ₿ <b>BTC 3m ▲ LONG</b> · WATCH · forming', '<b>STAND DOWN</b> — a 15m level blocks the measured target'], 'watch room');
+    checkAlert(formatWatchAlert('BTC', formingRoom, recFor(formingRoom), { asOf: ASOF_3M }), ['⚪ ₿ <b>BTC 3m ▲ LONG</b> · WATCH · forming', '<b>WAIT (2m)</b> — a 15m level blocks the measured target'], 'watch room');
+    // Default payload: compact clarity (no context) -> context lines from the candidate's
+    // non-blocking qual + record codes; Kill if / Other side still from clarity.
+    const compactRec = (c) => { const r = recFor(c); const { context, divergence, ...k } = r.clarity; return { ...r, clarity: k }; };
+    const tk = formatWatchAlert('BTC', room, compactRec(room), { asOf: ASOF_3M });
+    assertEqual(secs(tk)[3], [
+      'opposite 5m short flag active', 'Top-down: bull 3/4',
+      'Kill if: close back below 83,000.00 after a probe = defended, stand down',
+      'Other side: if it fails, rotation to 82,500.00–82,600.00 (15m support)'
+    ].join('\n'), 'compact clarity context');
+    // The floor comes from the record (clarity.gate.minRR), not a hardcoded 2.5.
+    const rec3 = { ...recFor(ok), clarity: { ...recFor(ok).clarity, candidateId: 'someone-else', gate: { passable: true, blockers: [], text: null, minRR: 3 } } };
+    assertEqual(verdictOf(formatWatchAlert('BTC', ok, rec3, { asOf: ASOF_3M })), '<b>WAIT (2m)</b> — R 2.8 under 3 floor; needs TP beyond 83,840.00', 'rr:2.8 blocks at a 3R floor');
   });
 
   await test('1.27.0 clarity: one divergence line (no counts without clarity); top-down 2/4 reads split, never bull/bear', () => {

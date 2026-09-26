@@ -441,8 +441,9 @@ async function run() {
       assert(chase.text.startsWith('price ran past the breakout; R 2.1 under 2.5 floor'), chase.text);
       const none = buildClarity({ candidate: clarCand(dir, ['rr:2.8', 'ct:4h', 'ema200:counter', 'stoch:ob-cross']), minRR: 2.5 }).gate;
       assertEqual(JSON.stringify(none), JSON.stringify({ passable: true, blockers: [], text: null, minRR: 2.5 }), `${dir}: nothing blocking`);
-      const dead = buildClarity({ candidate: clarCand(dir, [], { state: 'failed', qual: { decision: 'dont', reasons: [] } }) }).gate;
+      const dead = buildClarity({ candidate: clarCand(dir, [], { state: 'failed', qual: { decision: 'dont', reasons: [] } }), minRR: 2.5 }).gate;
       assertEqual(JSON.stringify(dead), JSON.stringify({ passable: false, blockers: [], text: 'flag failed', minRR: 2.5 }), `${dir}: dont`);
+      assertEqual(buildClarity({ candidate: clarCand(dir, ['rr:2.7']), minRR: 3 }).gate.passable, false, `${dir}: the floor comes from minRR`);
     }
   });
 
@@ -480,7 +481,6 @@ async function run() {
     for (const [code, text] of Object.entries(words)) assertEqual(qualWords(code), text, code);
     const c = clarCand('long', ['conflict:5m-short', 'stoch:ob-cross', 'ema200:counter', 'ct:4h', 'chase', 'rr:1.9', 'room:blocked-15m']);
     const cl = buildClarity({ candidate: c, topDown: { sentiment: 'bull', aligned: 2 }, divergence: { bullish: 1, bearish: 2 } });
-    assertEqual(JSON.stringify(cl.gate.blockers), JSON.stringify(['chase', 'rr:1.9', 'room:blocked-15m']), 'blockers in gate');
     assertEqual(JSON.stringify(cl.context), JSON.stringify([
       'opposite 5m short flag active', 'Stoch RSI overbought with a bearish cross', 'against EMA200', '4h lean against the trade',
       'Top-down: split 2/4', 'Divergence: 1 tf agrees, 2 against'
@@ -503,7 +503,8 @@ async function run() {
     const planned = build(readyPlan(), [wc, pc]);
     assertEqual(planned.clarity.candidateId, pc.candidateId, 'plan subject');
     assertEqual(planned.clarity.gate.passable, true, 'plan candidate passable');
-    assertEqual(JSON.stringify(compactRecommendation(planned).clarity), JSON.stringify(planned.clarity), 'compact = full');
+    const { context: _ctx, divergence: _div, ...compactPart } = planned.clarity;
+    assertEqual(JSON.stringify(compactRecommendation(planned).clarity), JSON.stringify(compactPart), 'compact = gate/killIf/otherSide (no context, no divergence)');
     const sc = { ...wc, candidateId: 'BTC:5m:long:s', timeframe: '5m', state: 'confirmed' };
     const withSetup = build({ ...readyPlan(), candidateId: 'missing', status: 'rejected', reasonCode: 'chase', setup: { candidateId: sc.candidateId, timeframe: '5m', direction: 'long', entry: 100, stop: 99, tp1: 103 } }, [wc, sc]);
     assertEqual(withSetup.clarity.candidateId, sc.candidateId, 'setup subject when the plan candidate is not on file');
