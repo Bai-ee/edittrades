@@ -27,6 +27,11 @@
  * /flags (the Flags label, and Charts -> All flags) sends the text summary, then chart
  * albums of every live flag (sendFlagAlbums), from one full build.
  *
+ * Trade chart (T-13): Took it (first tap), a live FILLED result, and `/chart SYM [TF]
+ * trade` send one photo of the plan (last 120 candles, entry / stop / TP lines, risk /
+ * reward bands, the NF net-floor stop dashed) captioned with the approach block and the
+ * net floor line (FILLED: the result card). Best effort: a failure never blocks a reply.
+ *
  * Buttons: plain replies carry the persistent reply keyboard (lib/telegram.js MENU_ROWS;
  * a tapped label maps to its command). Inline buttons arrive as `callback_query` updates
  * (setWebhook allowed_updates ["message","callback_query"]): the same allowlist applies,
@@ -42,7 +47,7 @@
 import crypto from 'crypto';
 import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
-import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
+import { parseChartArg, renderContextChart, ChartRequestError, TRADE_CHART_CANDLES, CHART_TIMEFRAMES } from '../lib/chartRender.js';
 import { validateJournalEntry } from '../lib/journalSchema.js';
 import { readBlob, readBlobFresh, updateBlob } from '../lib/blobJsonl.js';
 import { appendRecord, readRecent } from './journal.js';
@@ -59,7 +64,8 @@ import {
   orderIntentFromCandidate, candidateLevels, openSourceKind, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
   formatResultCard, formatConfirmFail, formatOpenPhaseCard, formatEmergencyCloseCard, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
   formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket,
-  parseRiskArgs, applyRiskPrefsChange, formatRiskStatus
+  parseRiskArgs, applyRiskPrefsChange, formatRiskStatus,
+  keepNetFloor, netFloorOf, netFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, msgHeader, CHART_GRID_TIMEFRAMES
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 
@@ -329,6 +335,36 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     }
     return r;
   };
+  /**
+   * T-13 trade chart: one photo of `symbol` `timeframe` (last TRADE_CHART_CANDLES closed
+   * candles) with entry / stop / TP lines, risk and reward bands and the NF shadow stop,
+   * captioned `head` + the approach block + the net floor line (just `head` when that
+   * would pass 1,000 chars). Levels: the live plan / SETUP of `candidateId` when the build
+   * still has it, else `fallback` ({direction, entry, stop, tp1}). Never throws and never
+   * blocks the reply it follows; a failure is logged as reason=trade_chart_<Error>.
+   */
+  const sendTradeChart = async ({ symbol, timeframe, candidateId = null, fallback = null, head, payload = null, windows = null }) => {
+    try {
+      if (!symbol || !CHART_TIMEFRAMES.includes(timeframe)) return false;
+      let win = null;
+      const p = payload || await build({ chartWindow: { size: TRADE_CHART_CANDLES, timeframes: [timeframe], onWindow: (sym, tf, w) => { if (sym === symbol && tf === timeframe) win = w; } } });
+      const sym = p && p.symbols ? p.symbols[symbol] : null;
+      const live = candidateId ? tradeLevelsOf(sym, candidateId) : null;
+      const levels = live || fallback;
+      const overlay = tradeOverlayFor(levels, candidateId ? netFloorOf(sym, candidateId) : null);
+      if (!overlay) return false;
+      if (!win && windows) win = windows.get(`${symbol}|${timeframe}`) || null;
+      const chart = await render(p, { symbol, timeframe, tradeOverlay: overlay }, win ? { window: win } : undefined);
+      const clarity = sym && sym.flagRecommendation && sym.flagRecommendation.clarity && sym.flagRecommendation.clarity.candidateId === candidateId ? sym.flagRecommendation.clarity : null;
+      const nfLine = candidateId ? netFloorLine(netFloorOf(sym, candidateId)) : '';
+      const caption = fitCaption([head, [approachBlock(levels, clarity), nfLine].filter(Boolean).join('\n')]) || head;
+      const sent = await bot.sendPhoto(chatId, chart.png, caption);
+      return Boolean(sent && sent.ok);
+    } catch (err) {
+      log('chart', ` reason=trade_chart_${err && err.name ? String(err.name).replace(/[^A-Za-z]/g, '').slice(0, 40) : 'Error'}`);
+      return false;
+    }
+  };
   const safeStatus = async () => { try { const st = await ex.status(await currentRiskPrefs()); return st && st.ok !== false ? st : null; } catch { return null; } };
   const errName = (err) => (err && err.name ? String(err.name).replace(/[^A-Za-z]/g, '').slice(0, 40) : 'Error');
   const tickets = {
@@ -550,7 +586,16 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
               tracking = !out ? false : out.result === 'full' ? 'full' : true;
             }
             if (hasStore) await tickets.take(nonce);
-            await execSend(formatResultCard(r, tk, { tracking }), null, { ...meta, event: r.mode === 'dry' ? 'dry_ok' : r.simulated === true ? 'simulated' : 'filled' }, phaseMessageId);
+            const resultCard = formatResultCard(r, tk, { tracking });
+            await execSend(resultCard, null, { ...meta, event: r.mode === 'dry' ? 'dry_ok' : r.simulated === true ? 'simulated' : 'filled' }, phaseMessageId);
+            // T-13: a live FILLED result also goes out on the trade chart, the result card as caption.
+            if (r.mode === 'live' && r.simulated !== true && tk.symbol && tk.timeframe) {
+              await sendTradeChart({
+                symbol: tk.symbol, timeframe: tk.timeframe, candidateId: tk.candidateId || (tk.snap && tk.snap.candidateId) || null,
+                fallback: { direction: tk.direction, entry: tk.entry, stop: tk.stop, tp1: tk.tp1 },
+                head: resultCard
+              });
+            }
           }
         }
       }
@@ -667,6 +712,28 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         try { const blob = await readBlob(get, TELEGRAM_HEALTH_PATH); health = parseHealth(blob ? blob.text : null); } catch (err) { log('health', errMsg(err)); health = null; }
       }
       await reply(formatStatus(payload, state, now(), health));
+    } else if (cmd === 'chart' && (parsed.args || []).some((a) => String(a).toLowerCase() === 'trade')) {
+      // T-13: /chart <SYM> [tf] trade - the current plan (else SETUP) on the trade chart.
+      const sym = parseSymbol(parsed.args[0]);
+      const tfArg = parsed.args[1] && String(parsed.args[1]).toLowerCase() !== 'trade' ? String(parsed.args[1]).toLowerCase() : null;
+      if (!sym || (tfArg && !CHART_TIMEFRAMES.includes(tfArg))) await reply('Usage: /chart BTC 5m trade (or /chart BTC trade for the plan\'s timeframe)');
+      else {
+        const windows = new Map();
+        const payload = await build({ chartWindow: { size: TRADE_CHART_CANDLES, timeframes: [...CHART_GRID_TIMEFRAMES], onWindow: (s2, tf, w) => windows.set(`${s2}|${tf}`, w) } });
+        const s = payload && payload.symbols ? payload.symbols[sym] : null;
+        const plan = s && s.flagTradePlan && (s.flagTradePlan.status === 'ready' || s.flagTradePlan.status === 'conditional') ? s.flagTradePlan : null;
+        const setup = !plan && s && s.flagRecommendation && s.flagRecommendation.setup ? s.flagRecommendation.setup : null;
+        const target = plan || setup;
+        if (!target) await reply(`No trade plan for ${escapeHtml(sym)} right now (no ready or conditional plan, no SETUP). /chart ${escapeHtml(sym)} 5m shows the plain chart.`);
+        else {
+          const tf = tfArg || target.timeframe;
+          const ok = await sendTradeChart({
+            symbol: sym, timeframe: tf, candidateId: target.candidateId, payload, windows,
+            head: msgHeader(plan && plan.status === 'ready' ? '🟢' : '🟡', sym, tf, target.direction, plan ? `TRADE · ${plan.status === 'ready' ? 'READY' : 'CONDITIONAL'}` : 'TRADE · SETUP')
+          });
+          if (!ok) await reply('Trade chart could not be sent.');
+        }
+      }
     } else if (cmd === 'chart') {
       let request;
       try {
@@ -788,11 +855,20 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
               if (out && out.result !== 'full') await swapOriginal(parsed.ref, true);
             }
             await reply(`[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''}${note}`);
+            // T-13: Took it shows the trade on a chart (first tap only; a failure never blocks the log).
+            if (parsed.kind === 'open' && !duplicate) {
+              await sendTradeChart({
+                symbol: parsed.symbol, timeframe: snap.timeframe, candidateId: snap.candidateId || null,
+                fallback: { direction: snap.direction, entry: snap.entry, stop: snap.stop, tp1: snap.tp1 },
+                head: msgHeader('✋', parsed.symbol, snap.timeframe, snap.direction, 'TOOK IT')
+              });
+            }
           }
         }
       }
     } else if (cmd === 'plan' || cmd === 'thesis') {
-      const payload = filterPayload(await build(), { compact: true });
+      const full = await build();
+      const payload = keepNetFloor(filterPayload(full, { compact: true }), full); // T-13: NF line on the Plan card
       const state = hasStore ? await readState() : null;
       const v = resolveRef(parsed.ref, payload, state);
       if (!v) await reply(EXPIRED_REPLY);
