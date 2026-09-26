@@ -55,6 +55,18 @@
  * pending (inside 24 h) or none. readyAfterMin = minutes to the first ready plan / GET IN NOW
  * after the alert. Written to data/alert-outcomes.jsonl, fully recomputed each run.
  *
+ * GOOD calls from the 1-minute alert log (T-12, docs/GAP_CHECK_2026-09-26.md): the
+ * 10-minute capture cadence misses most GOOD calls (a GOOD window runs 2-5 min, sometimes
+ * under 1). collect.js's goodCallsFromAlertLines/goodCallsFromCaptureRows/mergeGoodCalls
+ * turn the Telegram GOOD alert log plus the stored captures into one merged GOOD call per
+ * symbol+candidateId (earlier calledAt wins, capture levels used only when the alert line
+ * has none). scoreGoodCalls walks each one from its own calledAt exactly like a ready plan
+ * (gross R; net R follows from the same costR direction model at aggregate time), and
+ * collect.js's goodEndedTimesFromAlertLines gives `endedAt` / the GOOD window length in
+ * minutes from the matching GOOD_ENDED line. Written to data/good-call-outcomes.jsonl,
+ * fully recomputed each run - continuous back to the alert log's first ingested day since
+ * it re-reads the whole stored log every time (no separate backfill step needed).
+ *
  * Usage: node score.js [--data ./data] [--now <iso>]
  */
 
@@ -62,9 +74,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, readJournal, journalOutcomesFile,
-  readTelegramAlerts, readTransitions, alertOutcomesFile
+  readTelegramAlerts, readTransitions, alertOutcomesFile, goodCallOutcomesFile
 } from './store.js';
 import { walkOutcome, isFiniteNumber, FILL_WINDOW_CANDLES } from './walk-outcome.js';
+import { goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines } from './collect.js';
 
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 const MINUTE = 60_000;
@@ -604,6 +617,79 @@ export function scoreAlertsDataDir(dataDir, nowMs = Date.now()) {
   return rows;
 }
 
+// ---------------------------------------------------------------- GOOD calls from the 1-minute alert log (T-12)
+
+export const goodCallId = (c) => `good|${c.symbol}|${c.candidateId}`;
+
+/**
+ * Walk each merged GOOD call (collect.js mergeGoodCalls) from its own calledAt, prefilled
+ * exactly like a captured ready plan: a GOOD verdict only exists because
+ * lib/flagRecommendation.js's `finish('GOOD', 'ready_flag_plan', ...)` fires when
+ * flagTradePlan.status is already 'ready', the same event score.js already treats as
+ * immediately filled (see scoreCalls above). GOOD_ENDED lines (`endedAtByKey`) add
+ * `endedAt` and the GOOD window length in minutes. Idempotent: a call whose outcome is
+ * already final keeps that outcome; `endedAt`/`goodWindowMin`/`sources` are refreshed
+ * every run regardless (cheap, no re-walk).
+ * @param {Array<Object>} calls - collect.js mergeGoodCalls output
+ * @param {Object<string, Array<Object>>} candlesBySymbol - 1m candles, ascending
+ * @param {Map<string,string>} [endedAtByKey=new Map()] - collect.js goodEndedTimesFromAlertLines output
+ * @param {Array<Object>} [previous=[]] - existing good-call-outcomes.jsonl rows
+ * @param {number} [nowMs=Date.now()]
+ * @returns {Array<Object>}
+ */
+export function scoreGoodCalls(calls, candlesBySymbol, endedAtByKey = new Map(), previous = [], nowMs = Date.now()) {
+  const prevById = new Map((previous || []).map((r) => [r.callId, r]));
+  const nowIso = new Date(nowMs).toISOString();
+  const rows = [];
+  for (const call of calls || []) {
+    if (!call || !call.symbol || !call.candidateId) continue;
+    const callId = goodCallId(call);
+    const prev = prevById.get(callId);
+    const key = `${call.symbol}|${call.candidateId}`;
+    const endedAt = endedAtByKey instanceof Map ? (endedAtByKey.get(key) ?? null) : null;
+    const goodWindowMin = endedAt && call.calledAt ? Math.round((Date.parse(endedAt) - Date.parse(call.calledAt)) / MINUTE) : null;
+    const candles = candlesBySymbol[call.symbol] || [];
+    const hasLevels = isFiniteNumber(call.entry) && isFiniteNumber(call.stop) && isFiniteNumber(call.tp1);
+    let result;
+    if (prev && FINAL_OUTCOMES.has(prev.outcome)) {
+      result = { outcome: prev.outcome, r: prev.r, filledAt: prev.filledAt, resolvedAt: prev.resolvedAt, minutesToResolution: prev.minutesToResolution };
+    } else if (!hasLevels) {
+      result = { outcome: 'no_levels', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null };
+    } else {
+      result = walkCall(call, candles, nowMs, true);
+    }
+    const row = {
+      callId, kind: 'good', symbol: call.symbol, candidateId: call.candidateId, calledAt: call.calledAt,
+      timeframe: call.timeframe ?? null, direction: call.direction ?? null,
+      entry: call.entry ?? null, stop: call.stop ?? null, tp1: call.tp1 ?? null,
+      grossRR: call.grossRR ?? null, netRR: call.netRR ?? null,
+      levelSource: 'plan', class: 'GOOD',
+      sources: Array.isArray(call.sources) ? [...call.sources].sort() : [],
+      endedAt, goodWindowMin,
+      ...result,
+      mode: hasLevels ? 'ready_prefilled' : 'not_walked',
+      rUnits: 'gross_R_before_fees_slippage'
+    };
+    row.scoredAt = prev && stableJson(prev) === stableJson(row) ? prev.scoredAt : nowIso;
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Merge the Telegram alert log's GOOD calls with the captures' own, walk them and write
+ * good-call-outcomes.jsonl. Falls back to capture-only calls when the alert log is empty
+ * or missing (mergeGoodCalls with no alert calls).
+ */
+export function scoreGoodCallsDataDir(dataDir, nowMs = Date.now()) {
+  const alertRows = readTelegramAlerts(dataDir);
+  const merged = mergeGoodCalls(goodCallsFromAlertLines(alertRows), goodCallsFromCaptureRows(readAllCalls(dataDir)));
+  const endedAtByKey = goodEndedTimesFromAlertLines(alertRows);
+  const rows = scoreGoodCalls(merged, readCandles(dataDir, '1m'), endedAtByKey, readJsonl(goodCallOutcomesFile(dataDir)), nowMs);
+  writeJsonl(goodCallOutcomesFile(dataDir), rows);
+  return rows;
+}
+
 /** Score the journal in `dataDir` against its 1m candles and engine outcomes; write journal-outcomes.jsonl. */
 export function scoreJournalDataDir(dataDir, nowMs = Date.now()) {
   const rows = scoreJournal(readJournal(dataDir), readCandles(dataDir, '1m'), readJsonl(outcomesFile(dataDir)),
@@ -633,6 +719,8 @@ function main() {
   console.log(`[tracker:score] ${journal.length} journal trade(s) -> ${journalOutcomesFile(opts.data)}`);
   const alerts = scoreAlertsDataDir(opts.data, nowMs);
   console.log(`[tracker:score] ${alerts.length} sent alert(s) -> ${alertOutcomesFile(opts.data)}`);
+  const goodCalls = scoreGoodCallsDataDir(opts.data, nowMs);
+  console.log(`[tracker:score] ${goodCalls.length} GOOD call(s) (1-min log) -> ${goodCallOutcomesFile(opts.data)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

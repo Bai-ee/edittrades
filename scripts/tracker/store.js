@@ -19,6 +19,12 @@
  *                            (UTC day of at), from Blob telegram/transitions/, keyed by candidateId+at
  *   alert-outcomes.jsonl     one line per sent alert joined to later transitions and scored
  *                            calls (rewritten by score.js)
+ *   good-call-outcomes.jsonl one line per scored GOOD call (T-12, docs/GAP_CHECK_2026-09-26.md):
+ *                            score.js merges the Telegram cron's per-minute GOOD/GOOD_ENDED
+ *                            alert log (data/telegram-alerts/) with whatever the 10-minute
+ *                            captures separately saw for the same symbol+candidateId,
+ *                            keeps the earlier calledAt, and walks it like a ready plan
+ *                            (rewritten by score.js)
  *
  * Node >= 20, fs only. No network, no secrets.
  */
@@ -311,6 +317,11 @@ export function transitionsDir(dataDir) {
 
 export function alertOutcomesFile(dataDir) {
   return path.join(dataDir, 'alert-outcomes.jsonl');
+}
+
+/** Scored GOOD calls (T-12): merged 1-minute alert log + 10-minute capture, one row per symbol+candidateId. */
+export function goodCallOutcomesFile(dataDir) {
+  return path.join(dataDir, 'good-call-outcomes.jsonl');
 }
 
 export const telegramAlertKey = (r) => r.id;

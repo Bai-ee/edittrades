@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-26 — T-12: tracker GOOD calls sourced from the 1-minute Telegram alert log (tracker only, no engine/rule change)
+
+Tracker (`scripts/tracker/`) and its tests only; no engine, alert-content or rule change (frozen until 2026-10-08); the tracker stays read-only toward the engine and wallet. `docs/GAP_CHECK_2026-09-26.md`: the 10-minute capture cadence missed most GOOD calls (a GOOD window runs 2–5 min, sometimes under 1) — a config-matched sample caught only 5/17 (29%). Master prompt: pasted by the owner, "Agent F4 (Sonnet): score GOOD calls from the per-minute alert log (T-12)".
+
+- `collect.js` (pure): `goodCallsFromAlertLines` (first kind-`GOOD` line per symbol+candidateId is the call, levels from that line), `goodCallsFromCaptureRows` (same from stored captures), `mergeGoodCalls` (merge by symbol+candidateId — earlier `calledAt` wins, capture levels fill in only when the alert line has none, `sources` records every origin, no duplicates), `goodEndedTimesFromAlertLines` (a GOOD_ENDED line carries no candidateId of its own; matched to whichever candidate is open for its symbol → `endedAt`).
+- `score.js` `scoreGoodCalls` / `scoreGoodCallsDataDir`: walks each merged call from its own `calledAt`, prefilled exactly like a captured ready plan, into `data/good-call-outcomes.jsonl` (continuous back to the alert log's first ingested day — no separate backfill step, the whole stored log is re-read every run); capture-only fallback when the alert log is empty or missing.
+- `aggregate.js`: when `good-call-outcomes.jsonl` has rows in a window, `classCheck`'s GOOD row, `windowBlock`'s tradable/bySymbol/byTimeframe stats and the phase block's 30-plan target read from it instead of the capture-only ready-plan rows — the headline 7d tiles, the phase progress bar and the class-check GOOD row now count every GOOD the engine emitted, not just the ones a 10-minute poll caught. Empty/missing keeps the old capture-only behavior. New GOOD-row fields `oneMinLogCalls` / `capturedCalls` / `medianGoodWindowMin`; new top-level `goodCallLogSince`.
+- Page + report: class-check table gains three GOOD-only columns (`Calls (1-min log)`, `Of which captured`, `Median GOOD window (min)`; dash elsewhere) and a one-line note under the table (`#class-check-good-log-note`): "GOOD calls come from the engine's 1-minute alert log since \<date\>; before that from 10-minute captures."
+- Tests: `test:tracker` 114 → 120 (merge/dedup, alert-sourced scoring, backfill idempotent, capture-only fallback, GOOD window length, classCheck + phase target wiring, page/report rendering). `git diff --check` clean.
+
 ## 2026-09-25 — T-7: Telegram focus mode + Open from any levelled alert (presentation and routing only, nothing enabled)
 
 Code and tests only; no engine rule, threshold, cap, gate or schema change (frozen until 2026-10-08). Master prompt: pasted by the owner, "Agent G (Sonnet): focus mode + Open from any levelled alert (T-7)". Baseline: HEAD of `upgrade-signal-engine` (live perps trading built T-3 F).
