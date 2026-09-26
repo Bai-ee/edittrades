@@ -74,3 +74,28 @@ Every phase audits `event:'phase'` (`submitted`, `landed`, `filled`, `stops_atta
 **Known limits, owner decision needed before any live test:**
 - Wall-clock budget (decided 2026-09-25): the webhook runs with `maxDuration: 300` (Vercel Pro). Landing ceiling 45 s, keeper-fill wait 60 s, emergency-close retries 45 s, so one open worst-cases at ≈285 s inside a single confirm request. Telegram may redeliver a slow update; the ticket is single-use and the actionId is exactly-once, so a redelivery cannot send twice. A queued/background model is deferred until tiny-cap live tests pass.
 - `buildCancelIncreaseRequest` (`closePositionRequest`) and the "rejected" branch of `waitForFill` (both accounts gone with no fill) are inferred from the IDL's account/field shapes, not verified against a live cluster — see the F handback for the exact assumptions.
+
+## Risk policy (T-8, `docs/PROMPT_T8_AGENT_H.md`, 2026-09-26)
+
+A wallet-relative layer on top of the env caps above (`EXECUTION_MAX_*` stay hard floors, unchanged). Pure math lives in `lib/execution/riskPolicy.js` (`evaluateRiskPolicy`); it never touches the chain or Blob itself.
+
+**Equity** (`lib/execution/executor.js` `walletEquitySnapshot`): the SIGNING wallet's own SOL + stablecoin value, read via `services/walletTracker.js` `getAccountSnapshot()` pointed at an explicit `{ address }` (the executor's own `walletAddress()`, never `TRACKED_WALLET_ADDRESS`, never a key) — `walletTracker.js` stays read-only and its exports unchanged. Cached 60 s (`EQUITY_CACHE_MS`). Open-position collateral ± unrealized PnL (from `readPositions()`, already fresh per call) is added on top (`fullEquityUsd`). An unreadable signing wallet is `equity_unavailable` — refused, never treated as infinite equity.
+
+**Defaults** (env, all optional; `lib/execution/riskPolicy.js` `RISK_ENV` / `RISK_DEFAULTS`):
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `RISK_PCT_PER_TRADE` | 0.5 | % of equity risked at the stop |
+| `RISK_MAX_EXPOSURE_PCT` | 25 | sum of open notional / equity |
+| `RISK_MAX_PER_SYMBOL_PCT` | 15 | one symbol's notional / equity |
+| `RISK_DAILY_DRAWDOWN_PCT` | 3 | today's realized loss / day-start equity |
+| `RISK_WEEKLY_DRAWDOWN_PCT` | 8 | last-7-day realized loss / week-start equity |
+| `RISK_MIN_FREE_GAS_SOL` | 0.05 | free SOL floor |
+
+**Enforcement** (`preflight`, after the env caps and intent-shape checks, before the market/custody/quote calls): `evaluateRiskPolicy` reasons (`risk_pct_over`, `exposure_over`, `symbol_exposure_over`, `daily_drawdown`, `weekly_drawdown`, `gas_low`, `equity_unavailable`) push into the same `reasons` array as every other gate — a refusal, not a warning. The order carries `equityUsd`, `equitySource`, `riskUsd`, `riskPct`, `exposurePctBefore`/`exposurePct`, `symbolExposurePct`, `suggestedSizeUsd`, `suggestedLeverage`; the audit `preflight` line carries a `risk:{}` block. `dailyPnlUsd`/`weekPnlUsd` come from `pnlWindow(store, nowMs, days)` (generalized from the old single-day `dailyLossUsd`, kept as a thin wrapper). A `daily_drawdown` / `weekly_drawdown` breach also engages the kill switch (reason `risk_daily_drawdown` / `risk_weekly_drawdown`) — every later call refuses `kill_switch` until `/arm` (the env kill still wins); the drawdown itself is unaffected by arming, so it can refuse again on its own merits next call.
+
+**Owner overrides** (`/risk`, `state.prefs.risk`): tighten-only — an override is accepted only when it does not exceed the deployed env default for that knob, and `pctPerTrade` additionally never above 2% absolute (`RISK_PCT_PER_TRADE_MAX`), checked via the executor's `riskPrefBound(key)` (a sync, side-effect-free passthrough to `riskPolicy.js` — the webhook never imports `lib/execution/riskPolicy.js` directly; the executor stays its one sanctioned door into `lib/execution`). `normalizePrefs` (`lib/telegram.js`) carries `prefs.risk` through an unrelated `/alerts` write instead of dropping it.
+
+**Telegram**: the order ticket gets a `risk $X (Y% eq) · exposure B% → A%` line and, when the intent's own size exceeds the suggestion, a `suggested $X` note (Open uses the suggestion unless the owner typed an explicit `size` in `/order`). `/exec` adds equity, exposure, drawdown day/week and a policy summary line. New `/risk` shows the effective policy (env default vs. owner override) and the same live snapshot; `/risk pct|exposure|symbolexposure|dailydd|weeklydd|gas VALUE` sets one override, `/risk reset` clears all. Refusal cards render every reason code (existing ones plus the risk-policy ones) as plain words, unchanged mechanism.
+
+Tests: `test-risk-policy.js` (pure math, all reason codes, sizing, mirrored long/short, prefs bounds), `test-execution.js` (equity source, 60 s cache, drawdown kill + arm, order/audit risk fields), `test-telegram.js` (ticket/exec/risk rendering, `/risk` end to end, prefs survive `/alerts`).
