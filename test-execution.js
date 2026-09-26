@@ -42,6 +42,7 @@ async function test(name, fn) {
 const assert = (c, m) => { if (!c) throw new Error(m); };
 const eq = (a, b, m) => { if (a !== b) throw new Error(`${m}: expected ${JSON.stringify(b)}, got ${JSON.stringify(a)}`); };
 const has = (arr, v, m) => { if (!Array.isArray(arr) || !arr.includes(v)) throw new Error(`${m}: ${JSON.stringify(arr)} lacks ${v}`); };
+const assertClose = (a, b, tol, m) => { if (typeof a !== 'number' || !Number.isFinite(a) || Math.abs(a - b) > tol) throw new Error(`${m}: expected ${b} +/- ${tol}, got ${JSON.stringify(a)}`); };
 
 // ---------------------------------------------------------------- fakes
 
@@ -165,7 +166,30 @@ function fakeMarket() {
   return m;
 }
 
-function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs = T0, market = fakeMarket(), onAlert } = {}) {
+/**
+ * T-8: the signing wallet's equity read (services/walletTracker.js getAccountSnapshot,
+ * pointed at an explicit address). Default is ample equity so existing preflight/status
+ * assertions are unaffected; tests targeting the risk policy override `snapshot` directly
+ * or pass their own `getAccountSnapshot` to setup().
+ */
+function fakeWallet(over = {}) {
+  const w = {
+    calls: 0,
+    snapshot: {
+      status: 'available', address: 'AbCd...WxYz', fetchedAt: null,
+      margin: { usd: 100000, byAsset: { USDC: 100000 } },
+      holdings: [{ asset: 'SOL', mint: 'native', amount: 10, usdValue: 1500 }],
+      holdingsUsd: 1500, unpriced: [],
+      gas: { sol: 10, minSol: 0.02, sufficient: true },
+      performance: { baselineUsd: null, netPnlUsd: null, returnPct: null, source: null },
+      ...over
+    }
+  };
+  w.getAccountSnapshot = async () => { w.calls++; return w.snapshot; };
+  return w;
+}
+
+function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs = T0, market = fakeMarket(), wallet = fakeWallet(), onAlert } = {}) {
   const store = fakeBlob();
   const clock = { t: nowMs };
   const journal = [];
@@ -174,6 +198,7 @@ function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs =
   const ex = createExecutor({
     env, jupiter, store, capabilities, buildContext: market.build,
     wallet: { getAddress: async () => '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM' },
+    getAccountSnapshot: wallet.getAccountSnapshot,
     signer: { fakeSigner: true }, // T-3 F: skip walletManager/createKitSigner in tests
     sleep: async (ms) => { clock.t += ms; }, // T-3 F: instant retry loops, still advances now()
     onAlert: onAlert || (async (text, meta) => { alerts.push({ text, meta }); }),
@@ -181,7 +206,7 @@ function setup({ env = baseEnv(), jupiter = fakeJupiter(), capabilities, nowMs =
     now: () => clock.t,
     randomBytes: (n) => { seq++; return Buffer.alloc(n, seq); }
   });
-  return { ex, store, clock, journal, jupiter, env, market, alerts };
+  return { ex, store, clock, journal, jupiter, env, market, wallet, alerts };
 }
 
 const intent = (over = {}) => ({ symbol: 'BTC', direction: 'long', sizeUsd: 200, leverage: 5, entry: 84600, stop: 84390, tp1: 85146, planId: 'plan_abc', candidateId: 'cand_1', recClass: 'GOOD', source: 'telegram', ...over });
@@ -695,6 +720,95 @@ async function run() {
     assert(!JSON.stringify(s).includes(PIN), 'no PIN');
   });
 
+  console.log('Risk policy (T-8)');
+  await test('status exposes equity, source, age and the policy numbers', async () => {
+    const { ex, wallet } = setup();
+    const s = await ex.status();
+    eq(s.risk.equityUsd, 101500, 'margin 100000 + SOL holding 1500');
+    eq(s.risk.equitySource, 'AbCd...WxYz', 'masked address from the wallet snapshot');
+    eq(s.risk.equityAgeSec, 0, 'freshly read');
+    eq(s.risk.policy.pctPerTrade, 0.5, 'default');
+    eq(wallet.calls, 1, 'one wallet read');
+  });
+  await test('an unreadable signing wallet address refuses preflight with equity_unavailable, never infinite equity', async () => {
+    const noAddr = createExecutor({
+      env: baseEnv(), jupiter: fakeJupiter(), store: fakeBlob(), buildContext: fakeMarket().build,
+      wallet: { getAddress: async () => { throw new Error('no key configured'); } },
+      getAccountSnapshot: fakeWallet().getAccountSnapshot,
+      appendJournal: async () => ({ duplicate: false }), now: () => T0, randomBytes: (n) => Buffer.alloc(n, 1)
+    });
+    const r = await noAddr.preflight(intent(), ctx);
+    has(r.reasons, 'equity_unavailable', 'refused');
+    eq(r.ok, false, 'not ok');
+  });
+  await test('a wallet snapshot status of unavailable also refuses with equity_unavailable', async () => {
+    const { ex } = setup({ wallet: fakeWallet({ status: 'unavailable', reason: 'rpc down' }) });
+    has((await ex.preflight(intent(), ctx)).reasons, 'equity_unavailable', 'refused');
+  });
+  await test('the wallet equity read is cached 60s: two preflights inside the window read once, a third after 60s reads again', async () => {
+    const { ex, wallet, clock } = setup();
+    await ex.preflight(intent(), ctx);
+    await ex.preflight(intent(), ctx);
+    eq(wallet.calls, 1, 'cached');
+    clock.t += 61_000;
+    await ex.preflight(intent(), ctx);
+    eq(wallet.calls, 2, 'cache expired, read again');
+  });
+  await test('preflight order carries riskUsd, riskPct, exposurePct and a suggested size', async () => {
+    const { ex } = setup(); // stop distance ~0.248%, equity 101500
+    const r = await ex.preflight(intent(), ctx);
+    eq(r.ok, true, `ok (${r.reasons})`);
+    assertClose(r.order.riskUsd, 0.5, 0.02, 'riskUsd ~= 200 * 0.248%');
+    assert(r.order.riskPct < 0.5, 'well under the 0.5% default per-trade cap');
+    assertClose(r.order.exposurePct, 0.2, 0.02, '200 / 101500');
+    assert(isFinitePositive(r.order.suggestedSizeUsd), 'a positive suggested size');
+  });
+  await test('risk_pct_over refuses when the intent risks more than the per-trade cap, relative to a small wallet', async () => {
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: { USDC: 40 } }, holdings: [] }) }); // equity $40, 0.5% = $0.20 budget
+    // 200 * 0.248% stop ~= $0.50 risk > $0.20 budget
+    has((await ex.preflight(intent(), ctx)).reasons, 'risk_pct_over', 'refused');
+  });
+  await test('exposure_over and symbol_exposure_over refuse relative to open positions', async () => {
+    const { ex, jupiter } = setup({ wallet: fakeWallet({ margin: { usd: 1000, byAsset: { USDC: 1000 } }, holdings: [] }) }); // equity $1000
+    jupiter.positions = [{ positionId: 'p1', symbol: 'BTC', direction: 'long', sizeUsd: 900, collateralUsd: 100, unrealizedPnlUsd: 0 }];
+    const r = await ex.preflight(intent({ sizeUsd: 200 }), ctx); // 900+200=1100 / 1000 = 110%
+    has(r.reasons, 'exposure_over', 'exposure');
+    has(r.reasons, 'symbol_exposure_over', 'same symbol');
+  });
+  await test('a prefs.risk override tightens pct-per-trade below the env default, in bounds', async () => {
+    // equity 2000: exposure 200/2000 = 10% (under both the 15% per-symbol and 25% overall
+    // default caps), riskPct ~0.025% (under the 0.5% default per-trade cap).
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 2000, byAsset: {} }, holdings: [] }) });
+    const loose = await ex.preflight(intent(), { ...ctx });
+    eq(loose.ok, true, `default pct passes (${loose.reasons})`);
+    const tight = await ex.preflight(intent(), { ...ctx, riskPrefs: { pctPerTrade: 0.01 } }); // tighter than the ~0.025% risk at this stop
+    has(tight.reasons, 'risk_pct_over', 'the tighter owner override now refuses the same intent');
+  });
+  await test('an out-of-bound prefs.risk override (above env, or above the 2% absolute ceiling) is ignored, never loosens the gate', async () => {
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: {} }, holdings: [] }) }); // equity $40, would refuse at the 0.5% default
+    const r = await ex.preflight(intent(), { ...ctx, riskPrefs: { pctPerTrade: 50 } }); // absurd override, ignored
+    has(r.reasons, 'risk_pct_over', 'still refused: the override never loosens beyond env / the 2% ceiling');
+  });
+  await test('a daily drawdown breach refuses and engages the kill switch; it stays killed until /arm', async () => {
+    const { ex, store, clock } = setup({ wallet: fakeWallet({ margin: { usd: 10000, byAsset: {} }, holdings: [] }) }); // equity 10000
+    // Day-start ~10400, loss 400 -> ~3.85% > the 3% default daily cap.
+    store.files.set('journal/2026-09-25.jsonl', { text: `${JSON.stringify({ id: 'j1', kind: 'close', resultUsd: -400 })}\n`, etag: '"j"' });
+    const first = await ex.preflight(intent(), ctx);
+    has(first.reasons, 'daily_drawdown', 'refused for drawdown, not yet for the kill it just engaged');
+    clock.t += 1000;
+    const second = await ex.preflight(intent(), ctx);
+    has(second.reasons, 'kill_switch', 'now killed on every later call');
+    const armed = await ex.arm(PIN, ctx);
+    eq(armed.ok, true, 'arm clears it');
+    // The loss is still on the books, so the SAME drawdown reason returns (not a bare pass);
+    // the point of this test is that arm at least clears the standing kill_switch reason.
+    const third = await ex.preflight(intent(), ctx);
+    assert(!third.reasons.includes('kill_switch'), 'kill_switch cleared by arm');
+    has(third.reasons, 'daily_drawdown', 'the underlying drawdown is unchanged, so it refuses again on its own merits');
+  });
+
+  function isFinitePositive(v) { return typeof v === 'number' && Number.isFinite(v) && v > 0; }
+
   console.log('Audit');
   await test('redact: key-like, URL, bearer, byte arrays and live secret values never survive', () => {
     const env = baseEnv();
@@ -809,7 +923,7 @@ async function run() {
     const s = setup();
     const r = await s.ex.preflight(intent(), { ...ctx, mark: { symbol: 'BTC', status: 'ok', price: 84605, close: 84610 } });
     eq(r.ok, true, `ok ${r.reasons}`);
-    eq(s.market.builds, 0, 'no engine build');
+    eq(s.market.builds, 1, 'one engine build for T-8 equity SOL pricing, not for the fill (ctx.mark covers that, and is cached 60s)');
     eq(r.order.expectedFill, 84605, 'ctx mark');
     const b = setup({ env: baseEnv({ EXECUTION_MAX_ENTRY_DRIFT_BPS: '1000' }) });
     b.market.symbols.BTC.mark.price = 84380; // below the long stop 84390

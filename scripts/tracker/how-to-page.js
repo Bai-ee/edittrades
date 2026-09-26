@@ -70,7 +70,8 @@ const TG_EXEC = [
   ['Confirm + PIN', 'Every time', 'Tap Confirm, then reply /confirm <nonce> <PIN>. The bot deletes that message so the PIN does not stay in the chat. Wrong PIN 3 times → execution auto-kills for 1 hour. Cancel sends nothing.'],
   ['/order', 'Manual', '/order BTC long size 200 lev 5 sl 84390 tp 85146. SL and TP are required; the same checks and ticket apply.'],
   ['/positions', 'Manage', 'Live positions from chain with PnL: Close, Close 50%, SL→BE, Set SL/TP (/stops <pos> sl <price> tp <price>). Each makes a ticket and needs /confirm with your PIN.'],
-  ['/kill · /arm', 'Stop switch', '/kill stops all execution at once, no PIN. /arm <PIN> clears it (an EXECUTION_KILL set in Vercel stays until removed there). /exec shows mode, kill, caps, loss today, open count and margin.']
+  ['/kill · /arm', 'Stop switch', '/kill stops all execution at once, no PIN. /arm <PIN> clears it (an EXECUTION_KILL set in Vercel stays until removed there). /exec shows mode, kill, caps, loss today, open count and margin.'],
+  ['/risk', 'Wallet-aware sizing', 'Risk policy on top of your caps, sized against your real wallet equity: per-trade risk, exposure, drawdown, gas. Shows equity, exposure, drawdown day/week and the policy; /risk pct 0.3 (or exposure/symbolexposure/dailydd/weeklydd/gas) tightens one, /risk reset clears it. An override can only tighten a knob, never loosen past env or 2% per trade. The ticket shows the risk and a suggested size when yours is larger.']
 ];
 
 const TG_BUTTONS = [

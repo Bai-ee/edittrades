@@ -58,7 +58,8 @@ import {
   EXEC_OFF_REPLY, ORDER_USAGE, CONFIRM_USAGE, STOPS_USAGE, EXEC_TICKETS_PATH, EXEC_TICKET_TTL_MS, withOpenButton, execCaps, execMode,
   orderIntentFromCandidate, candidateLevels, openSourceKind, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
   formatResultCard, formatConfirmFail, formatOpenPhaseCard, formatEmergencyCloseCard, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
-  formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket
+  formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket,
+  parseRiskArgs, applyRiskPrefsChange, formatRiskStatus
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 
@@ -117,7 +118,7 @@ export function testAlertSample(payload) {
 const EXECUTOR_FNS = Object.freeze(['preflight', 'createTicket', 'confirm', 'closePosition', 'updateStops', 'listPositions', 'status']);
 const validExecutor = (x) => (x && EXECUTOR_FNS.every((k) => typeof x[k] === 'function') ? x : null);
 /** Commands and buttons that need the executor (each answers `Execution off` without it). */
-const EXEC_CMDS = new Set(['open', 'order', 'confirm', 'stops', 'exec', 'kill', 'arm', 'mode', 'xconfirm', 'xcancel', 'xmanage']);
+const EXEC_CMDS = new Set(['open', 'order', 'confirm', 'stops', 'exec', 'kill', 'arm', 'mode', 'risk', 'xconfirm', 'xcancel', 'xmanage']);
 
 /**
  * The executor (docs/PLAN_TELEGRAM_EXECUTION.md "Contract between agents"), or null:
@@ -306,6 +307,11 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   // ---- execution helpers (only used by execution commands and /positions, /plan)
   const ex = parsed && parsed.known && (EXEC_CMDS.has(cmd) || cmd === 'positions' || cmd === 'plan') ? await resolveExecutor(env, deps) : null;
   const ctx = (extra = {}) => ({ source: 'telegram', userId: String(fromId), chatId: String(chatId), nowMs: now(), requestId, ...extra });
+  /** T-8: the owner's stored /risk overrides (state.prefs.risk), or undefined with no store / a read failure. */
+  const currentRiskPrefs = async () => {
+    if (!hasStore) return undefined;
+    try { const st = await readState(); return st && st.prefs && st.prefs.risk; } catch { return undefined; }
+  };
   /** ctx.mark for preflight: the payload symbol's mark plus the Kraken close (executor picks mark when ok). */
   const markCtx = (symbol, s) => (s && typeof s === 'object' ? { symbol, status: s.mark && s.mark.status ? s.mark.status : 'unavailable', price: s.mark ? s.mark.price ?? null : null, close: typeof s.price === 'number' ? s.price : null } : null);
   let execSeq = 0;
@@ -323,7 +329,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     }
     return r;
   };
-  const safeStatus = async () => { try { const st = await ex.status(); return st && st.ok !== false ? st : null; } catch { return null; } };
+  const safeStatus = async () => { try { const st = await ex.status(await currentRiskPrefs()); return st && st.ok !== false ? st : null; } catch { return null; } };
   const errName = (err) => (err && err.name ? String(err.name).replace(/[^A-Za-z]/g, '').slice(0, 40) : 'Error');
   const tickets = {
     put: async (t) => {
@@ -367,7 +373,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     const mode = execMode(status);
     const meta = { symbol: intent.symbol, timeframe, direction: intent.direction, candidateId: intent.candidateId || null, entry: intent.entry, stop: intent.stop, tp1: intent.tp1, mode };
     let pf;
-    try { pf = await ex.preflight(intent, ctx(mark ? { mark } : {})); } catch (err) { pf = { ok: false, reasons: [`preflight failed (${errName(err)})`] }; }
+    try { pf = await ex.preflight(intent, ctx({ ...(mark ? { mark } : {}), riskPrefs: await currentRiskPrefs() })); } catch (err) { pf = { ok: false, reasons: [`preflight failed (${errName(err)})`] }; }
     if (!pf || pf.ok !== true) return execSend(formatRefusedCard(intent, pf && pf.reasons, { timeframe }), null, { ...meta, event: 'refused' });
     let ticket = null;
     try { ticket = await ex.createTicket(pf.order, ctx()); } catch (err) { log('exec', ` reason=ticket_${errName(err)}`); }
@@ -518,7 +524,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
             } catch (err) { log('exec', ` reason=phase_card_${errName(err)}`); }
           } : undefined;
           let r;
-          try { r = await ex.confirm(nonce, pin, ctx({ onPhase })); } catch (err) { r = { ok: false, error: `confirm failed (${errName(err)})` }; }
+          try { r = await ex.confirm(nonce, pin, ctx({ onPhase, riskPrefs: await currentRiskPrefs() })); } catch (err) { r = { ok: false, error: `confirm failed (${errName(err)})` }; }
           if (r && r.ok === true && (r.action === 'close' || r.action === 'update')) {
             // The Telegram-side ticket record lagged (Blob), but the executor knew the nonce:
             // render the manage result from the executor's own tags, never the open card.
@@ -573,6 +579,30 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
     } else if (cmd === 'mode') {
       const status = await safeStatus();
       await execSend(formatModeCard(status), null, { event: 'mode', mode: execMode(status) });
+    } else if (cmd === 'risk') {
+      const pr = parseRiskArgs(parsed.args);
+      if (pr.action === 'error') await execSend(escapeHtml(pr.message), null, { event: 'usage' });
+      else if (pr.action === 'show') {
+        const state = hasStore ? await readState() : null;
+        const status = await safeStatus();
+        if (!status) await execSend('Execution status could not be read; try again in a minute.', null, { event: 'status_failed' });
+        else await execSend(formatRiskStatus(status, state && state.prefs && state.prefs.risk), null, { event: 'risk_show' });
+      } else if (!hasStore) {
+        await execSend('Risk prefs store unavailable.', null, { event: 'risk_failed' });
+      } else if (pr.action === 'set' && (typeof ex.riskPrefBound === 'function') && pr.value > ex.riskPrefBound(pr.key)) {
+        await execSend(`⛔ <b>REJECTED</b> — that would loosen the gate. Max right now: ${ex.riskPrefBound(pr.key)} (env cap / the 2% per-trade ceiling).`, null, { event: 'risk_rejected' });
+      } else {
+        let saved = true;
+        try {
+          await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => applyRiskPrefsChange(text, pr.action === 'reset' ? { action: 'reset' } : { action: 'set', key: pr.key, value: pr.value }));
+        } catch (err) { saved = false; log('exec', ` reason=risk_write_${errName(err)}`); }
+        if (!saved) await execSend('Could not save; try again in a minute.', null, { event: 'risk_failed' });
+        else {
+          const state = await readState();
+          const status = await safeStatus();
+          await execSend(status ? `Saved.\n${formatRiskStatus(status, state && state.prefs && state.prefs.risk)}` : 'Saved.', null, { event: pr.action === 'reset' ? 'risk_reset' : 'risk_set' });
+        }
+      }
     } else if (cmd === 'kill') {
       let ok = false;
       try {
