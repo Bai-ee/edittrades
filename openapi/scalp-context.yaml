@@ -1109,6 +1109,8 @@ components:
           $ref: "#/components/schemas/ReadinessAction"
         room:
           $ref: "#/components/schemas/RoomAhead"
+        clarity:
+          $ref: "#/components/schemas/RecommendationClarity"
         policyVersion:
           type: string
         trace:
@@ -1201,10 +1203,96 @@ components:
           $ref: "#/components/schemas/ReadinessAction"
         room:
           $ref: "#/components/schemas/RoomAhead"
+        clarity:
+          $ref: "#/components/schemas/RecommendationClarity"
         policyVersion:
           type: string
         trace:
           type: object
+    RecommendationClarity:
+      type: object
+      nullable: true
+      description: >-
+        Schema 1.27.0 (alert clarity Phase A, docs/PLAN_ALERT_CLARITY.md). Presentation
+        derived from the subject candidate's qual, ema21Hold and its mapped geometry
+        timeframe - never a gate, never changes class. Subject = the plan's candidate,
+        else the SETUP's, else the WATCH candidate. Null on DATA_UNAVAILABLE or when no
+        candidate is named. The default payload (flagRecommendation) carries candidateId,
+        gate, killIf and otherSide only; context and divergence are in the full record
+        (model.recommendation, include=model).
+      properties:
+        candidateId:
+          type: string
+          nullable: true
+        gate:
+          type: object
+          description: >-
+            Can this flag pass the plan gates. passable = qual.decision is not "dont" and
+            no blocker. Blockers: room:blocked-<tf>, chase, and rr:<x> only when x is
+            under minRR (flagPlan.minRR, published here so consumers read the live floor).
+            text e.g. "R 1.9 under 2.5 floor; needs TP beyond 83,700.00"; "flag <state>"
+            for a failed/expired flag. Telegram: chase or a dead flag -> STAND DOWN,
+            rr/room -> WAIT, BE READY only when passable.
+          properties:
+            passable:
+              type: boolean
+            blockers:
+              type: array
+              items:
+                type: string
+            text:
+              type: string
+              nullable: true
+            minRR:
+              type: number
+        killIf:
+          type: object
+          description: >-
+            What kills the thesis before the void: a close back through the breakout
+            level after a probe. Prefixed "EMA21 <word> already -" when ema21Hold is
+            reclaim or acceptance_*.
+          properties:
+            level:
+              type: number
+              nullable: true
+            text:
+              type: string
+        otherSide:
+          type: object
+          description: >-
+            Nearest zone strictly past the breakout on the failure side (up for a short,
+            down for a long) on the candidate's geometry timeframe; a confluence zone wins
+            when it is closer. A labeled scenario, never a target. All null when none.
+          properties:
+            low:
+              type: number
+              nullable: true
+            high:
+              type: number
+              nullable: true
+            source:
+              type: string
+              nullable: true
+            text:
+              type: string
+              nullable: true
+        context:
+          type: array
+          description: >-
+            Full record only. The non-blocking qual codes in words (blockers are in
+            gate.text), then top-down ("Top-down: split 2/4" at 2/4, never bull/bear;
+            "Counter-trend: ..." when against) and one divergence line with counts.
+          items:
+            type: string
+        divergence:
+          type: object
+          nullable: true
+          description: Full record only. {agree, conflict} timeframe counts for the subject's direction.
+          properties:
+            agree:
+              type: integer
+            conflict:
+              type: integer
     ReadinessAction:
       type: object
       description: >-

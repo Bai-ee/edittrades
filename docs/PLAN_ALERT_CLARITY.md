@@ -72,6 +72,14 @@ One rule line under CANDIDATES: `flagRecommendation.clarity: gate.text before an
 - No change to `lib/flagTradePlan.js` gates, `lib/candidateQualifier.js` logic, `config/engine.json` thresholds, MCP tool surface, or `api/`.
 - No commit, no deploy. Hand back for review.
 
+## Orchestrator decisions (2026-09-26, applied on branch alert-clarity)
+
+1. `passable` = `qual.decision !== 'dont'` AND no blocker; `rr:<x>` blocks only under `flagPlan.minRR` (accepted).
+2. Verdict: `room:blocked*` and `rr:*` -> `WAIT (eta) — <gate.text>`; `STAND DOWN` only for `chase` (or a dead flag).
+3. GPT line funded per main's 95da792 (accepted).
+4. Default payload `clarity` = `candidateId`/`gate`/`killIf`/`otherSide`; `context`/`divergence` stay in `model.recommendation`. Byte caps unchanged.
+Minor: `clarity.context` omits the blockers (already in `gate.text`); `gate.minRR` carries the live floor and Telegram reads it instead of a hardcoded 2.5.
+
 ## Out of scope (Phase B, separate thread)
 
 Probe counts, defended extreme, defense score, `failed_breakdown` state: new detector telemetry, replay-gated, after the freeze.
