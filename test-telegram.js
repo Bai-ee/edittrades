@@ -34,12 +34,14 @@ import {
   RULE, MAX_CARD_CHARS, resolveRef, formatPlanCard, formatThesisCard, reasonPhrase, rMultiple, trackEntry, applyTrackChange, formatTrackingList, trackingKeyboard,
   diffTracked, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, candidateSnapshot, swapTrackButton, parseAlertTimeframes,
   TRACK_MAX, TRACK_TTL_MS, NUDGE_AFTER_MS, EXPIRED_REPLY, liveView, formatMarket, marketLean, formatHelp,
-  isOpenReady, parseOrderArgs, parseConfirmArgs, orderIntentFromPlan, formatTicketCard, EXEC_TICKETS_PATH
+  isOpenReady, parseOrderArgs, parseConfirmArgs, orderIntentFromPlan, orderIntentFromCandidate, candidateLevels, openEligible, openSourceKind,
+  withOpenButton, focusRelated, formatFocusState, normalizeLivePositions, LIVE_POSITIONS_CACHE_MS, FOCUS_MODES, formatExecStatus, formatTicketCard, EXEC_TICKETS_PATH
 } from './lib/telegram.js';
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor, config as webhookConfig } from './api/telegram-webhook.js';
 import { handleTelegramCron } from './api/telegram-cron.js';
 import { diffCandidates } from './lib/telegram.js';
+import { buildClarity } from './lib/flagRecommendation.js';
 import { execLogLine, alertLogLine, verdictOf as logVerdictOf, textExcerpt, recordTelegramLogs, assertSafeRows, alertsDayPath, transitionsDayPath, ALERTS_MANIFEST_PATH, TRANSITIONS_MANIFEST_PATH } from './lib/telegramLog.js';
 import { findSensitiveKeys } from './scripts/tracker/records.js';
 import { telegramStatusFromState, pullTelegramStatus } from './scripts/tracker/collect.js';
@@ -241,10 +243,15 @@ const kindOf = (t) => { const m = String(t || '').split('\n').find((l) => l.incl
 const unpad = (t) => String(t || '').replace(/: {2,}/g, ': ');
 const allCallbackData = (markup) => (markup && markup.inline_keyboard ? markup.inline_keyboard.flat().map((b) => b.callback_data) : []);
 
-async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0 }) {
+/**
+ * `executor` (default null) is always forwarded as its own deps key -- T-7's live-position
+ * read (resolveExecutor) checks hasOwnProperty, so an explicit null short-circuits it
+ * without any dynamic import; a test exercising focus mode passes a mock instead.
+ */
+async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, executor = null, importExecutor }) {
   const req = { method: 'GET', headers: auth ? { authorization: auth } : {} };
   const res = mockRes();
-  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render: fakeRender, now: () => nowMs, env }));
+  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render: fakeRender, now: () => nowMs, env, executor, ...(importExecutor ? { importExecutor } : {}) }));
   return { res, tg, blob, logs };
 }
 
@@ -305,7 +312,7 @@ async function run() {
       '<code>brk   84,600.00\nvoid  84,390.00\nmeas        n/a</code>', RULE,
       '<b>GET IN NOW</b> — retest held', RULE,
       '<code>entry          84,600.00\nstop           84,390.00\nstop dist          0.25%\nTP1            85,146.00\nTP2            85,300.00\nR gross·net  2.6R · 2.1R</code>', RULE,
-      'Mark: $84,610.20 · drift 1.2 bps'
+      'Kill if: close back below 84,600.00 after a probe = defended, stand down\nMark: $84,610.20 · drift 1.2 bps'
     ].join('\n'), 'good');
     const s = formatGoodAlert('BTC', goodSym(), payload(), { nowMs: T0, test: true });
     assert(s.startsWith('🧪 TEST — NOT A SIGNAL\n🟢 ₿ <b>BTC 5m ▲ LONG</b> · GOOD'), s.slice(0, 60));
@@ -401,7 +408,7 @@ async function run() {
       '<code>brk   117.29\nvoid  117.62\nmeas    3.1R</code>', RULE,
       '<b>BE READY (1m)</b> — no chase; enter on a retest of 117.29 that holds below', RULE,
       '<code>entry             117.29\nstop              117.62\nstop dist          0.28%\nTP1               116.27\nR gross·net  3.1R · 2.6R</code>', RULE,
-      'Counter-trend: top-down bull 4/4, against this ▼ SHORT\nMark: $117.20 · drift 1.3 bps'
+      'Counter-trend: top-down bull 4/4, against the short\nKill if: close back above 117.29 after a probe = defended, stand down\nMark: $117.20 · drift 1.3 bps'
     ].join('\n'), 'short snapshot');
     const b = c.breakoutLevel;
     const mc = { ...c, direction: 'long', invalidation: mirrorPx(b, c.invalidation) };
@@ -411,7 +418,7 @@ async function run() {
       '<code>brk   117.29\nvoid  116.96\nmeas    3.1R</code>', RULE,
       '<b>BE READY (1m)</b> — no chase; enter on a retest of 117.29 that holds above', RULE,
       '<code>entry             117.29\nstop              116.96\nstop dist          0.28%\nTP1               118.31\nR gross·net  3.1R · 2.6R</code>', RULE,
-      'Counter-trend: top-down bear 4/4, against this ▲ LONG'
+      'Counter-trend: top-down bear 4/4, against the long\nKill if: close back below 117.29 after a probe = defended, stand down'
     ].join('\n'), 'long mirror snapshot');
   });
 
@@ -443,7 +450,7 @@ async function run() {
     checkAlert(formatWatchAlert('BTC', c, { supports: ['td:bull:3/4'] }, { asOf: ASOF_3M }), EXPECTED.watch, 'long');
     const m = formatWatchAlert('BTC', { ...c, direction: 'short', invalidation: mirrorPx(c.breakoutLevel, c.invalidation) }, { opposes: ['td:bull:3/4'] }, { asOf: ASOF_3M });
     checkAlert(m, ['⚪ ₿ <b>BTC 3m ▼ SHORT</b> · WATCH · forming', '<b>WAIT (2m)</b> — needs a 3m close below 84,900.00, then a retest that holds'], 'short mirror');
-    assert(m.includes('Counter-trend: top-down bull 3/4, against this ▼ SHORT'), m);
+    assert(m.includes('Counter-trend: top-down bull 3/4, against the short'), m);
   });
 
   await test('owner example 5: ETH 1m SHORT triggering, counter-trend -> 🟡 TRIGGERING / BE READY (1m); long mirror', () => {
@@ -454,6 +461,64 @@ async function run() {
     const m = formatWatchAlert('ETH', { ...c, direction: 'long', invalidation: mirrorPx(c.breakoutLevel, c.invalidation) }, { supports: ['td:bull:3/4'] }, { asOf: ASOF_1M });
     checkAlert(m, ['🟡 Ξ <b>ETH 1m ▲ LONG</b> · TRIGGERING', '<b>BE READY (1m)</b> — close above 2,680.85 confirms; then retest &amp; hold to enter'], 'long mirror');
     assert(!m.includes('Counter-trend') && m.includes('Top-down: bull 3/4'), 'aligned: no counter-trend note');
+  });
+
+  // Alert clarity (schema 1.27.0, docs/PLAN_ALERT_CLARITY.md).
+  await test('1.27.0 clarity: TRIGGERING with a blocking gate -> WAIT (rr) / STAND DOWN (room, chase), never BE READY; passable -> BE READY unchanged', () => {
+    const base = { candidateId: 'BTC:3m:long:clar', timeframe: '3m', direction: 'long', state: 'triggering', breakoutLevel: 83000, invalidation: 82720, measuredRR: 1.9 };
+    const G15 = { '15m': { horizontalSupportZones: [{ low: 82500, high: 82600 }], horizontalResistanceZones: [], confluenceZones: [] } };
+    const recFor = (c) => ({ supports: ['td:bull:3/4'], opposes: [], unknowns: [], clarity: buildClarity({ candidate: c, topDown: { sentiment: 'bull', aligned: 3 }, divergence: { bullish: 1, bearish: 2 }, geometryContext: G15 }) });
+    // rr only (engine clarity for this candidate) -> WAIT with the needed TP.
+    const rr = { ...base, qual: { decision: 'wait', reasons: ['rr:1.9'] } };
+    const t = formatWatchAlert('BTC', rr, recFor(rr), { asOf: ASOF_3M });
+    checkAlert(t, ['🟡 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>WAIT (2m)</b> — R 1.9 under 2.5 floor; needs TP beyond 83,700.00'], 'rr');
+    assert(!t.includes('BE READY'), t);
+    assertEqual(secs(t)[3], [
+      'measured move only 1.9R', 'Top-down: bull 3/4', 'Divergence: 1 tf agrees, 2 against',
+      'Kill if: close back below 83,000.00 after a probe = defended, stand down',
+      'Other side: if it fails, rotation to 82,500.00–82,600.00 (15m support)'
+    ].join('\n'), 'context: qual words, top-down, one divergence line with counts, kill, other side');
+    // room blocked -> STAND DOWN (🔴).
+    const room = { ...base, measuredRR: 3.2, qual: { decision: 'wait', reasons: ['conflict:5m-short', 'room:blocked-15m'] } };
+    const tr = formatWatchAlert('BTC', room, recFor(room), { asOf: ASOF_3M });
+    checkAlert(tr, ['🔴 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>STAND DOWN</b> — a 15m level blocks the measured target'], 'room');
+    assert(secs(tr)[3].startsWith('a 15m level blocks the measured target\nopposite 5m short flag active'), 'blocking first');
+    // chase on a candidate that is NOT the record's subject -> read from its own qual, short mirror.
+    const chase = { ...base, candidateId: 'BTC:3m:short:other', direction: 'short', invalidation: 83280, measuredRR: 3.4, qual: { decision: 'wait', reasons: ['chase'] } };
+    const tc = formatWatchAlert('BTC', chase, recFor(rr), { asOf: ASOF_3M });
+    checkAlert(tc, ['🔴 ₿ <b>BTC 3m ▼ SHORT</b> · TRIGGERING', '<b>STAND DOWN</b> — price ran past the breakout'], 'chase fallback');
+    assert(tc.includes('Kill if: close back above 83,000.00 after a probe') && !tc.includes('Other side'), 'fallback: kill line, no other side');
+    // rr fallback (not the subject): needed TP mirrored for a short.
+    const rrShort = { ...chase, measuredRR: 1.9, qual: { decision: 'wait', reasons: ['rr:1.9'] } };
+    assertEqual(verdictOf(formatWatchAlert('BTC', rrShort, recFor(rr), { asOf: ASOF_3M })), '<b>WAIT (2m)</b> — R 1.9 under 2.5 floor; needs TP beyond 82,300.00', 'rr fallback short');
+    // passable (rr:2.8 is over the 2.5 plan floor; ct only) -> BE READY unchanged.
+    const ok = { ...base, measuredRR: 2.8, qual: { decision: 'wait', reasons: ['rr:2.8', 'ct:4h'] } };
+    checkAlert(formatWatchAlert('BTC', ok, recFor(ok), { asOf: ASOF_3M }), ['🟡 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>BE READY (2m)</b> — close above 83,000.00 confirms; then retest &amp; hold to enter'], 'passable');
+    // WATCH (forming) with a room blocker -> STAND DOWN, dot stays ⚪.
+    const formingRoom = { ...room, state: 'forming' };
+    checkAlert(formatWatchAlert('BTC', formingRoom, recFor(formingRoom), { asOf: ASOF_3M }), ['⚪ ₿ <b>BTC 3m ▲ LONG</b> · WATCH · forming', '<b>STAND DOWN</b> — a 15m level blocks the measured target'], 'watch room');
+  });
+
+  await test('1.27.0 clarity: one divergence line (no counts without clarity); top-down 2/4 reads split, never bull/bear', () => {
+    const c = { ...EX.ethTrig() };
+    const t = formatWatchAlert('ETH', c, { supports: ['divergence_agrees'], opposes: ['td:bull:2/4', 'divergence_conflicts'], unknowns: [] }, { asOf: ASOF_1M });
+    const ctx = secs(t)[3].split('\n');
+    assertEqual(ctx.filter((l) => l.startsWith('Divergence')).join('|'), 'Divergence: agrees, against', 'one divergence line');
+    assert(ctx.includes('Top-down: split 2/4') && !t.includes('Counter-trend'), t);
+    assert(t.length <= MAX_CARD_CHARS && !REASON_CODE_RE.test(t), t);
+  });
+
+  await test('1.27.0 clarity: context lines never touch the alert signature or dedup', () => {
+    const c = cand('BTC:3m:long:sig', 'triggering', { qual: { decision: 'wait', reasons: [] } });
+    const rec1 = { ...TD_REC, clarity: buildClarity({ candidate: c, topDown: { sentiment: 'bull', aligned: 3 } }) };
+    const rec2 = { ...TD_REC, clarity: buildClarity({ candidate: { ...c, ema21Hold: 'reclaim', qual: { decision: 'wait', reasons: ['conflict:5m-short', 'rr:2.8'] } }, topDown: { sentiment: 'bear', aligned: 2 }, divergence: { bullish: 0, bearish: 3 } }) };
+    assert(formatWatchAlert('BTC', c, rec1) !== formatWatchAlert('BTC', c, rec2), 'context text differs');
+    assertEqual(alertSignature('BTC', { ...c, qual: rec2.clarity }), alertSignature('BTC', c), 'signature ignores clarity');
+    const sym = (rec) => ({ ...formSym([c]), flagRecommendation: { ...formSym([c]).flagRecommendation, ...rec } });
+    let r = diffAlerts(withPrefs('watch'), payload({ BTC: sym(rec1) }), T0);
+    assertEqual(r.alerts.filter((x) => x.kind === 'TRIGGERING').length, 1, 'first alert');
+    r = diffAlerts(r.state, payload({ BTC: sym(rec2) }), T0 + 20 * MIN);
+    assertEqual(r.alerts.filter((x) => ['WATCH', 'TRIGGERING'].includes(x.kind)).length, 0, 'changed context lines do not re-alert');
   });
 
   await test('every alert: dot+glyph header with the right arrow, rule separators, one bold verdict, under 1,000 chars; no reason code or remedy', () => {
@@ -618,11 +683,12 @@ async function run() {
 
   await test('WATCH line format; proto/failed/expired/confirmed never alert; TRIGGERING line', () => {
     assertEqual(formatWatchAlert('BTC', cand('x'), TD_REC), ['⚪ ₿ <b>BTC 3m ▲ LONG</b> · WATCH · forming', RULE, '<code>brk   84,466.10\nvoid  84,331.60\nmeas       2.4R</code>', RULE,
-      '<b>WAIT</b> — needs a 3m close above 84,466.10, then a retest that holds', RULE, 'Top-down: bull 3/4'].join('\n'), 'forming (no asOf -> no eta; aligned td -> no counter-trend)');
+      '<b>WAIT</b> — needs a 3m close above 84,466.10, then a retest that holds', RULE, 'Top-down: bull 3/4\nKill if: close back below 84,466.10 after a probe = defended, stand down'].join('\n'), 'forming (no asOf -> no eta; aligned td -> no counter-trend)');
     checkAlert(formatWatchAlert('BTC', cand('x', 'triggering'), TD_REC, { asOf: '2026-09-24T14:05:00.000Z' }), ['🟡 ₿ <b>BTC 3m ▲ LONG</b> · TRIGGERING', '<b>BE READY (1m)</b> — close above 84,466.10 confirms; then retest &amp; hold to enter'], 'triggering');
     const bare = formatWatchAlert('ETH', cand('x', 'forming', { direction: 'short', measuredRR: null }), { supports: [] });
     checkAlert(bare, ['⚪ Ξ <b>ETH 3m ▼ SHORT</b> · WATCH · forming', '<b>WAIT</b> — needs a 3m close below 84,466.10, then a retest that holds'], 'no td, no R');
-    assertEqual(secs(bare).length, 3, 'no context section without td or mark');
+    assertEqual(secs(bare).length, 4, 'context section is the Kill if line alone without td or mark');
+    assertEqual(secs(bare)[3], 'Kill if: close back above 84,466.10 after a probe = defended, stand down', 'kill line mirrored for a short');
     const other = ['proto', 'failed', 'expired', 'confirmed'].map((st, i) => cand(`BTC:3m:long:o${i}`, st));
     const r = diffAlerts(withPrefs('watch'), payload({ BTC: formSym(other) }), T0);
     assertEqual(r.alerts.filter((x) => x.kind === 'WATCH' || x.kind === 'TRIGGERING').length, 0, 'only forming/triggering');
@@ -778,13 +844,15 @@ async function run() {
   });
 
   await test('prefs persist in state: normalize, apply, parseState keeps off, diffAlerts carries prefs', () => {
-    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"]}', 'garbage -> defaults');
+    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto"}', 'garbage -> defaults');
+    assertEqual(normalizePrefs({ focus: 'off' }).focus, 'off', 'focus off is kept');
+    assertEqual(normalizePrefs({ focus: 'bogus' }).focus, 'auto', 'unknown focus -> auto');
     const off = parseState(applyPrefsChange(null, { quiet: null }));
     assertEqual(off.prefs.quiet, null, 'off persists as null');
     const lv = parseState(applyPrefsChange(JSON.stringify({ ...emptyState(), symbols: { BTC: { goodIds: ['k'] } } }), { level: 'watch' }));
     assertEqual(`${lv.prefs.level}|${lv.symbols.BTC.goodIds[0]}`, 'watch|k', 'level saved, alert memory kept');
     const d = diffAlerts(withPrefs('good', null), payload(), T0);
-    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"]}', 'diff keeps prefs');
+    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto"}', 'diff keeps prefs');
     assert(formatAlertPrefs(d.state.prefs).includes('Alert level: <b>good</b>') && formatAlertPrefs(d.state.prefs).includes('Quiet hours: off'), 'prefs text');
   });
 
@@ -796,7 +864,7 @@ async function run() {
     assert(set.tg.calls[0].text.startsWith('Saved.') && set.tg.calls[0].text.includes('<b>watch</b>'), set.tg.calls[0].text);
     await hook({ text: '/alerts quiet 22-06', blob });
     let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
-    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"]}', 'persisted');
+    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto"}', 'persisted');
     const q = await hook({ text: '/alerts quiet', blob });
     assertEqual(q.tg.calls[0].text, 'Quiet hours: 22:00–06:00 America/Chicago, every day (alerts arrive silently)', 'quiet show');
     await hook({ text: '/alerts quiet off', blob });
@@ -950,10 +1018,10 @@ async function run() {
 
   console.log('\nbuttons');
 
-  await test('reply keyboard: persistent, resized, the four owner rows; on /start, /menu and every plain reply', async () => {
+  await test('reply keyboard: persistent, resized, the five owner rows; on /start, /menu and every plain reply', async () => {
     const kb = menuKeyboard();
     assertEqual(JSON.stringify(kb.keyboard.map((r) => r.map((b) => b.text))), JSON.stringify(MENU_ROWS), 'rows');
-    assertEqual(JSON.stringify(MENU_ROWS), '[["Signals","Flags","Market"],["Why BTC","Why ETH","Why SOL"],["Charts","Wallet","Positions","Exec"],["Journal","Status","Alerts","Tracking"]]', 'owner layout');
+    assertEqual(JSON.stringify(MENU_ROWS), '[["Signals","Flags","Market"],["Why BTC","Why ETH","Why SOL"],["Charts","Wallet","Positions","Exec"],["Journal","Status","Alerts","Tracking"],["Focus"]]', 'owner layout');
     assert(kb.resize_keyboard === true && kb.is_persistent === true, 'flags');
     for (const text of ['/start', '/menu', '/help', '/status', '/wallet', 'hello']) {
       const r = await hook({ text });
@@ -964,7 +1032,7 @@ async function run() {
 
   await test('menu labels map to commands (case-insensitive, exact label only)', async () => {
     const m = (t) => { const p = parseMenuLabel(t); return p ? `${p.cmd}${p.args.length ? ` ${p.args.join(' ')}` : ''}` : null; };
-    const want = { Signals: 'signals', Flags: 'flags', 'Why BTC': 'why BTC', 'Why ETH': 'why ETH', 'Why SOL': 'why SOL', Charts: 'charts', Wallet: 'wallet', Journal: 'journal', Status: 'status', Alerts: 'alerts', Positions: 'positions', Tracking: 'tracking', Market: 'market', Exec: 'exec' };
+    const want = { Signals: 'signals', Flags: 'flags', 'Why BTC': 'why BTC', 'Why ETH': 'why ETH', 'Why SOL': 'why SOL', Charts: 'charts', Wallet: 'wallet', Journal: 'journal', Status: 'status', Alerts: 'alerts', Positions: 'positions', Tracking: 'tracking', Market: 'market', Exec: 'exec', Focus: 'focus' };
     for (const label of MENU_ROWS.flat()) assertEqual(m(label), want[label], label);
     assertEqual(m('why btc'), 'why BTC', 'lower case');
     assertEqual(m('  SIGNALS '), 'signals', 'upper, padded');
@@ -982,8 +1050,13 @@ async function run() {
       'chart:BTC:1m,chart:BTC:3m,chart:BTC:5m,chart:BTC:15m,chart:BTC:1h | chart:ETH:1m,chart:ETH:3m,chart:ETH:5m,chart:ETH:15m,chart:ETH:1h | chart:SOL:1m,chart:SOL:3m,chart:SOL:5m,chart:SOL:15m,chart:SOL:1h | flags:all', 'grid');
     const a = await hook({ text: 'Alerts' });
     assertEqual(a.tg.calls[0].replyMarkup.inline_keyboard.map((r) => r.map((b) => `${b.text}=${b.callback_data}`).join(',')).join(' | '),
-      'Good=alerts:good,Setup=alerts:setup,Watch=alerts:watch | Quiet on=alerts:quiet:on,Quiet off=alerts:quiet:off | 3m+5m=alerts:tf:3m5m,5m only=alerts:tf:5m,all=alerts:tf:all', 'alerts buttons');
+      'Good=alerts:good,Setup=alerts:setup,Watch=alerts:watch | Quiet on=alerts:quiet:on,Quiet off=alerts:quiet:off | 3m+5m=alerts:tf:3m5m,5m only=alerts:tf:5m,all=alerts:tf:all | Focus auto=alerts:focus:auto,Focus off=alerts:focus:off', 'alerts buttons');
     assert(a.tg.calls[0].text.includes('Alert level: <b>setup</b>'), 'shows prefs');
+    const focusBlob = fakeBlob();
+    const focus = await hook({ text: 'Focus', blob: focusBlob });
+    assert(focus.tg.calls[0].text === 'Focus: <b>off</b>', focus.tg.calls[0].text);
+    const focus2 = await hook({ text: 'Focus', blob: focusBlob });
+    assert(focus2.tg.calls[0].text === 'Focus: <b>auto (no position)</b>', focus2.tg.calls[0].text);
   });
 
   await test('callback parsing; every callback_data fits 64 bytes; allowed_updates value', () => {
@@ -1082,10 +1155,15 @@ async function run() {
     const blob = fakeBlob();
     await tap({ data: 'alerts:watch', blob });
     await tap({ data: 'alerts:quiet:off', blob });
-    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"]}', 'level + off');
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto"}', 'level + off');
     const on = await tap({ data: 'alerts:quiet:on', blob });
     assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.quiet), '{"start":1,"end":5}', 'on = default');
     assert(on.tg.calls[1].replyMarkup.inline_keyboard, 'alerts buttons again');
+    const focusOff = await tap({ data: 'alerts:focus:off', blob });
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.focus, 'off', 'focus off persisted via callback');
+    assert(focusOff.tg.calls[1].text.includes('<b>off</b>'), 'saved reply shows focus');
+    await tap({ data: 'alerts:focus:auto', blob });
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.focus, 'auto', 'focus auto persisted via callback');
     const stale = await tap({ data: 'bogus:1' });
     assert(stale.tg.calls[1].text.includes('no longer valid'), 'unknown button');
     let built = 0;
@@ -1160,7 +1238,7 @@ async function run() {
     const v1 = toV1(first);
     const m = migrateState(JSON.stringify(v1));
     assertEqual(`${m.fromVersion}|${m.migrated}|${m.reset}|${m.state.stateVersion}`, `1|true|false|${STATE_VERSION}`, 'migration flags');
-    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'] }), 'default prefs');
+    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto' }), 'default prefs');
     assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
     const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
     const fromV1 = diffAlerts(m.state, next, T0 + MIN);
@@ -1989,7 +2067,7 @@ async function run() {
     assert(!allCallbackData(lastMarkup(notReady)).some((d) => d.startsWith('open:')), 'no Open unless GET IN NOW');
     const sol = await xtap({ data: `plan:${shortRef('SOL:1m:long:x')}`, executor: ex });
     assert(!allCallbackData(lastMarkup(sol)).some((d) => d.startsWith('open:')), 'no Open on a rejected plan');
-    const c1 = await cron({ env: XENV, build: async () => xpayload() });
+    const c1 = await cron({ env: XENV, build: async () => xpayload(), executor: ex });
     const good = c1.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
     assert(good && allCallbackData(good.replyMarkup)[0] === `open:${GOOD_REF}`, 'cron GOOD has Open');
     const c2 = await cron({ env: ENV, build: async () => xpayload() });
@@ -1999,7 +2077,7 @@ async function run() {
     const tblob = fakeBlob();
     const tsnap = candidateSnapshot('BTC', goodRiskSym(), GOOD_ID);
     await tblob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), tracked: [{ ...trackEntry(tsnap, T0), lastState: 'confirmed', setupSeen: true }] }), { allowOverwrite: true });
-    const c3 = await cron({ env: XENV, blob: tblob, build: async () => xpayload() });
+    const c3 = await cron({ env: XENV, blob: tblob, build: async () => xpayload(), executor: ex });
     const tgo = c3.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text).includes('TRACK · GET IN NOW'));
     assert(tgo && allCallbackData(tgo.replyMarkup)[0] === `open:${GOOD_REF}`, 'tracked GET IN NOW has Open');
     assert(isOpenReady(resolveRef(GOOD_REF, xpayload(), null)) && !isOpenReady(resolveRef(GOOD_REF, xpayload('WAIT'), null)), 'isOpenReady');
@@ -2332,16 +2410,191 @@ async function run() {
 
   await test('help lists execution commands; EXEC is a sent-alert kind; card excerpts carry no sizing', () => {
     const help = formatHelp();
-    for (const f of ['Open (on GOOD alerts and ready Plan cards)', '/confirm &lt;nonce&gt; &lt;PIN&gt;', '/order SYM long|short', '/exec', '/kill', '/arm', '/mode', 'DRY RUN']) assert(help.includes(f), `help missing ${f}`);
+    for (const f of ['Open @ plan', 'Open (early)', '/confirm &lt;nonce&gt; &lt;PIN&gt;', '/order SYM long|short', '/exec', '/kill', '/arm', '/mode', 'DRY RUN', '/alerts focus auto|off']) assert(help.includes(f), `help missing ${f}`);
     const line = execLogLine({ id: 'x', sentAtMs: T0, event: 'ticket', symbol: 'BTC', direction: 'long', mode: 'dry', text: '<code>size  $50.00\nlev   3x\nSL    84,390.00</code>' });
     assert(line.kind === 'EXEC' && line.text.includes('SL') && !line.text.includes('$50.00') && !line.text.includes('3x'), JSON.stringify(line));
     for (const [name, t] of printed) console.log(`\n    --- ${name} card ---\n${t.split('\n').map((l) => `    ${l}`).join('\n')}`);
   });
 
+  console.log('\nfocus mode + Open from any levelled alert (T-7)');
+
+  const SETUP_SOL_ID = 'SOL:3m:short:2026-09-24T14:00:00.000Z';
+  const setupSolRec = { candidateId: SETUP_SOL_ID, timeframe: '3m', direction: 'short', entry: 116.77, stop: 117.1, tp1: 115.6, grossRR: 2.8, netRR: 2.2, entryCondition: 'wait for a 3m retest of 116.77 that holds below it' };
+  // state 'triggering', not 'confirmed': a 'confirmed' candidateSetups entry fires its own
+  // BREAKOUT alert first and marks any matching rec.setup "covered" (no second SETUP alert,
+  // per diffAlerts/PLAN_TELEGRAM.md "Setups a BREAKOUT alert already carried") -- a real
+  // chase-rejected SETUP still needs entry/stop/tp1 and a risk block on the candidate
+  // before it confirms, which 'triggering' models without pre-empting the SETUP alert.
+  function setupSolSym(withRisk = true) {
+    return {
+      price: 116.9, mark: { price: 116.95, driftBps: 4, status: 'ok' },
+      candidateSetups: [{ candidateId: SETUP_SOL_ID, type: 'flag', timeframe: '3m', direction: 'short', state: 'triggering', breakoutLevel: 116.77, invalidation: 117.1, measuredRR: 2.8, ...(withRisk ? { risk: { maxLeverage: 10, suggestedLeverage: 3, collateralUsd: 20 } } : {}) }],
+      flagTradePlan: null,
+      flagRecommendation: { class: 'WATCH', setupId: null, candidateId: null, readiness: 'no_plan', setup: setupSolRec, primaryReason: { code: 'x', text: 'x' }, changeConditions: [] }
+    };
+  }
+  const BREAKOUT_ETH_ID = 'ETH:5m:long:2026-09-24T14:00:00.000Z';
+  function breakoutEthSym() {
+    return {
+      price: 2690, mark: { price: 2691, driftBps: 3, status: 'ok' },
+      candidateSetups: [{ candidateId: BREAKOUT_ETH_ID, type: 'flag', timeframe: '5m', direction: 'long', state: 'confirmed', breakoutLevel: 2680, invalidation: 2660, measuredTarget: 2720, risk: { maxLeverage: 10, suggestedLeverage: 4, collateralUsd: 25 } }],
+      flagTradePlan: null,
+      flagRecommendation: { class: 'BAD', setupId: null, candidateId: null, readiness: 'rejected', setup: null, primaryReason: { code: 'chase', text: 'x' }, changeConditions: [] }
+    };
+  }
+  const solPos = { positionId: 'SolPos1111111111111111111111111111111111111', market: 'SOLUSDT', symbol: 'SOL', direction: 'short', sizeUsd: 30, collateralUsd: 10, leverage: 3, entryPrice: 117, markPrice: 116.9, liquidationPrice: 128, unrealizedPnlUsd: 0.3 };
+
+  await test('normalizeLivePositions: valid shape kept, malformed -> null; FOCUS_MODES is auto/off', () => {
+    assertEqual(FOCUS_MODES.join(','), 'auto,off', 'focus modes');
+    const at = new Date(T0).toISOString();
+    assertEqual(JSON.stringify(normalizeLivePositions({ at, symbols: ['SOL', 1], positionIds: ['x'] })), JSON.stringify({ at, symbols: ['SOL'], positionIds: ['x'] }), 'non-string entries dropped');
+    for (const bad of [null, {}, { at }, { at, symbols: [] }, { at: 'not-a-date', symbols: [], positionIds: [] }, 'x']) assertEqual(normalizeLivePositions(bad), null, JSON.stringify(bad));
+  });
+
+  await test('focusRelated: same symbol or MARK/DATA/DATA_OK always pass; other symbols excluded', () => {
+    const open = new Set(['SOL']);
+    assert(focusRelated({ kind: 'GOOD', symbol: 'SOL' }, open), 'same symbol passes');
+    assert(!focusRelated({ kind: 'GOOD', symbol: 'BTC' }, open), 'other symbol blocked');
+    assert(focusRelated({ kind: 'MARK', symbol: 'BTC' }, open), 'MARK always passes');
+    assert(focusRelated({ kind: 'DATA', symbol: null }, open), 'DATA always passes');
+    assert(focusRelated({ kind: 'DATA_OK', symbol: null }, open), 'DATA_OK always passes');
+    assert(!focusRelated({ kind: 'TRACK', symbol: 'ETH', event: 'setup' }, open), 'tracked candidate on a different symbol is still filtered');
+    assert(focusRelated({ kind: 'TRACK', symbol: 'SOL', event: 'tp1' }, open), 'tracked candidate on the open symbol passes');
+    assert(!focusRelated({ kind: 'WATCH', symbol: 'BTC' }, []), 'array form also works, empty = nothing open');
+  });
+
+  await test('candidateLevels / openEligible / openSourceKind: GOOD ready, SETUP and BREAKOUT early, WATCH/pending-GOOD none', () => {
+    const goodV = resolveRef(GOOD_REF, xpayload(), null);
+    assert(openEligible({ kind: 'GOOD' }) && candidateLevels(goodV) && candidateLevels(goodV).ready === true && openSourceKind(goodV) === 'GOOD', 'ready GOOD');
+    const pendingV = resolveRef(GOOD_REF, xpayload('BE READY'), null);
+    assertEqual(candidateLevels(pendingV), null, 'a GOOD plan pending readiness gets no early Open either');
+    const setupV = resolveRef(shortRef(SETUP_SOL_ID), payload({ SOL: setupSolSym() }), null);
+    const setupLv = candidateLevels(setupV);
+    assert(setupLv && setupLv.ready === false && setupLv.entry === 116.77 && setupLv.stop === 117.1 && setupLv.tp1 === 115.6 && setupLv.direction === 'short', JSON.stringify(setupLv));
+    assertEqual(openSourceKind(setupV), 'SETUP', 'setup kind');
+    const breakoutV = resolveRef(shortRef(BREAKOUT_ETH_ID), payload({ ETH: breakoutEthSym() }), null);
+    const bLv = candidateLevels(breakoutV);
+    assert(bLv && bLv.ready === false && bLv.entry === 2680 && bLv.stop === 2660 && bLv.tp1 === 2720 && bLv.direction === 'long', JSON.stringify(bLv));
+    assertEqual(openSourceKind(breakoutV), 'BREAKOUT', 'breakout kind');
+    const watchV = resolveRef(shortRef('BTC:3m:long:W'), payload({ BTC: formSym([cand('BTC:3m:long:W', 'forming')]) }), null);
+    assertEqual(candidateLevels(watchV), null, 'forming WATCH never gets an Open button');
+    assert(openEligible({ kind: 'SETUP' }) && openEligible({ kind: 'BREAKOUT' }) && openEligible({ kind: 'TRACK', event: 'setup' }) && openEligible({ kind: 'TRACK', event: 'get_in_now' }), 'eligible kinds');
+    assert(!openEligible({ kind: 'WATCH' }) && !openEligible({ kind: 'TRIGGERING' }) && !openEligible({ kind: 'TRACK', event: 'story' }), 'WATCH/TRIGGERING/in-trade updates are never eligible');
+  });
+
+  await test('orderIntentFromCandidate: early SETUP sizes from the candidate risk block; no risk -> use /order; forming -> specific error', () => {
+    const setupV = resolveRef(shortRef(SETUP_SOL_ID), payload({ SOL: setupSolSym() }), null);
+    const built = orderIntentFromCandidate(setupV, { maxSizeUsd: 100, maxLeverage: 5 });
+    assert(!built.error, JSON.stringify(built));
+    assertEqual(`${built.intent.symbol}|${built.intent.direction}|${built.intent.entry}|${built.intent.stop}|${built.intent.tp1}|${built.intent.leverage}|${built.intent.sizeUsd}`, 'SOL|short|116.77|117.1|115.6|3|60', 'sized from risk, capped by caps');
+    assert(built.ready === false, 'ready flag carried');
+    const noRisk = resolveRef(shortRef(SETUP_SOL_ID), payload({ SOL: setupSolSym(false) }), null);
+    assert(orderIntentFromCandidate(noRisk, {}).error.includes('use /order'), 'no risk block -> use /order');
+    const forming = resolveRef(shortRef('BTC:3m:long:W'), payload({ BTC: formSym([cand('BTC:3m:long:W', 'forming')]) }), null);
+    assert(orderIntentFromCandidate(forming, {}).error.includes('forming/triggering'), 'forming candidate explains why');
+  });
+
+  await test('withOpenButton label: "Open @ plan" when ready, "Open (early)" otherwise', () => {
+    assertEqual(withOpenButton(null, 'x', true).inline_keyboard[0][0].text, 'Open @ plan', 'ready label');
+    assertEqual(withOpenButton(null, 'x', false).inline_keyboard[0][0].text, 'Open (early)', 'early label');
+  });
+
+  await test('cron: SETUP and BREAKOUT alerts get "Open (early)" when execution is on; the ticket "from" line names the alert kind', async () => {
+    const ex = mockExecutor({ positions: [] });
+    const build = async () => payload({ SOL: setupSolSym(), ETH: breakoutEthSym() });
+    const r = await cron({ env: XENV, build, executor: ex });
+    const setupMsg = r.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'SETUP');
+    assert(setupMsg && allCallbackData(setupMsg.replyMarkup)[0] === `open:${shortRef(SETUP_SOL_ID)}`, 'SETUP has Open');
+    assertEqual(setupMsg.replyMarkup.inline_keyboard[0][0].text, 'Open (early)', 'SETUP label is early');
+    // BTC's default goodSym() also has a 'confirmed' candidate, so it fires its own
+    // BREAKOUT:BTC alert too (in addition to GOOD:BTC) -- match ETH specifically.
+    const breakoutMsg = r.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'BREAKOUT' && c.text.includes('ETH'));
+    assert(breakoutMsg && allCallbackData(breakoutMsg.replyMarkup)[0] === `open:${shortRef(BREAKOUT_ETH_ID)}`, 'BREAKOUT has Open');
+    assertEqual(breakoutMsg.replyMarkup.inline_keyboard[0][0].text, 'Open (early)', 'BREAKOUT label is early');
+    // Tapping Open on the SETUP builds an intent from the candidate's own levels and the
+    // ticket card names its source.
+    const tap = await xtap({ data: `open:${shortRef(SETUP_SOL_ID)}`, executor: ex, build });
+    const ticket = lastText(tap);
+    assert(ticket.includes('from SETUP SOL 3m') && ticket.includes(shortRef(SETUP_SOL_ID)), ticket);
+    assert(ticket.includes('116.77') && ticket.includes('117.10') && ticket.includes('115.60'), ticket);
+  });
+
+  await test('focus auto: a live SOL position keeps SOL and health, drops BTC/ETH; delivered:false suppressed:"focus" is still logged', async () => {
+    const ex = mockExecutor({ positions: [solPos] });
+    const build = async () => payload({ BTC: goodSym(), ETH: watchSym(), SOL: setupSolSym() });
+    const r = await cron({ env: XENV, build, executor: ex });
+    const sent = r.tg.calls.filter((c) => c.method === 'sendMessage').map((c) => kindOf(c.text));
+    assert(sent.includes('SETUP'), `SOL SETUP should pass: ${sent.join(',')}`);
+    assert(!sent.includes('GOOD'), `BTC GOOD should be suppressed: ${sent.join(',')}`);
+    const day = JSON.parse('[]'); // placeholder replaced below
+    const lines = r.blob.files.get(alertsDayPath('2026-09-24')).text.trim().split('\n').map((l) => JSON.parse(l));
+    const btcLine = lines.find((l) => l.kind === 'GOOD' && l.symbol === 'BTC');
+    assert(btcLine && btcLine.delivered === false && btcLine.suppressed === 'focus', JSON.stringify(btcLine));
+    void day;
+  });
+
+  await test('focus off: every alert sends regardless of an open position', async () => {
+    const ex = mockExecutor({ positions: [solPos] });
+    const blob = fakeBlob();
+    await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), prefs: { ...emptyState().prefs, focus: 'off' } }), { allowOverwrite: true });
+    const build = async () => payload({ BTC: goodSym(), ETH: watchSym(), SOL: setupSolSym() });
+    const r = await cron({ env: XENV, blob, build, executor: ex });
+    const sent = r.tg.calls.filter((c) => c.method === 'sendMessage').map((c) => kindOf(c.text));
+    assert(sent.includes('SETUP') && sent.includes('GOOD'), `focus off should send everything: ${sent.join(',')}`);
+  });
+
+  await test('live-position snapshot: cache reused under 60 s (one listPositions call across two runs); refreshed after; a failed read keeps the last snapshot, never "no positions"', async () => {
+    const ex = mockExecutor({ positions: [solPos] });
+    const blob = fakeBlob();
+    const build = async () => payload({ BTC: goodSym() });
+    await cron({ env: XENV, blob, build, executor: ex, nowMs: T0 });
+    assertEqual(ex.calls.filter((c) => c[0] === 'listPositions').length, 1, 'first run reads positions');
+    await cron({ env: XENV, blob, build, executor: ex, nowMs: T0 + 30_000 });
+    assertEqual(ex.calls.filter((c) => c[0] === 'listPositions').length, 1, '30 s later: cache reused, no second read');
+    await cron({ env: XENV, blob, build, executor: ex, nowMs: T0 + LIVE_POSITIONS_CACHE_MS + 1000 });
+    assertEqual(ex.calls.filter((c) => c[0] === 'listPositions').length, 2, 'past the cache window: reads again');
+    const st1 = migrateState(blob.files.get(TELEGRAM_STATE_PATH).text).state;
+    assertEqual(st1.livePositions.symbols.join(), 'SOL', 'cached snapshot symbols');
+    // A failing read (executor throws) keeps the last snapshot -- never "no positions".
+    const failEx = { ...ex, listPositions: async () => { throw new Error('rpc down'); } };
+    await cron({ env: XENV, blob, build, executor: failEx, nowMs: T0 + 2 * LIVE_POSITIONS_CACHE_MS + 5000 });
+    const st2 = migrateState(blob.files.get(TELEGRAM_STATE_PATH).text).state;
+    assertEqual(st2.livePositions.symbols.join(), 'SOL', 'failed read keeps the last known symbols');
+  });
+
+  await test('position closed: one unfiltered resume line; focus lifts so a new alert on the previously-muted symbol flows normally', async () => {
+    const openEx = mockExecutor({ positions: [solPos] });
+    const blob = fakeBlob();
+    // Run 1: SOL open, BTC muted (its GOOD alert still fires once into diffAlerts' own
+    // dedup memory even though it was suppressed -- that memory is "computed", not
+    // "delivered", so a candidate seen while muted will not replay later; a NEW BTC
+    // candidate in run 2 proves focus genuinely lifted rather than relying on replay.
+    await cron({ env: XENV, blob, build: async () => payload({ BTC: goodSym(), SOL: setupSolSym() }), executor: openEx, nowMs: T0 });
+    const closedEx = mockExecutor({ positions: [] });
+    const NEW_BTC_ID = 'BTC:5m:long:2026-09-24T14:05:00.000Z';
+    const r = await cron({
+      env: XENV, blob, executor: closedEx, nowMs: T0 + LIVE_POSITIONS_CACHE_MS + 1000,
+      build: async () => payload({ BTC: goodSym(NEW_BTC_ID), SOL: setupSolSym() })
+    });
+    const resume = r.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text).includes('Focus off — position closed'));
+    assert(resume, JSON.stringify(r.tg.calls.map((c) => c.text)));
+    const sent = r.tg.calls.filter((c) => c.method === 'sendMessage').map((c) => kindOf(c.text));
+    assert(sent.includes('GOOD'), `a new BTC GOOD candidate should send once the position is closed: ${sent.join(',')}`);
+  });
+
+  await test('/status and /exec show the Focus row', async () => {
+    const st = formatStatus(payload(), { ...emptyState(), livePositions: { at: new Date(T0).toISOString(), symbols: ['SOL'], positionIds: ['x'] } }, T0);
+    assert(unpad(st).includes('Focus: auto (SOL open)'), st);
+    const off = formatFocusState({ focus: 'off' }, null);
+    assertEqual(off, 'off', 'off ignores livePositions');
+    const execCard = formatExecStatus({ mode: 'dry', kill: false, caps: {} }, {}, { prefs: { focus: 'auto' }, livePositions: null });
+    assert(/focus\s+auto \(no position\)/.test(execCard), execCard);
+  });
+
   console.log('\nsent-alert + transition logs');
 
   const ALERT_LINE_KEYS = ['id', 'sentAt', 'kind', 'event', 'symbol', 'timeframe', 'direction', 'candidateId', 'signature', 'verdict', 'etaMin', 'breakout', 'invalidation',
-    'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'silent', 'level', 'tracked', 'delivered', 'text'];
+    'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'silent', 'level', 'tracked', 'delivered', 'suppressed', 'text'];
 
   await test('alert log line: field list, verdict + eta, levels from the plan, no sensitive keys, sizing rows cut from the text', () => {
     const p = payload();
