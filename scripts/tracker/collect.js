@@ -42,6 +42,13 @@
  * candidateId+at). Lines are rebuilt from a field whitelist (TELEGRAM_ALERT_FIELDS,
  * TRANSITION_FIELDS), then the same strip and fail-closed re-check. A failed pull warns.
  *
+ * GOOD calls from the 1-minute alert log (T-12, docs/GAP_CHECK_2026-09-26.md): the
+ * 10-minute capture cadence misses most GOOD calls (a GOOD window runs 2-5 min). Once the
+ * Telegram alert log above is pulled, goodCallsFromAlertLines/goodCallsFromCaptureRows/
+ * mergeGoodCalls/goodEndedTimesFromAlertLines (pure, below) turn it plus the stored
+ * captures into one merged GOOD call per symbol+candidateId; score.js walks the result
+ * into data/good-call-outcomes.jsonl.
+ *
  * Usage: node collect.js [--data ./data] [--url <scalp-context url>] [--journal-base <url>] [--no-journal] [--no-served] [--no-telegram]
  */
 
@@ -408,6 +415,158 @@ export async function pullTelegramLogs(dataDir, base, fetchImpl = fetch, nowMs =
     toRows: transitionRowsFromLines, append: appendTransitions
   });
   return { alerts, transitions };
+}
+
+// ---------------------------------------------------------------- GOOD calls from the 1-minute alert log (T-12)
+//
+// docs/GAP_CHECK_2026-09-26.md: the 10-minute capture cadence misses most GOOD calls (a
+// GOOD window runs 2-5 min, sometimes under 1). The Telegram cron already logs every GOOD
+// and GOOD_ENDED alert at 1-minute resolution (lib/telegramLog.js alertLogLine), pulled
+// above into data/telegram-alerts/. These functions turn that log into GOOD call records
+// and merge them with whatever the 10-minute captures separately saw, so the tracker's
+// GOOD-call count reflects every GOOD the engine actually emitted, not just the ones a
+// 10-minute poll happened to land inside. Pure - no fs, no network. score.js calls these
+// to merge + walk-outcome score the result into data/good-call-outcomes.jsonl.
+
+const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * One GOOD call per symbol+candidateId, from the first (earliest sentAt) kind GOOD line
+ * for that pair. Later GOOD lines for the same pair (a repeat send, e.g. TRACK/NUDGE) are
+ * ignored - the first sighting is the call.
+ * @param {Array<Object>} alertRows - data/telegram-alerts lines (lib/telegramLog.js alertLogLine shape)
+ * @returns {Array<Object>} {symbol, candidateId, calledAt, timeframe, direction, entry, stop, tp1, grossRR, netRR, source:'alert-1m'}
+ */
+export function goodCallsFromAlertLines(alertRows) {
+  const good = (alertRows || [])
+    .filter((r) => r && r.kind === 'GOOD' && typeof r.symbol === 'string' && typeof r.candidateId === 'string' && Number.isFinite(Date.parse(r.sentAt)))
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  const byKey = new Map();
+  for (const r of good) {
+    const key = `${r.symbol}|${r.candidateId}`;
+    if (byKey.has(key)) continue;
+    byKey.set(key, {
+      symbol: r.symbol,
+      candidateId: r.candidateId,
+      calledAt: r.sentAt,
+      timeframe: typeof r.timeframe === 'string' ? r.timeframe : null,
+      direction: r.direction === 'long' || r.direction === 'short' ? r.direction : null,
+      entry: isFiniteNum(r.entry) ? r.entry : null,
+      stop: isFiniteNum(r.stop) ? r.stop : null,
+      tp1: isFiniteNum(r.tp1) ? r.tp1 : null,
+      grossRR: isFiniteNum(r.grossRR) ? r.grossRR : null,
+      netRR: isFiniteNum(r.netRR) ? r.netRR : null,
+      source: 'alert-1m'
+    });
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * symbol+candidateId -> the GOOD_ENDED line's sentAt that closed it. A GOOD_ENDED line
+ * carries no candidateId of its own (lib/telegram.js diffAlerts pushes it as
+ * `{kind:'GOOD_ENDED', symbol, text}`), but the engine holds one active GOOD candidate per
+ * symbol at a time, so it always closes whichever candidateId is currently open for that
+ * symbol.
+ * @param {Array<Object>} alertRows
+ * @returns {Map<string,string>} key `symbol|candidateId` -> endedAt (ISO)
+ */
+export function goodEndedTimesFromAlertLines(alertRows) {
+  const events = (alertRows || [])
+    .filter((r) => r && (r.kind === 'GOOD' || r.kind === 'GOOD_ENDED') && typeof r.symbol === 'string' && Number.isFinite(Date.parse(r.sentAt)))
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  const open = new Map(); // symbol -> candidateId
+  const ended = new Map(); // symbol|candidateId -> endedAt
+  for (const r of events) {
+    if (r.kind === 'GOOD') {
+      if (typeof r.candidateId === 'string' && !open.has(r.symbol)) open.set(r.symbol, r.candidateId);
+    } else if (open.has(r.symbol)) {
+      ended.set(`${r.symbol}|${open.get(r.symbol)}`, r.sentAt);
+      open.delete(r.symbol);
+    }
+  }
+  return ended;
+}
+
+/**
+ * One GOOD call per symbol+candidateId from stored capture rows, at the first (earliest
+ * closedThrough) capture where the recommendation is GOOD - the same event the 10-minute
+ * poll used to be the tracker's only source of GOOD calls. Levels come from the matching
+ * flagTradePlan (same candidateId), else the flag candidate's own breakout/invalidation/
+ * measured target (mirrors score.js's candidateLevels fallback).
+ * @param {Array<Object>} rows - data/calls rows (readAllCalls)
+ * @returns {Array<Object>} {symbol, candidateId, calledAt, timeframe, direction, entry, stop, tp1, grossRR, netRR, source:'capture'}
+ */
+export function goodCallsFromCaptureRows(rows) {
+  const sorted = [...(rows || [])].filter((r) => r && r.symbol && r.closedThrough)
+    .sort((a, b) => Date.parse(a.closedThrough) - Date.parse(b.closedThrough));
+  const byKey = new Map();
+  for (const row of sorted) {
+    const rec = row.flagRecommendation || null;
+    if (!rec || rec.class !== 'GOOD' || typeof rec.candidateId !== 'string') continue;
+    const key = `${row.symbol}|${rec.candidateId}`;
+    if (byKey.has(key)) continue;
+    const plan = row.flagTradePlan && row.flagTradePlan.candidateId === rec.candidateId ? row.flagTradePlan : null;
+    const cand = rec.candidate && typeof rec.candidate === 'object' ? rec.candidate : null;
+    let entry = plan && isFiniteNum(plan.entry) ? plan.entry : null;
+    let stop = plan && isFiniteNum(plan.stop) ? plan.stop : null;
+    let tp1 = plan && isFiniteNum(plan.tp1) ? plan.tp1 : null;
+    const grossRR = plan && isFiniteNum(plan.grossRR) ? plan.grossRR : null;
+    const netRR = plan && isFiniteNum(plan.netRR) ? plan.netRR : null;
+    if ((entry === null || stop === null || tp1 === null) && cand && isFiniteNum(cand.breakout) && isFiniteNum(cand.invalidation)) {
+      const sign = cand.direction === 'long' ? 1 : -1;
+      const cEntry = cand.breakout;
+      const cStop = cand.invalidation;
+      const cTp1 = isFiniteNum(cand.measuredTarget) ? cand.measuredTarget
+        : (isFiniteNum(cand.measuredRR) && cand.measuredRR > 0 ? cEntry + sign * cand.measuredRR * Math.abs(cEntry - cStop) : null);
+      if (cTp1 !== null) { entry = cEntry; stop = cStop; tp1 = cTp1; }
+    }
+    byKey.set(key, {
+      symbol: row.symbol, candidateId: rec.candidateId, calledAt: row.closedThrough,
+      timeframe: (plan && plan.timeframe) || (cand && cand.timeframe) || null,
+      direction: (plan && plan.direction) || (cand && cand.direction) || null,
+      entry, stop, tp1, grossRR, netRR, source: 'capture'
+    });
+  }
+  return [...byKey.values()];
+}
+
+const hasGoodLevels = (o) => isFiniteNum(o && o.entry) && isFiniteNum(o && o.stop) && isFiniteNum(o && o.tp1);
+
+/**
+ * Merge alert-sourced GOOD calls with capture-derived ones by symbol+candidateId: the
+ * earlier calledAt wins; capture levels are used only when the alert line carried none.
+ * One row per symbol+candidateId (no duplicates) - `sources` lists every origin that saw
+ * it. When `alertCalls` is empty (the alert log is missing or not yet ingested), every
+ * capture call passes through unchanged with `sources: ['capture']`.
+ * @param {Array<Object>} alertCalls - goodCallsFromAlertLines output
+ * @param {Array<Object>} captureCalls - goodCallsFromCaptureRows output
+ * @returns {Array<Object>}
+ */
+export function mergeGoodCalls(alertCalls, captureCalls) {
+  const byKey = new Map();
+  for (const c of captureCalls || []) {
+    if (!c || !c.symbol || !c.candidateId) continue;
+    byKey.set(`${c.symbol}|${c.candidateId}`, { ...c, sources: ['capture'] });
+  }
+  for (const a of alertCalls || []) {
+    if (!a || !a.symbol || !a.candidateId) continue;
+    const key = `${a.symbol}|${a.candidateId}`;
+    const cap = byKey.get(key);
+    if (!cap) { byKey.set(key, { ...a, sources: ['alert-1m'] }); continue; }
+    const calledAt = Date.parse(a.calledAt) <= Date.parse(cap.calledAt) ? a.calledAt : cap.calledAt;
+    const levels = hasGoodLevels(a)
+      ? { entry: a.entry, stop: a.stop, tp1: a.tp1, grossRR: a.grossRR, netRR: a.netRR }
+      : { entry: cap.entry, stop: cap.stop, tp1: cap.tp1, grossRR: cap.grossRR, netRR: cap.netRR };
+    byKey.set(key, {
+      symbol: a.symbol, candidateId: a.candidateId, calledAt,
+      timeframe: a.timeframe || cap.timeframe || null,
+      direction: a.direction || cap.direction || null,
+      ...levels,
+      sources: ['alert-1m', 'capture']
+    });
+  }
+  return [...byKey.values()];
 }
 
 /** Write one payload's calls and candles into `dataDir`. */

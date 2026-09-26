@@ -65,6 +65,11 @@ import { readTelegramAlerts, readTransitions, appendTelegramAlerts, appendTransi
 import { scoreAlerts, scoreAlertsDataDir, alertLatencyMin } from './scripts/tracker/score.js';
 import { computeAlertAggregates } from './scripts/tracker/aggregate.js';
 import { alertsZoneTiles, NO_ALERT_LOG, NO_TRANSITIONS } from './scripts/tracker/build-page.js';
+import {
+  goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines
+} from './scripts/tracker/collect.js';
+import { scoreGoodCalls, scoreGoodCallsDataDir, goodCallId } from './scripts/tracker/score.js';
+import { goodCallOutcomesFile } from './scripts/tracker/store.js';
 
 let passed = 0;
 let failed = 0;
@@ -1223,7 +1228,12 @@ async function run() {
     assertEqual(since.since, iso(T0 - 60 * MIN), 'since ISO');
     assertEqual(since.rows[1].scored, 1, 'WATCH before phase excluded');
     assertEqual(since.rows[3].key, 'DATA_UNAVAILABLE', 'DATA_UNAVAILABLE when present');
-    assertEqual(JSON.stringify(Object.keys(since.rows[0])), JSON.stringify(['key', 'calls', 'scored', 'wins', 'losses', 'open', 'notFilled', 'noLevels', 'winRate', 'expectancy', 'fromPlan', 'fromCandidate']), 'row keys');
+    assertEqual(JSON.stringify(Object.keys(since.rows[0])),
+      JSON.stringify(['key', 'calls', 'scored', 'wins', 'losses', 'open', 'notFilled', 'noLevels', 'winRate', 'expectancy', 'fromPlan', 'fromCandidate',
+        'oneMinLogCalls', 'capturedCalls', 'medianGoodWindowMin']), 'row keys (T-12 GOOD-row columns included)');
+    assert(since.rows[1].oneMinLogCalls === undefined, 'non-GOOD rows carry no T-12 columns');
+    assertEqual(JSON.stringify([since.rows[0].oneMinLogCalls, since.rows[0].capturedCalls, since.rows[0].medianGoodWindowMin]), '[0,0,null]',
+      'no goodCallOutcomes supplied -> falls back to capture-only recs, T-12 columns read zero/null');
     assert(computeAggregates([], [], {}, T0).classCheck.rows.length === 3, 'computeAggregates carries classCheck');
   });
 
@@ -2489,6 +2499,148 @@ async function run() {
     const agg = computeAlertAggregates(scoreAlerts([aLine('a1', at('14:07', 21))], [tLine(at('14:07'), CA, 'forming', 'triggering')], [], T0 + 5 * 86_400_000), [tLine(at('14:07'), CA, 'forming', 'triggering')], Date.parse(`${D}T15:00:00.000Z`));
     const filled = alertsZoneTiles(agg).join('');
     assert(filled.includes('id="alerts-daily-table"') && filled.includes('TRIGGERING 1') && filled.includes('id="alerts-transitions-3m-row"'), filled);
+  });
+
+  console.log('\nGOOD calls from the 1-minute alert log (T-12)\n');
+
+  const gLine = (id, sentAt, over = {}) => ({
+    id, sentAt, kind: 'GOOD', event: null, symbol: 'BTC', timeframe: '1m', direction: 'long', candidateId: 'BTC:1m:long:X',
+    signature: 'BTC|1m|long|100', verdict: 'GET IN NOW', etaMin: null, breakout: 100, invalidation: 99, entry: 100, stop: 99, tp1: 103,
+    grossRR: 3, netRR: 2.8, roomR: null, closedThrough: sentAt, silent: false, level: 'good', tracked: false, delivered: true, text: 'BTC GOOD', ...over
+  });
+  const gEnded = (id, sentAt, symbol = 'BTC') => ({
+    id, sentAt, kind: 'GOOD_ENDED', event: null, symbol, timeframe: null, direction: null, candidateId: null,
+    signature: null, verdict: null, etaMin: null, breakout: null, invalidation: null, entry: null, stop: null, tp1: null,
+    grossRR: null, netRR: null, roomR: null, closedThrough: sentAt, silent: false, level: 'good', tracked: false, delivered: true, text: `${symbol} GOOD ENDED`
+  });
+
+  await test('collect.js: goodCallsFromAlertLines / goodCallsFromCaptureRows / mergeGoodCalls - first line per symbol+candidateId, earlier calledAt wins, capture levels fill gaps only, no duplicates', () => {
+    const CID = 'BTC:1m:long:2026-09-24T14:00:00.000Z';
+    const alerts = [
+      gLine('g1', at('14:03'), { candidateId: CID }),
+      gLine('g2', at('14:04'), { candidateId: CID }), // repeat send (TRACK/NUDGE-style) - ignored, first sighting is the call
+      gLine('g3', at('14:10'), { candidateId: 'ETH:1m:short:X', symbol: 'ETH', direction: 'short', entry: null, stop: null, tp1: null }) // alert line carried no levels
+    ];
+    const alertCalls = goodCallsFromAlertLines(alerts);
+    assertEqual(alertCalls.length, 2, 'one per symbol+candidateId, first line only');
+    const btcAlert = alertCalls.find((c) => c.symbol === 'BTC');
+    assertEqual(btcAlert.calledAt, at('14:03'), 'first GOOD line is the call');
+    assertEqual(btcAlert.entry, 100, 'levels come from the alert line');
+    const ethAlert = alertCalls.find((c) => c.symbol === 'ETH');
+    assertEqual(ethAlert.entry, null, 'this alert line carried no levels');
+
+    const captureRows = [
+      captureRow('BTC', Date.parse(at('14:07')), plan({ candidateId: CID, entry: 100, stop: 99, tp1: 103 }), rec('GOOD', { candidateId: CID })),
+      captureRow('ETH', Date.parse(at('14:20')), plan({ candidateId: 'ETH:1m:short:X', direction: 'short', entry: 50, stop: 51, tp1: 47 }), rec('GOOD', { candidateId: 'ETH:1m:short:X' }))
+    ];
+    const captureCalls = goodCallsFromCaptureRows(captureRows);
+    assertEqual(captureCalls.length, 2, 'one per symbol+candidateId from captures');
+    assertEqual(captureCalls.find((c) => c.symbol === 'BTC').calledAt, at('14:07'), 'capture close is the calledAt');
+
+    const merged = mergeGoodCalls(alertCalls, captureCalls);
+    assertEqual(merged.length, 2, 'no duplicates - one row per symbol+candidateId');
+    const btc = merged.find((c) => c.symbol === 'BTC');
+    assertEqual(btc.calledAt, at('14:03'), 'earlier (alert) calledAt wins');
+    assertEqual(JSON.stringify(btc.sources), '["alert-1m","capture"]', 'both sources recorded');
+    assertEqual(btc.entry, 100, 'alert levels kept - it had its own');
+    const eth = merged.find((c) => c.symbol === 'ETH');
+    assertEqual(eth.calledAt, at('14:10'), 'earlier (alert) calledAt wins even though that line had no levels');
+    assertEqual(eth.entry, 50, 'capture levels used only because the alert line had none');
+    assertEqual(JSON.stringify(eth.sources), '["alert-1m","capture"]', 'both sources recorded');
+
+    const captureOnly = mergeGoodCalls([], captureCalls);
+    assertEqual(captureOnly.length, 2, 'capture-only fallback when there are no alert calls at all');
+    assert(captureOnly.every((c) => JSON.stringify(c.sources) === '["capture"]'), 'sources is capture-only');
+  });
+
+  await test('score.js: scoreGoodCalls walks a merged GOOD call prefilled from its own calledAt (tp1/stop), and no_levels when neither source has levels', () => {
+    const calledAt = at('14:03');
+    const cs = candles(Date.parse(calledAt), 3, (i) => (i < 2 ? { h: 100.2, l: 99.8 } : { h: 103.5, l: 100 })); // TP1 (103) touched on candle 2
+    const call = { symbol: 'BTC', candidateId: 'BTC:1m:long:X', calledAt, direction: 'long', entry: 100, stop: 99, tp1: 103, sources: ['alert-1m'] };
+    const rows = scoreGoodCalls([call], { BTC: cs }, new Map(), [], Date.parse(calledAt) + 10 * MIN);
+    assertEqual(rows.length, 1, 'one scored row');
+    const row = rows[0];
+    assertEqual(row.callId, goodCallId(call), 'callId shape good|symbol|candidateId');
+    assertEqual(row.outcome, 'tp1', 'walked to tp1');
+    assertEqual(row.r, 3, 'gross R = |tp1-entry|/|entry-stop|');
+    assertEqual(row.filledAt, calledAt, 'prefilled at calledAt, same treatment as a captured ready plan');
+    assertEqual(row.levelSource, 'plan', 'GOOD calls always score off real levels, never counterfactual');
+    assertEqual(row.class, 'GOOD', 'carries class GOOD for classCheck');
+
+    const noLevels = scoreGoodCalls(
+      [{ symbol: 'ETH', candidateId: 'ETH:1m:short:X', calledAt, direction: 'short', entry: null, stop: null, tp1: null, sources: ['alert-1m'] }],
+      {}, new Map(), [], Date.parse(calledAt) + 10 * MIN
+    );
+    assertEqual(noLevels[0].outcome, 'no_levels', 'neither the alert line nor a capture had levels');
+  });
+
+  await test('collect.js: goodEndedTimesFromAlertLines matches a GOOD_ENDED line (no candidateId of its own) to whichever candidate is open for its symbol; scoreGoodCalls turns it into endedAt + goodWindowMin', () => {
+    const CID = 'BTC:1m:long:X';
+    const alerts = [gLine('g1', at('14:03'), { candidateId: CID }), gEnded('e1', at('14:06'))];
+    const ended = goodEndedTimesFromAlertLines(alerts);
+    assertEqual(ended.size, 1, 'one closed candidate');
+    assertEqual(ended.get(`BTC|${CID}`), at('14:06'), 'GOOD_ENDED time attributed to the symbol\'s open candidate');
+
+    const merged = mergeGoodCalls(goodCallsFromAlertLines(alerts), []);
+    const rows = scoreGoodCalls(merged, {}, ended, [], Date.parse(at('14:06')) + MIN);
+    assertEqual(rows[0].endedAt, at('14:06'), 'endedAt on the scored row');
+    assertEqual(rows[0].goodWindowMin, 3, 'GOOD window length in minutes (14:03 -> 14:06)');
+  });
+
+  await test('score.js: scoreGoodCallsDataDir - capture-only fallback when the alert log is missing, backfill idempotent once resolved', () => {
+    const dir = tmp();
+    const CID = 'BTC:1m:long:X';
+    const calledAt = at('14:07');
+    appendCalls(dir, [captureRow('BTC', Date.parse(calledAt), plan({ candidateId: CID, entry: 100, stop: 99, tp1: 103 }), rec('GOOD', { candidateId: CID }))]);
+    // No data/telegram-alerts directory at all - the alert log is entirely missing.
+    const cs = candles(Date.parse(calledAt), 2, () => ({ h: 100.2, l: 98.5 })); // stop (99) hit on the fill candle
+    appendCandles(dir, '1m', toStoreCandles('BTC', cs));
+    const first = scoreGoodCallsDataDir(dir, Date.parse(calledAt) + 5 * MIN);
+    assertEqual(first.length, 1, 'capture-only fallback still produces one GOOD call');
+    assertEqual(JSON.stringify(first[0].sources), '["capture"]', 'no alert-1m source when the log is missing');
+    assertEqual(first[0].outcome, 'stop', 'walked to stop');
+    const scoredAt1 = first[0].scoredAt;
+    const second = scoreGoodCallsDataDir(dir, Date.parse(calledAt) + 60 * MIN);
+    assertEqual(second[0].scoredAt, scoredAt1, 'idempotent - final row kept byte-for-byte (scoredAt unchanged) on rerun');
+    assertEqual(readJsonl(goodCallOutcomesFile(dir)).length, 1, 'written to good-call-outcomes.jsonl');
+  });
+
+  await test('aggregate.js: classCheck GOOD row reads goodCallOutcomes (1-min log) when present - oneMinLogCalls/capturedCalls/medianGoodWindowMin - and feeds the phase 30-plan target', () => {
+    const goodRows = [
+      { kind: 'good', symbol: 'BTC', candidateId: 'BTC:1m:long:1', calledAt: iso(T0), outcome: 'tp1', r: 3, filledAt: iso(T0), resolvedAt: iso(T0 + 5 * MIN),
+        minutesToResolution: 5, entry: 100, stop: 99, direction: 'long', levelSource: 'plan', sources: ['alert-1m', 'capture'], goodWindowMin: 4 },
+      { kind: 'good', symbol: 'ETH', candidateId: 'ETH:1m:short:1', calledAt: iso(T0 + MIN), outcome: 'stop', r: -1, filledAt: iso(T0 + MIN), resolvedAt: iso(T0 + 2 * MIN),
+        minutesToResolution: 1, entry: 50, stop: 51, direction: 'short', levelSource: 'plan', sources: ['alert-1m'], goodWindowMin: 2 }
+    ];
+    const cc = classCheck([], null, goodRows);
+    const good = cc.rows.find((r) => r.key === 'GOOD');
+    assertEqual(good.calls, 2, 'GOOD calls come from the merged set, not the (empty) rec rows');
+    assertEqual(good.oneMinLogCalls, 2, 'both alert-sourced');
+    assertEqual(good.capturedCalls, 1, 'one of the two was also captured');
+    assertEqual(good.medianGoodWindowMin, 3, 'median of 4 and 2 minutes');
+
+    const agg = computeAggregates([], [], {}, T0 + 10 * MIN, { phaseStartMs: T0, goodCallOutcomes: goodRows });
+    assertEqual(agg.phase.tradable.calls, 2, '30-plan target now counts alert-sourced GOOD calls');
+    assertEqual(agg.goodCallLogSince, iso(T0).slice(0, 10), 'earliest alert-sourced day, for the page note');
+  });
+
+  await test('build-page.js: class-check table shows the T-12 GOOD-row columns and the one-line 1-minute-log note when goodCallLogSince is set', () => {
+    const dir = tmp();
+    const CID = 'BTC:1m:long:X';
+    const calledAt = '2026-09-25T00:00:00.000Z'; // inside the PHASE_START window build-page.js scopes classCheck to
+    writeJsonl(goodCallOutcomesFile(dir), [{
+      callId: goodCallId({ symbol: 'BTC', candidateId: CID }), kind: 'good', symbol: 'BTC', candidateId: CID, calledAt,
+      timeframe: '1m', direction: 'long', entry: 100, stop: 99, tp1: 103, grossRR: 3, netRR: 2.8, levelSource: 'plan', class: 'GOOD',
+      sources: ['alert-1m', 'capture'], endedAt: new Date(Date.parse(calledAt) + 4 * MIN).toISOString(), goodWindowMin: 4, outcome: 'tp1', r: 3,
+      filledAt: calledAt, resolvedAt: new Date(Date.parse(calledAt) + 5 * MIN).toISOString(),
+      minutesToResolution: 5, mode: 'ready_prefilled', rUnits: 'gross_R_before_fees_slippage', scoredAt: calledAt
+    }]);
+    const { htmlFile, mdFile } = buildPage(dir, path.join(dir, 'docs'), Date.parse(calledAt) + MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="class-check-good-log-note"') && html.includes('1-minute alert log since 2026-09-25'), 'note rendered with the first ingest date');
+    assert(html.includes('Calls (1-min log)') && html.includes('Of which captured') && html.includes('Median GOOD window (min)'), 'new columns rendered');
+    const md = readFileSync(mdFile, 'utf8');
+    assert(md.includes('1-minute alert log since 2026-09-25'), 'report.md carries the same note');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

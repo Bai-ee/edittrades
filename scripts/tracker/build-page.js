@@ -18,9 +18,14 @@
  * adds a dashed "your trades" line under the same filters, the wallet chart adds entry /
  * exit ticks, and two sections follow the charts: "Engine vs you" (GOOD calls taken,
  * skipped, not logged; WATCH/BAD taken as overrides, with outcomes) and the journal log.
- * The Performance zone also carries a class check: GOOD / WATCH / BAD calls scored
+ * The Performance zone also carries a class check: WATCH / BAD calls scored
  * counterfactually from their flag candidate's levels ("did the filter work?"), kept out
- * of the hero and the testing target. The Alerts zone (Telegram sent-alert log and engine
+ * of the hero and the testing target. The GOOD row is different (T-12,
+ * docs/GAP_CHECK_2026-09-26.md): once the Telegram 1-minute GOOD/GOOD_ENDED alert log has
+ * scored calls (data/good-call-outcomes.jsonl), it - not just the 10-minute captures -
+ * feeds the hero, the 30-plan testing target and the class-check GOOD row, which also shows
+ * calls-from-the-1-minute-log / of-which-captured / median GOOD-window columns and a
+ * one-line note under the table. The Alerts zone (Telegram sent-alert log and engine
  * transitions, aggregate.js computeAlertAggregates) shows alerts 7d, median latency,
  * alerted -> later GOOD, BE READY -> GET IN NOW within 30 min, transitions per hour by
  * timeframe and a daily table; the Status "Alerts" fact links to it. Every section
@@ -388,9 +393,20 @@ export function classVerdict(r) {
   return { text: dash, cls: '' };
 }
 
-const CLASS_CHECK_HEADERS = ['Class', 'Calls', 'Scored', 'Win rate', 'Exp. (gross R)', 'TP1 / Stop', 'Open', 'Not filled', 'No levels', 'Levels from (plan / candidate)'];
+const CLASS_CHECK_HEADERS = ['Class', 'Calls', 'Scored', 'Win rate', 'Exp. (gross R)', 'TP1 / Stop', 'Open', 'Not filled', 'No levels', 'Levels from (plan / candidate)',
+  'Calls (1-min log)', 'Of which captured', 'Median GOOD window (min)'];
+// T-12 (docs/GAP_CHECK_2026-09-26.md): the last three columns are GOOD-only - how many of
+// its calls came from the Telegram 1-minute alert log, how many of those were also seen by
+// a 10-minute capture, and the median GOOD->GOOD_ENDED window length. Dash for every other row.
 const classCheckCells = (r) => [r.key, r.calls, r.scored, pct(r.winRate), { v: rVal(r.expectancy), cls: rStatus(r.expectancy) },
-  `${r.wins ?? 0} / ${r.losses ?? 0}`, r.open, r.notFilled, r.noLevels, `${r.fromPlan ?? 0} / ${r.fromCandidate ?? 0}`];
+  `${r.wins ?? 0} / ${r.losses ?? 0}`, r.open, r.notFilled, r.noLevels, `${r.fromPlan ?? 0} / ${r.fromCandidate ?? 0}`,
+  r.key === 'GOOD' ? (r.oneMinLogCalls ?? 0) : dash, r.key === 'GOOD' ? (r.capturedCalls ?? 0) : dash, r.key === 'GOOD' ? num(r.medianGoodWindowMin, 0) : dash];
+
+/** One-line note under the class-check scoreboard: where the GOOD row's calls come from (T-12). */
+function goodCallLogNote(agg) {
+  if (!agg.goodCallLogSince) return '';
+  return `<p class="mono-note" id="class-check-good-log-note">GOOD calls come from the engine's 1-minute alert log since ${esc(agg.goodCallLogSince)}; before that from 10-minute captures.</p>`;
+}
 
 function classCheckBody(agg) {
   const rows = classCheckRows(agg);
@@ -401,7 +417,7 @@ function classCheckBody(agg) {
     const id = `class-check-verdict-${String(r.key).toLowerCase().replace(/_/g, '-')}`;
     return `<div class="stat-row" id="${id}"><dt>${esc(r.key)}</dt><dd${v.cls ? ` class="${v.cls}"` : ''}>${esc(v.text)}</dd></div>`;
   }).join('')}</dl>`;
-  return since + verdicts + table('class-check-table', CLASS_CHECK_HEADERS, rows.map(classCheckCells), NO_CLASS_CALLS, 1);
+  return since + verdicts + table('class-check-table', CLASS_CHECK_HEADERS, rows.map(classCheckCells), NO_CLASS_CALLS, 1) + goodCallLogNote(agg);
 }
 
 // ---------- flag paths (T4 P0, docs/PLAN_FLAG_PATHS.md; measure only, no production change) ----------
@@ -991,6 +1007,7 @@ export function renderReport(agg, data = {}) {
     ? mdTable([...CLASS_CHECK_HEADERS, 'Verdict'], ccRows.map((r) => [...classCheckCells(r), classVerdict(r).text]))
     : `${NO_CLASS_CALLS}\n`);
   out.push(`\n${CLASS_CHECK_NOTE}\n`);
+  if (agg.goodCallLogSince) out.push(`\nGOOD calls come from the engine's 1-minute alert log since ${agg.goodCallLogSince}; before that from 10-minute captures.\n`);
   out.push(`\n## Open calls\n\n_${PROVISIONAL}_\n`);
   out.push(mdTable(['Called', 'Symbol', 'Call', 'TF', 'Dir', 'Entry / stop / TP1', 'Status'],
     agg.openCalls.map((r) => [time(r.calledAt), r.symbol, callLabel(r), r.timeframe || dash, r.direction || dash, levels(r), r.outcome])));

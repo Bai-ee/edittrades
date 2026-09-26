@@ -12,8 +12,8 @@
  *
  * classCheck: per recommendation class (GOOD/WATCH/BAD, then DATA_UNAVAILABLE when
  * present), how its calls played out on plan or candidate levels (score.js levelSource),
- * since the phase start when given. Answers "did the filter block losers?"; it never
- * feeds the tradable numbers.
+ * since the phase start when given. Answers "did the filter block losers?". WATCH/BAD/
+ * DATA_UNAVAILABLE never feed the tradable numbers; the GOOD row now can (see T-12 below).
  *
  * Served rows (T3, source 'served') feed calls and scoring like cron rows, but never the
  * capture-health numbers, last capture or run counts (those describe the cron job).
@@ -26,12 +26,24 @@
  * NOW within 30 min" rate (BE READY alerts at least 30 min old), and engine transitions
  * per hour by timeframe over the last 24 h (span capped to the logged time).
  *
+ * GOOD calls from the 1-minute alert log (T-12, docs/GAP_CHECK_2026-09-26.md):
+ * `data/good-call-outcomes.jsonl` (score.js scoreGoodCalls) merges the Telegram cron's
+ * per-minute GOOD/GOOD_ENDED alert log with the 10-minute captures, one row per
+ * symbol+candidateId. When it has rows in a window, classCheck's GOOD row, windowBlock's
+ * tradable/bySymbol/byTimeframe stats and the phase block's 30-plan target all read from it
+ * instead of the capture-only ready-plan rows - the 10-minute captures are kept for
+ * everything else (WATCH/BAD counterfactuals, levels fallback, wallet). Empty/missing falls
+ * back to the old capture-only behavior. classCheck's GOOD row also carries
+ * `oneMinLogCalls` / `capturedCalls` (how many of its calls came from each source) and
+ * `medianGoodWindowMin` (GOOD->GOOD_ENDED span). `goodCallLogSince` (top level) is the
+ * earliest day an alert-sourced GOOD call was seen, for the page's one-line note.
+ *
  * Usage: node aggregate.js [--data ./data] [--now <iso>]
  */
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions } from './store.js';
+import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions, goodCallOutcomesFile } from './store.js';
 import { round, median, isFiniteNumber } from './walk-outcome.js';
 import { costR } from './costs.js';
 
@@ -111,17 +123,30 @@ export function groupStats(rows, keyFn) {
 
 export const CLASS_CHECK_KEYS = ['GOOD', 'WATCH', 'BAD', 'DATA_UNAVAILABLE'];
 
-/** Per-class outcome check over rec rows (called at/after sinceMs when finite). */
-export function classCheck(outcomes, sinceMs = null) {
+/**
+ * Per-class outcome check over rec rows (called at/after sinceMs when finite).
+ *
+ * GOOD row (T-12, docs/GAP_CHECK_2026-09-26.md): when `goodCallOutcomes` (score.js
+ * scoreGoodCalls, the 1-minute alert log merged with captures) has any rows in the window,
+ * the GOOD key's stats come from that merged set instead of the capture-only `rec` rows -
+ * it counts every GOOD the engine emitted, not just the ones a 10-minute poll caught. Empty
+ * `goodCallOutcomes` (older data, or the alert log missing) falls back to the capture-only
+ * `rec` rows exactly as before. WATCH/BAD/DATA_UNAVAILABLE are always capture-only.
+ * @param {Array<Object>} outcomes
+ * @param {number|null} [sinceMs=null]
+ * @param {Array<Object>} [goodCallOutcomes=[]] - score.js scoreGoodCalls rows
+ */
+export function classCheck(outcomes, sinceMs = null, goodCallOutcomes = []) {
   const since = isFiniteNumber(sinceMs);
   const recs = outcomes.filter((r) => isRec(r) && (!since || Date.parse(r.calledAt) >= sinceMs));
+  const goodMerged = (goodCallOutcomes || []).filter((r) => r && r.calledAt && (!since || Date.parse(r.calledAt) >= sinceMs));
   const rows = [];
   for (const key of CLASS_CHECK_KEYS) {
-    const g = recs.filter((r) => r.class === key);
+    const g = key === 'GOOD' && goodMerged.length ? goodMerged : recs.filter((r) => r.class === key);
     if (key === 'DATA_UNAVAILABLE' && !g.length) continue;
     const s = statsFor(g);
     const decided = g.filter(isDecided);
-    rows.push({
+    const row = {
       key,
       calls: s.calls,
       scored: s.wins + s.losses,
@@ -134,7 +159,13 @@ export function classCheck(outcomes, sinceMs = null) {
       expectancy: s.expectancy,
       fromPlan: decided.filter((r) => r.levelSource === 'plan').length,
       fromCandidate: decided.filter((r) => r.levelSource === 'candidate').length
-    });
+    };
+    if (key === 'GOOD') {
+      row.oneMinLogCalls = g.filter((r) => Array.isArray(r.sources) && r.sources.includes('alert-1m')).length;
+      row.capturedCalls = g.filter((r) => Array.isArray(r.sources) && r.sources.includes('capture')).length;
+      row.medianGoodWindowMin = median(g.map((r) => r.goodWindowMin).filter(isFiniteNumber));
+    }
+    rows.push(row);
   }
   return { since: since ? new Date(sinceMs).toISOString() : null, rows };
 }
@@ -149,9 +180,18 @@ function reasonCounts(rows) {
   };
 }
 
-function windowBlock(rows, sinceMs) {
+/**
+ * @param {Array<Object>} rows - outcomes.jsonl rows
+ * @param {number} sinceMs
+ * @param {Array<Object>} [goodCallOutcomes=[]] - T-12 merged GOOD calls; when non-empty,
+ *   `tradable`/`bySymbol`/`byTimeframe` read from it instead of the capture-only ready-plan
+ *   rows (same fallback rule as classCheck above). byClass/byReason/byPlanStatus stay
+ *   capture-only - "everything else" (WATCH/BAD counterfactuals, rejected plans).
+ */
+function windowBlock(rows, sinceMs, goodCallOutcomes = []) {
   const inWin = rows.filter((r) => Date.parse(r.calledAt) >= sinceMs);
-  const tradable = inWin.filter(isTradable);
+  const goodInWin = (goodCallOutcomes || []).filter((r) => r && Date.parse(r.calledAt) >= sinceMs);
+  const tradable = goodInWin.length ? goodInWin : inWin.filter(isTradable);
   return {
     tradable: statsFor(tradable),
     byClass: groupStats(inWin.filter(isRec), (r) => r.class),
@@ -306,14 +346,25 @@ export function computeAlertAggregates(alertOutcomes = [], transitions = [], now
  * @param {Array<Object>} captureRows
  * @param {Object<string, Array<Object>>} candles1mBySymbol
  * @param {number} [nowMs=Date.now()]
- * @param {{phaseStartMs?: number}} [opts] phaseStartMs adds `phase` (ready-plan stats called since then)
+ * @param {{phaseStartMs?: number, goodCallOutcomes?: Array<Object>}} [opts] phaseStartMs adds
+ *   `phase` (ready-plan stats called since then); goodCallOutcomes (T-12, score.js
+ *   scoreGoodCalls) feeds the 30-plan target, the headline 7d tiles and the class-check GOOD
+ *   row from the 1-minute alert log merged with captures - empty/omitted falls back to the
+ *   capture-only ready-plan rows exactly as before.
  */
 export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {}, nowMs = Date.now(), opts = {}) {
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const recs = outcomes.filter(isRec);
   const tradable = outcomes.filter(isTradable);
-  const w7 = windowBlock(outcomes, nowMs - 7 * DAY);
-  const w30 = windowBlock(outcomes, nowMs - 30 * DAY);
+  const goodCallOutcomes = opts.goodCallOutcomes || [];
+  const w7 = windowBlock(outcomes, nowMs - 7 * DAY, goodCallOutcomes);
+  const w30 = windowBlock(outcomes, nowMs - 30 * DAY, goodCallOutcomes);
+  const goodCallLogSince = (() => {
+    const days = goodCallOutcomes
+      .filter((r) => r && Array.isArray(r.sources) && r.sources.includes('alert-1m') && r.calledAt)
+      .map((r) => String(r.calledAt).slice(0, 10));
+    return days.length ? days.sort()[0] : null;
+  })();
   const cronRows = captureRows.filter((r) => r.source !== 'served');
   const servedRows = captureRows.filter((r) => r.source === 'served');
   const lastCapture = cronRows.reduce((m, r) => (r.capturedAt && (!m || r.capturedAt > m) ? r.capturedAt : m), null);
@@ -396,17 +447,21 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
       served24h: served24h.length,
       servedGood24h: served24h.filter((r) => r.flagRecommendation && r.flagRecommendation.class === 'GOOD').length
     },
-    classCheck: classCheck(outcomes, opts.phaseStartMs),
+    classCheck: classCheck(outcomes, opts.phaseStartMs, goodCallOutcomes),
     alerts: computeAlertAggregates(opts.alertOutcomes || [], opts.transitions || [], nowMs),
+    goodCallLogSince,
     phase: isFiniteNumber(opts.phaseStartMs)
-      ? { startedAt: new Date(opts.phaseStartMs).toISOString(), tradable: statsFor(tradable.filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs)) }
+      ? {
+          startedAt: new Date(opts.phaseStartMs).toISOString(),
+          tradable: statsFor((goodCallOutcomes.length ? goodCallOutcomes : tradable).filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs))
+        }
       : null
   };
 }
 
 export function aggregateDataDir(dataDir, nowMs = Date.now(), opts = {}) {
   const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs,
-    { alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), ...opts });
+    { alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), goodCallOutcomes: readJsonl(goodCallOutcomesFile(dataDir)), ...opts });
   writeJson(aggregatesFile(dataDir), agg);
   return agg;
 }

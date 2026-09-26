@@ -155,7 +155,7 @@ const TRACKER_TILES = [
   ['Status', 'Is it running?', 'LIVE / DELAYED / STALLED from the last capture. Captures every 10 min; the page rebuilds every 30. The Alerts fact shows the last Telegram alert and the alerts cron\'s heartbeat.'],
   ['Testing timeline', 'How far along?', 'Day of 14 and plans scored toward 30. Thresholds stay frozen; the config-boundary line splits stats before and after the 2026-09-24 rule change.'],
   ['Expectancy', 'Is it paying?', 'Gross R per scored call over 7 days, with net R under it. Scored = a ready plan that reached TP1 or its stop on later candles.'],
-  ['Class check', 'Did the filter work?', 'WATCH and BAD scored as if taken. If they beat GOOD, the filter is not earning its keep. Counterfactual only.'],
+  ['Class check', 'Did the filter work?', 'WATCH and BAD scored as if taken. If they beat GOOD, the filter is not earning its keep. Counterfactual only. GOOD calls come from the engine\'s 1-minute Telegram alert log, not just the 10-minute captures - a GOOD window can last under a minute.'],
   ['3R shadow', 'Was 2.5 the right call?', 'The former 3R rule scored beside the live 2.5 rule on the same candles. Never traded.'],
   ['Breakout shadow · flag paths · calibration', 'Measure only', 'Alternative entries and path forecasts, scored and never fed back into a rule.'],
   ['GOOD / hour · SETUPs / day', 'How often?', 'How often a GOOD or a SETUP actually shows up in the feed.'],
