@@ -1,7 +1,7 @@
 # F1 — Flag Detection Coverage (single implementer pass)
 
 Last updated: 2026-09-23
-Status: plan only. Not started.
+Status: F1 shipped 2026-09-23 (7119ab1: proto/expired/failed TTL, reclaim, candidateId, qualifier); later phases not started. Kept as reference.
 Branch: `upgrade-signal-engine`
 Parent: `docs/MASTER_PLAN_TRADING_MODEL.md` (pre-builds part of M4 and a light version of M6's decision layer).
 Source: owner's incident write-up `/Users/bballi/Downloads/flag_detection_problem_and_requirements.docx` ("detect first, decide second").

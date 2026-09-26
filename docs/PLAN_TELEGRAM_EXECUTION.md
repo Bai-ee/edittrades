@@ -1,6 +1,6 @@
 # T-3 — Place and manage Jupiter perp trades from Telegram (owner-approved 2026-09-24)
 
-Status: plan; implementers start on the orchestrator's go. Ships in DRY-RUN first; the owner flips LIVE.
+Status: LIVE since 2026-09-26 (bot wallet JEAzPi…TjwT2; T1–T4 of docs/PLAN_LIVE_PERPS_TEST.md passed on real trades; T5 kill/arm drill pending owner). Risk policy (T-8) live; profiles (T-9 v2) in progress on branch risk-profiles.
 Goal: from a GOOD / Plan card, tap Open → see the exact order → confirm with a PIN → the engine wallet places the Jupiter perp with SL/TP → the trade is journaled, tracked, and manageable (close, move SL/TP) from Telegram. MCP and the GPT never get this path.
 
 ## Non-negotiables

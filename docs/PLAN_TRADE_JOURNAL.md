@@ -1,7 +1,7 @@
 # T2 — Trade journal: trades you tell the GPT, tracked beside the engine's calls
 
 Last updated: 2026-09-24
-Status: plan only. Not started. Owner approval needed before code.
+Status: built 2026-09-24 (`POST/GET /api/journal`, Vercel Blob, both keys; Telegram /log and Took it / Closed here write through it). Kept as reference.
 Goal: you tell the GPT what you did ("took BTC long 84,600 stop 84,390", "closed BTC +1.2R", "skipped"), it records one line through a new write endpoint, the tracker pulls those lines and shows your trades beside the engine's calls: on the wallet chart, on the equity curve as a second line, and through every existing filter. This is the deferred 8c.
 
 ## Hard boundaries
