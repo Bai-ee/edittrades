@@ -2224,6 +2224,20 @@ async function run() {
     assert(tracked && tracked.took !== true, `tracked but not took: ${JSON.stringify(tracked)}`);
   });
 
+  await test('/confirm with no Telegram-side ticket (Blob lag) but an executor result tagged action:close renders the CLOSED card, never the open card (2026-09-26 live)', async () => {
+    const ex = mockExecutor({ mode: 'live' });
+    ex.confirm = async () => ({ ok: true, mode: 'live', action: 'close', symbol: 'SOL', direction: 'long', positionId: 'AtCQAycjPos111111111111111111111111111111111', sizeUsd: null, positionSizeUsd: 2.5, stop: null, tp: null, txSignature: '3zmTLEJMBot8' + 'c'.repeat(72), journal: 'x1', reasons: [] });
+    const blob = fakeBlob(); // no exec ticket stored: tickets.find() misses
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    const last = (r.sent.at(-1) || {}).text || '';
+    assert(last.startsWith('✅ CLOSED · ◎ <b>SOL'), last);
+    assert(last.includes('AtCQAycj') && last.includes('tx 3zmTLE'), last);
+    assert(!last.includes('FILLED') && !last.includes('NO DIRECTION'), `not the open card: ${last}`);
+    ex.confirm = async () => ({ ok: true, mode: 'live', action: 'close', symbol: 'SOL', direction: 'long', positionId: 'AtCQAycjPos111111111111111111111111111111111', sizeUsd: 2.5, positionSizeUsd: 5, txSignature: '5weWEptZ' + 'd'.repeat(80), reasons: [] });
+    const half = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob: fakeBlob() });
+    assert(((half.sent.at(-1) || {}).text || '').startsWith('✅ CLOSED 50% · ◎ <b>SOL'), (half.sent.at(-1) || {}).text);
+  });
+
   await test('T-3 F dry-run open: no phase card at all (dry mode has no phases), unchanged from the pre-T-3-F single-send behavior', async () => {
     const ex = mockExecutor({ mode: 'dry', openOutcome: 'ok' }); // openOutcome only applies in live mode
     const blob = fakeBlob();

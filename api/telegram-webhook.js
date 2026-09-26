@@ -44,7 +44,7 @@ import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { validateJournalEntry } from '../lib/journalSchema.js';
-import { readBlob, updateBlob } from '../lib/blobJsonl.js';
+import { readBlob, readBlobFresh, updateBlob } from '../lib/blobJsonl.js';
 import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
@@ -330,7 +330,18 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       try { await updateBlob(store, EXEC_TICKETS_PATH, 'application/json', (text) => putExecTicket(text, t, now())); return true; } catch (err) { log('exec', ` reason=ticket_write_${errName(err)}`); return false; }
     },
     find: async (nonce) => {
-      try { const b = await readBlob(get, EXEC_TICKETS_PATH); return findExecTicket(b ? b.text : null, nonce, now()); } catch { return null; }
+      // Fresh read, one retry: Blob regional lag hid a ticket written seconds earlier and
+      // the confirm fell through to the open flow (2026-09-26). The executor keeps its own
+      // record too, so a miss here is no longer fatal, just a worse card.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const b = await readBlobFresh(store, EXEC_TICKETS_PATH);
+          const t = findExecTicket(b ? b.text : null, nonce, now());
+          if (t || attempt === 1) return t;
+        } catch { if (attempt === 1) return null; }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      return null;
     },
     take: async (nonce) => {
       let taken = null;
@@ -508,6 +519,16 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           } : undefined;
           let r;
           try { r = await ex.confirm(nonce, pin, ctx({ onPhase })); } catch (err) { r = { ok: false, error: `confirm failed (${errName(err)})` }; }
+          if (r && r.ok === true && (r.action === 'close' || r.action === 'update')) {
+            // The Telegram-side ticket record lagged (Blob), but the executor knew the nonce:
+            // render the manage result from the executor's own tags, never the open card.
+            const num = (v) => typeof v === 'number' && Number.isFinite(v);
+            const partial = r.action === 'close' && num(r.sizeUsd) && num(r.positionSizeUsd) && r.sizeUsd < r.positionSizeUsd;
+            const mt = { action: r.action === 'update' ? 'stops' : partial ? 'half' : 'close', sizeUsd: r.sizeUsd, stop: r.stop, tp: r.tp, position: { symbol: r.symbol, direction: r.direction, ref: typeof r.positionId === 'string' ? r.positionId.slice(0, 8) : null, sizeUsd: r.positionSizeUsd } };
+            if (hasStore) await tickets.take(nonce);
+            await execSend(formatManageResult(r, mt), null, { symbol: r.symbol, direction: r.direction, mode: r.mode, event: `done_${mt.action}` });
+            return res.status(200).json({ ok: true });
+          }
           const meta = { symbol: tk.symbol || null, timeframe: tk.timeframe || null, direction: tk.direction || null, candidateId: tk.candidateId || null, entry: tk.entry, stop: tk.stop, tp1: tk.tp1, mode: r && r.mode };
           const reasons = Array.isArray(r && r.reasons) ? r.reasons : [];
           const emergencyClosed = reasons.includes('emergency_closed') || reasons.includes('emergency_close_failed');

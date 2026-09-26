@@ -552,7 +552,11 @@ async function run() {
     // (e.g. the process crashed after recording it but before the caller saw the result).
     store.files.set('execution/actions.json', { text: `${JSON.stringify({ schemaVersion: 'execution-actions-1', actions: { [`open_${t.nonce}`]: priorResult } })}\n`, etag: '"a1"' });
     const r = await ex.confirm(t.nonce, PIN, ctx);
-    eq(JSON.stringify(r), JSON.stringify(priorResult), 'the recorded terminal result is returned verbatim');
+    // confirm() prefixes every result with the order's identity (action, symbol, ...); the
+    // recorded terminal result itself comes back verbatim underneath.
+    eq(r.action, 'open', 'result is tagged with its action');
+    const { action, symbol, direction, positionId, sizeUsd, positionSizeUsd, stop, tp, ...recorded } = r;
+    eq(JSON.stringify(recorded), JSON.stringify(priorResult), 'the recorded terminal result is returned verbatim');
     eq(jupiter.calls.buildOpen.length, 0, 'nothing was rebuilt');
     eq(jupiter.calls.waitForFill.length, 0, 'nothing was resent/awaited again');
   });
