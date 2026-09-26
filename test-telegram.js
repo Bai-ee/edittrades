@@ -1934,6 +1934,8 @@ async function run() {
         if (mode === 'live' && openOutcome && typeof ctx.onPhase === 'function') {
           await ctx.onPhase('submitted', { symbol: o.symbol, direction: o.direction, sizeUsd: o.sizeUsd, leverage: o.leverage });
           if (openOutcome === 'fill_failed') return { ok: false, mode, reasons: ['fill_failed', 'timeout'], error: 'fill_failed', cancelled: true };
+          // JUPITER_SIMULATE_ONLY: the executor stops after the on-chain simulation.
+          if (openOutcome === 'simulated') return { ok: true, mode, simulated: true, order: o, reasons: [] };
           await ctx.onPhase('filled', { fillPrice: 84612 });
           if (openOutcome === 'emergency') return { ok: false, mode, reasons: ['stops_failed', 'emergency_closed'], error: 'stops_attach_failed', emergencyClose: { ok: true, attempt: 1, txSignature: '5emergencySigAAAAAAAAA' } };
           if (openOutcome === 'emergency_fail') return { ok: false, mode, reasons: ['stops_failed', 'emergency_close_failed', 'kill_engaged'], error: 'emergency_close_failed', emergencyClose: { ok: false, attempts: 25 } };
@@ -2127,6 +2129,21 @@ async function run() {
     const last = r.edited.at(-1);
     assert(last.text.includes('NOT DONE'), last.text);
     assert(!last.text.includes('EMERGENCY'), 'a timed-out fill is not an emergency close');
+  });
+
+  await test('T-3 F live simulate-only open: card says SIMULATED · nothing sent (not FILLED), keeps symbol/direction, no tx line, candidate tracked but not "took"', async () => {
+    const ex = mockExecutor({ mode: 'live', openOutcome: 'simulated' });
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob });
+    const last = (r.edited.at(-1) || r.sent.at(-1)).text;
+    assert(last.startsWith('🧪 SIMULATED · nothing sent · ₿ <b>BTC'), last);
+    assert(last.includes('▲ LONG'), `direction kept: ${last}`);
+    assert(!last.includes('FILLED') && !last.includes('tx '), `no fill/tx wording: ${last}`);
+    assert(last.includes('n/a (simulate-only)') && last.includes('not signed, not sent'), last);
+    const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    const tracked = (st.tracked || []).find((t) => t.symbol === 'BTC');
+    assert(tracked && tracked.took !== true, `tracked but not took: ${JSON.stringify(tracked)}`);
   });
 
   await test('T-3 F dry-run open: no phase card at all (dry mode has no phases), unchanged from the pre-T-3-F single-send behavior', async () => {

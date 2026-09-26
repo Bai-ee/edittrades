@@ -512,11 +512,11 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
             // live fill marks it taken; a dry run is tracked only.
             let tracking = null;
             if (tk.snap && tk.snap.candidateId && hasStore) {
-              const out = await writeState((text) => applyTrackChange(text, { action: 'track', entry: trackEntry({ ...tk.snap, symbol: tk.symbol }, now(), { took: r.mode === 'live' }) }, now()));
+              const out = await writeState((text) => applyTrackChange(text, { action: 'track', entry: trackEntry({ ...tk.snap, symbol: tk.symbol }, now(), { took: r.mode === 'live' && r.simulated !== true }) }, now()));
               tracking = !out ? false : out.result === 'full' ? 'full' : true;
             }
             if (hasStore) await tickets.take(nonce);
-            await execSend(formatResultCard(r, tk, { tracking }), null, { ...meta, event: r.mode === 'dry' ? 'dry_ok' : 'filled' }, phaseMessageId);
+            await execSend(formatResultCard(r, tk, { tracking }), null, { ...meta, event: r.mode === 'dry' ? 'dry_ok' : r.simulated === true ? 'simulated' : 'filled' }, phaseMessageId);
           }
         }
       }
