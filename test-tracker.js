@@ -47,6 +47,12 @@ import {
 import {
   v3ShadowOutcomesFile, v3ShadowSummaryFile, computeV3ShadowRows, v3ShadowSummary, v3ShadowDataDir
 } from './scripts/tracker/v3-shadow.js';
+import {
+  NF_RULE, nfShadowOutcomesFile, nfShadowSummaryFile, atr15mAt, backfillNetFloor, liveReadyCalls, computeNfShadowRows, nfShadowSummary, nfShadowDataDir
+} from './scripts/tracker/nf-shadow.js';
+import { FLAG_PLAN_SHADOW_VARIANTS } from './services/scalpContext.js';
+import { netFloorStopDistance, netRiskReward } from './lib/flagTradePlan.js';
+import { ENGINE_CONFIG } from './config/engine.js';
 import { writeFileSync } from 'node:fs';
 import { esc } from './scripts/tracker/bento.js';
 import {
@@ -2026,6 +2032,98 @@ async function run() {
     const again = v3ShadowDataDir(dir, T0 + 120 * MIN);
     assertEqual(JSON.stringify(again.rows), JSON.stringify(first.rows), 'rerun stable once resolved');
     assertEqual(readJsonl(v3ShadowOutcomesFile(dir)).length, first.rows.length, 'stored rows match');
+  });
+
+  // ---------------------------------------------------------------- T-13 net floor shadow (nf-shadow.js)
+
+  const DAY = 24 * 60 * MIN;
+
+  await test('nf-shadow: NF_RULE mirrors the engine NF variant; backfill floor/gates match lib/flagTradePlan.js', () => {
+    const nf = FLAG_PLAN_SHADOW_VARIANTS.find((v) => v.id === 'NF');
+    assertEqual(`${NF_RULE.minRR}|${NF_RULE.minNetRR}|${NF_RULE.atrMult}|${NF_RULE.costMult}`, `${nf.minRR}|${nf.minNetRR}|${nf.netFloor.atrMult}|${nf.netFloor.costMult}`, 'rule parity');
+    for (const [dir, stop, tp1, atr] of [['long', 99.9, 104, 0.5], ['short', 100.1, 97, 0.5], ['long', 99.9, 104, 4], ['short', 100.02, 99.5, null]]) {
+      const b = backfillNetFloor({ direction: dir, entry: 100, stop, tp1, atr15m: atr });
+      const e = netFloorStopDistance({ direction: dir, entry: 100, stop, atr15m: atr, riskCfg: ENGINE_CONFIG.risk });
+      const sign = dir === 'short' ? -1 : 1;
+      assertEqual(b.stop, Math.round((100 - sign * e.distance) * 100) / 100, `${dir} stop parity`);
+      assertEqual(b.floorPct, e.floorPct, `${dir} floorPct parity`);
+      assertEqual(b.netRR, Math.round(netRiskReward(100, 100 - sign * e.distance, tp1, ENGINE_CONFIG.risk, dir) * 1000) / 1000, `${dir} netRR parity`);
+    }
+    const longTight = backfillNetFloor({ direction: 'long', entry: 100, stop: 99.9, tp1: 101, atr15m: 0.2 });
+    assertEqual(`${longTight.ready}|${longTight.floorPct}|${longTight.grossRR}`, 'false|1.02|0.98', 'long: cost floor 1.02 % sinks a 1 % target');
+    const shortOk = backfillNetFloor({ direction: 'short', entry: 100, stop: 100.1, tp1: 98, atr15m: 0.2 });
+    assertEqual(`${shortOk.ready}|${shortOk.floorPct}|${shortOk.stop}`, 'true|0.42|100.42', 'short: 0.42 % floor, gross 4.76 ready');
+  });
+
+  await test('nf-shadow: atr15mAt reads only 15m candles closed by the ready moment; null under period + 1', () => {
+    const c15 = tfRows(T0, 15 * MIN, Array.from({ length: 16 }, (_, i) => ({ o: 100, h: 101 + (i === 15 ? 50 : 0), l: 99, c: 100 })));
+    assertEqual(atr15mAt(c15, T0 + 16 * 15 * MIN), atr15mAt(c15.slice(0, 16), T0 + 16 * 15 * MIN), 'all closed');
+    assertEqual(atr15mAt(c15, T0 + 15 * 15 * MIN + 14 * MIN), 2, 'the still-open 16th candle (h+50) is ignored: TR 2 each');
+    assertEqual(atr15mAt(c15.slice(0, 10), T0 + 30 * 15 * MIN), null, 'too few');
+  });
+
+  await test('nf-shadow: live ready calls from capture rows AND Telegram GOOD alerts, first ready moment per candidate, engine NF kept', () => {
+    const plan = { candidateId: 'BTC:1m:long:nf1', status: 'ready', timeframe: '1m', direction: 'long', entry: 100, stop: 99.9, tp1: 104,
+      shadow: { NF: { candidateId: 'BTC:1m:long:nf1', status: 'ready', ready: true, stop: 98.98, grossRR: 3.92, netRR: 2.69, stopPct: 1.02, floorPct: 1.02 } } };
+    const rows = [candCaptureRow('BTC', T0 + 5 * MIN, [], null, { flagTradePlan: plan })];
+    const alerts = [
+      { kind: 'GOOD', candidateId: 'BTC:1m:long:nf1', symbol: 'BTC', timeframe: '1m', direction: 'long', entry: 100, stop: 99.9, tp1: 104, closedThrough: iso(T0 + 2 * MIN) },
+      { kind: 'GOOD', candidateId: 'ETH:1m:short:nf2', symbol: 'ETH', timeframe: '1m', direction: 'short', entry: 100, stop: 100.1, tp1: 98, closedThrough: iso(T0 + 3 * MIN) },
+      { kind: 'SETUP', candidateId: 'SOL:3m:long:x', symbol: 'SOL', closedThrough: iso(T0) }
+    ];
+    const calls = liveReadyCalls(rows, alerts);
+    assertEqual(calls.map((c) => c.candidateId).join(), 'BTC:1m:long:nf1,ETH:1m:short:nf2', 'GOOD alerts only, deduped');
+    assertEqual(calls[0].readyAt, iso(T0 + 2 * MIN), 'earliest ready (the per-minute alert beat the 10-minute capture)');
+    assert(calls[0].engineNF && calls[0].engineNF.stop === 98.98, 'engine NF from the capture row kept');
+  });
+
+  await test('nf-shadow: rows walk live and NF legs; engine vs backfill labelled; summary side by side; idempotent through the store', () => {
+    const dir = tmp();
+    // Long: live stop 0.1 % (stopped), NF floor 1.02 % gross 3.92 -> NF ready, survives the dip, reaches TP1.
+    const btc = tfRows(T0, MIN, [{ o: 100, h: 100.05, l: 99.8, c: 99.9 }, { o: 99.9, h: 104.1, l: 99.9, c: 104 }]);
+    // Short: live stop 0.1 %, NF 0.42 %, TP1 98 -> both hit TP1.
+    const eth = tfRows(T0, MIN, [{ o: 100, h: 100.05, l: 97.9, c: 98 }]);
+    appendCandles(dir, '1m', [...toStoreCandles('BTC', btc), ...toStoreCandles('ETH', eth)]);
+    const plan = { candidateId: 'BTC:1m:long:nf1', status: 'ready', timeframe: '1m', direction: 'long', entry: 100, stop: 99.9, tp1: 104,
+      shadow: { NF: { candidateId: 'BTC:1m:long:nf1', status: 'ready', ready: true, stop: 98.98, grossRR: 3.92, netRR: 2.69, stopPct: 1.02, floorPct: 1.02 } } };
+    appendCalls(dir, [candCaptureRow('BTC', T0, [], null, { flagTradePlan: plan })]);
+    appendTelegramAlerts(dir, [{ id: 'a1', sentAt: iso(T0), kind: 'GOOD', candidateId: 'ETH:1m:short:nf2', symbol: 'ETH', timeframe: '1m', direction: 'short', entry: 100, stop: 100.1, tp1: 98, closedThrough: iso(T0) }]);
+    const first = nfShadowDataDir(dir, T0 + DAY);
+    assert(existsSync(nfShadowOutcomesFile(dir)) && existsSync(nfShadowSummaryFile(dir)), 'both files written');
+    const [b, e] = first.rows;
+    assertEqual(`${b.nfSource}|${b.live.outcome}|${b.nf.ready}|${b.nf.outcome}|${b.nf.stop}`, 'engine|stop|true|tp1|98.98', 'BTC: live stopped, NF rode it out');
+    assertEqual(`${e.nfSource}|${e.atrSource}|${e.live.outcome}|${e.nf.ready}|${e.nf.outcome}|${e.nf.stop}`, 'backfill|none|tp1|true|tp1|100.42', 'ETH: backfilled, cost floor only');
+    assertEqual(b.live.netR, -4.4, 'live net: -1 - 0.34/0.1');
+    assert(Math.abs(b.nf.netR - (4 / 1.02 - 0.34 / 1.02)) < 0.001, `NF net: 3.92 - 0.33, got ${b.nf.netR}`);
+    const sm = first.summary;
+    assertEqual(`${sm.n}|${sm.live.calls}|${sm.nf.calls}|${sm.engineRows}|${sm.backfillRows}`, '2|2|2|1|1', 'counts');
+    assertEqual(sm.live.winRate, 0.5, 'live win rate');
+    assertEqual(sm.nf.winRate, 1, 'NF win rate');
+    assertEqual(sm.live.callsPerDay, 2, 'calls per day over one day');
+    const again = nfShadowDataDir(dir, T0 + 2 * DAY);
+    assertEqual(JSON.stringify(again.rows), JSON.stringify(first.rows), 'terminal rows kept as written');
+    assertEqual(nfShadowSummary([]).n, 0, 'empty summary');
+    void computeNfShadowRows;
+  });
+
+  await test('page + report: NF shadow tile (live vs NF rows, last calls) and report section; empty state from an empty data dir', () => {
+    const empty = tmp();
+    const e = readFileSync(buildPage(path.join(empty, 'data'), path.join(empty, 'docs'), T0).htmlFile, 'utf8');
+    assert(e.includes('id="nf-shadow-section"') && e.includes('id="nf-shadow-empty"'), 'empty tile');
+    assert(e.indexOf('id="v3-shadow-section"') < e.indexOf('id="nf-shadow-section"'), 'placed after the 3R shadow');
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    writeJson(nfShadowSummaryFile(dataDir), { generatedAt: iso(T0), n: 2, spanDays: 1, engineRows: 1, backfillRows: 1,
+      live: { calls: 2, callsPerDay: 2, fills: 2, resolvedN: 2, winRate: 0.5, grossExpectancyR: 1.5, netExpectancyR: -1.2 },
+      nf: { calls: 1, callsPerDay: 1, fills: 1, resolvedN: 1, winRate: 1, grossExpectancyR: 3.9, netExpectancyR: 3.6 } });
+    writeJsonl(nfShadowOutcomesFile(dataDir), [{ candidateId: 'BTC:1m:long:nf1', symbol: 'BTC', timeframe: '1m', direction: 'long', readyAt: iso(T0), source: 'capture', entry: 100, tp1: 104,
+      live: { stop: 99.9, outcome: 'stop', r: -1, netR: -4.4, filled: true, stopPct: 0.1 }, nf: { ready: true, stop: 98.98, outcome: 'tp1', r: 3.92, netR: 3.59, floorPct: 1.02 }, nfSource: 'engine' }]);
+    const { htmlFile, mdFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    for (const id of ['nf-shadow-summary-table', 'nf-shadow-list-table', 'nf-shadow-sample-note']) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    assert(html.includes('NF (net floor, shadow)') && html.includes('Live (gross 2.5, own stop)'), 'side by side rows');
+    const md = readFileSync(mdFile, 'utf8');
+    assert(md.includes('## Net floor shadow (NF, not traded)') && md.includes('| NF | 1 | 1 | 1 | 100% |'), md.slice(md.indexOf('## Net floor')));
   });
 
   await test('page: breakout-shadow tile renders with ids and the empty state from an empty data dir', () => {

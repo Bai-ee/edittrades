@@ -652,7 +652,10 @@ async function run() {
     const only = filterPayload(payload, { include: ['geometry'] });
     assert('geometryContext' in only.symbols.BTC, 'geometry kept when included');
     assert(!('timeframes' in only.symbols.BTC), 'timeframes dropped');
-    assertEqual(JSON.stringify(filterPayload(payload, {})), JSON.stringify(payload), '{} unchanged');
+    // T-13: flagTradePlan.shadow (always carries NF now) is stripped from every non-model response.
+    const noShadow = JSON.parse(JSON.stringify(payload));
+    for (const sym of Object.values(noShadow.symbols || {})) if (sym && sym.flagTradePlan) delete sym.flagTradePlan.shadow;
+    assertEqual(JSON.stringify(filterPayload(payload, {})), JSON.stringify(noShadow), '{} unchanged (minus research-only flagTradePlan.shadow)');
   });
 
   // --- Candidate risk (phase 6 item F, landed here) --------------------------

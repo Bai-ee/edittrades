@@ -39,7 +39,8 @@ import {
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor, config as webhookConfig } from './api/telegram-webhook.js';
 import { handleTelegramCron } from './api/telegram-cron.js';
-import { diffCandidates } from './lib/telegram.js';
+import { diffCandidates, netFloorOf, netFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, keepNetFloor, COST_PCT_BY_DIRECTION } from './lib/telegram.js';
+import { ENGINE_CONFIG } from './config/engine.js';
 import { buildClarity } from './lib/flagRecommendation.js';
 import { execLogLine, alertLogLine, verdictOf as logVerdictOf, textExcerpt, recordTelegramLogs, assertSafeRows, alertsDayPath, transitionsDayPath, ALERTS_MANIFEST_PATH, TRANSITIONS_MANIFEST_PATH } from './lib/telegramLog.js';
 import { findSensitiveKeys } from './scripts/tracker/records.js';
@@ -177,6 +178,8 @@ function fakeTelegram({ fail = false, failMethods = [] } = {}) {
       entry.chatId = init.body.get('chat_id');
       entry.caption = init.body.get('caption');
       entry.photo = init.body.get('photo');
+      const rm = init.body.get('reply_markup');
+      if (rm) entry.replyMarkup = JSON.parse(rm);
       const media = init.body.get('media');
       if (media) {
         entry.media = JSON.parse(media);
@@ -228,12 +231,31 @@ async function hook({ text, from = OWNER, secret = SECRET, method = 'POST', env 
 }
 
 /** A button tap: a callback_query update from `from`, on a message in the owner chat. */
-async function tap({ data, from = OWNER, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, markup = null }) {
+async function tap({ data, from = OWNER, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, markup = null, render = fakeRender }) {
   const update = { update_id: updateSeq++, callback_query: { id: `cbq${updateSeq}`, from: { id: from }, message: { message_id: 9, chat: { id: from, type: 'private' }, ...(markup ? { reply_markup: markup } : {}) }, data } };
   const req = { method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) };
   const res = mockRes();
-  const { logs } = await quiet(() => handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render: fakeRender, now: () => nowMs, env: ENV }));
+  const { logs } = await quiet(() => handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render, now: () => nowMs, env: ENV }));
   return { res, tg, blob, logs };
+}
+
+/** A render that records every request (T-13 trade overlay) and returns the fake PNG. */
+function recordingRender() {
+  const seen = [];
+  const fn = async (p, request, series) => { seen.push({ request, series }); return fakeRender(); };
+  return { seen, fn };
+}
+
+/** goodSym plus an NF shadow on the plan (T-13): ready (widened stop, netRR 1.4) or not (floor over the plan's stop). */
+function nfGoodSym(ready = true, candidateId = 'BTC:5m:long:2026-09-24T13:50:00.000Z') {
+  const s = goodSym(candidateId);
+  s.flagTradePlan.stopDistancePct = 0.248;
+  s.flagTradePlan.costR = 1.37;
+  s.flagTradePlan.shadow = { NF: ready
+    ? { candidateId, status: 'ready', reasonCode: null, ready: true, stop: 84253.2, tp1: 85146, grossRR: 2.6, netRR: 1.4, stopPct: 0.41, floorPct: 0.41 }
+    : { candidateId, status: 'rejected', reasonCode: 'rr_below_min', ready: false, stop: 83737, tp1: 85146, grossRR: 0.63, netRR: 0.35, stopPct: 1.02, floorPct: 1.02 } };
+  s.flagRecommendation.clarity = { candidateId, killIf: { level: 84600, text: 'close back below 84,600.00 after a probe = defended, stand down' }, otherSide: { text: null } };
+  return s;
 }
 
 /** The KIND of a visual-layout message ("🟢 ₿ <b>BTC 5m ▲ LONG</b> · GOOD" -> GOOD). */
@@ -247,10 +269,10 @@ const allCallbackData = (markup) => (markup && markup.inline_keyboard ? markup.i
  * read (resolveExecutor) checks hasOwnProperty, so an explicit null short-circuits it
  * without any dynamic import; a test exercising focus mode passes a mock instead.
  */
-async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, executor = null, importExecutor }) {
+async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, executor = null, importExecutor, render = fakeRender }) {
   const req = { method: 'GET', headers: auth ? { authorization: auth } : {} };
   const res = mockRes();
-  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render: fakeRender, now: () => nowMs, env, executor, ...(importExecutor ? { importExecutor } : {}) }));
+  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render, now: () => nowMs, env, executor, ...(importExecutor ? { importExecutor } : {}) }));
   return { res, tg, blob, logs };
 }
 
@@ -589,7 +611,9 @@ async function run() {
     const a = diffAlerts(emptyState(), payload(), T0);
     const good = a.alerts.filter((x) => x.kind === 'GOOD');
     assertEqual(good.length, 1, 'one GOOD');
-    assertEqual(JSON.stringify(good[0].chart), JSON.stringify({ symbol: 'BTC', timeframe: '5m' }), 'chart');
+    // T-13: the GOOD chart carries the plan's trade overlay (no NF shadow in this fixture).
+    assertEqual(JSON.stringify(good[0].chart), JSON.stringify({ symbol: 'BTC', timeframe: '5m', tradeOverlay: { direction: 'long', entry: 84600, stop: 84390, tp1: 85146, tp2: 85300, nfStop: null, grossRR: 2.6, netRR: 2.1 } }), 'chart');
+    assert(/^Enter: retest hold at 84,600\.00\nWrong if: close below 84,390\.00 \(0\.25 %\)/.test(good[0].approach), good[0].approach);
     assert(a.changed, 'state changed');
     const st = a.state.symbols.BTC;
     for (const k of ['class', 'primaryReason', 'setupId', 'planId', 'planStatus', 'lastAlertAt']) assert(k in st, `state.${k}`);
@@ -1118,7 +1142,7 @@ async function run() {
     assertEqual(JSON.stringify(sig.tg.calls[0].replyMarkup), JSON.stringify(kb), '/signals sends the inline rows');
     const tg = fakeTelegram();
     await cron({ tg });
-    const goodMsg = tg.calls.find((c) => kindOf(c.text) === 'GOOD');
+    const goodMsg = tg.calls.find((c) => kindOf(c.text || c.caption) === 'GOOD');
     assert(goodMsg.replyMarkup && allCallbackData(goodMsg.replyMarkup).includes(`log:took:BTC:${ref}`), 'cron sends the buttons');
   });
 
@@ -1126,7 +1150,7 @@ async function run() {
     const blob = fakeBlob();
     const tg = fakeTelegram();
     await cron({ blob, tg });
-    const took = allCallbackData(tg.calls.find((c) => kindOf(c.text) === 'GOOD').replyMarkup).find((x) => x.startsWith('log:took:'));
+    const took = allCallbackData(tg.calls.find((c) => kindOf(c.text || c.caption) === 'GOOD').replyMarkup).find((x) => x.startsWith('log:took:'));
     // The live plan has moved on: the log must use the alert's plan from state, not a rebuild.
     const t = await tap({ data: took, blob, build: async () => payload({ BTC: watchSym() }) });
     assertEqual(t.tg.calls[0].method, 'answerCallbackQuery', 'answered first');
@@ -1202,9 +1226,12 @@ async function run() {
     const tg = fakeTelegram();
     const r = await cron({ blob, tg });
     assertEqual(r.res.statusCode, 200, 'status');
-    const goodMsgs = tg.calls.filter((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
+    // T-13: the GOOD card rides as the caption of ONE trade-chart photo per chat.
+    const goodMsgs = tg.calls.filter((c) => c.method === 'sendPhoto' && kindOf(c.caption) === 'GOOD');
     assertEqual(goodMsgs.map((c) => c.chatId).sort().join(), `${OWNER},444`, 'both chats');
     assertEqual(tg.calls.filter((c) => c.method === 'sendPhoto').length, 2, 'chart per chat');
+    assertEqual(tg.calls.filter((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD').length, 0, 'no separate text card when the caption fits');
+    assert(goodMsgs.every((c) => c.caption.length <= 1000 && c.caption.includes('Worth it: <b>') && allCallbackData(c.replyMarkup).length > 0), 'caption carries the approach block and the buttons');
     const state = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
     assertEqual(state.symbols.BTC.class, 'GOOD', 'state stored');
     const before = tg.calls.length;
@@ -1218,7 +1245,7 @@ async function run() {
     const blob = fakeBlob();
     const tg = fakeTelegram();
     await Promise.all([cron({ blob, tg }), cron({ blob, tg }), cron({ blob, tg })]);
-    const good = tg.calls.filter((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
+    const good = tg.calls.filter((c) => kindOf(c.text || c.caption) === 'GOOD');
     assertEqual(good.length, 2, `one GOOD per chat, got ${good.length}`);
   });
 
@@ -2111,7 +2138,7 @@ async function run() {
     if (riskPrefBound) ex.riskPrefBound = (key) => { calls.push(['riskPrefBound', key]); return riskPrefBound(key); };
     return ex;
   }
-  const deps = (o) => ({ build: o.build || (async () => xpayload()), put: o.blob.put, get: o.blob.get, fetchImpl: o.tg.fetchImpl, render: fakeRender, now: () => o.nowMs ?? T0, env: o.env || XENV, ...(o.executor !== undefined ? { executor: o.executor } : {}), ...(o.importExecutor ? { importExecutor: o.importExecutor } : {}) });
+  const deps = (o) => ({ build: o.build || (async () => xpayload()), put: o.blob.put, get: o.blob.get, fetchImpl: o.tg.fetchImpl, render: o.render || fakeRender, now: () => o.nowMs ?? T0, env: o.env || XENV, ...(o.executor !== undefined ? { executor: o.executor } : {}), ...(o.importExecutor ? { importExecutor: o.importExecutor } : {}) });
   async function xhook(o) {
     o.blob = o.blob || fakeBlob(); o.tg = o.tg || fakeTelegram();
     const update = { update_id: updateSeq++, message: { message_id: o.messageId ?? 77, from: { id: OWNER }, chat: { id: OWNER, type: 'private' }, text: o.text } };
@@ -2142,17 +2169,17 @@ async function run() {
     const sol = await xtap({ data: `plan:${shortRef('SOL:1m:long:x')}`, executor: ex });
     assert(!allCallbackData(lastMarkup(sol)).some((d) => d.startsWith('open:')), 'no Open on a rejected plan');
     const c1 = await cron({ env: XENV, build: async () => xpayload(), executor: ex });
-    const good = c1.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
+    const good = c1.tg.calls.find((c) => kindOf(c.text || c.caption) === 'GOOD');
     assert(good && allCallbackData(good.replyMarkup)[0] === `open:${GOOD_REF}`, 'cron GOOD has Open');
     const c2 = await cron({ env: ENV, build: async () => xpayload() });
-    const good2 = c2.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
+    const good2 = c2.tg.calls.find((c) => kindOf(c.text || c.caption) === 'GOOD');
     assert(good2 && !allCallbackData(good2.replyMarkup).some((d) => d.startsWith('open:')), 'cron GOOD without Open when disabled');
     // A tracked flag turning ready: TRACK · GET IN NOW carries Open too (never an in-trade update).
     const tblob = fakeBlob();
     const tsnap = candidateSnapshot('BTC', goodRiskSym(), GOOD_ID);
     await tblob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), tracked: [{ ...trackEntry(tsnap, T0), lastState: 'confirmed', setupSeen: true }] }), { allowOverwrite: true });
     const c3 = await cron({ env: XENV, blob: tblob, build: async () => xpayload(), executor: ex });
-    const tgo = c3.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text).includes('TRACK · GET IN NOW'));
+    const tgo = c3.tg.calls.find((c) => String(c.text || c.caption).includes('TRACK · GET IN NOW'));
     assert(tgo && allCallbackData(tgo.replyMarkup)[0] === `open:${GOOD_REF}`, 'tracked GET IN NOW has Open');
     assert(isOpenReady(resolveRef(GOOD_REF, xpayload(), null)) && !isOpenReady(resolveRef(GOOD_REF, xpayload('WAIT'), null)), 'isOpenReady');
     assert(ex.calls.every((c) => c[0] !== 'preflight'), 'plan cards never preflight');
@@ -2230,6 +2257,29 @@ async function run() {
     assert(t.startsWith('✅ FILLED · ₿ <b>BTC 5m ▲ LONG</b>') && t.includes('84,605.00') && t.includes('PosPDA…1111') && t.includes('tx 5sigLi…PQRS') && t.includes('Tracking on'), t);
     const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
     assert(st.tracked.some((x) => x.candidateId === GOOD_ID && x.took === true), 'live fill: tracked as took');
+  });
+
+  await test('T-13: a live FILLED result also sends the trade chart, the result card as caption; dry / simulated do not', async () => {
+    const ex = mockExecutor({ mode: 'live' });
+    const blob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: ex, blob });
+    const rr = recordingRender();
+    const r = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: ex, blob, render: rr.fn });
+    const photos = r.tg.calls.filter((c) => c.method === 'sendPhoto');
+    assertEqual(photos.length, 1, 'one trade chart');
+    assert(photos[0].caption.startsWith('✅ FILLED · ₿ <b>BTC 5m ▲ LONG</b>') && photos[0].caption.includes('tx 5sigLi…PQRS'), photos[0].caption);
+    const req = rr.seen[0].request;
+    assert(req.symbol === 'BTC' && req.timeframe === '5m' && req.tradeOverlay && req.tradeOverlay.entry === 84600 && req.tradeOverlay.stop === 84390 && req.tradeOverlay.tp1 === 85146, JSON.stringify(req));
+    const dryEx = mockExecutor({ mode: 'dry' });
+    const dblob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: dryEx, blob: dblob });
+    const d = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: dryEx, blob: dblob });
+    assertEqual(d.tg.calls.filter((c) => c.method === 'sendPhoto').length, 0, 'dry run: no chart');
+    const simEx = mockExecutor({ mode: 'live', openOutcome: 'simulated' });
+    const sblob = fakeBlob();
+    await xtap({ data: `open:${GOOD_REF}`, executor: simEx, blob: sblob });
+    const sm = await xhook({ text: `/confirm ${NONCE} ${PIN}`, executor: simEx, blob: sblob });
+    assertEqual(sm.tg.calls.filter((c) => c.method === 'sendPhoto').length, 0, 'simulate-only: no chart');
   });
 
   await test('T-3 F live open phases: one message sent then edited in place through filled -> stops attached -> verified -> FILLED', async () => {
@@ -2649,7 +2699,7 @@ async function run() {
     await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), prefs: { ...emptyState().prefs, focus: 'off' } }), { allowOverwrite: true });
     const build = async () => payload({ BTC: goodSym(), ETH: watchSym(), SOL: setupSolSym() });
     const r = await cron({ env: XENV, blob, build, executor: ex });
-    const sent = r.tg.calls.filter((c) => c.method === 'sendMessage').map((c) => kindOf(c.text));
+    const sent = r.tg.calls.filter((c) => c.method === 'sendMessage' || c.method === 'sendPhoto').map((c) => kindOf(c.text || c.caption));
     assert(sent.includes('SETUP') && sent.includes('GOOD'), `focus off should send everything: ${sent.join(',')}`);
   });
 
@@ -2688,7 +2738,7 @@ async function run() {
     });
     const resume = r.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text).includes('Focus off — position closed'));
     assert(resume, JSON.stringify(r.tg.calls.map((c) => c.text)));
-    const sent = r.tg.calls.filter((c) => c.method === 'sendMessage').map((c) => kindOf(c.text));
+    const sent = r.tg.calls.filter((c) => c.method === 'sendMessage' || c.method === 'sendPhoto').map((c) => kindOf(c.text || c.caption));
     assert(sent.includes('GOOD'), `a new BTC GOOD candidate should send once the position is closed: ${sent.join(',')}`);
   });
 
@@ -2805,6 +2855,120 @@ async function run() {
     const r2 = await cron({ blob: off, env: { ...ENV, TRACK_TELEGRAM_LOG: 'false' } });
     assert(r2.res.body.sent > 0 && !off.files.get(alertsDayPath('2026-09-24')), 'disabled');
     assertEqual((await recordTelegramLogs({ alerts: [{ id: 'a', sentAt: 'x' }] }, { store: null })).skipped, 'no_store', 'no store');
+  });
+
+  console.log('\nnet floor + trade chart (T-13)');
+
+  await test('COST_PCT_BY_DIRECTION mirrors config risk.costBpsByDirection', () => {
+    assertEqual(COST_PCT_BY_DIRECTION.long, ENGINE_CONFIG.risk.costBpsByDirection.long / 100, 'long');
+    assertEqual(COST_PCT_BY_DIRECTION.short, ENGINE_CONFIG.risk.costBpsByDirection.short / 100, 'short');
+  });
+
+  await test('net floor line: READY (netRR, stop) / NOT YET (stop under the floor) / NOT YET (netRR) / none', () => {
+    assertEqual(netFloorLine(netFloorOf(nfGoodSym(true), 'BTC:5m:long:2026-09-24T13:50:00.000Z')), 'net floor: READY (netRR 1.4, stop 0.41 %)', 'ready');
+    const tight = { ready: false, liveStopPct: 0.04, floorPct: 0.31, netRR: 0.4 };
+    assertEqual(netFloorLine(tight), 'net floor: NOT YET — stop 0.04 % &lt; 0.31 % floor', 'stop under floor');
+    assertEqual(netFloorLine({ ready: false, liveStopPct: 0.5, floorPct: 0.31, netRR: 0.8 }), 'net floor: NOT YET — netRR 0.8 at the floor', 'netRR');
+    assertEqual(netFloorLine(null), '', 'no NF shadow: no line');
+    const setupS = watchSym({ ...setupEth, shadowNF: { ready: true, netRR: 1.9 } });
+    assertEqual(netFloorLine(netFloorOf(setupS, setupEth.candidateId)), 'net floor: READY (netRR 1.9)', 'setup.shadowNF');
+    assertEqual(netFloorOf(nfGoodSym(true), 'BTC:other'), null, 'other candidate: none');
+  });
+
+  await test('GOOD card and Plan card carry the net floor line; the card without an NF shadow is unchanged', () => {
+    const id = 'BTC:5m:long:2026-09-24T13:50:00.000Z';
+    const good = formatGoodAlert('BTC', nfGoodSym(false));
+    assert(good.endsWith('net floor: NOT YET — stop 0.25 % &lt; 1.02 % floor'), good);
+    assertEqual(formatGoodAlert('BTC', goodSym()), formatGoodAlert('BTC', { ...goodSym(), flagTradePlan: { ...goodSym().flagTradePlan } }), 'stable');
+    assert(!formatGoodAlert('BTC', goodSym()).includes('net floor'), 'no NF: no line');
+    const plan = formatPlanCard(liveView('BTC', nfGoodSym(true), id));
+    assert(plan.includes('net floor: READY (netRR 1.4, stop 0.41 %)'), plan);
+  });
+
+  await test('approach block: Enter / Wrong if (killIf reused) / Worth it YES|NO net of fees with cost as a share of the stop', () => {
+    const s = nfGoodSym(true);
+    const id = s.flagTradePlan.candidateId;
+    const a = approachBlock(tradeLevelsOf(s, id), s.flagRecommendation.clarity);
+    assertEqual(a, 'Enter: retest hold at 84,600.00\nWrong if: close below 84,390.00 (0.25 %) · close back below 84,600.00 after a probe = defended, stand down\nWorth it: <b>YES</b> net of fees — costs 137 % of a 0.25 % stop', a);
+    const thin = approachBlock({ direction: 'short', entry: 84000, stop: 84033.6, netRR: 0.4, reasonCode: 'awaiting_breakout' });
+    assert(thin.startsWith('Enter: breakout close at 84,000.00\nWrong if: close above 84,033.60 (0.04 %)') && thin.endsWith('Worth it: <b>NO</b> net of fees — costs 350 % of a 0.04 % stop'), thin);
+    assertEqual(approachBlock(null), '', 'no levels');
+  });
+
+  await test('trade overlay from the plan (NF stop only when it differs); keepNetFloor grafts only shadow.NF onto a compact payload', () => {
+    const s = nfGoodSym(true);
+    const o = tradeOverlayFor(tradeLevelsOf(s, s.flagTradePlan.candidateId), netFloorOf(s, s.flagTradePlan.candidateId));
+    assertEqual(JSON.stringify(o), JSON.stringify({ direction: 'long', entry: 84600, stop: 84390, tp1: 85146, tp2: 85300, nfStop: 84253.2, grossRR: 2.6, netRR: 2.1 }), 'overlay');
+    assertEqual(tradeLevelsOf(badSym(), 'SOL:1m:long:x'), null, 'rejected plan: no trade levels');
+    const full = payload({ BTC: { ...s, flagTradePlan: { ...s.flagTradePlan, shadow: { ...s.flagTradePlan.shadow, v3: { status: 'x' } } } } });
+    const stripped = JSON.parse(JSON.stringify(full));
+    delete stripped.symbols.BTC.flagTradePlan.shadow;
+    const kept = keepNetFloor(stripped, full);
+    assertEqual(JSON.stringify(Object.keys(kept.symbols.BTC.flagTradePlan.shadow)), '["NF"]', 'only NF');
+    assert(!('shadow' in stripped.symbols.BTC.flagTradePlan), 'input not mutated');
+    assertEqual(fitCaption(['x'.repeat(1001)]), null, 'over 1000: null');
+  });
+
+  await test('cron: GOOD sends one photo per chat, card + net floor + approach as caption; render gets the trade overlay and a 120-candle window request', async () => {
+    const rr = recordingRender();
+    let buildOpts = null;
+    const tg = fakeTelegram();
+    await cron({ tg, render: rr.fn, build: async (opts) => { buildOpts = opts; return payload({ BTC: nfGoodSym(true) }); } });
+    assert(buildOpts && buildOpts.chartWindow && buildOpts.chartWindow.size === 120 && typeof buildOpts.chartWindow.onWindow === 'function', JSON.stringify(buildOpts));
+    const photos = tg.calls.filter((c) => c.method === 'sendPhoto' && kindOf(c.caption) === 'GOOD');
+    assertEqual(photos.length, 2, 'one per chat');
+    for (const p of photos) {
+      assert(p.caption.length <= 1000, `caption ${p.caption.length}`);
+      assert(p.caption.includes('net floor: READY (netRR 1.4, stop 0.41 %)') && p.caption.includes('Enter: retest hold at 84,600.00') && p.caption.includes('Worth it: <b>YES</b>'), p.caption);
+    }
+    const req = rr.seen[0].request;
+    assert(req.tradeOverlay && req.tradeOverlay.nfStop === 84253.2 && req.timeframe === '5m', JSON.stringify(req));
+  });
+
+  await test('cron: a card too long for one caption goes as text, the chart carries the approach block', async () => {
+    const s = nfGoodSym(true);
+    s.flagRecommendation.clarity.context = ['x'.repeat(700)];
+    const tg = fakeTelegram();
+    await cron({ tg, build: async () => payload({ BTC: s }) });
+    const msg = tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'GOOD');
+    const photo = tg.calls.find((c) => c.method === 'sendPhoto');
+    assert(msg && allCallbackData(msg.replyMarkup).length > 0, 'card as a message with its buttons');
+    assert(photo && photo.caption.startsWith('BTC 5m · GOOD\nEnter: retest hold') && photo.caption.length <= 1000, photo && photo.caption);
+  });
+
+  await test('webhook: Took it logs, then sends the trade chart (TOOK IT caption + approach); a double tap sends no second chart', async () => {
+    const blob = fakeBlob();
+    const tg = fakeTelegram();
+    await cron({ blob, tg, build: async () => payload({ BTC: nfGoodSym(true) }) });
+    const took = allCallbackData(tg.calls.find((c) => kindOf(c.text || c.caption) === 'GOOD').replyMarkup).find((x) => x.startsWith('log:took:'));
+    const rr = recordingRender();
+    const t = await tap({ data: took, blob, render: rr.fn, build: async () => payload({ BTC: nfGoodSym(true) }) });
+    const logged = t.tg.calls.findIndex((c) => String(c.text || '').startsWith('[LOGGED'));
+    const photoIdx = t.tg.calls.findIndex((c) => c.method === 'sendPhoto');
+    assert(logged > 0 && photoIdx > logged, 'chart after the log reply');
+    const cap = t.tg.calls[photoIdx].caption;
+    assert(cap.startsWith('✋ ₿ <b>BTC 5m ▲ LONG</b> · TOOK IT') && cap.includes('Enter: retest hold at 84,600.00') && cap.includes('net floor: READY'), cap);
+    assert(rr.seen[0].request.tradeOverlay.entry === 84600, 'overlay from the live plan');
+    const again = await tap({ data: took, blob, render: rr.fn });
+    assertEqual(again.tg.calls.filter((c) => c.method === 'sendPhoto').length, 0, 'duplicate: no chart');
+  });
+
+  await test('webhook: /chart BTC trade renders the plan on its timeframe; /chart ETH 3m trade uses the SETUP; no plan explains; render failure is a reply', async () => {
+    const rr = recordingRender();
+    const r = await hook({ text: '/chart BTC trade', render: rr.fn, build: async () => payload({ BTC: nfGoodSym(true) }) });
+    const photo = r.tg.calls.find((c) => c.method === 'sendPhoto');
+    assert(photo && photo.caption.startsWith('🟢 ₿ <b>BTC 5m ▲ LONG</b> · TRADE · READY') && photo.caption.includes('net floor: READY'), photo && photo.caption);
+    assertEqual(rr.seen[0].request.timeframe, '5m', 'plan timeframe');
+    const e = await hook({ text: '/chart ETH 3m trade', render: rr.fn, build: async () => payload({ ETH: watchSym(setupEth) }) });
+    const ep = e.tg.calls.find((c) => c.method === 'sendPhoto');
+    assert(ep && ep.caption.includes('TRADE · SETUP') && ep.caption.includes('Enter: retest hold at 2,601.50'), ep && ep.caption);
+    const none = await hook({ text: '/chart SOL trade' });
+    assert(none.tg.calls.some((c) => String(c.text).startsWith('No trade plan for SOL')), 'no plan');
+    const bad = await hook({ text: '/chart BTC trade', render: async () => { throw new Error('boom'); } });
+    assert(bad.tg.calls.some((c) => c.text === 'Trade chart could not be sent.'), 'render failure explained');
+    const plain = await hook({ text: '/chart BTC 5m', render: rr.fn });
+    assert(!rr.seen[rr.seen.length - 1].request.tradeOverlay, 'plain /chart unchanged');
+    void plain;
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

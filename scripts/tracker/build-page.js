@@ -39,6 +39,7 @@ import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
 import { shadowOutcomesFile, shadowSummaryFile } from './shadow.js';
 import { v3ShadowOutcomesFile, v3ShadowSummaryFile } from './v3-shadow.js';
+import { nfShadowOutcomesFile, nfShadowSummaryFile } from './nf-shadow.js';
 import { PATHS } from './flag-paths.js';
 import {
   chartKit, chartScript, callVia, equityRows, journalEquityRows, setupEquityRows, walletMarks, filterValues, walletChartRows, jsonForScript,
@@ -637,6 +638,37 @@ export function alertsFact(tg, nowMs) {
     + `<dd class="fact-sub" id="system-alerts-sub">${esc(tg && tg.lastAlert ? `${time(tg.lastAlert.at)} · ${cronText}` : cronText)}</dd></div>`;
 }
 
+// ---------- Net floor shadow (T-13, owner 2026-09-26; shadow mode until the freeze ends 2026-10-08, never traded) ----------
+
+export const NO_NF_SHADOW = '[NO LIVE READY CALLS TO COMPARE YET]';
+export const NF_SHADOW_NOTE = 'Shadow mode: the same live ready calls, scored twice - Live with the plan\'s own stop, NF with the stop floored at max(0.5 x ATR(15m), 3 x round-trip cost: 0.34 % long / 0.14 % short), TP1 unchanged, taken only when gross >= 2.5R and net >= 1.0R. Net R charges the direction cost once per trade. Calls before the engine published flagTradePlan.shadow.NF are backfilled here (ATR from stored 15m candles, filled at the live ready close) - an approximation. Never traded; never feeds any gate, class or alert.';
+export const EMPTY_NF_SHADOW_SUMMARY = { generatedAt: null, n: 0, spanDays: 0, engineRows: 0, backfillRows: 0, live: null, nf: null };
+
+function nfLegCells(label, l) {
+  if (!l) return [label, 0, dash, 0, dash, dash, dash];
+  return [label, l.calls, isNum(l.callsPerDay) ? String(l.callsPerDay) : dash, l.fills, pct(l.winRate),
+    { v: rVal(l.grossExpectancyR), cls: rStatus(l.grossExpectancyR) }, { v: rVal(l.netExpectancyR), cls: rStatus(l.netExpectancyR) }];
+}
+
+export const NF_SHADOW_HEADERS = ['Rule', 'Calls', 'Calls / day', 'Fills', 'Win rate', 'Exp. (gross R)', 'Net exp. (dir-cost)'];
+
+function nfShadowBody(summary, rows) {
+  if (!summary.n) return `<p class="empty" id="nf-shadow-empty">${esc(NO_NF_SHADOW)}</p>`;
+  const table1 = table('nf-shadow-summary-table', NF_SHADOW_HEADERS,
+    [nfLegCells('Live (gross 2.5, own stop)', summary.live), nfLegCells('NF (net floor, shadow)', summary.nf)], NO_NF_SHADOW, 1);
+  const list = [...rows].sort((a, b) => Date.parse(b.readyAt || 0) - Date.parse(a.readyAt || 0)).slice(0, 20)
+    .map((r) => [time(r.readyAt), r.symbol, r.timeframe || dash, r.direction,
+      `${num(r.live && r.live.stopPct, 3)} % / ${num(r.nf && r.nf.floorPct, 3)} %`,
+      { v: r.live ? r.live.outcome : dash, cls: outcomeStatus(r.live && r.live.outcome) },
+      { v: rVal(r.live && r.live.netR), cls: rStatus(r.live && r.live.netR) },
+      r.nf && r.nf.ready ? { v: `${r.nf.outcome || 'open'} ${rVal(r.nf.netR)}`, cls: rStatus(r.nf.netR) } : { v: 'skip', cls: 'dim' },
+      r.nfSource === 'engine' ? 'engine' : 'backfill']);
+  return table1
+    + `<p class="note" id="nf-shadow-sample-note">n=${summary.n} live ready call${summary.n === 1 ? '' : 's'} over ${num(summary.spanDays, 2)} d · engine ${summary.engineRows} · backfill ${summary.backfillRows}</p>`
+    + sub('nf-shadow-list-sub', 'Last 20 live ready calls under the net floor',
+      table('nf-shadow-list-table', ['Ready at', 'Symbol', 'TF', 'Dir', 'Stop / floor', 'Live', 'Live net R', 'NF', 'Source'], list, NO_NF_SHADOW));
+}
+
 export function renderHtml(agg, data = {}) {
   const t = agg.tiles;
   const nowMs = Date.parse(agg.generatedAt);
@@ -656,6 +688,8 @@ export function renderHtml(agg, data = {}) {
   const shadowSum = data.shadowSummary && typeof data.shadowSummary === 'object' ? data.shadowSummary : EMPTY_SHADOW_SUMMARY;
   const v3ShadowRows = Array.isArray(data.v3ShadowOutcomes) ? data.v3ShadowOutcomes : [];
   const v3ShadowSum = data.v3ShadowSummary && typeof data.v3ShadowSummary === 'object' ? data.v3ShadowSummary : EMPTY_V3_SHADOW_SUMMARY;
+  const nfShadowRows = Array.isArray(data.nfShadowOutcomes) ? data.nfShadowOutcomes : [];
+  const nfShadowSum = data.nfShadowSummary && typeof data.nfShadowSummary === 'object' ? data.nfShadowSummary : EMPTY_NF_SHADOW_SUMMARY;
   const w7 = agg.windows['7d'];
   const t7 = w7.tradable;
   const scored7 = t7.wins + t7.losses;
@@ -699,6 +733,9 @@ export function renderHtml(agg, data = {}) {
 
   // 3R shadow, former live rule (T6 completion plan "D-variant revised"): gross minRR 3.0, computed by the engine itself. Shadow mode only.
   const v3ShadowSection = section('v3-shadow-section', '3R shadow (former live rule) · gross minRR 3.0 (not traded)', v3ShadowBody(v3ShadowSum, v3ShadowRows), { sm: 2, lg: 12, foot: V3_SHADOW_NOTE });
+
+  // Net floor shadow (T-13): the live ready calls re-scored with a fee-aware stop floor, side by side. Shadow mode only.
+  const nfShadowSection = section('nf-shadow-section', 'Net floor shadow (NF) · live vs fee-aware stop (not traded)', nfShadowBody(nfShadowSum, nfShadowRows), { sm: 2, lg: 12, foot: NF_SHADOW_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -854,7 +891,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, ...instruments]
+      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, nfShadowSection, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -936,7 +973,7 @@ function mdStats(groups, keyLabel) {
   return mdTable([keyLabel, ...STAT_COLUMNS.map((c) => c[0])], groups.map((g) => [g.key, ...STAT_COLUMNS.map((c) => c[1](g))]));
 }
 
-export function renderReport(agg) {
+export function renderReport(agg, data = {}) {
   const t = agg.tiles;
   const w = agg.windows;
   const t7 = w['7d'].tradable;
@@ -963,6 +1000,12 @@ export function renderReport(agg) {
   out.push(`\n## By day\n\n_${PROVISIONAL}_\n`);
   out.push(mdTable(['Day', 'Calls', 'GOOD', 'WATCH', 'BAD', 'Ready', 'Fills', 'TP1', 'Stop', 'Exp.'],
     agg.byDay.map((d) => [d.day, d.recCalls, d.good, d.watch, d.bad, d.ready, d.fills, d.wins, d.losses, rVal(d.expectancy)])));
+  const nfs = data.nfShadowSummary && typeof data.nfShadowSummary === 'object' && data.nfShadowSummary.n ? data.nfShadowSummary : null;
+  out.push(`\n## Net floor shadow (NF, not traded)\n\n_${PROVISIONAL}_\n`);
+  const plainCell = (v) => (v && typeof v === 'object' ? v.v : v);
+  out.push(nfs
+    ? `${mdTable(NF_SHADOW_HEADERS, [nfLegCells('Live', nfs.live), nfLegCells('NF', nfs.nf)].map((r) => r.map(plainCell)))}\nn=${nfs.n} over ${num(nfs.spanDays, 2)} d (engine ${nfs.engineRows}, backfill ${nfs.backfillRows}). ${NF_SHADOW_NOTE}\n`
+    : `${NO_NF_SHADOW}\n`);
   const c = agg.captures;
   out.push(`\n## Data health\n\n_${PROVISIONAL}_\n\nCaptures ${c.captures}, gaps ${c.gaps}, DATA_UNAVAILABLE ${c.dataUnavailable}, mark drift |bps| median ${num(c.markDriftBps.medianAbs)} / max ${num(c.markDriftBps.maxAbs)}, missing 1m candles ${c.missing1mCandles}.\n`);
   return out.join('\n');
@@ -980,9 +1023,10 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
     telegram: readJson(telegramStatusFile(dataDir), null),
     paths: readJsonl(pathsFile(dataDir)), calibration: readJson(calibrationFile(dataDir), null),
     shadowOutcomes: readJsonl(shadowOutcomesFile(dataDir)), shadowSummary: readJson(shadowSummaryFile(dataDir), null),
-    v3ShadowOutcomes: readJsonl(v3ShadowOutcomesFile(dataDir)), v3ShadowSummary: readJson(v3ShadowSummaryFile(dataDir), null)
+    v3ShadowOutcomes: readJsonl(v3ShadowOutcomesFile(dataDir)), v3ShadowSummary: readJson(v3ShadowSummaryFile(dataDir), null),
+    nfShadowOutcomes: readJsonl(nfShadowOutcomesFile(dataDir)), nfShadowSummary: readJson(nfShadowSummaryFile(dataDir), null)
   }));
-  writeFileSync(mdFile, renderReport(agg));
+  writeFileSync(mdFile, renderReport(agg, { nfShadowSummary: readJson(nfShadowSummaryFile(dataDir), null) }));
   writeFileSync(howToFile, renderHowTo());
   return { agg, htmlFile, mdFile, howToFile };
 }

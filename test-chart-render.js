@@ -8,7 +8,9 @@
  * Run: node test-chart-render.js
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import * as PImage from 'pureimage';
 import {
@@ -23,7 +25,11 @@ import {
   CHART_COLORS,
   CHART_WIDTH,
   CHART_HEIGHT,
-  CHART_MAX_BYTES
+  CHART_MAX_BYTES,
+  normalizeTradeOverlay,
+  tradeLegendText,
+  chartOverlays,
+  TRADE_CHART_CANDLES
 } from './lib/chartRender.js';
 import { buildScalpContext, SYMBOLS, TIMEFRAMES, INTERVAL_MS, CANDLE_LIMITS } from './services/scalpContext.js';
 import { FIXTURE_PIVOT, withTimes, triggeringFlag } from './test/fixtures/flagFixtures.js';
@@ -116,11 +122,12 @@ function waveCandles(interval, count) {
   });
 }
 
-function buildFixtureContext(chart = null) {
+function buildFixtureContext(chart = null, chartWindow = null) {
   return buildScalpContext({
     symbols: ['BTC'],
     now: NOW,
     chart,
+    chartWindow,
     fetchCandles: async (pair, interval) => (interval === '1m' ? withTimes(triggeringFlag(), NOW) : waveCandles(interval, 500)),
     fetchAccount: async () => ({ status: 'unavailable', margin: { usd: null, byAsset: {} } })
   });
@@ -321,6 +328,77 @@ async function run() {
   if (budgets['1m'] && budgets['4h']) {
     console.log(`    budgets: 1m ${budgets['1m'].bytes} B ${budgets['1m'].durationMs} ms, 4h ${budgets['4h'].bytes} B ${budgets['4h'].durationMs} ms`);
   }
+
+  console.log('\ntrade overlay (T-13)');
+
+  // Long trade on the synthetic 1h window: entry 101, stop 100.2, TP1 103.3, TP2 104,
+  // NF stop 99.6 (dashed), gross 2.9 / net 0.9.
+  const TRADE = { direction: 'long', entry: 101, stop: 100.2, tp1: 103.3, tp2: 104, nfStop: 99.6, grossRR: 2.875, netRR: 0.9 };
+  const tspec = buildChartSpec(synthetic, { symbol: 'BTC', timeframe: '1h', tradeOverlay: TRADE }, series);
+  const tlayout = computeLayout(tspec);
+  const tbmp = await decode(await renderChart(tspec));
+
+  await test('normalizeTradeOverlay: levels on the right sides only; TP2 beyond TP1; NF stop only when it differs', () => {
+    assertEqual(normalizeTradeOverlay({ direction: 'long', entry: 100, stop: 101, tp1: 105 }), null, 'long stop above entry');
+    assertEqual(normalizeTradeOverlay({ direction: 'short', entry: 100, stop: 101, tp1: 101.5 }), null, 'short TP above entry');
+    assertEqual(normalizeTradeOverlay({ direction: 'x', entry: 100, stop: 99, tp1: 105 }), null, 'direction');
+    const n = normalizeTradeOverlay({ direction: 'short', entry: 100, stop: 101, tp1: 97, tp2: 98, nfStop: 101 });
+    assertEqual(`${n.tp2}|${n.nfStop}|${n.grossRR}|${n.netRR}`, 'null|null|3|null', 'mirrored short: tp2 not beyond TP1 dropped, same NF stop dropped, gross computed');
+  });
+
+  await test('overlay geometry: risk band entry<->stop, reward band entry<->TP1, solid entry/stop/TP1/TP2, dashed NF stop; candidate lines suppressed', () => {
+    const { bands, levels } = chartOverlays(tspec);
+    const risk = bands.find((b) => b.trade === 'risk');
+    const reward = bands.find((b) => b.trade === 'reward');
+    assertEqual(`${risk.low}|${risk.high}|${risk.color}`, `100.2|101|${CHART_COLORS.riskBand}`, 'risk band');
+    assertEqual(`${reward.low}|${reward.high}|${reward.color}`, `101|103.3|${CHART_COLORS.rewardBand}`, 'reward band');
+    const byLabel = Object.fromEntries(levels.map((l) => [l.label, l]));
+    assert(byLabel.entry.solid && byLabel.stop.solid && byLabel.TP1.solid && byLabel.TP2.solid, 'solid trade lines');
+    assertEqual(byLabel.stop.color, CHART_COLORS.tradeStop, 'stop red');
+    assertEqual(byLabel.TP1.color, CHART_COLORS.tradeTarget, 'TP1 green');
+    assert(byLabel['NF stop'].dashed && byLabel['NF stop'].price === 99.6, 'NF stop dashed');
+    assert(!levels.some((l) => /brk|inv|flag/.test(l.label)), 'no candidate levels on a trade chart');
+    assertEqual(CHART_COLORS.riskBand, '#301b20', 'risk band = red over background at 15 %');
+    assertEqual(CHART_COLORS.rewardBand, '#12272b', 'reward band = green over background at 15 %');
+    assertEqual(tradeLegendText(tspec.trade), 'R 1:2.9 gross · 1:0.9 net', 'legend');
+  });
+
+  await test('trade pixels: bands on their rows, stop and TP1 lines in colour, NF stop dashed, levels forced into range', () => {
+    const x = gapX(tlayout, 5);
+    assertEqual(pixelHex(tbmp, x, tlayout.yOf(100.6)), CHART_COLORS.riskBand, 'risk band between entry and stop');
+    assertEqual(pixelHex(tbmp, x, tlayout.yOf(102.9)), CHART_COLORS.rewardBand, 'reward band between entry and TP1');
+    const near = (y, hex) => [y - 1, y, y + 1].some((yy) => pixelHex(tbmp, x, yy) === hex);
+    assert(near(tlayout.yOf(100.2), CHART_COLORS.tradeStop), 'stop line');
+    assert(near(tlayout.yOf(103.3), CHART_COLORS.tradeTarget), 'TP1 line');
+    let on = 0; let off = 0;
+    const y = tlayout.yOf(99.6);
+    for (let xx = 12; xx < 300; xx++) { if (pixelHex(tbmp, xx, y) === CHART_COLORS.tradeStop) on++; else off++; }
+    assert(on > 50 && off > 20, `NF stop dashed (${on} on / ${off} off)`);
+    const far = buildChartSpec(synthetic, { symbol: 'BTC', timeframe: '1h', tradeOverlay: { direction: 'long', entry: 101, stop: 60, tp1: 180 } }, series);
+    const L = computeLayout(far);
+    assert(L.min < 60 && L.max > 180, 'a far stop/TP still joins the range');
+  });
+
+  let window1m = null;
+  let window4h = null;
+  const withWindow = await buildFixtureContext(null, { size: TRADE_CHART_CANDLES, onWindow: (sym, tf, w) => { if (tf === '1m') window1m = w; if (tf === '4h') window4h = w; } });
+
+  await test('chartWindow hook: last 120 closed candles + aligned EMAs, payload byte-identical; the trade spec uses the window', async () => {
+    assertEqual(JSON.stringify(withWindow), JSON.stringify(bare), 'payload unchanged');
+    assertEqual(window4h.candles.length, TRADE_CHART_CANDLES, '4h window 120');
+    assertEqual(window4h.ema21.length, TRADE_CHART_CANDLES, 'EMA aligned');
+    assertEqual(window4h.ema21[119], bare.symbols.BTC.timeframes['4h'].ema21, 'last EMA21 matches the payload');
+    assert(window1m.candles.length <= TRADE_CHART_CANDLES && window1m.candles.length > CANDLE_LIMITS['1m'], `1m window ${window1m.candles.length}`);
+    const last = window4h.candles[119];
+    const entry = last.c;
+    const ts = buildChartSpec(bare, { symbol: 'BTC', timeframe: '4h', tradeOverlay: { direction: 'long', entry, stop: entry * 0.996, tp1: entry * 1.012, nfStop: entry * 0.99, grossRR: 3, netRR: 1.9 } }, { window: window4h });
+    assertEqual(ts.candles.length, TRADE_CHART_CANDLES, 'spec draws 120 candles');
+    const png = await renderChart(ts);
+    assert(png.length <= CHART_MAX_BYTES, `bytes ${png.length}`);
+    const out = path.join(os.tmpdir(), 'edittrades-trade-chart-sample.png');
+    writeFileSync(out, png);
+    console.log(`    sample trade chart: ${out} (${png.length} B)`);
+  });
 
   console.log('\nopenapi');
 

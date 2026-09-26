@@ -40,7 +40,18 @@ export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 // strips it unless `include=model`) and captured unconditionally in every served-call
 // record (lib/servedCalls.js records the pre-filter payload) for the tracker's
 // v3-shadow scoring ("3R shadow (former live rule)" tile).
-export const FLAG_PLAN_SHADOW_VARIANTS = [{ id: 'v3', minRR: 3.0 }];
+//
+// T-13 (owner 2026-09-26) `NF` net floor: the live plan's own candidate re-attempted with
+// its stop floored at max(0.5 x ATR(15m), 3 x round-trip cost) - 0.34 % long / 0.14 %
+// short of entry - TP1 unchanged, gross >= 2.5 and net >= 1.0. Shadow only until the rule
+// freeze ends (2026-10-08): always published on `flagTradePlan.shadow.NF` (compact:
+// candidateId/status/reasonCode/ready/stop/tp1/grossRR/netRR/stopPct/floorPct, stripped
+// unless include=model like v3) and, for the SETUP candidate, on the default payload's
+// `flagRecommendation.setup.shadowNF` = {ready, netRR}. Never gates class/recommendation.
+export const FLAG_PLAN_SHADOW_VARIANTS = [
+  { id: 'v3', minRR: 3.0 },
+  { id: 'NF', minRR: 2.5, minNetRR: 1.0, netFloor: { atrTimeframe: '15m', atrMult: 0.5, costMult: 3 } }
+];
 
 // Published candles per timeframe (payload only; the engine computes on the full closed
 // window). 1m/3m/5m went 30 -> 24 on 2026-09-23 to keep the default payload under 80 KB;
@@ -1152,6 +1163,10 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  *   metrics track a failed candidate by its full lifecycle fields.
  * @param {{symbol:string, timeframe:string, onSeries:Function}|null} [options.chart] - phase 8b:
  *   receives `{ ema21, ema200 }` aligned to that timeframe's published candles. Payload unchanged.
+ * @param {{size:number, timeframes?:Array<string>, onWindow:Function}|null} [options.chartWindow] -
+ *   T-13 trade chart: `onWindow(symbol, tf, { candles, ema21, ema200 })` with the last `size`
+ *   closed candles (payload candle format) and their EMA series, for every symbol x
+ *   `timeframes` (default: every timeframe). Payload unchanged.
  * @returns {Promise<Object>} normalized JSON-safe payload
  */
 export async function buildScalpContext(options = {}) {
@@ -1166,7 +1181,8 @@ export async function buildScalpContext(options = {}) {
     includeBias = false,
     includeModel = false,
     slimFailed = true,
-    chart = null
+    chart = null,
+    chartWindow = null
   } = options || {};
   const fetchMarks = options && options.fetchMarks !== undefined
     ? options.fetchMarks
@@ -1351,6 +1367,22 @@ export async function buildScalpContext(options = {}) {
           ema21: windowSeries(indicators.ema && indicators.ema.ema21History, trimmed.length).map(round2),
           ema200: windowSeries(indicators.ema && indicators.ema.ema200History, trimmed.length).map(round2)
         });
+      }
+
+      // T-13 trade chart window: a longer closed-candle window than the payload publishes
+      // (the chart on entry shows ~120 candles), handed out-of-band like `chart` above.
+      if (chartWindow && typeof chartWindow.onWindow === 'function' && isFiniteNumber(chartWindow.size) && chartWindow.size > 0
+        && (!Array.isArray(chartWindow.timeframes) || chartWindow.timeframes.includes(tf))) {
+        const n = Math.min(Math.floor(chartWindow.size), closed.length);
+        try {
+          chartWindow.onWindow(symbol, tf, {
+            candles: closed.slice(-n).map(formatCandleOut),
+            ema21: windowSeries(indicators.ema && indicators.ema.ema21History, n).map(round2),
+            ema200: windowSeries(indicators.ema && indicators.ema.ema200History, n).map(round2)
+          });
+        } catch (err) {
+          console.warn(`[ScalpContext] ${symbol} ${tf}: chart window callback failed - ${err.message}`);
+        }
       }
 
       // Flag candidates: a separate channel from strategies, never an input to them.

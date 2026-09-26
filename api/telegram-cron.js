@@ -4,7 +4,10 @@
  *
  * Builds the context once, compares it with the last alert state in Blob
  * `telegram/state.json` (lib/telegram.js diffAlerts) and sends only transitions: NEW GOOD
- * (with the plan timeframe's chart), NEW SETUP, GOOD ended, and data / mark problems that
+ * (T-13: ONE photo - the plan timeframe's trade chart, last 120 candles, entry / stop /
+ * TP lines, risk / reward bands, NF net-floor stop - with the card, the net floor line and
+ * the 3-line approach block as its caption when that fits 1,000 chars; else the card as
+ * text and the approach on the photo; a tracked TRACK · GET IN NOW the same), NEW SETUP, GOOD ended, and data / mark problems that
  * last over 5 minutes (repeated at most every 30 minutes), and at alert level `watch` new
  * forming/triggering flag candidates, plus every transition of a tracked candidate (Track /
  * Took it) at any level. A close reminder (NUDGE) is dropped when the journal already
@@ -51,14 +54,14 @@
 import crypto from 'crypto';
 import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
-import { renderContextChart } from '../lib/chartRender.js';
+import { renderContextChart, TRADE_CHART_CANDLES } from '../lib/chartRender.js';
 import { updateBlob, readBlob } from '../lib/blobJsonl.js';
 import { readRecent } from './journal.js';
 import { alertLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 import {
   withOpenButton, openEligible, candidateLevels, liveView, focusRelated, LIVE_POSITIONS_CACHE_MS,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
-  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef
+  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, keepNetFloor, fitCaption, CHART_GRID_TIMEFRAMES
 } from '../lib/telegram.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
@@ -178,13 +181,17 @@ export async function handleTelegramCron(req, res, deps = {}) {
 
   // One build per run. A build that throws is treated as unavailable data, which the
   // state machine turns into a DATA alert once it lasts over 5 minutes.
+  // T-13: the same build hands out the last TRADE_CHART_CANDLES closed candles per
+  // symbol x chart timeframe (payload unchanged) for the trade chart on GOOD / GET IN NOW.
+  const chartWindows = new Map();
   let payload;
   try {
-    payload = await build();
+    payload = await build({ chartWindow: { size: TRADE_CHART_CANDLES, timeframes: [...CHART_GRID_TIMEFRAMES], onWindow: (sym, tf, w) => chartWindows.set(`${sym}|${tf}`, w) } });
   } catch (err) {
     payload = { dataStatus: 'unavailable', closedThrough: null, symbols: {}, warnings: [`build failed: ${err && err.name ? err.name : 'Error'}`] };
   }
-  const compact = filterPayload(payload, { compact: true });
+  // The compact view the alerts read, plus the NF net floor shadow (T-13) for the cards.
+  const compact = keepNetFloor(filterPayload(payload, { compact: true }), payload);
   const nowMs = now();
 
   const bot = createBotClient({ token: env.TELEGRAM_BOT_TOKEN, fetchImpl });
@@ -296,14 +303,30 @@ export async function handleTelegramCron(req, res, deps = {}) {
     let delivered = false;
     let png = null;
     if (alert.chart) {
-      try { png = (await render(payload, alert.chart)).png; } catch { png = null; }
+      const win = chartWindows.get(`${alert.chart.symbol}|${alert.chart.timeframe}`);
+      try { png = (await render(payload, alert.chart, win ? { window: win } : undefined)).png; } catch { png = null; }
     }
+    // T-13: a trade chart (GOOD / GET IN NOW with plan levels) goes out as ONE photo with
+    // the card + approach block as its caption when that fits 1,000 chars; otherwise the
+    // card as a message and the approach block as the caption.
+    const tradePhoto = png && alert.chart && alert.chart.tradeOverlay;
+    const oneCaption = tradePhoto ? fitCaption([alert.text, alert.approach]) : null;
     for (const chatId of chats) {
-      const r = await bot.sendMessage(chatId, alert.text, { silent, replyMarkup: alert.replyMarkup || null });
-      if (r.ok) { sent++; delivered = true; } else failed++;
+      if (!oneCaption) {
+        const text = !png && alert.approach ? `${alert.text}\n${alert.approach}` : alert.text;
+        const r = await bot.sendMessage(chatId, text, { silent, replyMarkup: alert.replyMarkup || null });
+        if (r.ok) { sent++; delivered = true; } else failed++;
+      }
       if (png) {
-        const p = await bot.sendPhoto(chatId, png, `${escapeHtml(alert.chart.symbol)} ${escapeHtml(alert.chart.timeframe)} · ${escapeHtml(alert.kind)}`, { silent });
-        if (p.ok) sent++; else failed++;
+        const caption = oneCaption
+          || (tradePhoto && alert.approach ? `${escapeHtml(alert.chart.symbol)} ${escapeHtml(alert.chart.timeframe)} · ${escapeHtml(alert.kind)}\n${alert.approach}`.slice(0, 1000) : `${escapeHtml(alert.chart.symbol)} ${escapeHtml(alert.chart.timeframe)} · ${escapeHtml(alert.kind)}`);
+        const p = await bot.sendPhoto(chatId, png, caption, { silent, replyMarkup: oneCaption ? alert.replyMarkup || null : null });
+        if (p.ok) { sent++; if (oneCaption) delivered = true; } else failed++;
+        // A failed single-photo send falls back to the card as text, so the call is never lost.
+        if (oneCaption && !p.ok) {
+          const r = await bot.sendMessage(chatId, alert.text, { silent, replyMarkup: alert.replyMarkup || null });
+          if (r.ok) { sent++; delivered = true; } else failed++;
+        }
       }
       // Follow-up cards (a tracked plan turning ready carries its Plan card).
       for (const more of Array.isArray(alert.more) ? alert.more : []) {
