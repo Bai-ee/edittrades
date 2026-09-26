@@ -24,7 +24,8 @@ import {
   buildStructurePlan,
   buildAtrFloorPlan,
   runVariant,
-  HOLD_24H_CANDLES
+  HOLD_24H_CANDLES,
+  daysWithAtLeast
 } from './scripts/replay-rules.js';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { existsSync } from 'node:fs';
@@ -115,8 +116,8 @@ async function run() {
     }
   });
 
-  await test('VARIANTS: only V4 and V-B (both explicitly research/owner-rule-change) lower gross minRR, and both stay >= 2.5', () => {
-    const RESEARCH_LOWERS_MINRR = { V4: 2.5, 'V-B': 2.5 };
+  await test('VARIANTS: only V4, V-B, and the T-10 L-series (explicitly research/owner-rule-change) lower gross minRR', () => {
+    const RESEARCH_LOWERS_MINRR = { V4: 2.5, 'V-B': 2.5, L1a: 2.25, L1b: 2.0, L5: 2.25, L6: 2.25, L7: 2.0 };
     for (const [id, v] of Object.entries(VARIANTS)) {
       const minRR = v.override && v.override.flagPlan && v.override.flagPlan.minRR;
       if (id in RESEARCH_LOWERS_MINRR) {
@@ -384,6 +385,90 @@ async function run() {
     await runVariant({ historyDir: HISTORY_DIR, symbols: ['BTC'], step: 5, from: '2026-09-20T00:00:00Z', to: '2026-09-20T01:00:00Z', variantId: 'V2' });
     assertEqual(ENGINE_CONFIG.flag.timeframes.length, 3, 'V2 override (5 flag timeframes) must not leak past the run');
     assert(ENGINE_CONFIG.flag.timeframes.includes('1m') && ENGINE_CONFIG.flag.timeframes.includes('5m'), 'base flag.timeframes restored');
+  });
+
+  console.log('\n5) T-10 (docs/PROMPT_T10_AGENT_F2.md) frequency-study L-series\n');
+
+  await test('L-series: config-gate variants (L0/L1a/L1b/L4) have no opts and the expected minRR override', () => {
+    assertEqual(VARIANTS.L0.gate, 'config', 'L0 gate');
+    assertEqual(VARIANTS.L0.override, null, 'L0 is a true alias of V0: no override');
+    assertEqual(VARIANTS.L1a.override.flagPlan.minRR, 2.25, 'L1a minRR');
+    assertEqual(VARIANTS.L1b.override.flagPlan.minRR, 2.0, 'L1b minRR');
+    assertEqual(VARIANTS.L4.gate, 'config', 'L4 gate');
+    assertEqual(VARIANTS.L4.override, null, 'L4 is a documented no-op: flag.timeframes already 1m/3m/5m and GOOD is never alertTimeframes-filtered');
+  });
+
+  await test('L-series: ruleVariant-gate variants (L2/L3/L5/L6/L7) carry the expected opts and minRR override', () => {
+    for (const id of ['L2', 'L3', 'L5', 'L6', 'L7']) assertEqual(VARIANTS[id].gate, 'ruleVariant', `${id}: gate`);
+    assertEqual(VARIANTS.L2.opts.roomWait, true, 'L2: room-wait on');
+    assertEqual(VARIANTS.L2.opts.breakoutClose, false, 'L2: retest-hold still required');
+    assertEqual(VARIANTS.L2.override, null, 'L2: no minRR change, room-only');
+    assertEqual(VARIANTS.L3.opts.roomWait, false, 'L3: standard room rule (untouched)');
+    assertEqual(VARIANTS.L3.opts.breakoutClose, true, 'L3: retest-hold off');
+    assertEqual(VARIANTS.L5.override.flagPlan.minRR, 2.25, 'L5 = L1a + L2: minRR 2.25');
+    assertEqual(VARIANTS.L5.opts.roomWait, true, 'L5: room-wait on');
+    assertEqual(VARIANTS.L6.override.flagPlan.minRR, VARIANTS.L5.override.flagPlan.minRR, 'L6 = L5 + L4, and L4 is a no-op: same minRR as L5');
+    assertEqual(JSON.stringify(VARIANTS.L6.opts), JSON.stringify(VARIANTS.L5.opts), 'L6 opts identical to L5 (L4 contributes nothing here)');
+    assertEqual(VARIANTS.L7.override.flagPlan.minRR, 2.0, 'L7 = L1b + L2 + L3 + L4: minRR 2.0');
+    assertEqual(VARIANTS.L7.opts.roomWait, true, 'L7: room-wait on');
+    assertEqual(VARIANTS.L7.opts.breakoutClose, true, 'L7: retest-hold off (the "everything" bound)');
+  });
+
+  await test('daysWithAtLeast: counts distinct UTC calendar days clearing a per-day call-count threshold', () => {
+    const day = (d, i) => new Date(Date.parse(`2026-09-${d}T00:00:00.000Z`) + i * 3600000).toISOString();
+    const calls = [
+      ...Array.from({ length: 1 }, (_, i) => call({ outcome: 'win', grossR: 1, netR: 1, firstReadyAt: day('10', i) })), // day 10: 1 call
+      ...Array.from({ length: 5 }, (_, i) => call({ outcome: 'win', grossR: 1, netR: 1, firstReadyAt: day('11', i) })), // day 11: 5 calls
+      ...Array.from({ length: 6 }, (_, i) => call({ outcome: 'win', grossR: 1, netR: 1, firstReadyAt: day('12', i) }))  // day 12: 6 calls
+    ];
+    assertEqual(daysWithAtLeast(calls, 1), 3, 'all three days have >=1');
+    assertEqual(daysWithAtLeast(calls, 5), 2, 'only day 11 (5) and day 12 (6) clear >=5');
+    assertEqual(daysWithAtLeast(calls, 10), 0, 'none clear >=10');
+  });
+
+  await test('coverageStats (via buildVariantMetrics): daysWithGoodAtLeast5 matches daysWithAtLeast(calls, 5)', () => {
+    const spanFromMs = Date.parse('2026-09-10T00:00:00.000Z');
+    const spanToMs = Date.parse('2026-09-13T00:00:00.000Z'); // 3 days
+    const calls = [
+      call({ outcome: 'win', grossR: 1, netR: 1, firstReadyAt: '2026-09-10T00:00:00.000Z' }),
+      ...Array.from({ length: 5 }, (_, i) => call({ outcome: 'win', grossR: 1, netR: 1, firstReadyAt: new Date(Date.parse('2026-09-11T00:00:00.000Z') + i * 3600000).toISOString() }))
+    ];
+    const m = buildVariantMetrics(calls, { spanFromMs, spanToMs });
+    assertEqual(m.coverage.daysWithGoodCount, 2, 'days with >=1');
+    assertEqual(m.coverage.daysWithGoodAtLeast5, 1, 'days with >=5 (only 09-11)');
+  });
+
+  console.log('\n6) T-10 L-series end-to-end wiring (fixture-gated, fails not skips)\n');
+
+  await test('runVariant: L0 replays byte-identical GOOD calls to V0 (true alias, same on-disk config)', async () => {
+    assert(HAS_FIXTURE, `fixture history missing at ${HISTORY_DIR} - see section 4's header comment to recreate it`);
+    const opts = { historyDir: HISTORY_DIR, symbols: ['BTC'], step: 1, from: '2026-09-20T00:00:00Z', to: '2026-09-20T06:00:00Z' };
+    const v0 = await runVariant({ variantId: 'V0', ...opts });
+    const l0 = await runVariant({ variantId: 'L0', ...opts });
+    assertEqual(JSON.stringify(l0.goodCalls), JSON.stringify(v0.goodCalls), 'L0 must score exactly like V0 (both are the live on-disk config, no override)');
+  });
+
+  await test('runVariant: L4 replays byte-identical GOOD calls to L0 (documented no-op in this harness)', async () => {
+    assert(HAS_FIXTURE, `fixture history missing at ${HISTORY_DIR} - see section 4's header comment to recreate it`);
+    const opts = { historyDir: HISTORY_DIR, symbols: ['BTC'], step: 1, from: '2026-09-20T00:00:00Z', to: '2026-09-20T06:00:00Z' };
+    const l0 = await runVariant({ variantId: 'L0', ...opts });
+    const l4 = await runVariant({ variantId: 'L4', ...opts });
+    assertEqual(JSON.stringify(l4.goodCalls), JSON.stringify(l0.goodCalls), 'L4 (alert/plan timeframes 1m+3m+5m) has no override to add here - see VARIANTS.L4 header comment');
+  });
+
+  await test('runVariant: L2 (room-wait) and L3 (breakout-close ready) run end to end and every GOOD call clears the live gross minRR', async () => {
+    assert(HAS_FIXTURE, `fixture history missing at ${HISTORY_DIR} - see section 4's header comment to recreate it`);
+    const opts = { historyDir: HISTORY_DIR, symbols: ['BTC', 'SOL', 'ETH'], step: 5, from: '2026-09-15T00:00:00Z', to: '2026-09-22T00:00:00Z' };
+    const l2 = await runVariant({ variantId: 'L2', ...opts });
+    const l3 = await runVariant({ variantId: 'L3', ...opts });
+    for (const c of l2.goodCalls) assert(c.plannedGrossRR >= ENGINE_CONFIG.flagPlan.minRR, `L2 GOOD call ${c.candidateId} published below the live gross minRR`);
+    for (const c of l3.goodCalls) assert(c.plannedGrossRR >= ENGINE_CONFIG.flagPlan.minRR, `L3 GOOD call ${c.candidateId} published below the live gross minRR`);
+  });
+
+  await test('runVariant: L7 (combo override + ruleVariant gate) restores ENGINE_CONFIG after the run', async () => {
+    assert(HAS_FIXTURE, `fixture history missing at ${HISTORY_DIR} - see section 4's header comment to recreate it`);
+    await runVariant({ historyDir: HISTORY_DIR, symbols: ['BTC'], step: 5, from: '2026-09-20T00:00:00Z', to: '2026-09-20T01:00:00Z', variantId: 'L7' });
+    assertEqual(ENGINE_CONFIG.flagPlan.minRR, 2.5, 'L7 override (minRR 2.0) must not leak past the run - live config minRR restored');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

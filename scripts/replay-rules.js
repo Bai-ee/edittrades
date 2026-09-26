@@ -75,6 +75,7 @@ import { loadHistoryDir, replaySymbol, closedRows } from './replay.js';
 import { walkOutcome, isFiniteNumber, round, median, FILL_WINDOW_CANDLES } from './tracker/walk-outcome.js';
 import { netR } from './tracker/costs.js';
 import { observeRetestHold, netRiskReward } from '../lib/flagTradePlan.js';
+import { geometryTimeframeFor } from '../lib/patternLifecycle.js';
 import { tp1Ahead } from './replay-paths.js';
 import { calculateATR } from '../lib/advancedIndicators.js';
 
@@ -116,7 +117,37 @@ export const VARIANTS = {
   // variants. V-A is V0 and V-C is V2 by config (both already exist above) - reuse
   // those ids directly rather than duplicating an identical override under a new name.
   'V-B': { label: 'research, owner rule change: gross minRR 2.5 (lowers the shipped 3R floor - needs an explicit owner decision to ship)', gate: 'config', override: { flagPlan: { minRR: 2.5 } } },
-  'V-D': { label: 'retest tolerance 0.2 ATR (entryToleranceAtr, default 0.1)', gate: 'config', override: { flagPlan: { entryToleranceAtr: 0.2 } } }
+  'V-D': { label: 'retest tolerance 0.2 ATR (entryToleranceAtr, default 0.1)', gate: 'config', override: { flagPlan: { entryToleranceAtr: 0.2 } } },
+
+  // T-10 (docs/PROMPT_T10_AGENT_F2.md): call-frequency study on the LIVE rules
+  // (configVersion 2026.09.24-5: gross minRR 2.5, net gate off). Owner asks ~10 GOOD/day
+  // against a measured ~1.3/day; L0 is that live config verbatim (an alias of V0, which
+  // has always replayed whatever is on disk - see F2-1's one-line diff in
+  // docs/FREQUENCY_STUDY_2026-09-26.md). L1a/L1b lower gross minRR further (config-gate,
+  // same mechanism V-B already uses). L2/L3 change behavior `lib/flagTradePlan.js`
+  // itself owns (room_at_entry's hard reject, observeRetestHold's readiness rule) that
+  // `setConfigOverride` cannot reach - a new `gate: 'ruleVariant'` mirrors the relevant
+  // slice of `buildPlanAttempt` here (same precedent as V5's buildStructurePlan/V6's
+  // buildAtrFloorPlan: an alternative construction over the same detected candidate
+  // pool, sharing `finalizePlan`'s gross/net/stop-cap gates, never touching detection).
+  // L4 (alert/plan timeframes 1m+3m+5m) is a no-op in this harness: `flag.timeframes` is
+  // already `1m/3m/5m` on disk, and reading `lib/telegram.js`'s `diffAlerts` shows the
+  // GOOD alert (the thing this harness scores) is never filtered by `prefs.alertTimeframes`
+  // - only BREAKOUT/WATCH/TRIGGERING are (`tfAllowed`, line ~2731) - so it has no override
+  // to add here; L4/L6/L7 carry the label for traceability against the prompt's own
+  // naming, and the report states the no-op finding plainly rather than manufacturing an
+  // artificial timeframe filter that doesn't reflect production. All owner-rule-change
+  // labels are for THIS worktree's research only - no config/lib change ships from here
+  // (rules frozen until 2026-10-08, docs/AGENT_SESSION_RULES.md).
+  L0: { label: 'owner rule change baseline: the live config verbatim (alias of V0 - minRR 2.5, net gate off, room_at_entry own-timeframe, retest-hold readiness)', gate: 'config', override: null },
+  L1a: { label: 'owner rule change: gross minRR 2.25 (was 2.5)', gate: 'config', override: { flagPlan: { minRR: 2.25 } } },
+  L1b: { label: 'owner rule change: gross minRR 2.0 (was 2.5)', gate: 'config', override: { flagPlan: { minRR: 2.0 } } },
+  L2: { label: 'owner rule change: room-blocked (room_at_entry) treated as WAIT, not a hard reject - TP1 capped at the blocking zone\'s far edge instead (relaxes OWNER_DECISIONS_2026-09-24 4b)', gate: 'ruleVariant', override: null, opts: { roomWait: true, breakoutClose: false } },
+  L3: { label: 'owner rule change: readiness on the breakout close itself, retest-hold off (relaxes T6 completion plan A3 / observeRetestHold)', gate: 'ruleVariant', override: null, opts: { roomWait: false, breakoutClose: true } },
+  L4: { label: 'owner rule change: alert/plan timeframes 1m+3m+5m - NO-OP here (flag.timeframes already 1m/3m/5m on disk; GOOD alerts are not filtered by prefs.alertTimeframes in lib/telegram.js - see header comment)', gate: 'config', override: null },
+  L5: { label: 'owner rule change: L1a (minRR 2.25) + L2 (room-wait)', gate: 'ruleVariant', override: { flagPlan: { minRR: 2.25 } }, opts: { roomWait: true, breakoutClose: false } },
+  L6: { label: 'owner rule change: L1a + L2 + L4 (L4 is a no-op here, so this scores identically to L5 - see header comment)', gate: 'ruleVariant', override: { flagPlan: { minRR: 2.25 } }, opts: { roomWait: true, breakoutClose: false } },
+  L7: { label: 'owner rule change: L1b (minRR 2.0) + L2 + L3 + L4 - the "everything" bound', gate: 'ruleVariant', override: { flagPlan: { minRR: 2.0 } }, opts: { roomWait: true, breakoutClose: true } }
 };
 
 // ---------------------------------------------------------------------------
@@ -298,6 +329,141 @@ function makeStructureCollector({ symbol, candles1m, historyByTf, cfg, mode, sin
 }
 
 // ---------------------------------------------------------------------------
+// gate: ruleVariant (T-10 L2/L3/L5/L6/L7) - same 1m/3m/5m trigger and entry/stop as
+// production, an alternative room-block / readiness rule `setConfigOverride` cannot
+// reach (both live inside lib/flagTradePlan.js's private buildPlanAttempt).
+// ---------------------------------------------------------------------------
+
+/**
+ * L2's room-block relaxation: the same `nearestEdge` scan lib/flagTradePlan.js's private
+ * `nearestRoomAhead` runs (every geometry timeframe, nearest zone edge strictly ahead of
+ * entry, short of target), plus - when `opts.roomWait` is on - an own-timeframe zone that
+ * TOUCHES entry no longer flags a hard `room_at_entry` reject; instead its own far edge
+ * (the side beyond entry, in the trade direction) is folded into the same cap-candidate
+ * set. `opts.roomWait` off reproduces the shipped hard-reject behavior exactly (returns
+ * null), so L3 (which does not touch room) shares this helper instead of a second copy.
+ * @returns {{blocked:boolean, tp1Cap:number|null}}
+ */
+function evaluateRoom(direction, entry, measuredTarget, geometryContext, ownGeometry, roomWait) {
+  const sign = direction === 'short' ? -1 : 1;
+  const orientedEntry = sign * entry;
+  const orientedTarget = sign * measuredTarget;
+  let nearestOriented = null;
+
+  for (const g of Object.values(geometryContext || {})) {
+    if (!g) continue;
+    const zones = direction === 'long' ? g.horizontalResistanceZones : g.horizontalSupportZones;
+    if (!Array.isArray(zones)) continue;
+    for (const z of zones) {
+      if (!isFiniteNumber(z.low) || !isFiniteNumber(z.high)) continue;
+      const near = direction === 'long' ? z.low : z.high;
+      const orientedNear = sign * near;
+      if (orientedNear > orientedEntry && orientedNear < orientedTarget && (nearestOriented === null || orientedNear < nearestOriented)) {
+        nearestOriented = orientedNear;
+      }
+    }
+  }
+
+  let touchesEntry = false;
+  if (ownGeometry) {
+    const ownZones = direction === 'long' ? ownGeometry.horizontalResistanceZones : ownGeometry.horizontalSupportZones;
+    if (Array.isArray(ownZones)) {
+      const touching = ownZones.filter((z) => isFiniteNumber(z.low) && isFiniteNumber(z.high) && z.low <= entry && z.high >= entry);
+      touchesEntry = touching.length > 0;
+      if (touchesEntry && roomWait) {
+        for (const z of touching) {
+          const far = direction === 'long' ? z.high : z.low;
+          const orientedFar = sign * far;
+          if (orientedFar > orientedEntry && orientedFar < orientedTarget && (nearestOriented === null || orientedFar < nearestOriented)) {
+            nearestOriented = orientedFar;
+          }
+        }
+      }
+    }
+  }
+
+  if (touchesEntry && !roomWait) return { blocked: true, tp1Cap: null };
+  return { blocked: false, tp1Cap: nearestOriented === null ? null : sign * nearestOriented };
+}
+
+/**
+ * L3's readiness relaxation: `ready` the moment an earlier closed candle closes through
+ * the breakout level (long: close > entry; short: close < entry) - the same
+ * `closedThrough` half of `observeRetestHold`, without requiring the later retest-hold
+ * candle. Mirrors `observeRetestHold`'s own breakout-detection window (`fromMs`-filtered,
+ * ascending candles) so the two only differ in the retest requirement itself.
+ */
+function observeBreakoutClose({ direction, entry, candles, fromMs }) {
+  const sign = direction === 'short' ? -1 : 1;
+  const closedThrough = (c) => isFiniteNumber(c.close) && sign * (c.close - entry) > 0;
+  if (!Array.isArray(candles) || !candles.length) return { status: 'conditional', reasonCode: 'awaiting_breakout' };
+  const windowed = isFiniteNumber(fromMs) ? candles.filter((c) => !isFiniteNumber(c.timestamp) || c.timestamp >= fromMs) : candles;
+  const breakoutIdx = windowed.findIndex(closedThrough);
+  return breakoutIdx === -1 ? { status: 'conditional', reasonCode: 'awaiting_breakout' } : { status: 'ready', reasonCode: null };
+}
+
+/** L2/L3/L5/L6/L7: candidate -> plan attempt, sharing `finalizePlan`'s gross/net/stop-cap gates. */
+function buildRuleVariantPlan(candidate, geometryContext, cfg, opts) {
+  if (candidate.chaseRisk === true) return null;
+  const direction = candidate.direction;
+  const sign = direction === 'short' ? -1 : 1;
+  const entry = candidate.breakoutLevel;
+  const stop = candidate.invalidation;
+  const measuredTarget = candidate.measuredTarget;
+  if (!isFiniteNumber(entry) || !isFiniteNumber(stop) || !isFiniteNumber(measuredTarget)) return null;
+  if (sign * (entry - stop) <= 0 || sign * (measuredTarget - entry) <= 0) return null;
+
+  const ownTf = geometryTimeframeFor(candidate.timeframe);
+  const ownGeometry = ownTf && geometryContext ? geometryContext[ownTf] : null;
+  const { blocked, tp1Cap } = evaluateRoom(direction, entry, measuredTarget, geometryContext, ownGeometry, opts.roomWait === true);
+  if (blocked) return null;
+
+  const target = tp1Cap !== null ? tp1Cap : measuredTarget;
+  return finalizePlan(entry, stop, target, cfg);
+}
+
+function makeRuleVariantCollector({ symbol, candles1m, historyByTf, cfg, opts, sink }) {
+  const seen = new Set();
+  let latestPayload = null;
+  return {
+    onPayload(payload) { latestPayload = payload; },
+    onLine(line) {
+      const s = latestPayload && latestPayload.symbols && latestPayload.symbols[symbol];
+      if (!s) return;
+      const geometryContext = s.geometryContext || {};
+      const pool = (s.candidateSetups || []).filter((c) => c && c.type === 'flag' && c.state === 'confirmed'
+        && ['1m', '3m', '5m'].includes(c.timeframe) && c.candidateId && !seen.has(c.candidateId));
+      for (const candidate of pool) {
+        const built = buildRuleVariantPlan(candidate, geometryContext, cfg, opts);
+        if (!built) continue;
+        const tf = candidate.timeframe;
+        const cutMs = Date.parse(line.closedThrough);
+        const firstDetectedMs = typeof candidate.firstDetectedAt === 'string' ? Date.parse(candidate.firstDetectedAt) : NaN;
+        const fromMs = isFiniteNumber(firstDetectedMs) ? firstDetectedMs - INTERVAL_MS[tf] : null;
+        const candles = closedRows(historyByTf[tf], tf, cutMs, 500);
+        let readiness;
+        if (opts.breakoutClose) {
+          readiness = observeBreakoutClose({ direction: candidate.direction, entry: built.entry, candles, fromMs });
+        } else {
+          const atrValue = ownTimeframeAtr(historyByTf, tf, cutMs, cfg.flag.atrPeriod);
+          const currentPrice = candles.length ? candles[candles.length - 1].close : null;
+          readiness = observeRetestHold({ direction: candidate.direction, entry: built.entry, stop: built.stop, candles, fromMs, currentPrice, atrValue, toleranceAtr: cfg.flagPlan.entryToleranceAtr });
+        }
+        if (readiness.status !== 'ready') continue;
+        seen.add(candidate.candidateId);
+        const walked = walkPlan({ candles1m, closedThroughIso: line.closedThrough, direction: candidate.direction, entry: built.entry, stop: built.stop, target: built.tp1 });
+        sink.push({
+          symbol, candidateId: candidate.candidateId, timeframe: tf, direction: candidate.direction,
+          firstReadyAt: line.closedThrough, entry: built.entry, stop: built.stop, tp1: built.tp1,
+          stopDistancePct: built.stopDistancePct, plannedGrossRR: built.grossRR, plannedNetRR: built.netRR,
+          ...walked
+        });
+      }
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
 // gate: scout (V7) - a reversal trial from an invalidation_close failure
 // ---------------------------------------------------------------------------
 
@@ -409,14 +575,27 @@ export function passesOOSRule(calls, halves) {
     && isFiniteNumber(halves.second.netExpectancyR) && halves.second.netExpectancyR > 0;
 }
 
+/** Count of distinct calendar days (UTC) with at least `threshold` GOOD calls (T-10 F2-4: "days with >= 5"). */
+export function daysWithAtLeast(calls, threshold) {
+  const perDay = new Map();
+  for (const c of calls) {
+    const day = c.firstReadyAt.slice(0, 10);
+    perDay.set(day, (perDay.get(day) || 0) + 1);
+  }
+  let count = 0;
+  for (const n of perDay.values()) if (n >= threshold) count++;
+  return count;
+}
+
 function coverageStats(calls, spanFromMs, spanToMs) {
   const totalDays = (spanToMs - spanFromMs) / 86400000;
-  const daysWithGood = new Set(calls.map((c) => c.firstReadyAt.slice(0, 10))).size;
+  const daysWithGood = daysWithAtLeast(calls, 1);
   return {
     totalDays: round(totalDays, 2),
     goodPerDay: totalDays > 0 ? round(calls.length / totalDays, 3) : null,
     daysWithGoodCount: daysWithGood,
-    daysWithGoodSharePct: totalDays > 0 ? round((daysWithGood / Math.round(totalDays)) * 100, 1) : null
+    daysWithGoodSharePct: totalDays > 0 ? round((daysWithGood / Math.round(totalDays)) * 100, 1) : null,
+    daysWithGoodAtLeast5: daysWithAtLeast(calls, 5)
   };
 }
 
@@ -519,7 +698,9 @@ export async function runVariant({ variantId, historyDir, symbols, step = 1, fro
         ? makeConfigCollector({ symbol, candles1m, sink: goodCalls, freq })
         : variant.gate === 'scout'
           ? makeScoutCollector({ symbol, candles1m, historyByTf: history[symbol], cfg, sink: goodCalls })
-          : makeStructureCollector({ symbol, candles1m, historyByTf: history[symbol], cfg, mode: variant.gate, sink: goodCalls });
+          : variant.gate === 'ruleVariant'
+            ? makeRuleVariantCollector({ symbol, candles1m, historyByTf: history[symbol], cfg, opts: variant.opts, sink: goodCalls })
+            : makeStructureCollector({ symbol, candles1m, historyByTf: history[symbol], cfg, mode: variant.gate, sink: goodCalls });
 
       let sampleCounter = 0;
       const onPayload = (payload) => {
@@ -636,4 +817,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   });
 }
 
-export default { VARIANTS, runVariant, parseArgs, statsFor, buildVariantMetrics, buildFrequencyMetrics, splitHalves, passesOOSRule };
+export default { VARIANTS, runVariant, parseArgs, statsFor, buildVariantMetrics, buildFrequencyMetrics, splitHalves, passesOOSRule, daysWithAtLeast };
