@@ -4,7 +4,7 @@
  * Run: node test-flag-recommendation.js
  */
 
-import { buildFlagRecommendation, compactRecommendation, selectWatchCandidate, nextCloseEta, roomAhead } from './lib/flagRecommendation.js';
+import { buildFlagRecommendation, compactRecommendation, selectWatchCandidate, nextCloseEta, roomAhead, buildClarity, qualWords } from './lib/flagRecommendation.js';
 import { INTERVAL_MS } from './services/scalpContext.js';
 
 let passed = 0;
@@ -423,6 +423,97 @@ async function run() {
       assertEqual(r.room.r, 4, `${direction}: record room from the live plan`);
     }
     assertEqual(rec({ plan: null, ev: evidence({ flags: [] }) }).room, null, 'no plan/setup -> null');
+  });
+
+  // Alert clarity (schema 1.27.0, docs/PLAN_ALERT_CLARITY.md): presentation only.
+  const mirC = (dir, p) => (dir === 'long' ? p : 2 * 83000 - p);
+  const clarCand = (dir, reasons, over = {}) => ({ candidateId: `BTC:3m:${dir}:c`, timeframe: '3m', direction: dir, state: 'triggering', breakoutLevel: 83000, invalidation: mirC(dir, 82720), qual: { decision: 'wait', reasons }, ...over });
+
+  await test('1.27.0 clarity gate: rr under the plan floor, room, chase block; rr over the floor and non-blocking codes pass (long + short)', () => {
+    for (const dir of ['long', 'short']) {
+      const rr = buildClarity({ candidate: clarCand(dir, ['rr:1.9']), minRR: 2.5 }).gate;
+      assertEqual(JSON.stringify(rr), JSON.stringify({ passable: false, blockers: ['rr:1.9'], text: `R 1.9 under 2.5 floor; needs TP beyond ${dir === 'long' ? '83,700.00' : '82,300.00'}` }), `${dir}: rr`);
+      const room = buildClarity({ candidate: clarCand(dir, ['conflict:5m-short', 'room:blocked-15m']), minRR: 2.5 }).gate;
+      assertEqual(JSON.stringify(room), JSON.stringify({ passable: false, blockers: ['room:blocked-15m'], text: 'a 15m level blocks the measured target' }), `${dir}: room`);
+      const chase = buildClarity({ candidate: clarCand(dir, ['chase', 'rr:2.1']), minRR: 2.5 }).gate;
+      assertEqual(chase.passable, false, `${dir}: chase`);
+      assertEqual(JSON.stringify(chase.blockers), JSON.stringify(['chase', 'rr:2.1']), `${dir}: chase + rr, qual order`);
+      assert(chase.text.startsWith('price ran past the breakout; R 2.1 under 2.5 floor'), chase.text);
+      const none = buildClarity({ candidate: clarCand(dir, ['rr:2.8', 'ct:4h', 'ema200:counter', 'stoch:ob-cross']), minRR: 2.5 }).gate;
+      assertEqual(JSON.stringify(none), JSON.stringify({ passable: true, blockers: [], text: null }), `${dir}: nothing blocking`);
+      const dead = buildClarity({ candidate: clarCand(dir, [], { state: 'failed', qual: { decision: 'dont', reasons: [] } }) }).gate;
+      assertEqual(JSON.stringify(dead), JSON.stringify({ passable: false, blockers: [], text: 'flag failed' }), `${dir}: dont`);
+    }
+  });
+
+  await test('1.27.0 clarity killIf: close back through the breakout, mirrored; EMA21 reclaim/acceptance prefix', () => {
+    assertEqual(buildClarity({ candidate: clarCand('long', []) }).killIf.text, 'close back below 83,000.00 after a probe = defended, stand down', 'long');
+    assertEqual(buildClarity({ candidate: clarCand('short', []) }).killIf.text, 'close back above 83,000.00 after a probe = defended, stand down', 'short');
+    assertEqual(buildClarity({ candidate: clarCand('long', [], { ema21Hold: 'reclaim' }) }).killIf.text, 'EMA21 reclaim already — close back below 83,000.00 after a probe = defended, stand down', 'reclaim');
+    assertEqual(buildClarity({ candidate: clarCand('short', [], { ema21Hold: 'acceptance_above' }) }).killIf.text, 'EMA21 acceptance already — close back above 83,000.00 after a probe = defended, stand down', 'acceptance');
+    assertEqual(buildClarity({ candidate: clarCand('long', [], { ema21Hold: 'hold' }) }).killIf.level, 83000, 'level = breakout');
+    assertEqual(JSON.stringify(buildClarity({ candidate: clarCand('long', [], { breakoutLevel: null }) }).killIf), JSON.stringify({ level: null, text: 'no breakout level yet' }), 'no breakout');
+  });
+
+  await test('1.27.0 clarity otherSide: nearest opposing zone on the geometry timeframe, confluence when closer; null without a zone (long + short)', () => {
+    for (const dir of ['long', 'short']) {
+      const z = (lo, hi) => (dir === 'long' ? { low: lo, high: hi } : { low: mirC(dir, hi), high: mirC(dir, lo) });
+      const g = { '15m': { horizontalSupportZones: dir === 'long' ? [z(82500, 82600), z(82000, 82100)] : [], horizontalResistanceZones: dir === 'short' ? [z(82500, 82600)] : [], confluenceZones: [] } };
+      const o = buildClarity({ candidate: clarCand(dir, []), geometryContext: g }).otherSide;
+      const lo = dir === 'long' ? 82500 : 83400;
+      const hi = dir === 'long' ? 82600 : 83500;
+      assertEqual(JSON.stringify(o), JSON.stringify({ low: lo, high: hi, source: `15m ${dir === 'long' ? 'support' : 'resistance'}`, text: `if it fails, rotation to ${dir === 'long' ? '82,500.00–82,600.00' : '83,400.00–83,500.00'} (15m ${dir === 'long' ? 'support' : 'resistance'})` }), `${dir}: nearest zone`);
+      const gc = { '15m': { ...g['15m'], confluenceZones: [z(82800, 82850)] } };
+      assertEqual(buildClarity({ candidate: clarCand(dir, []), geometryContext: gc }).otherSide.source, '15m confluence', `${dir}: closer confluence wins`);
+      const ahead = { '15m': { horizontalSupportZones: [], horizontalResistanceZones: [dir === 'long' ? { low: 83300, high: 83400 } : { low: 82600, high: 82700 }], confluenceZones: [] } };
+      assertEqual(JSON.stringify(buildClarity({ candidate: clarCand(dir, []), geometryContext: ahead }).otherSide), JSON.stringify({ low: null, high: null, source: null, text: null }), `${dir}: zone only ahead -> null`);
+      assertEqual(buildClarity({ candidate: clarCand(dir, []), geometryContext: { '1h': g['15m'] } }).otherSide.text, null, `${dir}: other geometry timeframe ignored`);
+    }
+  });
+
+  await test('1.27.0 clarity context: every qual code in words, blocking first; td 2/4 = split; divergence one line with counts', () => {
+    const words = {
+      'room:blocked-15m': 'a 15m level blocks the measured target', chase: 'price ran past the breakout', 'rr:1.9': 'measured move only 1.9R',
+      'conflict:5m-short': 'opposite 5m short flag active', 'stoch:ob-cross': 'Stoch RSI overbought with a bearish cross',
+      'stoch:os-cross': 'Stoch RSI oversold with a bullish cross', 'ema200:counter': 'against EMA200', 'ct:4h': '4h lean against the trade'
+    };
+    for (const [code, text] of Object.entries(words)) assertEqual(qualWords(code), text, code);
+    const c = clarCand('long', ['conflict:5m-short', 'stoch:ob-cross', 'ema200:counter', 'ct:4h', 'chase', 'rr:1.9', 'room:blocked-15m']);
+    const cl = buildClarity({ candidate: c, topDown: { sentiment: 'bull', aligned: 2 }, divergence: { bullish: 1, bearish: 2 } });
+    assertEqual(JSON.stringify(cl.context), JSON.stringify([
+      'price ran past the breakout', 'measured move only 1.9R', 'a 15m level blocks the measured target',
+      'opposite 5m short flag active', 'Stoch RSI overbought with a bearish cross', 'against EMA200', '4h lean against the trade',
+      'Top-down: split 2/4', 'Divergence: 1 tf agrees, 2 against'
+    ]), 'order + words');
+    assertEqual(JSON.stringify(cl.divergence), JSON.stringify({ agree: 1, conflict: 2 }), 'divergence counts');
+    const td = (s, n, dir) => buildClarity({ candidate: clarCand(dir, []), topDown: { sentiment: s, aligned: n } }).context[0];
+    assertEqual(td('bear', 2, 'long'), 'Top-down: split 2/4', 'bear 2/4 is split, not bear');
+    assertEqual(td('bull', 4, 'short'), 'Counter-trend: top-down bull 4/4, against the short', 'counter-trend');
+    assertEqual(td('bull', 3, 'long'), 'Top-down: bull 3/4', 'aligned');
+    const d = (div) => buildClarity({ candidate: clarCand('short', []), divergence: div }).context;
+    assertEqual(JSON.stringify(d({ bullish: 0, bearish: 2 })), JSON.stringify(['Divergence: 2 tf agrees']), 'short agrees only');
+    assertEqual(JSON.stringify(d({ bullish: 3, bearish: 0 })), JSON.stringify(['Divergence: 3 tf against']), 'short against only');
+    assertEqual(JSON.stringify(d({ bullish: 0, bearish: 0 })), JSON.stringify([]), 'none -> no line');
+  });
+
+  await test('1.27.0 clarity on the record: subject = plan candidate, else SETUP candidate, else WATCH candidate; compact carries it; null on DATA_UNAVAILABLE', () => {
+    const build = (plan, candidates) => buildFlagRecommendation({ symbol: 'BTC', asOf: AS_OF, dataStatus: 'complete', flagTradePlan: plan, evidence: evidence({ flags: [] }), topDown: topDown(), candidates, geometryContext: null });
+    const pc = { candidateId: readyPlan().candidateId, type: 'flag', timeframe: '1m', direction: 'long', state: 'confirmed', confidence: 82, breakoutLevel: 1000, invalidation: 990, qual: { decision: 'actionable', reasons: [] } };
+    const wc = { candidateId: 'BTC:3m:long:w', type: 'flag', timeframe: '3m', direction: 'long', state: 'triggering', confidence: 70, breakoutLevel: 100, invalidation: 99, qual: { decision: 'wait', reasons: ['rr:1.9'] } };
+    const planned = build(readyPlan(), [wc, pc]);
+    assertEqual(planned.clarity.candidateId, pc.candidateId, 'plan subject');
+    assertEqual(planned.clarity.gate.passable, true, 'plan candidate passable');
+    assertEqual(JSON.stringify(compactRecommendation(planned).clarity), JSON.stringify(planned.clarity), 'compact = full');
+    const sc = { ...wc, candidateId: 'BTC:5m:long:s', timeframe: '5m', state: 'confirmed' };
+    const withSetup = build({ ...readyPlan(), candidateId: 'missing', status: 'rejected', reasonCode: 'chase', setup: { candidateId: sc.candidateId, timeframe: '5m', direction: 'long', entry: 100, stop: 99, tp1: 103 } }, [wc, sc]);
+    assertEqual(withSetup.clarity.candidateId, sc.candidateId, 'setup subject when the plan candidate is not on file');
+    const watch = build(null, [wc]);
+    assertEqual(watch.clarity.candidateId, 'BTC:3m:long:w', 'watch subject');
+    assertEqual(watch.clarity.gate.passable, false, 'blocked watch');
+    assertEqual(watch.class, 'WATCH', 'class unchanged by clarity');
+    assertEqual(JSON.stringify(watch.action), JSON.stringify(build(null, [{ ...wc, qual: { decision: 'wait', reasons: [] } }]).action), 'action unchanged by clarity');
+    assertEqual(build(null, []).clarity, null, 'no candidate -> null');
+    assertEqual(rec({ dataStatus: 'unavailable' }).clarity, null, 'unavailable -> null');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

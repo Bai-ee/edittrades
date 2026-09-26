@@ -70,3 +70,19 @@ Paste into the playbook (near any existing time-to-target guidance):
   check→REDUCE/EXIT) - this is the live-position risk procedure itself, not a data
   dictionary; moving it out of the same context window as the user's actual position
   numbers was judged too risky for a budget-freeing pass.
+
+### 4. RISK `risk{...}` field list (2026-09-25, alert clarity, schema 1.27.x)
+
+Source: `docs/PLAN_ALERT_CLARITY.md` - funds the one CANDIDATES line
+`flagRecommendation.clarity:gate.text before any BE READY;always print Kill if/Other side.`
+(83 units freed, same B3 pattern: a field-name list, not a rule).
+
+Instructions before: `risk{maxLeverage,suggestedLeverage,lossAtStopUsd,lossAtStopPct,lossAtStopPctOfWallet,collateralUsd,reason}:never exceed maxLeverage;...`
+Instructions after: `risk(fields per schema):never exceed maxLeverage;...`
+
+Paste into the playbook (the risk / sizing reference section):
+
+> **candidateSetups[].risk fields**: `maxLeverage`, `suggestedLeverage`, `lossAtStopUsd`,
+> `lossAtStopPct` (of collateral), `lossAtStopPctOfWallet`, `collateralUsd`, `reason`
+> (set when sizing could not be computed). Full shape: `openapi/scalp-context.yaml`
+> `Risk` (`candidateSetups[].risk`).

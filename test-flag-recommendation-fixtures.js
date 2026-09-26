@@ -419,6 +419,40 @@ async function run() {
     }
   });
 
+  // Alert clarity (schema 1.27.0): pinned on the acceptance fixtures, mirrored.
+  await test('1.27.0: clarity pinned across the fixtures (GOOD aligned, chase BAD, rr-short forming WATCH, stale; long + short)', () => {
+    for (const dir of DIRS) {
+      const up = dir === 'long';
+      const good = build(dir, { dir });
+      assertEqual(JSON.stringify(good.clarity), JSON.stringify({
+        candidateId: `BTC:1m:${dir}:2026-09-23T11:50:00.000Z`,
+        gate: { passable: true, blockers: [], text: null },
+        killIf: { level: 1000, text: `close back ${up ? 'below' : 'above'} 1,000.00 after a probe = defended, stand down` },
+        otherSide: { low: null, high: null, source: null, text: null },
+        context: [`Top-down: ${withSent(dir)} 4/4`, 'Divergence: 1 tf agrees'],
+        divergence: { agree: 1, conflict: 0 }
+      }), `${dir}: GOOD`);
+      assertEqual(JSON.stringify(compactRecommendation(good).clarity), JSON.stringify(good.clarity), `${dir}: compact carries clarity`);
+
+      const p = plan(dir, { status: 'rejected', reasonCode: 'chase', entry: 2678.79, stop: up ? 2670 : 2687, tp1: null, grossRR: null, netRR: null });
+      const c = [candidate(dir, { breakoutLevel: 2678.79, invalidation: up ? 2670 : 2687, measuredTarget: up ? 2710 : 2647, qual: { reasons: ['chase', `conflict:5m-${up ? 'short' : 'long'}`] } })];
+      const chase = build(dir, { dir, p, c, g: {} });
+      assertEqual(chase.class, 'BAD', `${dir}: class unchanged`);
+      assertEqual(JSON.stringify(chase.clarity.gate), JSON.stringify({ passable: false, blockers: ['chase'], text: 'price ran past the breakout' }), `${dir}: chase gate`);
+      assertEqual(JSON.stringify(chase.clarity.context.slice(0, 2)), JSON.stringify(['price ran past the breakout', `opposite 5m ${up ? 'short' : 'long'} flag active`]), `${dir}: blocking first`);
+
+      const forming = candidate(dir, { candidateId: `BTC:3m:${dir}:f`, timeframe: '3m', state: 'forming', breakoutLevel: 84466.1, invalidation: up ? 84300 : 84632.2, measuredRR: 1.9, qual: { decision: 'watch', reasons: ['rr:1.9'] } });
+      const zone = up ? { low: 84100, high: 84200 } : { low: 84732.2, high: 84832.2 };
+      const w = build(dir, { dir, p: null, c: [forming], ev: evidence(dir, { flags: [] }), g: { '15m': { horizontalSupportZones: up ? [zone] : [], horizontalResistanceZones: up ? [] : [zone], confluenceZones: [] } } });
+      assertEqual(w.class, 'WATCH', `${dir}: WATCH`);
+      assertEqual(w.action.call, 'WAIT', `${dir}: action unchanged`);
+      assertEqual(w.clarity.gate.text, `R 1.9 under 2.5 floor; needs TP beyond ${up ? '84,881.35' : '84,050.85'}`, `${dir}: needed TP`);
+      assertEqual(w.clarity.otherSide.text, `if it fails, rotation to ${up ? '84,100.00–84,200.00 (15m support)' : '84,732.20–84,832.20 (15m resistance)'}`, `${dir}: other side`);
+
+      assertEqual(build(dir, { dir, p: null, fresh: freshness({ '1m': '2026-09-23T11:50:00.000Z' }) }).clarity, null, `${dir}: stale -> null`);
+    }
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {
     console.log(`\nFailed: ${failures.join(', ')}`);
