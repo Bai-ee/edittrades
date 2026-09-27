@@ -182,6 +182,26 @@ Read:
 
 ---
 
+## Card 6 — Break-even cost table (every studied strategy)
+
+- **Doc:** [BREAKEVEN_COSTS_2026-09-27.md](./BREAKEVEN_COSTS_2026-09-27.md). Script: `scripts/research/edge/breakeven.js`.
+- **Date:** 2026-09-27. **Status:** DONE (analysis); follow-ups PARKED.
+- **Result (79 perps / trade-level strategies):**
+  - 24 have no gross edge, 26 are killed by fees, **21 are killed by borrow**.
+  - 2 survive with n ≥ 30: `re-flag-retest-1h` (n=99, 2.2× cost margin) and `R2b-rsi2pb-1d-k3` (n=35, weak t).
+  - Spot trend rules all survive costs, but only the 20-week rule beats B&H with wide cost headroom; BTC SMA200 has none.
+- **Main insight:** on Jupiter perps the hourly borrow (≈ 0.024%/h), not fees, kills every slower edge (4h Donchian incl. Quattro's entry, squeeze, daily momentum; tolerable 0.003–0.011%/h). Fast edges die to fees. Venue cost structure matters more than signal choice.
+
+| # | Item | Size | Status | Notes |
+| --- | --- | --- | --- | --- |
+| 6.1 | **Measure real Jupiter borrow history** (utilization-based; custody cumulative interest) and rerun the table with it | S–M | PARKED | The whole “borrow kills” group hinges on 0.02–0.024%/h. Read-only on-chain/API; no wallet. |
+| 6.2 | **Low-carry venue check:** rerun the “borrow kills” group using real CEX/Hyperliquid funding history (Card 3 R5) instead of static borrow | M | PARKED, after 3.5 | If carry is under ~0.005%/h, the 4h Donchian/Quattro family may survive. A venue change is a separate owner decision. |
+| 6.3 | **Promote `re-flag-retest-1h` to the next evidence step:** Card 3 R3 significance, per-trade break-even (not aggregate), and a longer fixture | S–M | PARKED | The only short-hold perps setup with cost margin. No variants. |
+| 6.4 | Re-point Quattro (Card 2) to **spot or low-carry venue only**; don't build it for Jupiter perps | — | DECIDED (pending owner review) | Its core entry (F1-don-4h-N20) has break-even borrow ≈ 0.005%/h. |
+| 6.5 | Add a break-even column to every future study report (harness spec §7 already asks for it) | S | PARKED | Reuse `breakeven.js` `perTrade()`. |
+
+---
+
 ## Reviewed and dropped (don't re-review without new evidence)
 
 | Date | Source | Claim | Why dropped |
@@ -199,6 +219,7 @@ Read:
 5. Card 3: build H1 (3.1 + 3.2) before any more strategy studies? It checks every study we already have.
 6. Card 4.1: should the spot arm be judged against weekly DCA, as the natural baseline for contribution-funded holding?
 7. Card 5: MACD/OBV as display context only, or candidates for gates if 5.2 shows evidence?
+8. Card 6: is a perps venue other than Jupiter (lower carry) on the table if 6.1/6.2 confirm borrow is the blocker? Or should slow strategies live on spot only?
 
 ---
 
