@@ -66,7 +66,9 @@
     "swing:study": "node scripts/swing/run.js",
     "test:swing": "node test-swing-rules.js",
     "test:swing:playbook": "node test-swing-rules-playbook.js",
-    "test:swing:controls": "node test-swing-rules-controls.js"
+    "test:swing:controls": "node test-swing-rules-controls.js",
+    "study:exits": "node scripts/research/exits.js",
+    "test:exits": "node test-exits-study.js"
   },
   "keywords": [
     "trading",

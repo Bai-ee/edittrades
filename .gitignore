@@ -24,3 +24,6 @@ paper-ledger/
 
 # scripts/replay-rules.js raw per-variant output (T6 phase 0; regenerate with npm run replay:rules)
 var/replay-rules/
+
+# scripts/research/exits.js raw per-variant output (S1 agent C; regenerate with npm run study:exits)
+var/research/
