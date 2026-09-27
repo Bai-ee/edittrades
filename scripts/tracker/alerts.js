@@ -232,6 +232,7 @@ async function main() {
     const chartUrl = file ? `${chart.rawBase}/${file}` : null;
     alerts.push({
       key: 'test', chartUrl, title: 'Test alert · GOOD-call email check',
+      telegram: 'Test: EditTrades tracker -> Telegram path works. Spot trend flips will arrive here. Safe to ignore.',
       body: ['Test of the GOOD-call email path, opened by the tracker bot. Real alerts carry the plan levels. Safe to close.', '',
         ...(chartUrl ? [`![BTC 5m chart at test time](${chartUrl})`, ''] : ['_(chart unavailable)_', '']),
         ...(mention ? [`cc @${mention}`] : [])].join('\n')
