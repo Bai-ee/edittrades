@@ -91,11 +91,39 @@ What we know from reading the source (not run):
 
 ---
 
+## Card 3 — Harness upgrades borrowed from external frameworks
+
+- **Doc (full review, corrections, evidence):** [EXTERNAL_HARNESS_REFERENCES.md](./EXTERNAL_HARNESS_REFERENCES.md)
+- **Date:** 2026-09-27
+- **Verdict:** borrow 8 concepts, adopt no platforms. Every item needs re-verification before a build.
+
+| # | Item | Size | Status | Source concept |
+| --- | --- | --- | --- | --- |
+| 3.1 (R1) | Generic causality auditor over all rule modules | S | PARKED | Freqtrade `lookahead-analysis` |
+| 3.2 (R2) | Indicator warm-up audit (live `limit=500` vs research history) | S | PARKED | Freqtrade `recursive-analysis` |
+| 3.3 (R3) | Rule significance test (block bootstrap of signal × detrended return) | S–M | PARKED | Jesse rule significance |
+| 3.4 (R4) | Trade-order shuffle Monte Carlo in `risk-sim.js` | S | PARKED | Jesse MC trades |
+| 3.5 (R5) | Cross-venue OHLCV + funding reference (Bybit/OKX) | M | PARKED | CCXT (npm dep needs approval, or direct REST) |
+| 3.6 (R6) | Freqtrade second-implementation check for finalists (SMA200) | M | PARKED | Freqtrade (external tool only, GPL) |
+| 3.7 (R7) | Candle block-bootstrap Monte Carlo | M | PARKED after 3.3 | Jesse MC candles |
+| 3.8 (R8) | Adaptive same-bar ordering as a second bound | S | PARKED | Nautilus concept |
+| 3.9 (R10) | Drift check on the forward ledger | S | verify first | — |
+| — | Adopt Jesse / Nautilus / Hummingbot / FinRL / Eliza as platforms | — | DROPPED | No Jupiter support, rebuild cost, or off-goal |
+
+Key corrections to the proposal:
+- Jesse's significance test is a bootstrap of the rule's own returns, not random entries.
+- Jesse fills at the same-bar close.
+- Neither CCXT nor Nautilus supports Jupiter.
+
+---
+
 ## Open questions for the owner (answer when ready)
 
 1. Is the goal spot trend exposure (EMA20-style), perps trade frequency, or both? Card 1 only helps spot.
 2. Is a second spot trend arm worth tracker space if it agrees with EMA20 on 90% of days?
 3. After Card 1, should Quattro run next, or should the new strategy you're handing to another agent get priority?
+4. Card 3: approve the `ccxt` npm dependency, or use direct Bybit/OKX REST calls (3.5)?
+5. Card 3: build H1 (3.1 + 3.2) before any more strategy studies? It checks every study we already have.
 
 ---
 
