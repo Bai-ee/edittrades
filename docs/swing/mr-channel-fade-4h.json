@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "id": "mr-channel-fade-4h",
+    "label": "4h channel edge fade (counter-channel-trend)",
+    "source": "docs/PROMPT_S1_EDGE_SEARCH.md Agent D; docs/MASTER_PLAN_TRADING_MODEL.md M-3, M-4",
+    "tf": "4h",
+    "holdMaxHours": 24,
+    "stopKind": "atr",
+    "notes": "M-4: the counter-sentiment fade pb-channel-edge-4h (S0-B) left out - short at the upper edge of a *rising* channel, long at the lower edge of a *falling* one - taken here instead of with the channel's own slope.\nSame 4h channel geometry as pb-channel-edge-4h (lib/geometry.js swingPivots/fitDiagonal/channel), same 0.5x ATR(4h) stop beyond the faded edge.\nTP1 = mid-channel only, no TP2: a fade that ran to the far edge would be the with-trend trade pb-channel-edge-4h already covers, not this one."
+  },
+  "generatedAt": "2026-09-27T03:19:19.217Z",
+  "runtimeMs": 5570,
+  "combined": {
+    "stats": {
+      "n": 0,
+      "resolved": 0,
+      "winPct": null,
+      "grossExpR": null,
+      "netExpR": null,
+      "netExpR_sens020": null,
+      "maxLosingStreak": 0,
+      "medianHoldHours": null,
+      "medianStopPct": null,
+      "timeouts": 0
+    },
+    "oos": {
+      "firstHalf": null,
+      "secondHalf": null
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 0,
+        "resolved": 0,
+        "winPct": null,
+        "grossExpR": null,
+        "netExpR": null,
+        "netExpR_sens020": null,
+        "maxLosingStreak": 0,
+        "medianHoldHours": null,
+        "medianStopPct": null,
+        "timeouts": 0
+      },
+      "signals": []
+    },
+    "SOL": {
+      "stats": {
+        "n": 0,
+        "resolved": 0,
+        "winPct": null,
+        "grossExpR": null,
+        "netExpR": null,
+        "netExpR_sens020": null,
+        "maxLosingStreak": 0,
+        "medianHoldHours": null,
+        "medianStopPct": null,
+        "timeouts": 0
+      },
+      "signals": []
+    },
+    "ETH": {
+      "stats": {
+        "n": 0,
+        "resolved": 0,
+        "winPct": null,
+        "grossExpR": null,
+        "netExpR": null,
+        "netExpR_sens020": null,
+        "maxLosingStreak": 0,
+        "medianHoldHours": null,
+        "medianStopPct": null,
+        "timeouts": 0
+      },
+      "signals": []
+    }
+  }
+}

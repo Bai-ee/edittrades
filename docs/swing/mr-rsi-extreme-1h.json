@@ -1,0 +1,1109 @@
+{
+  "meta": {
+    "id": "mr-rsi-extreme-1h",
+    "label": "Mean reversion: RSI14(1h) extreme at a zone",
+    "source": "docs/PROMPT_S1_EDGE_SEARCH.md Agent D",
+    "tf": "1h",
+    "holdMaxHours": 24,
+    "stopKind": "atr",
+    "notes": "RSI14(1h) < 25 (long) or > 75 (short) - past services/indicators.js's own 30/70 bands - while price sits inside any horizontal S/R zone from lib/geometry.js (mr-zone-touch-1h's computeZones/findTouchedZone, reused not reimplemented); the zone is a selectivity filter here, not a second directional vote.\nStop = 1x ATR(1h) from entry (not zone-relative, unlike mr-zone-touch-1h); TP1 = EMA21(1h), only taken when it sits on the profitable side of entry.\nHold 24h."
+  },
+  "generatedAt": "2026-09-27T03:19:56.836Z",
+  "runtimeMs": 18327,
+  "combined": {
+    "stats": {
+      "n": 47,
+      "resolved": 45,
+      "winPct": 22.22,
+      "grossExpR": -0.1654,
+      "netExpR": -0.5206,
+      "netExpR_sens020": -0.5358,
+      "maxLosingStreak": 15,
+      "medianHoldHours": 5.52,
+      "medianStopPct": 0.523,
+      "timeouts": 4
+    },
+    "oos": {
+      "firstHalf": -1.0762,
+      "secondHalf": 0.0109
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 12,
+        "resolved": 12,
+        "winPct": 16.67,
+        "grossExpR": -0.4809,
+        "netExpR": -0.8603,
+        "netExpR_sens020": -0.9212,
+        "maxLosingStreak": 4,
+        "medianHoldHours": 3.89,
+        "medianStopPct": 0.48,
+        "timeouts": 1
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-18T21:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64658,
+          "stop": 64829.83,
+          "tp1": 64148.969436,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.05 > 75 (overbought extreme), price 64658 at a both zone [64560, 64705.9]",
+            "stop 1x ATR1h (171.83) from entry",
+            "TP1 = EMA21(1h) 64148.96943574043"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 203,
+            "ambiguous": false
+          },
+          "netDir": -1.526806727579579,
+          "netSens": -1.7525810393993988
+        },
+        {
+          "closedThrough": "2026-07-18T22:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64690.6,
+          "stop": 64866.01,
+          "tp1": 64198.208578,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.75 > 75 (overbought extreme), price 64690.6 at a both zone [64560, 64705.9]",
+            "stop 1x ATR1h (175.41) from entry",
+            "TP1 = EMA21(1h) 64198.20857794584"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 248,
+            "ambiguous": false
+          },
+          "netDir": -1.5163151473690109,
+          "netSens": -1.7375930676700155
+        },
+        {
+          "closedThrough": "2026-07-31T15:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 62605.7,
+          "stop": 62262.68,
+          "tp1": 63922.013721,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 21.92 < 25 (oversold extreme), price 62605.7 at a both zone [62402, 62625]",
+            "stop 1x ATR1h (343.02) from entry",
+            "TP1 = EMA21(1h) 63922.01372139054"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.2868,
+            "holdCandles": 1440,
+            "exit": 63047.1
+          },
+          "netDir": 0.6662549005888811,
+          "netSens": 0.9217734709346359
+        },
+        {
+          "closedThrough": "2026-08-10T17:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 63831.5,
+          "stop": 63570.37,
+          "tp1": 64779.360652,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 24.74 < 25 (oversold extreme), price 63831.5 at a both zone [63712.1, 63952.9]",
+            "stop 1x ATR1h (261.13) from entry",
+            "TP1 = EMA21(1h) 64779.36065233962"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1357,
+            "ambiguous": false
+          },
+          "netDir": -1.831107494351481,
+          "netSens": -1.488886761383224
+        },
+        {
+          "closedThrough": "2026-08-20T07:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 69806.1,
+          "stop": 70344.98,
+          "tp1": 68228.985462,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.93 > 75 (overbought extreme), price 69806.1 at a resistance zone [69577.2, 70001.8]",
+            "stop 1x ATR1h (538.88) from entry",
+            "TP1 = EMA21(1h) 68228.98546211979"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 70,
+            "ambiguous": false
+          },
+          "netDir": -1.1813549213182881,
+          "netSens": -1.2590784590261261
+        },
+        {
+          "closedThrough": "2026-09-03T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 81361.7,
+          "stop": 81933.76,
+          "tp1": 78309.806871,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 85.02 > 75 (overbought extreme), price 81361.7 at a resistance zone [81200, 81461]",
+            "stop 1x ATR1h (572.06) from entry",
+            "TP1 = EMA21(1h) 78309.80687081929"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 331,
+            "ambiguous": false
+          },
+          "netDir": -1.1991161416634626,
+          "netSens": -1.2844516309478038
+        },
+        {
+          "closedThrough": "2026-09-03T19:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 81262.4,
+          "stop": 81820.52,
+          "tp1": 79004.353321,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 79.69 > 75 (overbought extreme), price 81262.4 at a resistance zone [81200, 81461]",
+            "stop 1x ATR1h (558.12) from entry",
+            "TP1 = EMA21(1h) 79004.35332142694"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 151,
+            "ambiguous": false
+          },
+          "netDir": -1.203840321077906,
+          "netSens": -1.291200458682723
+        },
+        {
+          "closedThrough": "2026-09-14T19:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 79218.1,
+          "stop": 79619.55,
+          "tp1": 78037.094651,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 76.40 > 75 (overbought extreme), price 79218.1 at a both zone [79011, 79395.4]",
+            "stop 1x ATR1h (401.45) from entry",
+            "TP1 = EMA21(1h) 78037.09465060932"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.9418,
+            "holdCandles": 321,
+            "timeToTP1Candles": 321
+          },
+          "netDir": 2.6655380993897104,
+          "netSens": 2.5471401419853006
+        },
+        {
+          "closedThrough": "2026-09-18T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 77727.4,
+          "stop": 78078.02,
+          "tp1": 76874.380384,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 76.07 > 75 (overbought extreme), price 77727.4 at a both zone [77680.3, 77868]",
+            "stop 1x ATR1h (350.62) from entry",
+            "TP1 = EMA21(1h) 76874.38038369853"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 57,
+            "ambiguous": false
+          },
+          "netDir": -1.3103598197478794,
+          "netSens": -1.443371171068399
+        },
+        {
+          "closedThrough": "2026-09-18T09:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 78196.1,
+          "stop": 78565.13,
+          "tp1": 76994.536712,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 80.96 > 75 (overbought extreme), price 78196.1 at a both zone [77983.6, 78338.7]",
+            "stop 1x ATR1h (369.03) from entry",
+            "TP1 = EMA21(1h) 76994.5367124532"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 280,
+            "ambiguous": false
+          },
+          "netDir": -1.29665485190906,
+          "netSens": -1.4237926455843712
+        },
+        {
+          "closedThrough": "2026-09-18T10:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 78145.2,
+          "stop": 78520.99,
+          "tp1": 77099.142466,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 79.07 > 75 (overbought extreme), price 78145.2 at a both zone [77981.8, 78338.7]",
+            "stop 1x ATR1h (375.79) from entry",
+            "TP1 = EMA21(1h) 77099.14246586655"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 219,
+            "ambiguous": false
+          },
+          "netDir": -1.2911287687272197,
+          "netSens": -1.4158982410388852
+        },
+        {
+          "closedThrough": "2026-09-18T11:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 78222.4,
+          "stop": 78589.71,
+          "tp1": 77201.256787,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 79.84 > 75 (overbought extreme), price 78222.4 at a both zone [77983.6, 78338.7]",
+            "stop 1x ATR1h (367.31) from entry",
+            "TP1 = EMA21(1h) 77201.2567871514"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 160,
+            "ambiguous": false
+          },
+          "netDir": -1.298144237837251,
+          "netSens": -1.4259203397675015
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 18,
+        "resolved": 18,
+        "winPct": 16.67,
+        "grossExpR": -0.3055,
+        "netExpR": -0.5651,
+        "netExpR_sens020": -0.6278,
+        "maxLosingStreak": 11,
+        "medianHoldHours": 11.13,
+        "medianStopPct": 0.58,
+        "timeouts": 1
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-23T18:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.58,
+          "stop": 75.07,
+          "tp1": 77.032379,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 24.58 < 25 (oversold extreme), price 75.58 at a both zone [75.28, 75.73]",
+            "stop 1x ATR1h (0.51) from entry",
+            "TP1 = EMA21(1h) 77.03237879862887"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1066,
+            "ambiguous": false
+          },
+          "netDir": -1.5038666666666616,
+          "netSens": -1.2963921568627421
+        },
+        {
+          "closedThrough": "2026-07-24T14:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 74.12,
+          "stop": 73.65,
+          "tp1": 75.648909,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 22.98 < 25 (oversold extreme), price 74.12 at a support zone [74.03, 74.12]",
+            "stop 1x ATR1h (0.47) from entry",
+            "TP1 = EMA21(1h) 75.64890919728222"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 21,
+            "ambiguous": false
+          },
+          "netDir": -1.5361872340425546,
+          "netSens": -1.3154042553191498
+        },
+        {
+          "closedThrough": "2026-07-26T23:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.64,
+          "stop": 77,
+          "tp1": 75.207883,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 81.06 > 75 (overbought extreme), price 76.64 at a both zone [76.62, 76.97]",
+            "stop 1x ATR1h (0.36) from entry",
+            "TP1 = EMA21(1h) 75.20788315853099"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 8,
+            "ambiguous": false
+          },
+          "netDir": -1.298044444444445,
+          "netSens": -1.4257777777777785
+        },
+        {
+          "closedThrough": "2026-07-27T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.7,
+          "stop": 77.07,
+          "tp1": 75.34353,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 81.51 > 75 (overbought extreme), price 76.7 at a both zone [76.62, 76.97]",
+            "stop 1x ATR1h (0.37) from entry",
+            "TP1 = EMA21(1h) 75.34353014411907"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 818,
+            "ambiguous": false
+          },
+          "netDir": -1.2902162162162127,
+          "netSens": -1.4145945945945895
+        },
+        {
+          "closedThrough": "2026-08-08T15:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.42,
+          "stop": 76.81,
+          "tp1": 74.696713,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 81.00 > 75 (overbought extreme), price 76.42 at a resistance zone [76.22, 76.49]",
+            "stop 1x ATR1h (0.39) from entry",
+            "TP1 = EMA21(1h) 74.69671298766548"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1413,
+            "ambiguous": false
+          },
+          "netDir": -1.2743282051282048,
+          "netSens": -1.3918974358974352
+        },
+        {
+          "closedThrough": "2026-08-08T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.28,
+          "stop": 76.68,
+          "tp1": 74.840648,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 77.49 > 75 (overbought extreme), price 76.28 at a resistance zone [76.22, 76.49]",
+            "stop 1x ATR1h (0.4) from entry",
+            "TP1 = EMA21(1h) 74.84064817060498"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1272,
+            "ambiguous": false
+          },
+          "netDir": -1.2669799999999962,
+          "netSens": -1.3813999999999946
+        },
+        {
+          "closedThrough": "2026-08-08T17:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.34,
+          "stop": 76.74,
+          "tp1": 74.976953,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 77.93 > 75 (overbought extreme), price 76.34 at a resistance zone [76.22, 76.49]",
+            "stop 1x ATR1h (0.4) from entry",
+            "TP1 = EMA21(1h) 74.97695288236815"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1218,
+            "ambiguous": false
+          },
+          "netDir": -1.2671899999999963,
+          "netSens": -1.3816999999999946
+        },
+        {
+          "closedThrough": "2026-08-08T18:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.32,
+          "stop": 76.7,
+          "tp1": 75.099048,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 77.38 > 75 (overbought extreme), price 76.32 at a resistance zone [76.22, 76.49]",
+            "stop 1x ATR1h (0.38) from entry",
+            "TP1 = EMA21(1h) 75.09904807488013"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1157,
+            "ambiguous": false
+          },
+          "netDir": -1.2811789473684243,
+          "netSens": -1.4016842105263205
+        },
+        {
+          "closedThrough": "2026-08-09T15:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.96,
+          "stop": 77.29,
+          "tp1": 76.13059,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.36 > 75 (overbought extreme), price 76.96 at a both zone [76.73, 77.01]",
+            "stop 1x ATR1h (0.33) from entry",
+            "TP1 = EMA21(1h) 76.13058981307533"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 58,
+            "ambiguous": false
+          },
+          "netDir": -1.3264969696969713,
+          "netSens": -1.4664242424242449
+        },
+        {
+          "closedThrough": "2026-08-09T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 77.35,
+          "stop": 77.7,
+          "tp1": 76.241445,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 79.46 > 75 (overbought extreme), price 77.35 at a both zone [77.16, 77.45]",
+            "stop 1x ATR1h (0.35) from entry",
+            "TP1 = EMA21(1h) 76.24144528461393"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 375,
+            "ambiguous": false
+          },
+          "netDir": -1.309400000000005,
+          "netSens": -1.4420000000000073
+        },
+        {
+          "closedThrough": "2026-08-09T17:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 77.26,
+          "stop": 77.61,
+          "tp1": 76.334041,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 76.31 > 75 (overbought extreme), price 77.26 at a both zone [77.16, 77.45]",
+            "stop 1x ATR1h (0.35) from entry",
+            "TP1 = EMA21(1h) 76.33404116783085"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 315,
+            "ambiguous": false
+          },
+          "netDir": -1.309040000000005,
+          "netSens": -1.4414857142857216
+        },
+        {
+          "closedThrough": "2026-09-03T15:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 104.81,
+          "stop": 105.89,
+          "tp1": 100.844198,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.39 > 75 (overbought extreme), price 104.81 at a both zone [104.12, 104.96]",
+            "stop 1x ATR1h (1.08) from entry",
+            "TP1 = EMA21(1h) 100.84419806350269"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.672,
+            "holdCandles": 1293,
+            "timeToTP1Candles": 1293
+          },
+          "netDir": 3.536135185185185,
+          "netSens": 3.4779074074074074
+        },
+        {
+          "closedThrough": "2026-09-03T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 105.13,
+          "stop": 106.27,
+          "tp1": 101.233816,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 76.32 > 75 (overbought extreme), price 105.13 at a both zone [104.45, 105.52]",
+            "stop 1x ATR1h (1.14) from entry",
+            "TP1 = EMA21(1h) 101.23381642136609"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.4177,
+            "holdCandles": 1232,
+            "timeToTP1Candles": 1232
+          },
+          "netDir": 3.2885929824561404,
+          "netSens": 3.233261403508772
+        },
+        {
+          "closedThrough": "2026-09-11T14:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 104.84,
+          "stop": 106.03,
+          "tp1": 100.378919,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 76.50 > 75 (overbought extreme), price 104.84 at a both zone [104.35, 105.52]",
+            "stop 1x ATR1h (1.19) from entry",
+            "TP1 = EMA21(1h) 100.37891877591004"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 2.4118,
+            "holdCandles": 1440,
+            "exit": 101.97
+          },
+          "netDir": 2.2884588235294117,
+          "netSens": 2.235598319327731
+        },
+        {
+          "closedThrough": "2026-09-18T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 104.5,
+          "stop": 105.45,
+          "tp1": 101.243035,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 81.40 > 75 (overbought extreme), price 104.5 at a both zone [104.35, 105.15]",
+            "stop 1x ATR1h (0.95) from entry",
+            "TP1 = EMA21(1h) 101.24303463423189"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 56,
+            "ambiguous": false
+          },
+          "netDir": -1.1539999999999995,
+          "netSens": -1.2199999999999993
+        },
+        {
+          "closedThrough": "2026-09-18T05:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 105.7,
+          "stop": 106.69,
+          "tp1": 101.648213,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 84.62 > 75 (overbought extreme), price 105.7 at a resistance zone [105.15, 105.89]",
+            "stop 1x ATR1h (0.99) from entry",
+            "TP1 = EMA21(1h) 101.64821330384717"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 518,
+            "ambiguous": false
+          },
+          "netDir": -1.1494747474747482,
+          "netSens": -1.2135353535353546
+        },
+        {
+          "closedThrough": "2026-09-18T07:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 105.5,
+          "stop": 106.44,
+          "tp1": 102.298523,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 80.12 > 75 (overbought extreme), price 105.5 at a resistance zone [105.43, 105.89]",
+            "stop 1x ATR1h (0.94) from entry",
+            "TP1 = EMA21(1h) 102.29852339160924"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 173,
+            "ambiguous": false
+          },
+          "netDir": -1.1571276595744684,
+          "netSens": -1.2244680851063836
+        },
+        {
+          "closedThrough": "2026-09-18T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 105.67,
+          "stop": 106.59,
+          "tp1": 102.605021,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 80.66 > 75 (overbought extreme), price 105.67 at a both zone [104.99, 105.89]",
+            "stop 1x ATR1h (0.92) from entry",
+            "TP1 = EMA21(1h) 102.60502126509931"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 329,
+            "ambiguous": false
+          },
+          "netDir": -1.1608021739130432,
+          "netSens": -1.2297173913043473
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 17,
+        "resolved": 15,
+        "winPct": 33.33,
+        "grossExpR": 0.2553,
+        "netExpR": -0.1954,
+        "netExpR_sens020": -0.1173,
+        "maxLosingStreak": 4,
+        "medianHoldHours": 6.07,
+        "medianStopPct": 0.523,
+        "timeouts": 2
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-26T17:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1914.56,
+          "stop": 1922.39,
+          "tp1": 1885.982447,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 83.72 > 75 (overbought extreme), price 1914.56 at a both zone [1914.15, 1919.95]",
+            "stop 1x ATR1h (7.83) from entry",
+            "TP1 = EMA21(1h) 1885.9824465909292"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 260,
+            "ambiguous": false
+          },
+          "netDir": -1.3423223499361463,
+          "netSens": -1.489031928480209
+        },
+        {
+          "closedThrough": "2026-07-26T18:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1909.51,
+          "stop": 1917.21,
+          "tp1": 1888.121315,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.50 > 75 (overbought extreme), price 1909.51 at a both zone [1907, 1912.46]",
+            "stop 1x ATR1h (7.7) from entry",
+            "TP1 = EMA21(1h) 1888.1213150826627"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 202,
+            "ambiguous": false
+          },
+          "netDir": -1.3471836363636343,
+          "netSens": -1.4959766233766205
+        },
+        {
+          "closedThrough": "2026-07-26T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1912.43,
+          "stop": 1919.69,
+          "tp1": 1892.374062,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 76.44 > 75 (overbought extreme), price 1912.43 at a both zone [1907, 1912.46]",
+            "stop 1x ATR1h (7.26) from entry",
+            "TP1 = EMA21(1h) 1892.3740620517874"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-07-26T21:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1911.97,
+          "stop": 1918.9,
+          "tp1": 1894.155511,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.66 > 75 (overbought extreme), price 1911.97 at a both zone [1907, 1912.46]",
+            "stop 1x ATR1h (6.93) from entry",
+            "TP1 = EMA21(1h) 1894.1555109561702"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-07-27T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1953.47,
+          "stop": 1963.22,
+          "tp1": 1906.258062,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 88.18 > 75 (overbought extreme), price 1953.47 at a resistance zone [1950.79, 1955.41]",
+            "stop 1x ATR1h (9.75) from entry",
+            "TP1 = EMA21(1h) 1906.2580623261983"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 358,
+            "ambiguous": false
+          },
+          "netDir": -1.2804982564102563,
+          "netSens": -1.4007117948717949
+        },
+        {
+          "closedThrough": "2026-07-31T15:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1857.82,
+          "stop": 1844.85,
+          "tp1": 1892.392404,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 24.16 < 25 (oversold extreme), price 1857.82 at a both zone [1855, 1867.5]",
+            "stop 1x ATR1h (12.97) from entry",
+            "TP1 = EMA21(1h) 1892.392404401512"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.0948,
+            "holdCandles": 1440,
+            "exit": 1872.02
+          },
+          "netDir": 0.6077847340015431,
+          "netSens": 0.8083204317656135
+        },
+        {
+          "closedThrough": "2026-08-01T19:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1834.97,
+          "stop": 1826.29,
+          "tp1": 1865.301389,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 22.47 < 25 (oversold extreme), price 1834.97 at a support zone [1834.08, 1836.56]",
+            "stop 1x ATR1h (8.68) from entry",
+            "TP1 = EMA21(1h) 1865.3013894543603"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.4944,
+            "holdCandles": 428,
+            "timeToTP1Candles": 428
+          },
+          "netDir": 2.7756329493087613,
+          "netSens": 3.0715958525345655
+        },
+        {
+          "closedThrough": "2026-08-01T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1835.56,
+          "stop": 1827.1,
+          "tp1": 1862.597627,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 23.23 < 25 (oversold extreme), price 1835.56 at a support zone [1834.08, 1836.56]",
+            "stop 1x ATR1h (8.46) from entry",
+            "TP1 = EMA21(1h) 1862.597626776691"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.1959,
+            "holdCandles": 364,
+            "timeToTP1Candles": 364
+          },
+          "netDir": 2.4582044917257715,
+          "netSens": 2.761961465721042
+        },
+        {
+          "closedThrough": "2026-08-05T19:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1916.3,
+          "stop": 1928.83,
+          "tp1": 1879.86322,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 75.51 > 75 (overbought extreme), price 1916.3 at a both zone [1907.69, 1917.75]",
+            "stop 1x ATR1h (12.53) from entry",
+            "TP1 = EMA21(1h) 1879.8632203687614"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8891,
+            "holdCandles": 1440,
+            "exit": 1905.16
+          },
+          "netDir": 0.6749882681564241,
+          "netSens": 0.5832260973663201
+        },
+        {
+          "closedThrough": "2026-08-10T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1875.59,
+          "stop": 1865.43,
+          "tp1": 1910.141669,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 24.74 < 25 (oversold extreme), price 1875.59 at a both zone [1867.5, 1876.8]",
+            "stop 1x ATR1h (10.16) from entry",
+            "TP1 = EMA21(1h) 1910.1416693595945"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1416,
+            "ambiguous": false
+          },
+          "netDir": -1.6276580708661368,
+          "netSens": -1.3692106299212567
+        },
+        {
+          "closedThrough": "2026-08-10T17:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1870.16,
+          "stop": 1860.01,
+          "tp1": 1906.506972,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 22.99 < 25 (oversold extreme), price 1870.16 at a both zone [1867.5, 1876.8]",
+            "stop 1x ATR1h (10.15) from entry",
+            "TP1 = EMA21(1h) 1906.506972145086"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1357,
+            "ambiguous": false
+          },
+          "netDir": -1.6264575369458072,
+          "netSens": -1.3685044334975336
+        },
+        {
+          "closedThrough": "2026-08-10T18:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1871.88,
+          "stop": 1861.87,
+          "tp1": 1903.359066,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 24.80 < 25 (oversold extreme), price 1871.88 at a both zone [1867.5, 1876.8]",
+            "stop 1x ATR1h (10.01) from entry",
+            "TP1 = EMA21(1h) 1903.3590655864418"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1298,
+            "ambiguous": false
+          },
+          "netDir": -1.6358033966033971,
+          "netSens": -1.3740019980019984
+        },
+        {
+          "closedThrough": "2026-08-10T19:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1870.91,
+          "stop": 1861.12,
+          "tp1": 1900.409151,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 24.45 < 25 (oversold extreme), price 1870.91 at a both zone [1867.5, 1876.8]",
+            "stop 1x ATR1h (9.79) from entry",
+            "TP1 = EMA21(1h) 1900.4091505331287"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1238,
+            "ambiguous": false
+          },
+          "netDir": -1.64975423901941,
+          "netSens": -1.3822083758937707
+        },
+        {
+          "closedThrough": "2026-08-30T17:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2528.55,
+          "stop": 2540.39,
+          "tp1": 2467.51644,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 85.58 > 75 (overbought extreme), price 2528.55 at a resistance zone [2526.69, 2534.5]",
+            "stop 1x ATR1h (11.84) from entry",
+            "TP1 = EMA21(1h) 2467.516440049309"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 5.1549,
+            "holdCandles": 242,
+            "timeToTP1Candles": 242
+          },
+          "netDir": 4.855916047297301,
+          "netSens": 4.727780067567572
+        },
+        {
+          "closedThrough": "2026-09-15T15:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2406.5,
+          "stop": 2383.72,
+          "tp1": 2484.706877,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 22.37 < 25 (oversold extreme), price 2406.5 at a both zone [2404.95, 2425.47]",
+            "stop 1x ATR1h (22.78) from entry",
+            "TP1 = EMA21(1h) 2484.7068770060114"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 218,
+            "ambiguous": false
+          },
+          "netDir": -1.359179104477609,
+          "netSens": -1.2112818261632992
+        },
+        {
+          "closedThrough": "2026-09-18T10:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2505.81,
+          "stop": 2522.07,
+          "tp1": 2467.843492,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 77.91 > 75 (overbought extreme), price 2505.81 at a both zone [2504.88, 2515.65]",
+            "stop 1x ATR1h (16.26) from entry",
+            "TP1 = EMA21(1h) 2467.8434919851925"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 220,
+            "ambiguous": false
+          },
+          "netDir": -1.2157523985239824,
+          "netSens": -1.3082177121771177
+        },
+        {
+          "closedThrough": "2026-09-18T11:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2511.46,
+          "stop": 2527.49,
+          "tp1": 2471.808629,
+          "tp2": null,
+          "reason": [
+            "RSI14(1h) 79.41 > 75 (overbought extreme), price 2511.46 at a both zone [2504.88, 2515.65]",
+            "stop 1x ATR1h (16.03) from entry",
+            "TP1 = EMA21(1h) 2471.8086290774477"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 160,
+            "ambiguous": false
+          },
+          "netDir": -1.2193414847161546,
+          "netSens": -1.313344978165935
+        }
+      ]
+    }
+  }
+}
