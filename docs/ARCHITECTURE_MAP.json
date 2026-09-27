@@ -1199,6 +1199,36 @@
           "schemaSince": "1.27.0"
         },
         {
+          "path": "scripts/tracker/spot-trend.js",
+          "name": "spot-trend",
+          "role": "Paper-only daily EMA20 spot trend filter (hold coin above EMA20 else USDC, vol-targeted weight); writes data/spot-trend/ ledger and flips.",
+          "publishes": [
+            "data/spot-trend/"
+          ],
+          "consumes": [],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": "1.28.0"
+        },
+        {
+          "path": "scripts/tracker/spot-page.js",
+          "name": "spot-page",
+          "role": "Builds the static Spot trend page (spot.html): state per coin, paper equity vs buy & hold, recent flips, backtest summary.",
+          "publishes": [
+            "spot.html"
+          ],
+          "consumes": [
+            "data/spot-trend/"
+          ],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": "1.28.0"
+        },
+        {
           "path": "scripts/tracker/profileConfig.js",
           "name": "profileConfig",
           "role": "Vendored, dependency-free copy of PROFILES/PROFILE_KEYS/tieredPolicyConfig from lib/execution/riskPolicy.js, so the tracker repo runs profiles.js/strategies-page.js with no engine checkout (same pattern as walk-outcome.js and nf-shadow.js NF_RULE).",
@@ -1233,7 +1263,7 @@
         {
           "path": "scripts/tracker/strategies-page.js",
           "name": "strategies-page",
-          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) — split from risk-page.js at merge, same slot originally contested.",
+          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) \u2014 split from risk-page.js at merge, same slot originally contested.",
           "publishes": [
             "strategies.html"
           ],
