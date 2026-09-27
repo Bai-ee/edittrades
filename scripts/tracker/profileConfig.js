@@ -16,12 +16,13 @@ export const PROFILES = Object.freeze({
     key: 'steady',
     label: 'Steady',
     blurb: 'Recommended default — proves itself over 30 trades before anything more aggressive runs live.',
-    riskPctPerTrade: 1,
+    riskPctPerTrade: 0.5,
     riskPctCeiling: 2,
     maxExposurePct: 25,
     maxPerSymbolPct: 15,
     dailyDrawdownPct: 3,
     weeklyDrawdownPct: 8,
+    peakDrawdownPct: 15,
     minStopPct: Object.freeze({ long: 1.5, short: 1.0 }),
     tierMultipliers: Object.freeze({ A: 1.5, B: 1, C: 0.5 }),
     boostMax: 1.5,
@@ -39,6 +40,7 @@ export const PROFILES = Object.freeze({
     maxPerSymbolPct: 30,
     dailyDrawdownPct: 6,
     weeklyDrawdownPct: 15,
+    peakDrawdownPct: 25,
     minStopPct: Object.freeze({ long: 1.0, short: 0.7 }),
     tierMultipliers: Object.freeze({ A: 2, B: 1, C: 0.5 }),
     boostMax: 2,
@@ -67,7 +69,8 @@ function profileRiskConfig(profileKey) {
     dailyDrawdownPct: p.dailyDrawdownPct,
     weeklyDrawdownPct: p.weeklyDrawdownPct,
     minFreeGasSol: MIN_FREE_GAS_SOL,
-    minStopPct: p.minStopPct
+    minStopPct: p.minStopPct,
+    peakDrawdownPct: p.peakDrawdownPct
   };
 }
 

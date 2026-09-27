@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { PublicKey } from '@solana/web3.js';
 import jupPerpsClient from './services/jup-perps-wrapper.cjs';
 import { createExecutor, checkIntent, baseSymbol } from './lib/execution/executor.js';
-import { readExecutionConfig, pinMatches, KILL_PATH, AUTO_KILL_MS, autoKillUntil, recordWrongPin } from './lib/execution/gates.js';
+import { readExecutionConfig, pinMatches, KILL_PATH, EQUITY_PEAK_PATH, AUTO_KILL_MS, autoKillUntil, recordWrongPin } from './lib/execution/gates.js';
 import { readBlobFresh } from './lib/blobJsonl.js';
 import { redact, appendAudit, auditDayPath, idHash } from './lib/execution/audit.js';
 import { TICKETS_PATH, consumeTicket, storeTicket, peekTicket, forgetRecentTickets, configureTicketReads } from './lib/execution/tickets.js';
@@ -730,7 +730,8 @@ async function run() {
     eq(s.risk.equityUsd, 101500, 'margin 100000 + SOL holding 1500');
     eq(s.risk.equitySource, 'AbCd...WxYz', 'masked address from the wallet snapshot');
     eq(s.risk.equityAgeSec, 0, 'freshly read');
-    eq(s.risk.policy.pctPerTrade, 1, 'default profile (steady) per-trade %'); // T-9 v2: steady's own 1% default, not the pre-profile 0.5%
+    eq(s.risk.policy.pctPerTrade, 0.5, 'default profile (steady) per-trade %'); // G1 (2026-09-27): steady 1% -> 0.5%
+    eq(s.risk.policy.peakDrawdownPct, 15, 'steady peak-drawdown limit');
     eq(s.risk.profile.key, 'steady', 'default profile key');
     eq(wallet.calls, 1, 'one wallet read');
   });
@@ -763,12 +764,12 @@ async function run() {
     const r = await ex.preflight(intent(), ctx);
     eq(r.ok, true, `ok (${r.reasons})`);
     assertClose(r.order.riskUsd, 4, 0.02, 'riskUsd ~= 200 * 2%');
-    assert(r.order.riskPct < 1, 'well under steady\'s 1% default per-trade cap');
+    assert(r.order.riskPct < 0.5, 'well under steady\'s 0.5% default per-trade cap');
     assertClose(r.order.exposurePct, 0.2, 0.02, '200 / 101500');
     assert(isFinitePositive(r.order.suggestedSizeUsd), 'a positive suggested size');
   });
   await test('risk_pct_over refuses when the intent risks more than the per-trade cap, relative to a small wallet', async () => {
-    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: { USDC: 40 } }, holdings: [] }) }); // equity $40, steady's 1% default = $0.40 budget
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: { USDC: 40 } }, holdings: [] }) }); // equity $40, steady's 0.5% default = $0.20 budget
     // 200 * 2% stop = $4 risk > $0.40 budget
     has((await ex.preflight(intent(), ctx)).reasons, 'risk_pct_over', 'refused');
   });
@@ -781,7 +782,7 @@ async function run() {
   });
   await test('a prefs.risk override tightens pct-per-trade below the env default, in bounds', async () => {
     // equity 2000: exposure 200/2000 = 10% (under both the 15% per-symbol and 25% overall
-    // default caps), riskPct 0.2% (under steady's 1% default per-trade cap).
+    // default caps), riskPct 0.2% (under steady's 0.5% default per-trade cap).
     const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 2000, byAsset: {} }, holdings: [] }) });
     const loose = await ex.preflight(intent(), { ...ctx });
     eq(loose.ok, true, `default pct passes (${loose.reasons})`);
@@ -789,7 +790,7 @@ async function run() {
     has(tight.reasons, 'risk_pct_over', 'the tighter owner override now refuses the same intent');
   });
   await test('an out-of-bound prefs.risk override (above env, or above the 2% absolute ceiling) is ignored, never loosens the gate', async () => {
-    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: {} }, holdings: [] }) }); // equity $40, would refuse at steady's 1% default
+    const { ex } = setup({ wallet: fakeWallet({ margin: { usd: 40, byAsset: {} }, holdings: [] }) }); // equity $40, would refuse at steady's 0.5% default
     const r = await ex.preflight(intent(), { ...ctx, riskPrefs: { pctPerTrade: 50 } }); // absurd override, ignored
     has(r.reasons, 'risk_pct_over', 'still refused: the override never loosens beyond env / the 2% ceiling');
   });
@@ -809,6 +810,23 @@ async function run() {
     const third = await ex.preflight(intent(), ctx);
     assert(!third.reasons.includes('kill_switch'), 'kill_switch cleared by arm');
     has(third.reasons, 'daily_drawdown', 'the underlying drawdown is unchanged, so it refuses again on its own merits');
+  });
+
+  await test('G1 equity peak: preflight seeds and raises it, a 15% fall refuses and kills, /arm resets it', async () => {
+    const { ex, store, clock } = setup({ wallet: fakeWallet({ margin: { usd: 2000, byAsset: {} }, holdings: [] }) }); // equity 2000
+    const first = await ex.preflight(intent(), ctx);
+    eq(first.ok, true, `seeds the peak (${first.reasons})`);
+    eq(JSON.parse(store.files.get(EQUITY_PEAK_PATH).text).peakEquityUsd, 2000, 'peak seeded from equity');
+    // Stored peak 2400 -> equity 2000 is 16.7% below it (> steady's 15%).
+    store.files.set(EQUITY_PEAK_PATH, { text: JSON.stringify({ peakEquityUsd: 2400 }), etag: '"p"' });
+    const drop = await ex.preflight(intent(), ctx);
+    has(drop.reasons, 'peak_drawdown', 'refused below the high-water mark');
+    clock.t += 1000;
+    has((await ex.preflight(intent(), ctx)).reasons, 'kill_switch', 'kill engaged');
+    eq((await ex.arm(PIN, ctx)).ok, true, 'arm clears it');
+    const after = await ex.preflight(intent(), ctx);
+    eq(after.ok, true, `peak reset on arm, re-seeded from current equity (${after.reasons})`);
+    eq(JSON.parse(store.files.get(EQUITY_PEAK_PATH).text).peakEquityUsd, 2000, 're-seeded');
   });
 
   function isFinitePositive(v) { return typeof v === 'number' && Number.isFinite(v) && v > 0; }

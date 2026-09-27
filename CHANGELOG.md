@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-27 — G1 risk guardrails: steady 0.5%/trade, equity peak-drawdown kill (execution policy; not deployed)
+
+Plan: `docs/PLAN_RISK_GUARDRAILS_2026-09-27.md` (G1). Evidence: `docs/COST_GATE_STUDY_2026-09-26.md`, `docs/RISK_SIZING_STUDY_2026-09-26.md` (losing streaks 11 median / 17 p95; 1%/trade gives ~28% p95 drawdown on the best cell, 0.5% ~15%). Execution policy only: no engine rule, threshold or payload change (engine freeze until 2026-10-08 respected).
+
+- `lib/execution/riskPolicy.js`: `steady.riskPctPerTrade` 1 → 0.5 (tier A 0.75%, C 0.25%; ceiling stays 2%). New profile field `peakDrawdownPct` (steady 15, aggressive 25; `DEFAULT_PEAK_DRAWDOWN_PCT` 15 when absent). `evaluateRiskPolicy` takes optional `peakEquityUsd` and refuses with `peak_drawdown` at or beyond the limit; `drawdown.peakPct` added. Not a `/risk` or env key.
+- `lib/execution/gates.js`: equity high-water mark in its own blob `execution/equity-peak.json` (`readEquityPeak`, `recordEquityPeak`, `resetEquityPeak`), separate from the kill flag.
+- `lib/execution/executor.js`: preflight raises the peak and passes it to the policy; unreadable peak with valid equity refuses (`equity_peak_unavailable`); a `peak_drawdown` breach engages the kill switch (`risk_peak_drawdown`). `/arm` resets the peak so the kill does not re-fire; the next preflight re-seeds it. `status()` shows `drawdown.peakPct` and `policy.peakDrawdownPct` (read-only).
+- `scripts/tracker/profileConfig.js` (vendored parity copy) and `how-to-page.js` copy updated.
+- Not built: pause after N consecutive losses (optional in the plan; no ordered close source today, and the simulation showed little value).
+- Tests: `test-risk-policy.js` 52, `test-execution.js` 89 (new peak seed → refuse → kill → arm → re-seed test), all deploy-gate suites pass.
+
 ## 2026-09-26 — S0-A: swing-trade research harness + two legacy controls (research only, no engine/deploy change)
 
 Branch `swing-harness` (worktree `snapshot_tradingview-swing-harness`, off `origin/upgrade-signal-engine`). Owner question (docs/PROMPT_S0_SWING_RESEARCH.md): can the system identify daily/24-72h swing trades with an edge? Research only - no product change, no deploy, no orders, no engine rule change. No changes under `lib/`, `services/`, `config/`, `api/`, `scripts/tracker/`.

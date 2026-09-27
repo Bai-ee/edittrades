@@ -19,7 +19,7 @@ Two separate layers:
      stops under 0.02% reach `ready` and dominate the replay losses.
 2. **Execution policy** (`lib/execution/riskPolicy.js`, `evaluateRiskPolicy`). Refuses
    trades. Profiles:
-   - `steady` (default): 1% per trade (ceiling 2%), daily DD 3%, weekly DD 8%,
+   - `steady` (default): 1% per trade before G1, 0.5% after (ceiling 2%), daily DD 3%, weekly DD 8%,
      `minStopPct` long 1.5 / short 1.0 (`stop_too_tight`), tier multipliers A 1.5 / B 1 / C 0.5.
    - `aggressive`: 2.5% per trade, daily 6%, weekly 15%, `minStopPct` long 1.0 / short 0.7.
    - Env fallback `RISK_DEFAULTS`: 0.5% per trade, daily 3%, weekly 8%.

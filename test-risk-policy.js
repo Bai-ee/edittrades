@@ -6,7 +6,7 @@
  */
 
 import {
-  RISK_DEFAULTS, RISK_PCT_PER_TRADE_MAX,
+  RISK_DEFAULTS, RISK_PCT_PER_TRADE_MAX, DEFAULT_PEAK_DRAWDOWN_PCT,
   PROFILE_KEYS, DEFAULT_PROFILE, PROFILES, isProfileKey, normalizeProfileKey,
   profileRiskConfig, tieredPolicyConfig, applyLeverageRule, nextTier, boostMultiplier,
   readRiskPolicyConfig, normalizeRiskPrefs, riskOverrideBound, applyRiskPrefs, evaluateRiskPolicy, evaluateAllProfiles,
@@ -208,6 +208,30 @@ async function run() {
     const r = evaluateRiskPolicy({ equityUsd, dailyPnlUsd: -50, weekPnlUsd: -1000 }); // base 11000, ~9.09% > 8%
     assertEqual(r.reasons.includes('daily_drawdown'), false);
     assert(r.reasons.includes('weekly_drawdown'), `expected weekly_drawdown, got ${r.reasons}`);
+  });
+
+  await test('peak_drawdown fires at the policy limit below the stored high-water mark (G1)', () => {
+    const at = evaluateRiskPolicy({ equityUsd: 8500, peakEquityUsd: 10000, policy: { peakDrawdownPct: 15 } });
+    assertEqual(at.drawdown.peakPct, 15);
+    assert(at.reasons.includes('peak_drawdown'), `expected peak_drawdown, got ${at.reasons}`);
+    const under = evaluateRiskPolicy({ equityUsd: 8600, peakEquityUsd: 10000, policy: { peakDrawdownPct: 15 } });
+    assertEqual(under.reasons.includes('peak_drawdown'), false);
+    const fallback = evaluateRiskPolicy({ equityUsd: 10000 - DEFAULT_PEAK_DRAWDOWN_PCT * 100, peakEquityUsd: 10000 });
+    assert(fallback.reasons.includes('peak_drawdown'), 'no policy value -> DEFAULT_PEAK_DRAWDOWN_PCT applies');
+  });
+
+  await test('no stored peak (or equity above it) skips peak_drawdown; peakPct null / 0', () => {
+    const none = evaluateRiskPolicy({ equityUsd: 5000 });
+    assertEqual(none.drawdown.peakPct, null);
+    assertEqual(none.reasons.includes('peak_drawdown'), false);
+    assertEqual(evaluateRiskPolicy({ equityUsd: 12000, peakEquityUsd: 10000 }).drawdown.peakPct, 0);
+  });
+
+  await test('profiles carry peakDrawdownPct (steady 15, aggressive 25) and steady risks 0.5%/trade (G1)', () => {
+    assertEqual(profileRiskConfig('steady').peakDrawdownPct, 15);
+    assertEqual(profileRiskConfig('aggressive').peakDrawdownPct, 25);
+    assertEqual(PROFILES.steady.riskPctPerTrade, 0.5);
+    assertEqual(tieredPolicyConfig('steady', 'A').pctPerTrade, 0.75);
   });
 
   await test('drawdown pct is null only when equity itself is unavailable, never a bare loss', () => {
