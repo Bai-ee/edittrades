@@ -43,6 +43,8 @@ Cost reference:
 - Jupiter borrow: ≈ 0.024%/h per Jupiter docs (`REVIEW_PACKET_2026-09-24.md:179`); 0.02%/h is used as the base.
 - Spot: 0.15% per side.
 
+> **Label correction (WP4):** the “swing study (85d)” rows for the S3 retest rules (`re-flag-retest-1h`, `re-flag-retest-4h`, `re-flag-breakout-4h`, `re-random-4h`) were produced on `deep2y-2026-09-26` (~2 years of 1m, Oct 2024–Sep 2026; commit e55d06c), not the 85-day fixture. The other swing rows are 85-day. The exact per-trade break-even for `re-flag-retest-1h` is **1.82×** at 0.02%/h (the aggregate approximation said 2.18×) and **3.3–3.5×** at the measured 0.0015–0.004%/h ([harness/WP4_MATCHED.md](./harness/WP4_MATCHED.md)).
+
 ## Headline
 
 | Verdict (79 perps / trade-level strategies) | Count |
