@@ -1458,9 +1458,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.25.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.28.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.27.0', 'schemaVersion must be bumped to 1.27.0');
+    assertEqual(case6Result.schemaVersion, '1.28.0', 'schemaVersion must be bumped to 1.28.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1823,11 +1823,10 @@ async function main() {
       assert(INCLUDE_TOKENS.includes('model'), 'model is a known include token');
     });
 
-    await test('T6 completion plan D-variant + T-13: FLAG_PLAN_SHADOW_VARIANTS is exactly v3 (former live rule) and NF (net floor)', () => {
+    await test('T6 completion plan D-variant + T-15: FLAG_PLAN_SHADOW_VARIANTS is exactly v3 (former live rule); NF is gone (it is the live rule now)', () => {
       assertEqual(JSON.stringify(FLAG_PLAN_SHADOW_VARIANTS), JSON.stringify([
-        { id: 'v3', minRR: 3.0 },
-        { id: 'NF', minRR: 2.5, minNetRR: 1.0, netFloor: { atrTimeframe: '15m', atrMult: 0.5, costMult: 3 } }
-      ]), 'shadow variant list ("D-variant revised" 2026-09-24: v3; T-13 2026-09-26: NF)');
+        { id: 'v3', minRR: 3.0 }
+      ]), 'shadow variant list ("D-variant revised" 2026-09-24: v3; T-15 2026-09-27: NF removed, now live)');
     });
 
     await test('T6 completion plan D-variant: flagTradePlan.shadow is stripped from the default payload (include-less too), kept only under include=model', () => {
@@ -1851,20 +1850,16 @@ async function main() {
       assertEqual(JSON.stringify(modelInclude.symbols.BTC.flagTradePlan.shadow), JSON.stringify(shadowPlan.shadow), 'shadow object itself is untouched under include=model');
     });
 
-    await test('T-13: every built flagTradePlan carries shadow.NF (compact keys), stripped by default, kept under include=model; setup.shadowNF is {ready, netRR}', () => {
+    await test('T-15: every built flagTradePlan carries stopSource/structureStop (the net floor is live, not a shadow); setup.stopFloor is {applied, stopPct, netRR}', () => {
       let plans = 0;
       for (const [sym, symData] of Object.entries(case6Result.symbols)) {
         const plan = symData.flagTradePlan;
         if (!plan) continue;
         plans++;
-        const nf = plan.shadow && plan.shadow.NF;
-        assert(nf, `${sym}: shadow.NF published`);
-        assertEqual(JSON.stringify(Object.keys(nf)), JSON.stringify(['candidateId', 'status', 'reasonCode', 'ready', 'stop', 'tp1', 'grossRR', 'netRR', 'stopPct', 'floorPct']), `${sym}: NF keys`);
-        assertEqual(nf.candidateId, plan.candidateId, `${sym}: anchored to the live candidate`);
-        assert(!('shadow' in filterPayload(case6Result, {}).symbols[sym].flagTradePlan), `${sym}: stripped by default`);
-        assert('NF' in filterPayload(case6Result, { include: ['model'] }).symbols[sym].flagTradePlan.shadow, `${sym}: kept under include=model`);
+        assert(plan.stopSource === 'structure' || plan.stopSource === 'floor', `${sym}: stopSource is one of the two published values`);
+        assert(typeof plan.structureStop === 'number', `${sym}: structureStop (the pre-floor invalidation) is published`);
         const setup = symData.flagRecommendation && symData.flagRecommendation.setup;
-        if (setup) assertEqual(JSON.stringify(Object.keys(setup.shadowNF || {})), JSON.stringify(['ready', 'netRR']), `${sym}: setup.shadowNF`);
+        if (setup) assertEqual(JSON.stringify(Object.keys(setup.stopFloor || {})), JSON.stringify(['applied', 'stopPct', 'netRR']), `${sym}: setup.stopFloor shape`);
       }
       console.log(`      (${plans} built plan(s) checked)`);
       const trace = Object.values(case6Result.symbols).map((x) => x.flagRecommendation && x.flagRecommendation.trace).find(Boolean);
@@ -1921,7 +1916,7 @@ async function main() {
       assertEqual(failed.flagHigh, 3, 'input not mutated');
     });
 
-    await test('T6 completion plan A1/C2: payload byte caps on a synthetic worst case, not a frozen day (default <= 81,200 B, compact <= 45,800 B)', async () => {
+    await test('T6 completion plan A1/C2: payload byte caps on a synthetic worst case, not a frozen day (default <= 81,500 B, compact <= 46,000 B)', async () => {
       // A frozen historical fixture only proves "this one day fit" - it says nothing
       // about the worst case, and the live payload has already exceeded 79,000 B on a
       // day this suite never captured. This test instead builds the worst SHAPE the
@@ -1999,6 +1994,11 @@ async function main() {
           netRR: 2.87,
           costR: 0.41,
           stopDistancePct: 1.517,
+          // T-15: published on every plan now (the net floor is live, not a shadow) -
+          // 'structure' is the longer of the two stopSource strings, so it is the
+          // worst-case pick here.
+          stopSource: 'structure',
+          structureStop: 112.32,
           planId: `${candidateId}|${closedThroughIso}|2026.09.24-4`
           // T6 completion plan C2: flagTradePlan.setup is stripped before publish
           // (services/scalpContext.js) - the SETUP tier is published once, on
@@ -2026,9 +2026,10 @@ async function main() {
             grossRR: 3.06,
             netRR: 2.51,
             entryCondition: 'a closed candle closes below 114.9, then a later closed candle\'s high reaches within 0.1 ATR of 114.9 and closes at or below it',
-            // T-13: the NF net floor verdict for the SETUP candidate (worst case: a
-            // two-decimal netRR, the longest value it can publish).
-            shadowNF: { ready: false, netRR: 0.87 }
+            // T-15: setup.stopFloor (additive rename of the T-13 shadow's setup.shadowNF,
+            // now describing the live floor) - worst case: applied true, a three-decimal
+            // stopPct, a two-decimal netRR.
+            stopFloor: { applied: true, stopPct: 1.517, netRR: 0.87 }
           },
           qualityBand: 'high',
           policyVersion: 'flag-21-decision-v1',
@@ -2091,8 +2092,11 @@ async function main() {
       const def = Buffer.byteLength(JSON.stringify(filterPayload(built, {})), 'utf8');
       const compact = Buffer.byteLength(JSON.stringify(filterPayload(built, { compact: true })), 'utf8');
       console.log(`      worst-case payload: default ${def} B, compact ${compact} B`);
-      assert(def <= 81200, `default worst-case payload ${def} B exceeds 81,200`);
-      assert(compact <= 45800, `compact worst-case payload ${compact} B exceeds 45,800`);
+      // T-15: stopSource/structureStop on every flagTradePlan, plus setup.stopFloor's
+      // extra key (was setup.shadowNF, 2 keys; now {applied, stopPct, netRR}, 3 keys) -
+      // 81,200 -> 81,500 B, 45,800 -> 46,000 B.
+      assert(def <= 81500, `default worst-case payload ${def} B exceeds 81,500`);
+      assert(compact <= 46000, `compact worst-case payload ${compact} B exceeds 46,000`);
     });
 
     await test('failed candidate trace string carries failReason as a fourth token; live ones keep three', () => {

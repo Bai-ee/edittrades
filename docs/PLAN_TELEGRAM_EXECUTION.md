@@ -121,7 +121,7 @@ Two wallet-management profiles (`lib/execution/riskPolicy.js` `PROFILES`), `stea
 | Goal (descriptive, never gates a trade) | +2%/10 trades, +5–10%/mo | +25%/10 trades (owner target, expected to fail on a 30%/3R edge — tracked to test it) |
 | Judged after | 30 scored trades | 30 scored trades |
 
-**Tier** (`lib/tier.js` `classifyTier`, pure, off a flagRecommendation record's own fields, never re-scored): `readiness==='ready'` + `qualityBand==='high'` + `clarity.gate.passable` + (T-13 net-floor `setup.shadowNF.ready` when that field is present) = **A**; `readiness==='ready'` otherwise = **B**; everything else, including a manual `/order` (no record at all) = **C**. A tier scales that profile's `pctPerTrade` budget by its multiplier (`tieredPolicyConfig`) and, for `leverageRule: 'half'`, halves `suggestedLeverage` for non-A tiers (`applyLeverageRule`).
+**Tier** (`lib/tier.js` `classifyTier`, pure, off a flagRecommendation record's own fields, never re-scored): `readiness==='ready'` + `qualityBand==='high'` + `clarity.gate.passable` + (the SETUP's `setup.stopFloor` when present — renamed from the T-13 shadow's `setup.shadowNF` at T-15; since the net floor is now live and baked into every attempt before it can reach conditional/ready, this is effectively always true when a setup exists) = **A**; `readiness==='ready'` otherwise = **B**; everything else, including a manual `/order` (no record at all) = **C**. A tier scales that profile's `pctPerTrade` budget by its multiplier (`tieredPolicyConfig`) and, for `leverageRule: 'half'`, halves `suggestedLeverage` for non-A tiers (`applyLeverageRule`).
 
 **Switch** (`state.prefs.risk.profile`, default `steady` when absent — never written until the owner switches): `/risk profile steady|aggressive` prompts `Reply /risk profile aggressive PIN within 60 s`; `/risk profile aggressive PIN` (or the same text typed directly) executes it. Owner + PIN, same auto-kill guard as `/arm` (`lib/execution/executor.js` `switchProfile`) — refuses without ever evaluating the PIN while an auto-kill is active. `/risk` also carries `[Steady ✔] [Aggressive]` inline buttons (`riskProfileKeyboard`) that trigger the same prompt. `/risk pct` overrides `pctPerTrade` bounded by the ACTIVE profile's own ceiling (2%/3% above), every other knob stays tighten-only against that profile's default; `/risk reset` clears numeric overrides only — the active profile itself is untouched ("returns to the profile", not to steady).
 
@@ -136,5 +136,68 @@ Two wallet-management profiles (`lib/execution/riskPolicy.js` `PROFILES`), `stea
 `strategies.html` was originally going to be `risk.html`, but merging into `upgrade-signal-engine` hit an add/add conflict: T-14 (tidy-up) had independently built a different, static "Risk & sizing" reference page at that same path. Resolved by keeping both as separate pages — `risk.html` stays T-14's static reference, this dashboard moved to `strategies.html` — cross-linked from every tracker page's nav.
 
 Tests: `test-risk-policy.js` (profile math, tier scaling, leverage rule, boost multiplier, goal pace — additive, all pre-T-9 assertions unchanged), `test-execution.js` (profile/tier/profiles stamped on the order/audit/journal, `switchProfile`, `boostTicket`), `test-telegram.js` (parsing, formatting, keyboards, callback data), `test-tracker.js` (`computeProfileCurves`, `renderStrategies`, `buildPage` strategies.html + teaser, vendored profileConfig.js parity).
+
+## Trailing stop (T-15, automatic +1R trailing, 2026-09-27)
+
+Owner decision `docs/OWNER_DECISIONS_2026-09-27.md` (freeze lifted for exactly this
+change, alongside the net floor going live — `docs/MASTER_PLAN_ENGINE_REFINEMENT.md`).
+Safety-increasing only: it can tighten a live stop, never widen or remove one, and never
+opens or closes a position.
+
+**Executor** (`lib/execution/executor.js` `trailStops(positionId, newStop, ctx)`): the
+only write this executor exposes with **no PIN** — everything else in this doc requires
+one. Gated the same as every other write on config + kill switch (env `EXECUTION_KILL` or
+Blob `execution/kill.json`), but not on the Telegram owner allowlist, since the caller is
+an automatic per-minute cron tick with no Telegram user behind it — the config/kill gates
+are what actually authorize (or block) it. Before ever touching the chain it refuses:
+missing/invalid `positionId`/`newStop`, no matching position, no current stop on file
+(`latestStops` — never guesses one to trail from), a `newStop` that would move the stop
+AWAY from price (long: only up; short: only down — the one hard rule the whole feature
+exists to enforce), the usual stop-wrong-side-of-mark and stop-beyond-liquidation checks,
+and an attempt inside 5 minutes of the last APPLIED trail for that position (a new
+ETag-guarded Blob ledger `execution/trail-state.json`, `{lastAppliedAtMs, lastStop}` per
+`positionIdHash`, written only on success so a refusal never blocks the next legitimate
+attempt). Always sends `tp:null` through `updatePerpPosition` — TP is never touched.
+Journals `kind:'adjust'` (live) / `'note'` (dry) tagged "AUTO trail" / "DRY auto-trail",
+distinct from a manual `/stops`/`Set SL/TP` adjust; audits event `trail` with
+`before`/`after` on every attempt, refused or applied.
+
+A second new method, `checkPin(pin, ctx)` (config + owner + kill + PIN, no side effects
+either way), exists only so `/exec trail off` can PIN-gate through the one sanctioned door
+to this module (`api/telegram-webhook.js`'s lazy `resolveExecutor` import) instead of a
+second static import into `lib/execution/*`, which the isolation tests forbid.
+
+**Cron** (`api/telegram-cron.js` `applyTrailingStops`, run every tick, resolved before the
+state transaction exactly like the existing T-7 live-position snapshot — a real write
+cannot happen inside `updateBlob`'s synchronous `change()` callback): only runs when
+`TRADE_EXECUTION_ENABLED==='true'` AND `EXECUTION_MODE==='live'`, and never when the owner
+turned it off (`prefs.trail==='off'`). For each position from `listPositions()`: R =
+`|entry − its CURRENT on-chain stop|`; once the mark (the engine build's own mark, else
+the Kraken close) shows the trade ≥ +1R in R-multiples of that risk, the stop trails to
+`bestPriceSinceEntry ∓ 1R` (long/short) whenever that is ≥0.05% of price better than the
+current stop. `state.trail[positionId] = {best, lastStop, prevStop, updatedAt,
+lastAlertAt}` remembers the running best price and the last applied stop across ticks. A
+refusal that is not routine (kill switch, execution off, cooldown, or losing a race with
+the cron's own tightening check) alerts once per position per hour, never repeats.
+
+**Telegram surface**: `/exec` gains a `trailing` row (`on (1R)` / `off`); `/exec trail
+on|off` toggles `state.prefs.trail` (default `on`) — turning it **on needs no PIN**,
+turning it **off requires the execution PIN** (via `checkPin`) so a stranger with the bot
+open cannot quietly disable the safety tightening; the PIN message is deleted the same as
+`/confirm`/`/arm`. `/positions` (chain view) shows `trail: on · SL 121.40 (was 120.07)`
+once a position has actually been auto-trailed at least once (silent before that, and
+whenever the pref is off).
+
+Tests: `test-execution.js` (`trailStops` no-PIN success + audit/journal, live mode + TP
+untouched + placeholder-signature rejection, mirrored short, direction-refusal long +
+short, stop-wrong-side/liquidation checks, unknown-current-stop refusal, 5-minute cooldown
+then success, kill switch + env kill block it, no-owner/ctx-less call still applies;
+`checkPin` correct/wrong PIN, not-owner, kill blocks it, three wrong PINs still trip the
+shared auto-kill), `test-telegram.js` (cron arms at +1R and trails long + short mirror
+with `state.trail` persisted incl. `prevStop`; never runs outside
+`TRADE_EXECUTION_ENABLED && EXECUTION_MODE==='live'` or with the pref off; a failure
+alerts once per position per hour, a routine refusal never alerts; `/exec trail`
+usage/wrong-PIN/on/off/persisted/execution-off; `/positions` trail line shown only with
+real history, suppressed when the pref is off).
 
 **Status (2026-09-26):** merged into `upgrade-signal-engine` (commit `16f8def`), all `test:*` + `check:gpt` green, guard scan and `git diff --check` clean. Synced to the tracker repo and live on the tracker site (`strategies.html`, `risk.html` both 200). **Not yet deployed to Vercel prod** — the deploy step was blocked by this session's permission classifier (denied reading `.vercel`); needs the owner to run it or grant that permission. Steady stays the default either way (no behavior change until the owner acts), so nothing is at risk from the delay. The 30-trade evaluation clock starts once this is live in prod — do not backdate it before then.

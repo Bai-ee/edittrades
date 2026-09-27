@@ -139,7 +139,13 @@ export const VARIANTS = {
   // artificial timeframe filter that doesn't reflect production. All owner-rule-change
   // labels are for THIS worktree's research only - no config/lib change ships from here
   // (rules frozen until 2026-10-08, docs/AGENT_SESSION_RULES.md).
-  L0: { label: 'owner rule change baseline: the live config verbatim (alias of V0 - minRR 2.5, net gate off, room_at_entry own-timeframe, retest-hold readiness)', gate: 'config', override: null },
+  L0: { label: 'owner rule change baseline: the live config verbatim (alias of V0 - minRR 2.5, net floor LIVE since 2026-09-27 [T-15: stop floored at max(0.5x ATR15m, 3x cost), net >= 1.0R], room_at_entry own-timeframe, retest-hold readiness)', gate: 'config', override: null },
+  // T-15 (docs/OWNER_DECISIONS_2026-09-27.md, config 2026.09.27-1): the net floor
+  // (flagPlan.stopFloor) went from a shadow comparator to the live rule, so L0 (which has
+  // always replayed whatever is on disk) now includes it. `L0-pre-nf` reproduces the exact
+  // pre-cutover behaviour (stop flooring off, legacy net gate off) so the T-10/T-13
+  // studies stay reproducible against a config override rather than a stale checkout.
+  'L0-pre-nf': { label: 'T-15: the pre-cutover behaviour verbatim (net floor off - minRR 2.5, net gate off, no stop flooring)', gate: 'config', override: { flagPlan: { stopFloor: null } } },
   L1a: { label: 'owner rule change: gross minRR 2.25 (was 2.5)', gate: 'config', override: { flagPlan: { minRR: 2.25 } } },
   L1b: { label: 'owner rule change: gross minRR 2.0 (was 2.5)', gate: 'config', override: { flagPlan: { minRR: 2.0 } } },
   L2: { label: 'owner rule change: room-blocked (room_at_entry) treated as WAIT, not a hard reject - TP1 capped at the blocking zone\'s far edge instead (relaxes OWNER_DECISIONS_2026-09-24 4b)', gate: 'ruleVariant', override: null, opts: { roomWait: true, breakoutClose: false } },

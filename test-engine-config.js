@@ -270,12 +270,17 @@ async function run() {
       configVersion: 'TEST'
     };
     try {
+      // T-15: stopFloor is now live by default and would widen this deliberately thin
+      // (0.17 %) stop before either gate below runs. Isolated off here so this test keeps
+      // exercising the legacy `minNetRR` live-binding mechanism it was written for -
+      // `stopFloor`'s own live-binding is covered in test-flag-trade-plan.js instead.
+      setConfigOverride({ flagPlan: { stopFloor: null } });
       const shipped = buildFlagTradePlan(params); // no cfg arg: uses the module's own default ENGINE_CONFIG (net gate off, D-variant revised)
       assertEqual(shipped.grossRR, 3, 'sanity: gross RR 3 meets the 2.5 floor');
       assertClose(shipped.netRR, 0.333, 0.001, 'sanity: thin net RR, published on every plan');
       assert(shipped.status !== 'rejected' || shipped.reasonCode !== 'stop_inside_costs', 'the shipped default (net gate off) must not reject on net R:R alone');
 
-      setConfigOverride({ flagPlan: { minNetRR: 2.0 } });
+      setConfigOverride({ flagPlan: { stopFloor: null, minNetRR: 2.0 } });
       const overridden = buildFlagTradePlan(params); // same call, no cfg arg: override now live, no import in lib/flagTradePlan.js changed
       assertEqual(overridden.grossRR, shipped.grossRR, 'gross RR unaffected by the override');
       assertEqual(overridden.status, 'rejected', 'the live override (net gate back on at 2.0) was seen by lib/flagTradePlan.js\'s own default cfg param');
@@ -353,7 +358,7 @@ async function run() {
       fetchCandles: fakeFetch,
       fetchAccount: fakeAccount
     });
-    assertEqual(payload.schemaVersion, '1.27.0', 'schemaVersion was not bumped');
+    assertEqual(payload.schemaVersion, '1.28.0', 'schemaVersion was not bumped');
     assertEqual(payload.configVersion, CONFIG_VERSION, 'payload configVersion does not match the loader');
     assertEqual(typeof payload.configVersion, 'string', 'configVersion is not a string in the payload');
   });

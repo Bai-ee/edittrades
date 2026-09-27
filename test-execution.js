@@ -683,6 +683,131 @@ async function run() {
     k.jupiter.positions = [openPos];
     has((await k.ex.updateStops('PosAAA', 84600, null, PIN, ctx)).reasons, 'kill_switch', 'kill');
   });
+
+  console.log('Trailing stop (T-15)');
+  /** Seeds journal/<day>.jsonl with one 'open' record so latestStops() resolves a current stop for positionId. */
+  function seedStop(store, positionId, stop, day = '2026-09-25') {
+    const row = { id: `x_open_${positionId}`, kind: 'open', source: 'execution', stop, execRef: { positionIdHash: idHash(positionId) } };
+    store.files.set(`journal/${day}.jsonl`, { text: `${JSON.stringify(row)}\n`, etag: `"j_${positionId}"` });
+  }
+  const trailLong = { positionId: 'PosTrailL', symbol: 'BTC', direction: 'long', sizeUsd: 200, entryPrice: 84600, markPrice: 85200, liquidationPrice: 68000, unrealizedPnlUsd: 12 };
+  const trailShort = { positionId: 'PosTrailS', symbol: 'ETH', direction: 'short', sizeUsd: 200, entryPrice: 3000, markPrice: 2900, liquidationPrice: 3800, unrealizedPnlUsd: 6 };
+
+  await test('trailStops: no PIN required (unlike updateStops); tightens a long stop up, journals AUTO trail, audits before/after', async () => {
+    const { ex, jupiter, store, journal } = setup();
+    jupiter.positions = [trailLong];
+    seedStop(store, 'PosTrailL', 84200);
+    const r = await ex.trailStops('PosTrailL', 84500, {}); // no pin arg at all, no ctx.userId
+    eq(r.ok, true, `ok ${JSON.stringify(r.reasons)}`);
+    eq(r.before, 84200, 'before');
+    eq(r.after, 84500, 'after');
+    eq(jupiter.calls.update.length, 0, 'dry mode: no on-chain call');
+    const note = journal.find((j) => j.kind === 'note' && /DRY auto-trail/.test(j.text));
+    assert(note, 'journaled a DRY auto-trail note');
+    const rows = auditRows(store);
+    const line = rows.find((l) => l.event === 'trail' && l.ok === true);
+    assert(line && line.before === 84200 && line.after === 84500, `audit before/after: ${JSON.stringify(line)}`);
+  });
+
+  await test('trailStops live: tightens on chain, TP always sent null (never touched), a placeholder signature is still rejected', async () => {
+    const live = setup({ env: baseEnv({ EXECUTION_MODE: 'live' }) });
+    live.jupiter.positions = [trailLong];
+    seedStop(live.store, 'PosTrailL', 84200);
+    const r = await live.ex.trailStops('PosTrailL', 84500, {});
+    eq(r.ok, true, `ok ${JSON.stringify(r.reasons)}`);
+    eq(live.jupiter.calls.update.length, 1, 'one on-chain update call');
+    eq(live.jupiter.calls.update[0][0], 'PosTrailL', 'positionId');
+    eq(live.jupiter.calls.update[0][1], 84500, 'new stop sent');
+    eq(live.jupiter.calls.update[0][2], null, 'TP sent null - trailStops never touches TP');
+    const adj = live.journal.find((j) => j.kind === 'adjust' && /AUTO trail/.test(j.text));
+    assert(adj, 'journaled an AUTO trail adjust');
+
+    const forced = setup({
+      env: baseEnv({ EXECUTION_MODE: 'live' }),
+      jupiter: fakeJupiter({ updatePerpPosition: async () => ({ success: true, signature: 'placeholder_signature' }) })
+    });
+    forced.jupiter.positions = [trailLong];
+    seedStop(forced.store, 'PosTrailL', 84200);
+    has((await forced.ex.trailStops('PosTrailL', 84500, {})).reasons, 'trail_failed', 'placeholder update rejected');
+    eq(forced.journal.length, 0, 'nothing journaled on failure');
+  });
+
+  await test('trailStops mirrored short: tightens the stop down toward price', async () => {
+    const { ex, jupiter, store } = setup();
+    jupiter.positions = [trailShort];
+    seedStop(store, 'PosTrailS', 3060);
+    const r = await ex.trailStops('PosTrailS', 2960, {});
+    eq(r.ok, true, `ok ${JSON.stringify(r.reasons)}`);
+    eq(r.before, 3060, 'before');
+    eq(r.after, 2960, 'after');
+  });
+
+  await test('trailStops refuses anything that would move the stop AWAY from price (long + short mirror) - the one hard rule', async () => {
+    const longEx = setup();
+    longEx.jupiter.positions = [trailLong];
+    seedStop(longEx.store, 'PosTrailL', 84200);
+    has((await longEx.ex.trailStops('PosTrailL', 84000, {})).reasons, 'trail_not_tightening', 'long: a lower stop loosens, refused');
+    has((await longEx.ex.trailStops('PosTrailL', 84200, {})).reasons, 'trail_not_tightening', 'long: unchanged is not a tighten');
+
+    const shortEx = setup();
+    shortEx.jupiter.positions = [trailShort];
+    seedStop(shortEx.store, 'PosTrailS', 3060);
+    has((await shortEx.ex.trailStops('PosTrailS', 3100, {})).reasons, 'trail_not_tightening', 'short: a higher stop loosens, refused');
+  });
+
+  await test('trailStops: side checks vs mark and liquidation, same as updateStops', async () => {
+    const { ex, jupiter, store } = setup();
+    jupiter.positions = [trailLong];
+    seedStop(store, 'PosTrailL', 84200);
+    has((await ex.trailStops('PosTrailL', 85300, {})).reasons, 'stop_wrong_side', 'stop above mark');
+    const closeToLiq = setup();
+    closeToLiq.jupiter.positions = [{ ...trailLong, liquidationPrice: 84450 }];
+    seedStop(closeToLiq.store, 'PosTrailL', 84200);
+    has((await closeToLiq.ex.trailStops('PosTrailL', 84400, {})).reasons, 'stop_beyond_liquidation', 'below liq');
+  });
+
+  await test('trailStops: no journal record yet -> trail_current_stop_unknown (never guesses a stop to trail from)', async () => {
+    const { ex, jupiter } = setup();
+    jupiter.positions = [trailLong];
+    has((await ex.trailStops('PosTrailL', 84500, {})).reasons, 'trail_current_stop_unknown', 'no prior stop on file');
+  });
+
+  await test('trailStops: capped to one applied update per position per 5 minutes; refused inside the window, allowed after', async () => {
+    const { ex, jupiter, store, clock } = setup();
+    jupiter.positions = [trailLong];
+    seedStop(store, 'PosTrailL', 84200);
+    const first = await ex.trailStops('PosTrailL', 84500, {});
+    eq(first.ok, true, 'first applies');
+    const second = await ex.trailStops('PosTrailL', 84900, {}); // still tightening, still valid side - only the cooldown should refuse it
+    has(second.reasons, 'trail_cooldown', 'second attempt inside 5 min refused');
+    clock.t += 5 * 60_000 + 1000; // advance past TRAIL_MIN_INTERVAL_MS
+    const third = await ex.trailStops('PosTrailL', 84900, {});
+    eq(third.ok, true, `third applies after cooldown: ${JSON.stringify(third.reasons)}`);
+  });
+
+  await test('trailStops: kill switch (Blob) and env kill both block it - no PIN is ever checked either way', async () => {
+    const killed = setup({ env: baseEnv({ EXECUTION_KILL: 'true' }) });
+    killed.jupiter.positions = [trailLong];
+    seedStop(killed.store, 'PosTrailL', 84200);
+    has((await killed.ex.trailStops('PosTrailL', 84500, {})).reasons, 'kill_switch', 'env kill');
+    await killed.ex.kill(ctx);
+    // already killed by env; a manual kill on top still reads kill_switch, never asks for a PIN
+    has((await killed.ex.trailStops('PosTrailL', 84500, {})).reasons, 'kill_switch', 'manual kill on top of env kill');
+
+    const off = setup({ env: baseEnv({ TRADE_EXECUTION_ENABLED: 'false' }) });
+    off.jupiter.positions = [trailLong];
+    seedStop(off.store, 'PosTrailL', 84200);
+    has((await off.ex.trailStops('PosTrailL', 84500, {})).reasons, 'execution_disabled', 'execution disabled entirely');
+  });
+
+  await test('trailStops: no owner/userId needed (an automatic per-minute cron tick has no Telegram user) - an empty ctx still applies', async () => {
+    const { ex, jupiter, store } = setup();
+    jupiter.positions = [trailLong];
+    seedStop(store, 'PosTrailL', 84200);
+    const r = await ex.trailStops('PosTrailL', 84500); // ctx omitted entirely
+    eq(r.ok, true, `ok ${JSON.stringify(r.reasons)}`);
+  });
+
   await test('T-3 F listPositions: attaches stop/tp from the most recent execution open/adjust journal record (F4 "/positions" stops line)', async () => {
     const { ex, jupiter, store } = setup();
     jupiter.positions = [{ ...openPos, positionId: 'PosBBB' }];
@@ -709,6 +834,18 @@ async function run() {
     eq(a.ok, true, 'arm');
     eq(a.envKillStill, true, 'env kill still on');
     has((await ex.preflight(intent(), ctx)).reasons, 'kill_switch', 'still killed by env');
+  });
+  await test('checkPin (T-15, /exec trail off): no side effects either way - owner + PIN, wrong-PIN still counts, kill still blocks it', async () => {
+    const { ex } = setup();
+    eq((await ex.checkPin(PIN, ctx)).ok, true, 'correct PIN, owner');
+    has((await ex.checkPin('0000', ctx)).reasons, 'pin_wrong', 'wrong PIN');
+    has((await ex.checkPin(PIN, { userId: 5 })).reasons, 'not_owner', 'stranger');
+    const k = setup({ env: baseEnv({ EXECUTION_KILL: 'true' }) });
+    has((await k.ex.checkPin(PIN, ctx)).reasons, 'kill_switch', 'kill blocks it too, correct PIN or not');
+    // Three wrong PINs through checkPin alone still trip the shared wrong-PIN auto-kill.
+    const w = setup();
+    await w.ex.checkPin('0000', ctx); await w.ex.checkPin('0000', ctx); await w.ex.checkPin('0000', ctx);
+    has((await w.ex.checkPin(PIN, ctx)).reasons, 'kill_switch', 'auto-killed after 3 wrong PINs, even the right PIN now refuses');
   });
   await test('status: mode, kill, caps, daily loss, open count, capabilities; no PIN', async () => {
     const { ex, jupiter } = setup();

@@ -49,6 +49,16 @@
  * held back and logged `delivered:false, suppressed:'focus'` instead of sent; the moment
  * the last position closes, one resume line goes out unfiltered. `prefs.focus = 'off'`
  * (`/alerts focus off`, the Focus button, or the alerts picker) disables the filter.
+ *
+ * Automatic trailing stop after +1R (T-15, `prefs.trail`, default 'on', only when
+ * TRADE_EXECUTION_ENABLED==='true' and EXECUTION_MODE==='live'): every tick, for each live
+ * position, R = |entry - its current on-chain stop|; once the mark (engine build, else
+ * Kraken close) shows the trade +1R or better, the stop trails to
+ * bestPriceSinceEntry - 1R (mirrored short) through the executor's PIN-less, tighten-only
+ * `trailStops` - never touches TP, never loosens, capped by the executor itself to one
+ * applied update per position per 5 minutes. `state.trail[positionId]` remembers
+ * best/lastStop/prevStop across ticks. A refusal that is not routine (kill switch, off,
+ * cooldown) alerts once per position per hour, never repeats.
  */
 
 import crypto from 'crypto';
@@ -61,7 +71,8 @@ import { alertLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 import {
   withOpenButton, openEligible, candidateLevels, liveView, focusRelated, LIVE_POSITIONS_CACHE_MS,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
-  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, keepNetFloor, fitCaption, CHART_GRID_TIMEFRAMES
+  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES,
+  livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS
 } from '../lib/telegram.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
@@ -133,6 +144,111 @@ async function resolveLivePositions({ get, env, deps, nowMs, log }) {
   }
 }
 
+/**
+ * Refusal reasons that are routine (kill switch on, execution off, cooldown, a race with
+ * the cron's own tightening check) and never worth waking the owner for - anything else
+ * (trail_failed, trail_current_stop_unknown, stop_wrong_side, stop_beyond_liquidation,
+ * position_not_found, positions_unavailable, a *_error:* exception) is a genuine failure.
+ */
+const TRAIL_ROUTINE_REASONS = new Set(['trail_cooldown', 'kill_switch', 'kill_state_unavailable', 'execution_disabled', 'mode_invalid', 'not_owner', 'trail_not_tightening']);
+
+/**
+ * Automatic trailing stop after +1R (T-15, docs/PLAN_TELEGRAM_EXECUTION.md "Trailing
+ * stop"): for each live position, R = |entry - its CURRENT on-chain stop|; once the mark
+ * (engine build, else Kraken close) is +1R or better in the trade's favor, the stop trails
+ * to bestPriceSinceEntry - 1R (long; mirrored short) whenever that is at least 0.05 % of
+ * price better than the current stop. `executor.trailStops` (PIN-less, tighten-only, its
+ * own 5-minute cap) does the actual write; this function only decides WHEN to call it and
+ * remembers `best`/`lastStop`/`prevStop` per position across ticks in `state.trail`
+ * (peeked here, since updateBlob's change() callback must stay synchronous - same
+ * pattern as resolveLivePositions above). Only runs when TRADE_EXECUTION_ENABLED==='true'
+ * and EXECUTION_MODE==='live', and never when the owner has turned it off
+ * (`prefs.trail === 'off'`, default on). Never throws.
+ * @returns {Promise<{trail: Object|null, alerts: Array<string>}>} `trail` is the full
+ *   updated state.trail map to persist, or null when this run touched nothing (execution
+ *   off, pref off, executor unavailable, or a read failure - the caller then leaves
+ *   state.trail exactly as it was).
+ */
+async function applyTrailingStops({ get, env, deps, payload, nowMs, log }) {
+  if (env.TRADE_EXECUTION_ENABLED !== 'true' || env.EXECUTION_MODE !== 'live') return { trail: null, alerts: [] };
+  let prevState;
+  try {
+    const peek = await readBlob(get, TELEGRAM_STATE_PATH);
+    prevState = migrateState(peek ? peek.text : null).state;
+  } catch { prevState = migrateState(null).state; }
+  const pref = prevState.prefs && prevState.prefs.trail;
+  if (pref === 'off') return { trail: null, alerts: [] };
+  const previous = prevState.trail || {};
+
+  let ex = null;
+  try { ex = await resolveExecutor(env, deps); } catch { ex = null; }
+  if (!ex || typeof ex.trailStops !== 'function') return { trail: null, alerts: [] };
+
+  let r;
+  try { r = await ex.listPositions(); } catch (err) { log('trail', ` reason=trail_positions_${err && err.name ? err.name : 'Error'}`); return { trail: null, alerts: [] }; }
+  if (!r || r.ok === false) { log('trail', ` reason=trail_positions_unavailable`); return { trail: null, alerts: [] }; }
+
+  const nowIso = new Date(nowMs).toISOString();
+  const nextTrail = {};
+  const alerts = [];
+  const syms = payload && payload.symbols ? payload.symbols : {};
+
+  for (const p of Array.isArray(r.positions) ? r.positions : []) {
+    if (!p || typeof p.positionId !== 'string' || !p.positionId) continue;
+    const prevEntry = previous[p.positionId] || null;
+    const long = p.direction === 'long';
+    const entry = p.entryPrice;
+    const currentStop = p.stop;
+    if (!(typeof entry === 'number' && Number.isFinite(entry)) || !(typeof currentStop === 'number' && Number.isFinite(currentStop))) {
+      if (prevEntry) nextTrail[p.positionId] = prevEntry;
+      continue;
+    }
+    const mark = livePrice(syms[p.symbol]);
+    if (!mark || !(typeof mark.price === 'number' && Number.isFinite(mark.price))) {
+      if (prevEntry) nextTrail[p.positionId] = prevEntry;
+      continue;
+    }
+    const risk1R = Math.abs(entry - currentStop);
+    let best = prevEntry && typeof prevEntry.best === 'number' ? prevEntry.best : entry;
+    best = long ? Math.max(best, mark.price) : Math.min(best, mark.price);
+    const nextEntry = { best, lastStop: prevEntry ? prevEntry.lastStop : null, prevStop: prevEntry ? prevEntry.prevStop : null, updatedAt: prevEntry ? prevEntry.updatedAt : null, lastAlertAt: prevEntry ? prevEntry.lastAlertAt : null };
+
+    if (risk1R > 0) {
+      const favorable = long ? mark.price - entry : entry - mark.price;
+      const unrealizedR = favorable / risk1R;
+      if (unrealizedR >= 1) {
+        const newStop = long ? best - risk1R : best + risk1R;
+        const better = long ? newStop > currentStop : newStop < currentStop;
+        const improvementPct = mark.price > 0 ? (Math.abs(newStop - currentStop) / mark.price) * 100 : 0;
+        const cooldownOk = !nextEntry.updatedAt || !Number.isFinite(Date.parse(nextEntry.updatedAt)) || nowMs - Date.parse(nextEntry.updatedAt) >= TRAIL_MIN_INTERVAL_MS;
+        if (better && improvementPct >= 0.05 && cooldownOk) {
+          let result;
+          try { result = await ex.trailStops(p.positionId, newStop, {}); } catch (err) { result = { ok: false, reasons: [`trail_error:${err && err.name ? err.name : 'Error'}`] }; }
+          if (result && result.ok) {
+            nextEntry.prevStop = currentStop;
+            nextEntry.lastStop = newStop;
+            nextEntry.updatedAt = nowIso;
+            nextEntry.lastAlertAt = null; // a fresh success clears any prior failure throttle
+          } else {
+            const reason = result && Array.isArray(result.reasons) && result.reasons[0];
+            const routine = reason && TRAIL_ROUTINE_REASONS.has(reason);
+            log('trail', ` reason=trail_refused symbol=${p.symbol} why=${reason || 'unknown'}`);
+            if (!routine) {
+              const throttled = nextEntry.lastAlertAt && Number.isFinite(Date.parse(nextEntry.lastAlertAt)) && nowMs - Date.parse(nextEntry.lastAlertAt) < TRAIL_ALERT_THROTTLE_MS;
+              if (!throttled) {
+                alerts.push(`⚠️ Auto-trail failed for ${escapeHtml(p.symbol || '?')} ${p.direction ? p.direction.toUpperCase() : ''}: ${escapeHtml(reason || 'unknown reason')}.`);
+                nextEntry.lastAlertAt = nowIso;
+              }
+            }
+          }
+        }
+      }
+    }
+    nextTrail[p.positionId] = nextEntry;
+  }
+  return { trail: nextTrail, alerts };
+}
+
 function safeCompare(a, b) {
   const hashA = crypto.createHash('sha256').update(String(a)).digest();
   const hashB = crypto.createHash('sha256').update(String(b)).digest();
@@ -190,8 +306,10 @@ export async function handleTelegramCron(req, res, deps = {}) {
   } catch (err) {
     payload = { dataStatus: 'unavailable', closedThrough: null, symbols: {}, warnings: [`build failed: ${err && err.name ? err.name : 'Error'}`] };
   }
-  // The compact view the alerts read, plus the NF net floor shadow (T-13) for the cards.
-  const compact = keepNetFloor(filterPayload(payload, { compact: true }), payload);
+  // The compact view the alerts read. T-15: the net floor is baked into flagTradePlan
+  // itself (stop/stopSource/structureStop), so it survives filterPayload's compact mode
+  // unassisted - no more grafting a separate shadow.NF onto this view.
+  const compact = filterPayload(payload, { compact: true });
   const nowMs = now();
 
   const bot = createBotClient({ token: env.TELEGRAM_BOT_TOKEN, fetchImpl });
@@ -210,6 +328,13 @@ export async function handleTelegramCron(req, res, deps = {}) {
     livePositionsPrev = r.previous;
     livePositionsRead = true;
   }
+
+  // T-15 automatic trailing stop after +1R: also resolved before the state transaction
+  // (executor.trailStops is a real write, it cannot run inside updateBlob's synchronous
+  // change() callback). `trailResult.trail` is null when this run touched nothing
+  // (execution off, mode not live, prefs.trail off, or the executor/position read
+  // failed) - state.trail is then left exactly as it was, same convention as livePositions.
+  const trailResult = await applyTrailingStops({ get, env, deps, payload, nowMs, log });
 
   let alerts = [];
   let transitions = [];
@@ -240,7 +365,12 @@ export async function handleTelegramCron(req, res, deps = {}) {
         livePositionsChanged = JSON.stringify(m.state.livePositions) !== JSON.stringify(livePositions);
         diff.state.livePositions = livePositions;
       }
-      return diff.changed || m.migrated || resetReason || livePositionsChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
+      let trailChanged = false;
+      if (trailResult.trail) {
+        trailChanged = JSON.stringify(m.state.trail) !== JSON.stringify(trailResult.trail);
+        diff.state.trail = trailResult.trail;
+      }
+      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
   } catch (err) {
@@ -253,6 +383,11 @@ export async function handleTelegramCron(req, res, deps = {}) {
   if (resetReason) log('state', ` reason=state_reset cause=${resetReason}`);
   if (migratedFrom !== null) log('state', ` reason=state_migrated from=${migratedFrom}`);
   const health = await recordHealth({ get, put, bot, chats, nowMs, outcome: { ok: true }, log });
+
+  // T-15 trail failure alerts (throttled to once per position per hour, computed inside
+  // applyTrailingStops): sent regardless of whether the state write above succeeded, since
+  // the trail attempt itself already happened before that transaction.
+  for (const text of trailResult.alerts) for (const chatId of chats) await bot.sendMessage(chatId, text, { silent: inQuietHours(prefs && prefs.quiet, nowMs) });
 
   // A reminder is only for a trade still open in the journal (a /log or GPT close counts).
   if (alerts.some((a) => a.kind === 'NUDGE')) {

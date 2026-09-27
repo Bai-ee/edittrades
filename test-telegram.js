@@ -40,7 +40,7 @@ import {
 import { validateJournalEntry, RECORD_KEYS } from './lib/journalSchema.js';
 import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor, config as webhookConfig } from './api/telegram-webhook.js';
 import { handleTelegramCron } from './api/telegram-cron.js';
-import { diffCandidates, netFloorOf, netFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, keepNetFloor, COST_PCT_BY_DIRECTION } from './lib/telegram.js';
+import { diffCandidates, stopFloorOf, stopFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, COST_PCT_BY_DIRECTION } from './lib/telegram.js';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { buildClarity } from './lib/flagRecommendation.js';
 import { execLogLine, alertLogLine, verdictOf as logVerdictOf, textExcerpt, recordTelegramLogs, assertSafeRows, alertsDayPath, transitionsDayPath, ALERTS_MANIFEST_PATH, TRANSITIONS_MANIFEST_PATH } from './lib/telegramLog.js';
@@ -247,14 +247,29 @@ function recordingRender() {
   return { seen, fn };
 }
 
-/** goodSym plus an NF shadow on the plan (T-13): ready (widened stop, netRR 1.4) or not (floor over the plan's stop). */
-function nfGoodSym(ready = true, candidateId = 'BTC:5m:long:2026-09-24T13:50:00.000Z') {
+/**
+ * goodSym plus the T-15 LIVE net floor on the plan itself (was the T-13 shadow):
+ * `applied` widened the stop from a tighter structureStop to the floor (stopSource
+ * 'floor', netRR 1.4, matching the exact example in docs/PROMPT_T15_AGENT_M.md - stop
+ * 0.55 %, floored from 0.12 %), or the candidate's own structure stop already cleared
+ * the floor untouched (stopSource 'structure', stop/netRR unchanged from goodSym's own
+ * 0.25 % / 2.1R). Both are 'ready' - a floor that REJECTS the live plan is an engine
+ * concern, covered in test-flag-trade-plan.js / test-scalp-context.js, not here.
+ */
+function nfGoodSym(applied = true, candidateId = 'BTC:5m:long:2026-09-24T13:50:00.000Z') {
+  const s = goodSym(candidateId);
+  Object.assign(s.flagTradePlan, applied
+    ? { stop: 84134.7, structureStop: 84498.48, stopSource: 'floor', stopDistancePct: 0.55, grossRR: 2.6, netRR: 1.4 }
+    : { stop: 84390, structureStop: 84390, stopSource: 'structure', stopDistancePct: 0.248, grossRR: 2.6, netRR: 2.1 });
+  s.flagRecommendation.clarity = { candidateId, killIf: { level: 84600, text: 'close back below 84,600.00 after a probe = defended, stand down' }, otherSide: { text: null } };
+  return s;
+}
+
+/** goodSym with a tight, high-cost stop (T-13 incident numbers) for the approach-block cost math - unrelated to the T-15 floor. */
+function approachSym(candidateId = 'BTC:5m:long:2026-09-24T13:50:00.000Z') {
   const s = goodSym(candidateId);
   s.flagTradePlan.stopDistancePct = 0.248;
   s.flagTradePlan.costR = 1.37;
-  s.flagTradePlan.shadow = { NF: ready
-    ? { candidateId, status: 'ready', reasonCode: null, ready: true, stop: 84253.2, tp1: 85146, grossRR: 2.6, netRR: 1.4, stopPct: 0.41, floorPct: 0.41 }
-    : { candidateId, status: 'rejected', reasonCode: 'rr_below_min', ready: false, stop: 83737, tp1: 85146, grossRR: 0.63, netRR: 0.35, stopPct: 1.02, floorPct: 1.02 } };
   s.flagRecommendation.clarity = { candidateId, killIf: { level: 84600, text: 'close back below 84,600.00 after a probe = defended, stand down' }, otherSide: { text: null } };
   return s;
 }
@@ -880,7 +895,7 @@ async function run() {
   });
 
   await test('prefs persist in state: normalize, apply, parseState keeps off, diffAlerts carries prefs', () => {
-    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'garbage -> defaults');
+    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'garbage -> defaults');
     assertEqual(normalizePrefs({ focus: 'off' }).focus, 'off', 'focus off is kept');
     assertEqual(normalizePrefs({ focus: 'bogus' }).focus, 'auto', 'unknown focus -> auto');
     const off = parseState(applyPrefsChange(null, { quiet: null }));
@@ -888,7 +903,7 @@ async function run() {
     const lv = parseState(applyPrefsChange(JSON.stringify({ ...emptyState(), symbols: { BTC: { goodIds: ['k'] } } }), { level: 'watch' }));
     assertEqual(`${lv.prefs.level}|${lv.symbols.BTC.goodIds[0]}`, 'watch|k', 'level saved, alert memory kept');
     const d = diffAlerts(withPrefs('good', null), payload(), T0);
-    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'diff keeps prefs');
+    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'diff keeps prefs');
     assert(formatAlertPrefs(d.state.prefs).includes('Alert level: <b>good</b>') && formatAlertPrefs(d.state.prefs).includes('Quiet hours: off'), 'prefs text');
   });
 
@@ -900,7 +915,7 @@ async function run() {
     assert(set.tg.calls[0].text.startsWith('Saved.') && set.tg.calls[0].text.includes('<b>watch</b>'), set.tg.calls[0].text);
     await hook({ text: '/alerts quiet 22-06', blob });
     let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
-    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'persisted');
+    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'persisted');
     const q = await hook({ text: '/alerts quiet', blob });
     assertEqual(q.tg.calls[0].text, 'Quiet hours: 22:00–06:00 America/Chicago, every day (alerts arrive silently)', 'quiet show');
     await hook({ text: '/alerts quiet off', blob });
@@ -1191,7 +1206,7 @@ async function run() {
     const blob = fakeBlob();
     await tap({ data: 'alerts:watch', blob });
     await tap({ data: 'alerts:quiet:off', blob });
-    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'level + off');
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'level + off');
     const on = await tap({ data: 'alerts:quiet:on', blob });
     assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.quiet), '{"start":1,"end":5}', 'on = default');
     assert(on.tg.calls[1].replyMarkup.inline_keyboard, 'alerts buttons again');
@@ -1277,7 +1292,7 @@ async function run() {
     const v1 = toV1(first);
     const m = migrateState(JSON.stringify(v1));
     assertEqual(`${m.fromVersion}|${m.migrated}|${m.reset}|${m.state.stateVersion}`, `1|true|false|${STATE_VERSION}`, 'migration flags');
-    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', risk: {} }), 'default prefs');
+    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', trail: 'on', risk: {} }), 'default prefs');
     assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
     const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
     const fromV1 = diffAlerts(m.state, next, T0 + MIN);
@@ -1683,7 +1698,7 @@ async function run() {
     const t = formatPlanCard(v);
     assertEqual(t, [
       '🧭 PLAN · ◎ <b>SOL 3m ▼ SHORT</b>', RULE,
-      '<b>LEVELS</b>\n<code>entry             116.77\nstop              117.10\nstop dist          0.28%\nTP1               115.90\nTP2               115.60\nR gross·net  2.6R · 2.2R</code>\nFlag confirmed · entry = retest of the breakout\nNet R is after short costs.', RULE,
+      '<b>LEVELS</b>\n<code>entry             116.77\nstop              117.10\nstop dist          0.28%\nTP1               115.90\nTP2               115.60\nR gross·net  2.6R · 2.2R</code>\nFlag confirmed · entry = retest of the breakout\nNet R is after short costs.\nstop: 0.28 % · net 2.2R', RULE,
       '<b>SIZING</b>\n<code>max lev           25x\nsuggested         20x\ncollateral     $10.00\nsize          $200.00\nloss at stop    $0.57\n% of wallet     0.11%</code>\nMark: $116.72 · Kraken close $116.70 · drift 1.7 bps', RULE,
       '<b>TIMING</b>\nExpect: n/a (no measured time-to-TP1 for this flag) · 3m candles\nPath history (estimate): likely retest &amp; go · lean breakout · n=412', RULE,
       '<b>VERDICT</b>\n<b>GET IN NOW</b> — retest held'
@@ -2134,6 +2149,7 @@ async function run() {
       },
       async kill(ctx, reason) { calls.push(['kill', ctx, reason]); return killOk ? { ok: true, reasons: [] } : { ok: false, reasons: ['kill_write_failed'] }; },
       async arm(pin, ctx) { calls.push(['arm', pin]); return pin === PIN ? { ok: true, reasons: [], envKillStill: false } : { ok: false, reasons: ['pin_wrong'] }; },
+      async checkPin(pin, ctx) { calls.push(['checkPin', pin]); return pin === PIN ? { ok: true, reasons: [] } : { ok: false, reasons: ['pin_wrong'] }; },
       async cancelTicket(nonce, ctx) { calls.push(['cancelTicket', nonce, ctx]); const had = orders.delete(nonce); return had ? { ok: true, reasons: [] } : { ok: false, reasons: ['nonce_unknown'] }; }
     };
     if (withPrepare) {
@@ -2391,6 +2407,23 @@ async function run() {
     assert(lastText(r3).includes('⚠ none'), lastText(r3));
   });
 
+  await test('/positions (T-15): a "trail: on · SL X (was Y)" line only once this position has actually been auto-trailed, and never when the owner turned it off', async () => {
+    const withStops = { ...chainPos, stop: 84390, tp: 85146 };
+    const blob = fakeBlob();
+    blob.files.set(TELEGRAM_STATE_PATH, { text: JSON.stringify({ trail: { [POS_ID]: { best: 85000, lastStop: 84390, prevStop: 84200, updatedAt: '2026-09-24T14:00:00.000Z' } } }), etag: '"e1"' });
+    const r = await xhook({ text: '/positions', executor: mockExecutor({ positions: [withStops] }), blob });
+    assert(lastText(r).includes('trail: on · SL 84,390.00 (was 84,200.00)'), lastText(r));
+    // No trail history yet for this position: no line, rest of the card unaffected.
+    const other = { ...chainPos, positionId: 'PosNoTrail1111111111111111111111111111111', stop: 84390, tp: 85146 };
+    const r2 = await xhook({ text: '/positions', executor: mockExecutor({ positions: [other] }), blob });
+    assert(!lastText(r2).includes('trail:'), lastText(r2));
+    // The owner turned trailing off: the line never shows even with history on file.
+    const blobOff = fakeBlob();
+    blobOff.files.set(TELEGRAM_STATE_PATH, { text: JSON.stringify({ prefs: { trail: 'off' }, trail: { [POS_ID]: { best: 85000, lastStop: 84390, prevStop: 84200, updatedAt: '2026-09-24T14:00:00.000Z' } } }), etag: '"e1"' });
+    const r3 = await xhook({ text: '/positions', executor: mockExecutor({ positions: [withStops] }), blob: blobOff });
+    assert(!lastText(r3).includes('trail:'), lastText(r3));
+  });
+
   await test('/confirm: wrong PIN -> ❌ PIN (auto-kill message on the 3rd), deleted, never echoed; malformed -> usage; Cancel consumes the ticket via cancelTicket, never confirms', async () => {
     const ex = mockExecutor();
     const blob = fakeBlob();
@@ -2483,6 +2516,28 @@ async function run() {
     assert(lastText(aw).startsWith('❌ <b>PIN</b>'), lastText(aw));
     const m = await xhook({ text: '/mode', executor: ex });
     assert(lastText(m).includes('DRY RUN') && lastText(m).includes('env-only'), lastText(m));
+  });
+
+  await test('/exec trail on|off (T-15): default row reads "on (1R)"; on needs no PIN, off does, wrong PIN refuses and never persists, the PIN never stays in the chat', async () => {
+    const ex = mockExecutor();
+    const base = lastText(await xhook({ text: '/exec', executor: ex })).replace(/ {2,}/g, ' ');
+    assert(base.includes('trailing on (1R)'), base);
+    const blob = fakeBlob();
+    const usage = await xhook({ text: '/exec trail', executor: ex, blob });
+    assert(lastText(usage).startsWith('Usage: /exec trail on|off'), lastText(usage));
+    const wrong = await xhook({ text: `/exec trail off 0000`, executor: ex, blob, messageId: 55 });
+    assert(lastText(wrong).startsWith('Wrong PIN') && wrong.tg.calls.some((c) => c.method === 'deleteMessage' && c.messageId === 55), lastText(wrong));
+    assert(!blob.files.get(TELEGRAM_STATE_PATH), 'wrong PIN: nothing persisted yet');
+    const off = await xhook({ text: `/exec trail off ${PIN}`, executor: ex, blob, messageId: 56 });
+    assert(lastText(off).includes('Auto-trail: <b>OFF</b>') && off.tg.calls.some((c) => c.method === 'deleteMessage' && c.messageId === 56), lastText(off));
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.trail, 'off', 'persisted off');
+    const afterOff = lastText(await xhook({ text: '/exec', executor: ex, blob })).replace(/ {2,}/g, ' ');
+    assert(afterOff.includes('trailing off'), afterOff);
+    const on = await xhook({ text: '/exec trail on', executor: ex, blob });
+    assert(lastText(on).includes('Auto-trail: <b>ON</b>') && !on.tg.calls.some((c) => c.method === 'deleteMessage'), 'turning on needs no PIN, nothing to delete');
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.trail, 'on', 'persisted on');
+    const execOff = await xhook({ text: '/exec trail off', env: ENV }); // execution disabled entirely
+    assertEqual(lastText(execOff), 'Execution off', lastText(execOff));
   });
 
   await test('/risk (T-8): show renders the policy + snapshot; set/reset writes state.prefs.risk, bounded via riskPrefBound', async () => {
@@ -2833,6 +2888,71 @@ async function run() {
     assertEqual(st2.livePositions.symbols.join(), 'SOL', 'failed read keeps the last known symbols');
   });
 
+  console.log('\nautomatic trailing stop after +1R (T-15)');
+
+  const XENV_LIVE = { ...XENV, EXECUTION_MODE: 'live' };
+  const trailLongPos = { positionId: 'PosTrailCronL', market: 'BTCUSDT', symbol: 'BTC', direction: 'long', sizeUsd: 100, collateralUsd: 20, leverage: 5, entryPrice: 100, stop: 95, markPrice: 106, liquidationPrice: 50 };
+  const markPayload = (sym, price) => payload({ [sym]: { ...watchSym(), price, mark: { status: 'ok', price } } });
+
+  await test('cron: trailing stop arms at +1R and trails to bestPrice - 1R (long + short mirror); persists state.trail with prevStop', async () => {
+    const calls = [];
+    const ex = { ...mockExecutor({ positions: [trailLongPos] }), trailStops: async (positionId, newStop) => { calls.push([positionId, newStop]); return { ok: true, mode: 'live', before: 95, after: newStop, reasons: [] }; } };
+    const blob = fakeBlob();
+    await cron({ env: XENV_LIVE, blob, build: async () => markPayload('BTC', 106), executor: ex, nowMs: T0 });
+    assertEqual(calls.length, 1, 'one trail call');
+    assertEqual(calls[0][0], 'PosTrailCronL', 'positionId');
+    assertEqual(calls[0][1], 101, 'newStop = best(106) - R(100-95=5)');
+    const st = migrateState(blob.files.get(TELEGRAM_STATE_PATH).text).state;
+    assert(st.trail && st.trail.PosTrailCronL && st.trail.PosTrailCronL.lastStop === 101 && st.trail.PosTrailCronL.prevStop === 95, JSON.stringify(st.trail));
+
+    // Mirrored short: entry 100, stop 105 (R=5), mark 94 -> unrealizedR=(100-94)/5=1.2, best=min(*,94)=94, newStop=94+5=99 (tightens toward price, below 105).
+    const shortPos = { positionId: 'PosTrailCronS', market: 'ETHUSDT', symbol: 'ETH', direction: 'short', sizeUsd: 100, collateralUsd: 20, leverage: 5, entryPrice: 100, stop: 105, markPrice: 94, liquidationPrice: 150 };
+    const calls2 = [];
+    const ex2 = { ...mockExecutor({ positions: [shortPos] }), trailStops: async (positionId, newStop) => { calls2.push([positionId, newStop]); return { ok: true, reasons: [] }; } };
+    await cron({ env: XENV_LIVE, blob: fakeBlob(), build: async () => markPayload('ETH', 94), executor: ex2, nowMs: T0 });
+    assertEqual(calls2.length, 1, 'short: one trail call');
+    assertEqual(calls2[0][1], 99, 'short newStop = best(94) + R(5)');
+  });
+
+  await test('cron: trailing never runs unless TRADE_EXECUTION_ENABLED=true AND EXECUTION_MODE=live, and never when the owner turned it off (prefs.trail=off)', async () => {
+    let called = false;
+    const notCalled = () => ({ ...mockExecutor({ positions: [trailLongPos] }), trailStops: async () => { called = true; return { ok: true, reasons: [] }; } });
+
+    called = false;
+    await cron({ env: XENV, blob: fakeBlob(), build: async () => markPayload('BTC', 106), executor: notCalled(), nowMs: T0 }); // TRADE_EXECUTION_ENABLED true, but EXECUTION_MODE not 'live'
+    assertEqual(called, false, 'dry mode (no EXECUTION_MODE=live): trailStops never called');
+
+    called = false;
+    await cron({ env: ENV, blob: fakeBlob(), build: async () => markPayload('BTC', 106), executor: notCalled(), nowMs: T0 }); // execution off entirely
+    assertEqual(called, false, 'execution off: trailStops never called');
+
+    called = false;
+    const blobOff = fakeBlob();
+    blobOff.files.set(TELEGRAM_STATE_PATH, { text: JSON.stringify({ prefs: { trail: 'off' } }), etag: '"e1"' });
+    await cron({ env: XENV_LIVE, blob: blobOff, build: async () => markPayload('BTC', 106), executor: notCalled(), nowMs: T0 });
+    assertEqual(called, false, 'prefs.trail off: trailStops never called even in live mode');
+  });
+
+  await test('cron: a trailing-stop failure alerts once per position per hour, never spam; a routine refusal (kill switch) never alerts', async () => {
+    const blob = fakeBlob();
+    let failCalls = 0;
+    const failEx = { ...mockExecutor({ positions: [trailLongPos] }), trailStops: async () => { failCalls++; return { ok: false, mode: 'live', reasons: ['trail_failed'] }; } };
+    const buildFn = async () => markPayload('BTC', 106);
+    const alertText = (r) => r.tg.calls.filter((c) => c.method === 'sendMessage').map((c) => c.text).find((t) => /Auto-trail failed/.test(t));
+
+    const r1 = await cron({ env: XENV_LIVE, blob, build: buildFn, executor: failEx, nowMs: T0 });
+    assert(alertText(r1), 'first failure alerts');
+    const r2 = await cron({ env: XENV_LIVE, blob, build: buildFn, executor: failEx, nowMs: T0 + 5 * 60_000 });
+    assert(!alertText(r2), 'second failure within the hour: no repeat alert');
+    const r3 = await cron({ env: XENV_LIVE, blob, build: buildFn, executor: failEx, nowMs: T0 + 61 * 60_000 });
+    assert(alertText(r3), 'past an hour: alerts again');
+    assertEqual(failCalls, 3, 'trailStops was attempted every tick regardless of the alert throttle');
+
+    const killEx = { ...mockExecutor({ positions: [trailLongPos] }), trailStops: async () => ({ ok: false, mode: 'live', reasons: ['kill_switch'] }) };
+    const rk = await cron({ env: XENV_LIVE, blob: fakeBlob(), build: buildFn, executor: killEx, nowMs: T0 });
+    assert(!alertText(rk), 'kill_switch is routine: no alert');
+  });
+
   await test('position closed: one unfiltered resume line; focus lifts so a new alert on the previously-muted symbol flows normally', async () => {
     const openEx = mockExecutor({ positions: [solPos] });
     const blob = fakeBlob();
@@ -2975,29 +3095,27 @@ async function run() {
     assertEqual(COST_PCT_BY_DIRECTION.short, ENGINE_CONFIG.risk.costBpsByDirection.short / 100, 'short');
   });
 
-  await test('net floor line: READY (netRR, stop) / NOT YET (stop under the floor) / NOT YET (netRR) / none', () => {
-    assertEqual(netFloorLine(netFloorOf(nfGoodSym(true), 'BTC:5m:long:2026-09-24T13:50:00.000Z')), 'net floor: READY (netRR 1.4, stop 0.41 %)', 'ready');
-    const tight = { ready: false, liveStopPct: 0.04, floorPct: 0.31, netRR: 0.4 };
-    assertEqual(netFloorLine(tight), 'net floor: NOT YET — stop 0.04 % &lt; 0.31 % floor', 'stop under floor');
-    assertEqual(netFloorLine({ ready: false, liveStopPct: 0.5, floorPct: 0.31, netRR: 0.8 }), 'net floor: NOT YET — netRR 0.8 at the floor', 'netRR');
-    assertEqual(netFloorLine(null), '', 'no NF shadow: no line');
-    const setupS = watchSym({ ...setupEth, shadowNF: { ready: true, netRR: 1.9 } });
-    assertEqual(netFloorLine(netFloorOf(setupS, setupEth.candidateId)), 'net floor: READY (netRR 1.9)', 'setup.shadowNF');
-    assertEqual(netFloorOf(nfGoodSym(true), 'BTC:other'), null, 'other candidate: none');
+  await test('stop-floor line (T-15, replaces the T-13 shadow\'s "net floor: READY/NOT YET"): applied ("floored from") / not applied (plain) / none / setup.stopFloor', () => {
+    assertEqual(stopFloorLine(stopFloorOf(nfGoodSym(true), 'BTC:5m:long:2026-09-24T13:50:00.000Z')), 'stop: 0.55 % (floored from 0.12 %) · net 1.4R', 'applied - matches docs/PROMPT_T15_AGENT_M.md\'s own example line');
+    assertEqual(stopFloorLine(stopFloorOf(nfGoodSym(false), 'BTC:5m:long:2026-09-24T13:50:00.000Z')), 'stop: 0.25 % · net 2.1R', 'not applied - the candidate\'s own stop already clears the floor, no "(floored from ...)" clause');
+    assertEqual(stopFloorLine(null), '', 'nothing describes the candidate: no line');
+    const setupS = watchSym({ ...setupEth, stopFloor: { applied: true, stopPct: 0.4, netRR: 1.9 } });
+    assertEqual(stopFloorLine(stopFloorOf(setupS, setupEth.candidateId)), 'stop: 0.40 % · net 1.9R', 'setup.stopFloor never shows "(floored from ...)" - it publishes no structureStop to compare');
+    assertEqual(stopFloorOf(nfGoodSym(true), 'BTC:other'), null, 'other candidate: none');
   });
 
-  await test('GOOD card and Plan card carry the net floor line; the card without an NF shadow is unchanged', () => {
+  await test('GOOD card and Plan card carry the stop-floor line; a base plan with no stopDistancePct on file is unchanged', () => {
     const id = 'BTC:5m:long:2026-09-24T13:50:00.000Z';
     const good = formatGoodAlert('BTC', nfGoodSym(false));
-    assert(good.endsWith('net floor: NOT YET — stop 0.25 % &lt; 1.02 % floor'), good);
+    assert(good.endsWith('stop: 0.25 % · net 2.1R'), good);
     assertEqual(formatGoodAlert('BTC', goodSym()), formatGoodAlert('BTC', { ...goodSym(), flagTradePlan: { ...goodSym().flagTradePlan } }), 'stable');
-    assert(!formatGoodAlert('BTC', goodSym()).includes('net floor'), 'no NF: no line');
+    assert(!/\nstop: 0/.test(formatGoodAlert('BTC', goodSym())), 'no stopDistancePct on the base fixture: no stop-floor line');
     const plan = formatPlanCard(liveView('BTC', nfGoodSym(true), id));
-    assert(plan.includes('net floor: READY (netRR 1.4, stop 0.41 %)'), plan);
+    assert(plan.includes('stop: 0.55 % (floored from 0.12 %) · net 1.4R'), plan);
   });
 
   await test('approach block: Enter / Wrong if (killIf reused) / Worth it YES|NO net of fees with cost as a share of the stop', () => {
-    const s = nfGoodSym(true);
+    const s = approachSym();
     const id = s.flagTradePlan.candidateId;
     const a = approachBlock(tradeLevelsOf(s, id), s.flagRecommendation.clarity);
     assertEqual(a, 'Enter: retest hold at 84,600.00\nWrong if: close below 84,390.00 (0.25 %) · close back below 84,600.00 after a probe = defended, stand down\nWorth it: <b>YES</b> net of fees — costs 137 % of a 0.25 % stop', a);
@@ -3006,21 +3124,15 @@ async function run() {
     assertEqual(approachBlock(null), '', 'no levels');
   });
 
-  await test('trade overlay from the plan (NF stop only when it differs); keepNetFloor grafts only shadow.NF onto a compact payload', () => {
+  await test('trade overlay from the plan (T-15: the floor is already baked into the plan\'s own stop, so there is no second nf stop line to overlay any more)', () => {
     const s = nfGoodSym(true);
-    const o = tradeOverlayFor(tradeLevelsOf(s, s.flagTradePlan.candidateId), netFloorOf(s, s.flagTradePlan.candidateId));
-    assertEqual(JSON.stringify(o), JSON.stringify({ direction: 'long', entry: 84600, stop: 84390, tp1: 85146, tp2: 85300, nfStop: 84253.2, grossRR: 2.6, netRR: 2.1 }), 'overlay');
+    const o = tradeOverlayFor(tradeLevelsOf(s, s.flagTradePlan.candidateId));
+    assertEqual(JSON.stringify(o), JSON.stringify({ direction: 'long', entry: 84600, stop: 84134.7, tp1: 85146, tp2: 85300, nfStop: null, grossRR: 2.6, netRR: 1.4 }), 'overlay: the plan\'s own (already floored) stop, nfStop always null now');
     assertEqual(tradeLevelsOf(badSym(), 'SOL:1m:long:x'), null, 'rejected plan: no trade levels');
-    const full = payload({ BTC: { ...s, flagTradePlan: { ...s.flagTradePlan, shadow: { ...s.flagTradePlan.shadow, v3: { status: 'x' } } } } });
-    const stripped = JSON.parse(JSON.stringify(full));
-    delete stripped.symbols.BTC.flagTradePlan.shadow;
-    const kept = keepNetFloor(stripped, full);
-    assertEqual(JSON.stringify(Object.keys(kept.symbols.BTC.flagTradePlan.shadow)), '["NF"]', 'only NF');
-    assert(!('shadow' in stripped.symbols.BTC.flagTradePlan), 'input not mutated');
     assertEqual(fitCaption(['x'.repeat(1001)]), null, 'over 1000: null');
   });
 
-  await test('cron: GOOD sends one photo per chat, card + net floor + approach as caption; render gets the trade overlay and a 120-candle window request', async () => {
+  await test('cron: GOOD sends one photo per chat, card + stop-floor + approach as caption; render gets the trade overlay and a 120-candle window request', async () => {
     const rr = recordingRender();
     let buildOpts = null;
     const tg = fakeTelegram();
@@ -3030,10 +3142,10 @@ async function run() {
     assertEqual(photos.length, 2, 'one per chat');
     for (const p of photos) {
       assert(p.caption.length <= 1000, `caption ${p.caption.length}`);
-      assert(p.caption.includes('net floor: READY (netRR 1.4, stop 0.41 %)') && p.caption.includes('Enter: retest hold at 84,600.00') && p.caption.includes('Worth it: <b>YES</b>'), p.caption);
+      assert(p.caption.includes('stop: 0.55 % (floored from 0.12 %) · net 1.4R') && p.caption.includes('Enter: retest hold at 84,600.00') && p.caption.includes('Worth it: <b>YES</b>'), p.caption);
     }
     const req = rr.seen[0].request;
-    assert(req.tradeOverlay && req.tradeOverlay.nfStop === 84253.2 && req.timeframe === '5m', JSON.stringify(req));
+    assert(req.tradeOverlay && req.tradeOverlay.nfStop === null && req.tradeOverlay.stop === 84134.7 && req.timeframe === '5m', JSON.stringify(req));
   });
 
   await test('cron: a card too long for one caption goes as text, the chart carries the approach block', async () => {
@@ -3058,7 +3170,7 @@ async function run() {
     const photoIdx = t.tg.calls.findIndex((c) => c.method === 'sendPhoto');
     assert(logged > 0 && photoIdx > logged, 'chart after the log reply');
     const cap = t.tg.calls[photoIdx].caption;
-    assert(cap.startsWith('✋ ₿ <b>BTC 5m ▲ LONG</b> · TOOK IT') && cap.includes('Enter: retest hold at 84,600.00') && cap.includes('net floor: READY'), cap);
+    assert(cap.startsWith('✋ ₿ <b>BTC 5m ▲ LONG</b> · TOOK IT') && cap.includes('Enter: retest hold at 84,600.00') && cap.includes('stop: 0.55 % (floored from 0.12 %)'), cap);
     assert(rr.seen[0].request.tradeOverlay.entry === 84600, 'overlay from the live plan');
     const again = await tap({ data: took, blob, render: rr.fn });
     assertEqual(again.tg.calls.filter((c) => c.method === 'sendPhoto').length, 0, 'duplicate: no chart');
@@ -3068,7 +3180,7 @@ async function run() {
     const rr = recordingRender();
     const r = await hook({ text: '/chart BTC trade', render: rr.fn, build: async () => payload({ BTC: nfGoodSym(true) }) });
     const photo = r.tg.calls.find((c) => c.method === 'sendPhoto');
-    assert(photo && photo.caption.startsWith('🟢 ₿ <b>BTC 5m ▲ LONG</b> · TRADE · READY') && photo.caption.includes('net floor: READY'), photo && photo.caption);
+    assert(photo && photo.caption.startsWith('🟢 ₿ <b>BTC 5m ▲ LONG</b> · TRADE · READY') && photo.caption.includes('stop: 0.55 % (floored from 0.12 %)'), photo && photo.caption);
     assertEqual(rr.seen[0].request.timeframe, '5m', 'plan timeframe');
     const e = await hook({ text: '/chart ETH 3m trade', render: rr.fn, build: async () => payload({ ETH: watchSym(setupEth) }) });
     const ep = e.tg.calls.find((c) => c.method === 'sendPhoto');

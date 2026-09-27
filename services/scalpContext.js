@@ -41,16 +41,14 @@ export const TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 // record (lib/servedCalls.js records the pre-filter payload) for the tracker's
 // v3-shadow scoring ("3R shadow (former live rule)" tile).
 //
-// T-13 (owner 2026-09-26) `NF` net floor: the live plan's own candidate re-attempted with
-// its stop floored at max(0.5 x ATR(15m), 3 x round-trip cost) - 0.34 % long / 0.14 %
-// short of entry - TP1 unchanged, gross >= 2.5 and net >= 1.0. Shadow only until the rule
-// freeze ends (2026-10-08): always published on `flagTradePlan.shadow.NF` (compact:
-// candidateId/status/reasonCode/ready/stop/tp1/grossRR/netRR/stopPct/floorPct, stripped
-// unless include=model like v3) and, for the SETUP candidate, on the default payload's
-// `flagRecommendation.setup.shadowNF` = {ready, netRR}. Never gates class/recommendation.
+// T-15 (owner 2026-09-27, docs/OWNER_DECISIONS_2026-09-27.md - freeze lifted for exactly
+// this change): the T-13 `NF` net floor shadow above is now the LIVE rule, not a shadow
+// comparator - `config/engine.json` `flagPlan.stopFloor` (atrMult 0.5, costMult 3,
+// minNetRR 1.0), applied to every candidate's stop by `lib/flagTradePlan.js`'s
+// `buildPlanAttempt` before every gate. The `NF` entry here is removed (it has nothing
+// left to compare against - it IS the live plan now); only `v3` remains as a shadow.
 export const FLAG_PLAN_SHADOW_VARIANTS = [
-  { id: 'v3', minRR: 3.0 },
-  { id: 'NF', minRR: 2.5, minNetRR: 1.0, netFloor: { atrTimeframe: '15m', atrMult: 0.5, costMult: 3 } }
+  { id: 'v3', minRR: 3.0 }
 ];
 
 // Published candles per timeframe (payload only; the engine computes on the full closed
@@ -1830,7 +1828,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.27.0',
+    schemaVersion: '1.28.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),

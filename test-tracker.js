@@ -50,7 +50,6 @@ import {
 import {
   NF_RULE, nfShadowOutcomesFile, nfShadowSummaryFile, atr15mAt, backfillNetFloor, liveReadyCalls, computeNfShadowRows, nfShadowSummary, nfShadowDataDir
 } from './scripts/tracker/nf-shadow.js';
-import { FLAG_PLAN_SHADOW_VARIANTS } from './services/scalpContext.js';
 import { netFloorStopDistance, netRiskReward } from './lib/flagTradePlan.js';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { writeFileSync } from 'node:fs';
@@ -793,7 +792,7 @@ async function run() {
     const { htmlFile } = buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0);
     const index = readFileSync(htmlFile, 'utf8');
     assert(index.includes('id="testing-phase-frozen-row"') && index.includes('FROZEN UNTIL 2026-10-08'), 'frozen-until row');
-    assert(index.includes('GROSS MINRR 2.5, NET GATE OFF') && index.includes('CONFIG BOUNDARY MARKED'), 'live rules + boundary note');
+    assert(index.includes('GROSS MINRR 2.5, NET FLOOR LIVE') && index.includes('CONFIG BOUNDARY MARKED'), 'live rules + boundary note');
     assert(/id="system-alerts-channel-note"[^>]*>Alerts: Telegram @EditTrades_Bot/.test(index), 'alerts channel line');
     assert(index.includes('href="how-to.html#howto-telegram-section"'), 'links to how-to Telegram section');
     assert(!/net R:R ≥ 2\.0|Window restarted|net gate on at 2\.0/i.test(index), 'no stale strategy copy');
@@ -2199,9 +2198,9 @@ async function run() {
 
   const DAY = 24 * 60 * MIN;
 
-  await test('nf-shadow: NF_RULE mirrors the engine NF variant; backfill floor/gates match lib/flagTradePlan.js', () => {
-    const nf = FLAG_PLAN_SHADOW_VARIANTS.find((v) => v.id === 'NF');
-    assertEqual(`${NF_RULE.minRR}|${NF_RULE.minNetRR}|${NF_RULE.atrMult}|${NF_RULE.costMult}`, `${nf.minRR}|${nf.minNetRR}|${nf.netFloor.atrMult}|${nf.netFloor.costMult}`, 'rule parity');
+  await test('nf-shadow: NF_RULE mirrors the LIVE engine floor (T-15, config/engine.json flagPlan.stopFloor); backfill floor/gates match lib/flagTradePlan.js', () => {
+    const sf = ENGINE_CONFIG.flagPlan.stopFloor;
+    assertEqual(`${NF_RULE.minRR}|${NF_RULE.minNetRR}|${NF_RULE.atrMult}|${NF_RULE.costMult}`, `${ENGINE_CONFIG.flagPlan.minRR}|${sf.minNetRR}|${sf.atrMult}|${sf.costMult}`, 'rule parity');
     for (const [dir, stop, tp1, atr] of [['long', 99.9, 104, 0.5], ['short', 100.1, 97, 0.5], ['long', 99.9, 104, 4], ['short', 100.02, 99.5, null]]) {
       const b = backfillNetFloor({ direction: dir, entry: 100, stop, tp1, atr15m: atr });
       const e = netFloorStopDistance({ direction: dir, entry: 100, stop, atr15m: atr, riskCfg: ENGINE_CONFIG.risk });
@@ -2282,9 +2281,9 @@ async function run() {
     const { htmlFile, mdFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
     const html = readFileSync(htmlFile, 'utf8');
     for (const id of ['nf-shadow-summary-table', 'nf-shadow-list-table', 'nf-shadow-sample-note']) assert(html.includes(`id="${id}"`), `missing #${id}`);
-    assert(html.includes('NF (net floor, shadow)') && html.includes('Live (gross 2.5, own stop)'), 'side by side rows');
+    assert(html.includes('NF (live since 2026-09-27)') && html.includes('Live (own stop)'), 'side by side rows');
     const md = readFileSync(mdFile, 'utf8');
-    assert(md.includes('## Net floor shadow (NF, not traded)') && md.includes('| NF | 1 | 1 | 1 | 100% |'), md.slice(md.indexOf('## Net floor')));
+    assert(md.includes('## Net floor · NF (live since 2026-09-27)') && md.includes('| NF | 1 | 1 | 1 | 100% |'), md.slice(md.indexOf('## Net floor')));
   });
 
   await test('page: breakout-shadow tile renders with ids and the empty state from an empty data dir', () => {
