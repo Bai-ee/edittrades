@@ -1,21 +1,18 @@
 # EditTrades — next steps master plan (decision clarity first)
 
-Last updated: 2026-09-23 (16:45 CDT)
-Status: current sequencing source of truth. Phase plans it points to keep their own detail.
+Last updated: 2026-09-23 (16:45 CDT) for Phases 0–4 below (historical record, all done); "Where we are" refreshed 2026-09-27 (T-17 wrap-up pass).
+Status: superseded as the sequencing source of truth. Phases 0–4 below all finished 2026-09-23/24; current sequencing lives in `docs/MASTER_PLAN_ENGINE_REFINEMENT.md` (engine phases) and `docs/PLAN_TELEGRAM_EXECUTION.md` (execution, Telegram, risk policy). Kept for history and the "Working rules" at the bottom.
 Goal: the system faithfully communicates the owner's 21/200 flag strategy from the closed-candle data it has. Profitability is out of scope and stays labeled as such in every output.
 
-## Where we are (verified live 2026-09-23 16:40 CDT, working tree uncommitted)
+## Where we are (2026-09-27, T-17 wrap-up pass)
 
-| Piece | State | Proof |
-| --- | --- | --- |
-| F1 flag detection coverage (schema 1.12.0) | committed 7119ab1, deployed, verified | prod REST/MCP checks |
-| Package 1: freshness gate, engine-owned `flagTradePlan`, paper ledger, exact-condition replay scoring (schema 1.13.0) | **uncommitted** | test:freshness 10, test:flagplan 35, test:ledger 10 |
-| Package 2: `modelEvidence` (EMA map, 15m/1h/4h flags, channels, divergence, opt-in `include=model`), `flagRecommendation` GOOD/WATCH/BAD/DATA_UNAVAILABLE in default payload, decision contract + review sheet (schema 1.14.0, config 2026.09.23-3) | **uncommitted** | test:flagrec 12; 16 suites 495 green; check:gpt 7,978 |
-| Live default payload | **84,484 B — over the 79,000 B cap** | `buildScalpContext({})` + `filterPayload` |
-| Live recommendation | BTC BAD `net_rr_below_3` (netRR 0.023 on a 0.065% stop); ETH/SOL WATCH `no_plan` with empty supports/opposes/unknowns | same probe |
-| Pyth mark price (P1) | blocked: every Pyth price endpoint keyed | docs/PLAN_PYTH_MARK_PRICE.md |
-| Docs alignment (playbook v2, TRADING_MODEL.md) | plan only | docs/PLAN_STRATEGY_DOCS_ALIGNMENT.md |
-| Sonnet implementer | weekly limit until 2026-09-25 12:00 CT | use Opus for code, Haiku for mechanical doc sync |
+**Live** (schema 1.28.0, configVersion 2026.09.27-2, per the owner's 2026-09-27 status - this pass did not itself re-verify the Vercel deploy): closed-candle 21/200 flag recommendation via REST/MCP; Telegram alerts, tracking, focus mode, Open (early)/Open @ plan; live Jupiter perps execution (bot wallet `JEAzPi…TjwT2`, caps $150 size / 100x leverage / $5 loss-per-trade / $25 daily / 1 open position); wallet risk policy + Steady/Aggressive profiles (Steady live at 0.5%/trade; the 30-trade Steady evaluation started 2026-09-26T22:08Z at $523.14 equity); the equity peak-drawdown kill and 0.1% min-stop-distance floor (G1/G2); the NF stop floor (every plan's stop widened to the fee-aware floor before any gate) and an automatic +1R trailing stop (T-15); trade charts with ENTRY/EXIT markers plus an RSI(14) panel on every touchpoint (T-13, upgraded T-16).
+
+**Paper only**: the spot daily EMA20 trend filter (`spot.html`, P1/P2 built 2026-09-27) - long-or-cash on BTC/ETH/SOL against a Kraken daily close, no live execution; P3 (paper → live) not started.
+
+**Research concluded, no rule change from most of it**: the 2-year perps rule search (76 configs, no net-positive edge, `docs/EDGE_SEARCH_2026-09-27.md` - the spot-trend filter above is what it found instead), swing-timeframe rules (`docs/SWING_STUDY_2026-09-26.md`), mean-reversion-at-zones (`docs/MEANREV_STUDY_2026-09-26.md`), and retest-entry on 2 years (`docs/RETEST_ENTRY_STUDY_2026-09-27.md`) all failed their own out-of-sample bar; the NF-stop-floor + trailing-stop combination (`docs/VARIANTS_STUDY_2026-09-26.md`, `docs/EXITS_STUDY_2026-09-26.md`) is the one exception that did change a rule (T-15). Full list with one-line conclusions each: `docs/DOCUMENTATION_INDEX.md`'s "Current" section and how-to.html's "Research so far".
+
+**Open**: the management study (does the wider NF stop + trailing stop actually hold up net-positive over more live trades - the 30-trade Steady evaluation is the vehicle for that answer), spot-trend P3 (paper → live, a separate plan), a longer live-trading window before any further threshold change, T5 (the kill/arm live drill, owner-only), and 8c (journal) / 3b (positions), deferred as later enhancements.
 
 ## Phase 0 — Land the two packages safely — DONE 2026-09-23 (a556e2c on prod, schema 1.17.0)
 

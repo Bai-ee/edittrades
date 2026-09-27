@@ -64,7 +64,7 @@ const TG_ALWAYS = [
 
 // [step or command, chip, what it does] - execution (T-3), off unless TRADE_EXECUTION_ENABLED=true
 const TG_EXEC = [
-  ['Dry run first', 'Default', 'Mode is DRY RUN until the mode is changed to live in Vercel (env only; /mode shows it). A dry run does everything except sign and send: same checks, same ticket, same PIN, journaled as a note. Do at least 3 dry orders before going live.'],
+  ['Mode: LIVE', 'Since 2026-09-26', 'Execution mode is set in Vercel (env only; /mode shows it) and has been LIVE since 2026-09-26 — a confirmed order signs and sends for real, sized on the active wallet strategy profile (see strategies.html). A dry run (mode = dry) does everything except sign and send: same checks, same ticket, same PIN, journaled as a note.'],
   ['Open @ plan', 'Ready plans only', 'On a GOOD alert or Plan card when the call is GET IN NOW. Builds the order from the engine plan: entry, stop, TP1; size and leverage = the engine suggestion, capped by your caps.'],
   ['Open (early)', 'SETUP / BREAKOUT with levels', 'Available once a SETUP or BREAKOUT already has entry, stop and TP1 but isn\'t ready yet — same checks and ticket as Open @ plan; you\'re choosing to go in ahead of the trigger, not waiting for it.'],
   ['Focus mode', 'auto (default) · off', 'While you have a position open, focus auto quiets every other alert down to just that symbol (health and kill-switch alerts still always send); off sends everything regardless of open positions. Toggle from the persistent menu or /alerts focus auto|off.'],
@@ -72,14 +72,15 @@ const TG_EXEC = [
   ['Confirm + PIN', 'Every time', 'Tap Confirm, then reply /confirm <nonce> <PIN>. The bot deletes that message so the PIN does not stay in the chat. Wrong PIN 3 times → execution auto-kills for 1 hour. Cancel sends nothing.'],
   ['/order', 'Manual', '/order BTC long size 200 lev 5 sl 84390 tp 85146. SL and TP are required; the same checks and ticket apply.'],
   ['/positions', 'Manage', 'Live positions from chain with PnL and a stops: SL ✔ TP ✔ / ⚠ none line: Close, Close 50%, SL→BE, Set SL/TP (/stops <pos> sl <price> tp <price>). Each makes a ticket and needs /confirm with your PIN.'],
-  ['Chart on entry', 'When it lands', 'A chart showing entry, stop and target the moment a plan is ready or taken is planned (T-13) but not yet merged into this build.'],
+  ['Trade chart', 'Every touchpoint', 'ENTRY (dashed white) and, on a close, EXIT (dashed amber) markers plus an RSI(14) panel ship on the same chart at GOOD/Plan, Took it, live fills and Closed here (T-13, upgraded to entry/exit + RSI in T-16).'],
+  ['Automatic trailing stop', '/exec trail on|off', 'Once a live position reaches +1R, the executor tightens its stop toward the best price seen minus 1R, every minute — tighten-only, never widens, capped to one applied step per 5 minutes. On by default; PIN required only to turn it off.'],
   ['/kill · /arm', 'Stop switch', '/kill stops all execution at once, no PIN. /arm <PIN> clears a manual or wrong-PIN kill (an EXECUTION_KILL set in Vercel, or a live drawdown breach, stays until cleared at the source).'],
-  ['/exec', 'Status', 'Mode, caps, kill state, today\'s realized loss and open-position count, plus (once the risk policy is on) equity, exposure and drawdown day/week — one status line for everything execution-related.'],
+  ['/exec', 'Status', 'Mode, caps, kill state, today\'s realized loss and open-position count, plus (once the risk policy is on) equity, exposure, drawdown day/week and the trailing-stop state — one status line for everything execution-related.'],
   ['/risk', 'Wallet-aware sizing', 'Risk policy on top of your caps, sized against your real wallet equity: per-trade risk, exposure, drawdown, gas. Shows equity, exposure, drawdown day/week and the policy; /risk pct 0.3 (or exposure/symbolexposure/dailydd/weeklydd/gas) tightens one, /risk reset clears it. An override can only tighten a knob, never loosen past your active profile\'s own ceiling. The ticket shows the risk and a suggested size when yours is larger.'],
   ['/risk profile', 'Switch strategies', 'Steady (default, 0.5%/trade) vs Aggressive (2.5%/trade, owner target) — both defined and tracked in parallel on every call (see strategies.html), only one ever sizes a real order. Tap Steady/Aggressive on the /risk card, or type /risk profile aggressive; either way, reply /risk profile aggressive PIN within 60 s to confirm. /risk reset clears numeric overrides only — it never changes which profile is active.'],
   ['Boost', 'One-time, next tier only', 'A button on an open-ticket that sizes it up to the next tier\'s multiplier (A/B/C, from the flag\'s own readiness) for that order only — never a standing setting. Refused the same way any order is: drawdown, exposure, equity unavailable, or already at tier A.'],
   ['/risk goal', '+X% by a date, pace shown', '/risk goal 1000 by 2026-12-31 sets a target from today\'s equity; /risk shows the pace (ahead/behind) and, once 25%+ ahead, drawdown caps tighten by that same fraction — never loosen. /risk goal off clears it.'],
-  ['Leverage cap', '2x today · 100x at the venue', 'Jupiter allows up to 100x; your env cap is far tighter while live-testing. Wider stops also leave less leverage available under the liquidation-safety math regardless of the cap — see Risk & sizing → for the exact numbers.']
+  ['Leverage cap', '100x — matches the venue', 'Your env cap now matches Jupiter\'s own 100x max; the liquidation-safety math (a wider stop leaves less leverage available regardless of the cap) is the real limit on most trades — see Risk & sizing → for the exact numbers.']
 ];
 
 // Per-alert verdict + context lines (schema 1.27.0, lib/telegram.js clarity fields).
@@ -148,7 +149,7 @@ const DATA_BLOCK = [
   ['Generated At', 'Snapshot time', 'Should be minutes old. If not, ask again.'],
   ['Closed Through', 'Last closed candle', 'The engine reads closed candles only, so it can trail the live price by one candle.'],
   ['Wallet Updated At', 'Account read', 'Unavailable is not a zero balance.'],
-  ['Schema / Config', 'Versions', 'Instruction schema 1.24.x and the engine configVersion. A config change marks a boundary on the tracker.'],
+  ['Schema / Config', 'Versions', 'Instruction schema 1.27.x and the engine configVersion (payload schema is 1.28.0; the instructions box has not been re-audited to it yet). A config change marks a boundary on the tracker.'],
   ['Warnings', 'Read them', 'Any listed warning means ask again before acting.']
 ];
 
@@ -167,7 +168,7 @@ const RULES = [
   ['Timeframe pairs', '4H → 1m / 3m / 5m (main) · 1H → 1m / 3m · 1D → 15m / 1H · 1W not traded', '2026-09-23', 'Decision 7 (09-23)'],
   ['Stops on mark', 'Stops, Thesis Eliminated and liquidation checked on the Pyth mark', '2026-09-23', 'Decision 5 (09-23)'],
   ['The call', '21/200 flag recommendation; legacy strategies shown, labeled legacy', '2026-09-23', 'Decision 6 (09-23)'],
-  ['Testing window', '2026-09-23 → 2026-10-07; thresholds frozen until 2026-10-08; config boundary marked', '2026-09-23', 'D-variant revised (09-24)']
+  ['Testing window', '2026-09-23 → 2026-10-07; thresholds frozen until 2026-10-08 except the NF stop floor, trailing stop and G1/G2 guardrails (owner-exempted 2026-09-27); config boundary marked at each configVersion change', '2026-09-23', 'D-variant revised (09-24); freeze exceptions: docs/OWNER_DECISIONS_2026-09-27.md, docs/PLAN_RISK_GUARDRAILS_2026-09-27.md']
 ];
 
 // ---------- tracker tiles ----------
@@ -184,7 +185,7 @@ const TRACKER_TILES = [
   ['Wallet value', 'Your account', 'Wallet total over time with GOOD calls and your journal trades marked.'],
   ['Engine vs you', 'Did you follow it?', 'GOOD calls you took, skipped or overrode, from the journal.'],
   ['Calls · served calls', 'What was said', 'Open calls, the 7-day call log and by-day table. "Via" and "Seen in chat" mark calls a GPT or Telegram answer actually served.'],
-  ['1-minute GOOD log', 'When it lands (T-12)', 'Planned: scoring GOOD calls straight from a 1-minute Telegram alert log, tighter than today\'s 10-minute capture cadence. Not yet merged into this build.']
+  ['1-minute GOOD log', 'Live since 2026-09-25 (T-12)', 'GOOD calls are scored from the engine\'s own 1-minute Telegram alert log, tighter than the 10-minute captures they replaced — a GOOD window can last under a minute, so the 10-minute cadence alone was missing most of them (docs/GAP_CHECK_2026-09-26.md).']
 ];
 
 // ---------- journal ----------
@@ -201,7 +202,7 @@ const JOURNAL = [
 
 const LIMITS = [
   'GOOD calls never auto-execute. You tap Open (or Open early) and confirm with your PIN every time — nothing trades on its own.',
-  'Execution stays capped small while live-testing: $20 size, 2x leverage, $2 loss/trade, $25/day, 1 open position — raised only by owner decision, never automatically. Full breakdown: Risk & sizing →.',
+  'Execution stays capped while live-testing: $150 size, 100x leverage, $5 loss/trade, $25/day, 1 open position — raised only by owner decision, never automatically. Full breakdown: Risk & sizing →.',
   'The engine\'s own analysis still can\'t see your open positions — give it entry, size, leverage and liquidation when you ask about one. Telegram\'s /positions is separate: a live on-chain read from the execution stack, isolated from what the GPT and MCP see.',
   'One 15-day window of data. Every rate, win percentage and expectancy on the tracker is provisional.',
   'At the old flat 0.20% cost, the 1m-5m flag styles showed negative net expectancy in replay. Fees are a real share of a tight scalp stop.',
@@ -214,10 +215,31 @@ const AFTER_WINDOW = [
   'Phase 2 starts after the window: failed-flag reversal scouts (a failed long opens a short scout, and the mirror), gated on the MISS_004 fixture.'
 ];
 
+// ---------- research so far ----------
+
+const STUDIES_REPO = 'https://github.com/Bai-ee/snapshot_tradingview/blob/upgrade-signal-engine/docs/';
+
+// [doc filename, one-sentence conclusion]
+const STUDIES = [
+  ['FREQUENCY_STUDY_2026-09-26.md', 'All relaxed-rule variants tested to reach ~10 GOOD/day are net-negative; retest-hold off is the only route to 10/day, and the worst performer.'],
+  ['GAP_CHECK_2026-09-26.md', 'The tracker\'s ~1.3 GOOD/day vs replay\'s ~5/day gap is 10-minute capture cadence missing narrow 2-5 minute GOOD windows, not a scoring bug — led to 1-minute alert-log scoring (T-12).'],
+  ['COST_GATE_STUDY_2026-09-26.md', 'Only one cell (min stop ≥ 0.8%, longs only, n=45) passes a strict out-of-sample split on the 85-day fixture.'],
+  ['CONDITIONS_STUDY_2026-09-26.md', '95% of GOOD calls carried a stop under 0.5% of entry — inside or barely outside round-trip cost — so most winners were net losers before the stop floor.'],
+  ['RISK_SIZING_STUDY_2026-09-26.md', 'The strategy\'s edge is flat-to-negative after fees at realistic stop widths; sizing alone can\'t fix that, but 0.5%/trade keeps p95 drawdown near 15% vs ~28% at 1%.'],
+  ['EXITS_STUDY_2026-09-26.md', 'Of six exit variants tested on the same 881 live-rule signals, only a +1R trailing stop flips net R positive on both out-of-sample halves — the evidence behind T-15\'s automatic trailing stop.'],
+  ['VARIANTS_STUDY_2026-09-26.md', 'Of 15 rule-variant hypotheses tested side by side, NF-live plus a 1R trailing stop is the only one that turns median net R positive on both halves (61% win rate) — shipped as T-15.'],
+  ['SWING_STUDY_2026-09-26.md', 'None of nine swing-timeframe rules shows a usable edge on 85 days; the flag/1D SWING strategy has been dead code in production (never requests the 3d timeframe its own gate needs).'],
+  ['MEANREV_STUDY_2026-09-26.md', 'None of three mean-reversion-at-zones rule variants clears net-positive in both out-of-sample halves, and none beats a seeded random control.'],
+  ['HISTORY_2Y_2026-09-26.md', 'A corrected ~522-day rerun of the live rules reaches the same conclusion as the 85-day study: net-negative in both out-of-sample halves, driven heavily by a handful of catastrophic BTC trades.'],
+  ['EDGE_SEARCH_2026-09-27.md', '76 perps rule configs across two years show no net-positive edge; found instead a spot daily EMA20 trend filter that beats buy & hold out of sample on all three coins — now paper-tracked on Spot trend →.'],
+  ['RETEST_ENTRY_STUDY_2026-09-27.md', 'Retest-of-breakout entries with an NF-floored stop and a structure exit still fail out-of-sample on a 2-year window — every rule, including its random control, is net-median-negative in both halves.']
+];
+
 // ---------- markup ----------
 
 const defList = (id, rows) => `<dl class="def-list" id="${id}">${rows.map(([term, chip, text]) => `<div class="def-row"><dt>${esc(term)}<span class="label">${esc(chip)}</span></dt><dd>${esc(text)}</dd></div>`).join('')}</dl>`;
 const plainList = (id, items) => `<ul class="howto-list" id="${id}">${items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`;
+const studiesList = (id, rows) => `<ul class="howto-list" id="${id}">${rows.map(([file, text]) => `<li><a class="nav-link" href="${esc(STUDIES_REPO + file)}" target="_blank" rel="noopener">${esc(file.replace(/\.md$/, ''))}</a> — ${esc(text)}</li>`).join('')}</ul>`;
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 export function renderHowTo() {
@@ -225,9 +247,9 @@ export function renderHowTo() {
     + `<a class="nav-link" id="howto-back-link" href="index.html">← Call tracker</a></header>`
     + jumpNav('howto-jump-nav', [
       ['#howto-what-section', 'What'], ['#howto-routine-section', 'Routine'], ['#howto-telegram-section', 'Telegram'],
-      ['#howto-chatgpt-section', 'ChatGPT'], ['#howto-rules-section', 'Rules'], ['#howto-tracker-section', 'Tracker'],
+      ['#howto-chatgpt-section', 'ChatGPT'], ['#howto-rules-section', 'Rules'], ['#howto-studies-section', 'Research'], ['#howto-tracker-section', 'Tracker'],
       ['#howto-journal-section', 'Journal'], ['#howto-limits-section', 'Limits'],
-      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="howto-nav-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="howto-nav-strategies-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
+      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="howto-nav-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="howto-nav-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="howto-nav-spot-trend-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
     ]);
 
   const what = zone({
@@ -283,7 +305,7 @@ export function renderHowTo() {
         foot: 'Rows: Plan · Thesis · Chart, then Track · Took it · Skipped. /signals carries them per symbol block. A button on an alert older than the bot\'s memory answers [expired — send /signals].'
       }),
       tile({
-        id: 'howto-telegram-execution-tile', title: 'Execution', tag: 'Dry run first · PIN · /kill', lg: 12,
+        id: 'howto-telegram-execution-tile', title: 'Execution', tag: 'Live · PIN · /kill', lg: 12,
         body: defList('howto-telegram-execution-list', TG_EXEC),
         foot: 'Off unless execution is enabled; then every execution button and command answers "Execution off". The GPT and MCP can never reach it.'
       })
@@ -291,7 +313,7 @@ export function renderHowTo() {
   });
 
   const chatgpt = zone({
-    id: 'howto-chatgpt-section', title: 'ChatGPT', sub: 'EditTrades Custom GPT · schema 1.24.x',
+    id: 'howto-chatgpt-section', title: 'ChatGPT', sub: 'EditTrades Custom GPT · schema 1.27.x',
     tiles: [
       ...GPT_COMMANDS.map(([cmd, desc, chip, sm, lg]) => tile({
         id: `howto-cmd-${slug(cmd)}-tile`, as: 'div', sm, lg,
@@ -314,10 +336,19 @@ export function renderHowTo() {
     + RULES.map(([rule, value, since, src]) => `<tr id="howto-rule-${slug(rule)}-row"><td class="rule-name">${esc(rule)}</td><td class="rule-value">${esc(value)}</td><td>${esc(since)}</td><td class="rule-src">${esc(src)}</td></tr>`).join('')
     + `</tbody></table></div>`;
   const rules = zone({
-    id: 'howto-rules-section', title: 'The rules in force', sub: 'Frozen until 2026-10-08',
+    id: 'howto-rules-section', title: 'The rules in force', sub: 'Frozen until 2026-10-08, except NF stop floor / trailing stop / guardrails (freeze lifted 2026-09-27)',
     tiles: [tile({
-      id: 'howto-rules-tile', title: 'Rules', tag: 'config 2026.09.24-5', body: rulesTable,
+      id: 'howto-rules-tile', title: 'Rules', tag: 'config 2026.09.27-2', body: rulesTable,
       foot: 'Sources: config/engine.json, docs/OWNER_DECISIONS_2026-09-23.md, docs/OWNER_DECISIONS_2026-09-24.md in the engine repo. The flag detector runs on 1m / 3m / 5m.'
+    })]
+  });
+
+  const studies = zone({
+    id: 'howto-studies-section', title: 'Research so far', sub: '12 studies, 2026-09-26/27',
+    tiles: [tile({
+      id: 'howto-studies-tile', title: 'What the research found', lg: 12,
+      body: studiesList('howto-studies-list', STUDIES),
+      foot: 'Full docs, code and tests: github.com/Bai-ee/snapshot_tradingview, branch upgrade-signal-engine, docs/. Research only unless a doc says otherwise — most of these did not become a rule change.'
     })]
   });
 
@@ -364,7 +395,7 @@ ${PAGE_CSS}
 <body>
 <main id="howto-page-main">
 ${topStrip}
-${[what, routine, telegram, chatgpt, rules, tracker, journal, limits].join('\n')}
+${[what, routine, telegram, chatgpt, rules, studies, tracker, journal, limits].join('\n')}
 ${bottomStrip}
 </main>
 </body>

@@ -1,6 +1,6 @@
 # T-3 — Place and manage Jupiter perp trades from Telegram (owner-approved 2026-09-24)
 
-Status: LIVE since 2026-09-26 (bot wallet JEAzPi…TjwT2; T1–T4 of docs/PLAN_LIVE_PERPS_TEST.md passed on real trades; T5 kill/arm drill pending owner). Risk policy (T-8) live; profiles (T-9 v2) in progress on branch risk-profiles.
+Status: LIVE since 2026-09-26 (bot wallet JEAzPi…TjwT2; T1–T4 of docs/PLAN_LIVE_PERPS_TEST.md passed on real trades; T5 kill/arm drill pending owner). Risk policy (T-8) live; profiles (T-9 v2, steady/aggressive, tiers/Boost/goals) live, default `steady`; env caps raised to $150 size / 100x leverage / $5 loss-per-trade / $25 daily / 1 open position; equity peak-drawdown kill (G1) and the 0.1% min-stop-distance floor / 0.5% wallet-risk sizing (G2) live; NF stop floor + automatic +1R trailing stop (T-15) live. 30-trade Steady evaluation started 2026-09-26T22:08Z at $523.14 equity - see "Profiles" below.
 Goal: from a GOOD / Plan card, tap Open → see the exact order → confirm with a PIN → the engine wallet places the Jupiter perp with SL/TP → the trade is journaled, tracked, and manageable (close, move SL/TP) from Telegram. MCP and the GPT never get this path.
 
 ## Non-negotiables

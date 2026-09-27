@@ -955,7 +955,7 @@ export function renderChangelogPage({ map, changelog, verify = null, versions = 
     + `<a class="nav-link" id="map-back-link" href="index.html">← Call tracker</a></header>`
     + jumpNav('map-jump-nav', [
       ['#map-board-zone', 'Board'], ['#map-outputs-zone', 'Outputs'], ['#map-changelog-zone', 'Changelog'],
-      ['index.html', '← Tracker', 'class="nav-link" id="map-nav-tracker-link"'], ['how-to.html', 'How to', 'class="nav-link" id="map-nav-how-to-link"']
+      ['index.html', '← Tracker', 'class="nav-link" id="map-nav-tracker-link"'], ['how-to.html', 'How to', 'class="nav-link" id="map-nav-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="map-nav-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="map-nav-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="map-nav-spot-trend-link"']
     ]);
 
   const verifyText = verify && verify.checkedAt

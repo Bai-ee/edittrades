@@ -117,7 +117,7 @@ export function renderSpot(data = { days: [], flips: [], ledger: null, meta: nul
     + `<a class="nav-link" id="spot-trend-back-link" href="index.html">← Call tracker</a></header>`
     + jumpNav('spot-trend-jump-nav', [
       ['#spot-trend-state-row', 'Today'], ['#spot-trend-equity-zone', 'Equity'], ['#spot-trend-flips-zone', 'Flips'], ['#spot-trend-why-zone', 'Why'],
-      ['index.html', '← Tracker', 'class="nav-link" id="spot-trend-nav-back-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="spot-trend-nav-strategies-link"']
+      ['index.html', '← Tracker', 'class="nav-link" id="spot-trend-nav-back-link"'], ['how-to.html', 'How to use →', 'class="nav-link" id="spot-trend-nav-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="spot-trend-nav-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="spot-trend-nav-strategies-link"']
     ]);
   const bottomStrip = `<footer class="edge-strip" id="spot-trend-bottom-edge-strip"><span id="spot-trend-footer-note">PAPER ONLY · NO ORDERS · DAILY UTC CLOSE, KRAKEN · NOT FINANCIAL ADVICE</span></footer>`;
 

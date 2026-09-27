@@ -744,10 +744,16 @@ async function run() {
       assert(howTo.includes(`data-command="${cmd}"`), `command ${cmd}`);
     }
     assert(howTo.includes('&quot;trades&quot; gives the same answer'), 'trades = signals');
-    for (const id of ['howto-what-section', 'howto-routine-section', 'howto-telegram-section', 'howto-chatgpt-section', 'howto-rules-section', 'howto-tracker-section', 'howto-journal-section', 'howto-limits-section',
-      'howto-telegram-menu-tile', 'howto-telegram-levels-tile', 'howto-telegram-buttons-tile', 'howto-classes-tile', 'howto-data-block-tile', 'howto-rules-table']) {
+    for (const id of ['howto-what-section', 'howto-routine-section', 'howto-telegram-section', 'howto-chatgpt-section', 'howto-rules-section', 'howto-studies-section', 'howto-tracker-section', 'howto-journal-section', 'howto-limits-section',
+      'howto-telegram-menu-tile', 'howto-telegram-levels-tile', 'howto-telegram-buttons-tile', 'howto-classes-tile', 'howto-data-block-tile', 'howto-rules-table', 'howto-studies-tile', 'howto-studies-list']) {
       assert(howTo.includes(`id="${id}"`), `missing #${id}`);
       if (id.endsWith('-section')) assert(howTo.includes(`href="#${id}"`), `jump nav to #${id}`);
+    }
+    assert(/<a href="spot.html"[^>]*id="howto-nav-spot-trend-link"/.test(howTo), 'how-to links to spot trend');
+    // Research so far: every 2026-09-26/27 study doc linked to its GitHub blob, one per line.
+    for (const doc of ['FREQUENCY_STUDY_2026-09-26.md', 'GAP_CHECK_2026-09-26.md', 'COST_GATE_STUDY_2026-09-26.md', 'CONDITIONS_STUDY_2026-09-26.md', 'RISK_SIZING_STUDY_2026-09-26.md',
+      'EXITS_STUDY_2026-09-26.md', 'VARIANTS_STUDY_2026-09-26.md', 'SWING_STUDY_2026-09-26.md', 'MEANREV_STUDY_2026-09-26.md', 'HISTORY_2Y_2026-09-26.md', 'EDGE_SEARCH_2026-09-27.md', 'RETEST_ENTRY_STUDY_2026-09-27.md']) {
+      assert(howTo.includes(`https://github.com/Bai-ee/snapshot_tradingview/blob/upgrade-signal-engine/docs/${doc}`), `study link: ${doc}`);
     }
     for (const key of ['Signals', 'Flags', 'Why BTC', 'Why ETH', 'Why SOL', 'Charts', 'Wallet', 'Journal', 'Status', 'Alerts']) {
       assert(howTo.includes(`data-menu-key="${key}"`), `menu key ${key}`);
@@ -758,10 +764,17 @@ async function run() {
     // Rules in force must match the owner decisions (docs/OWNER_DECISIONS_2026-09-24.md).
     for (const fact of ['≥ 2.5R to TP1, gross', 'net_rr_low', 'gross 3.0', 'must not wick through the stop', '≤ 3% from entry', 'Long 0.34% · short 0.14%', '0.20% when direction is unresolved',
       '4H → 1m / 3m / 5m (main) · 1H → 1m / 3m · 1D → 15m / 1H', '2026-09-23 → 2026-10-07', 'frozen until 2026-10-08', '01:00-05:00 America/Chicago', 'Took it', 'Skipped',
-      'getScalpContext', 'postJournal', 'getJournal', '1.24.x', 'open, close, adjust, skip, note', 'MISS_004']) {
+      'getScalpContext', 'postJournal', 'getJournal', '1.27.x', 'open, close, adjust, skip, note', 'MISS_004']) {
+      assert(howTo.includes(esc(fact)), `how-to states: ${fact}`);
+    }
+    // Live execution state (T-15, 2026-09-27): mode is live, caps raised, trailing stop and
+    // trade-chart v2 documented; the old dry-run-default / 2x-leverage / not-yet-merged
+    // copy this replaced must be gone.
+    for (const fact of ['Mode: LIVE', '$150 size, 100x leverage, $5 loss/trade, $25/day, 1 open position', 'Automatic trailing stop', '100x — matches the venue', 'config 2026.09.27-2']) {
       assert(howTo.includes(esc(fact)), `how-to states: ${fact}`);
     }
     assert(!/net R:R ≥ 2\.0|restarted/i.test(howTo), 'no stale net-gate or restart copy');
+    assert(!/Mode is DRY RUN until|Do at least 3 dry orders before going live|2x today · 100x at the venue|Planned: scoring GOOD calls straight from a 1-minute|not yet merged into this build/i.test(howTo), 'no stale dry-run/leverage/1-minute-log copy');
     assert(!/<script/i.test(howTo), 'no scripts');
     assert(!/SCALP_CONTEXT_API_KEY|Bearer|walletAddress/i.test(howTo), 'no secrets or wallet fields');
     assert(howTo.includes('prefers-color-scheme: dark') && howTo.includes('prefers-color-scheme: light'), 'both schemes');
@@ -781,12 +794,15 @@ async function run() {
       assert(risk.includes(`id="${id}"`), `missing #${id}`);
       if (id.endsWith('-section')) assert(risk.includes(`href="#${id}"`), `jump nav to #${id}`);
     }
+    assert(/<a href="spot.html"[^>]*id="risk-nav-spot-trend-link"/.test(risk), 'risk links to spot trend');
     // Every cap/default cited must match its live source (lib/execution/gates.js CAP_ENV,
-    // lib/execution/riskPolicy.js RISK_DEFAULTS, config/engine.json risk, docs/AGENT_SESSION_RULES.md).
-    for (const fact of ['100x', '0.34%', '0.14%', '$20', '2x', '$2', '$25', 'RISK_PCT_PER_TRADE', '0.5%', '25%', '15%', '3%', '8%', '0.05 SOL',
-      '+0.47R gross', '-2.37R net', '0.02–0.07%', 'JEAzPi']) {
+    // lib/execution/riskPolicy.js RISK_DEFAULTS, config/engine.json risk,
+    // docs/PLAN_TELEGRAM_EXECUTION.md's 30-trade-evaluation caps line, 2026-09-26+).
+    for (const fact of ['100x', '0.34%', '0.14%', '$150', '$5', '$25', 'RISK_PCT_PER_TRADE', '0.5%', '25%', '15%', '3%', '8%', '0.05 SOL', 'Peak-drawdown kill',
+      '+0.47R gross', '-2.37R net', '0.02–0.07%', 'JEAzPi', '523.14']) {
       assert(risk.includes(esc(fact)), `risk states: ${fact}`);
     }
+    assert(!/EXECUTION_MAX_SIZE_USD<\/dt><dd>\$20|EXECUTION_MAX_LEVERAGE<\/dt><dd>2x|EXECUTION_MAX_LOSS_USD_PER_TRADE<\/dt><dd>\$2</.test(risk), 'no stale env-cap values');
     assert(!/<script/i.test(risk), 'no scripts');
     assert(!/SCALP_CONTEXT_API_KEY|Bearer|SOLANA_PRIVATE_KEY|EXECUTION_PIN=|RPC_URL/i.test(risk), 'no secrets or key material');
     assert(risk.includes('prefers-color-scheme: dark') && risk.includes('prefers-color-scheme: light'), 'both schemes');
@@ -1276,6 +1292,7 @@ async function run() {
     assert(index.includes('id="wallet-strategies-live-name">Aggressive<'), 'index teaser also reflects the live profile');
     const howTo = readFileSync(path.join(out, 'how-to.html'), 'utf8');
     assert(howTo.includes('href="strategies.html"') && howTo.includes('/risk profile'), 'how-to.html links to strategies.html and documents the switch');
+    assert(/<a href="spot.html"[^>]*id="strategies-nav-spot-trend-link"/.test(strategies), 'strategies links to spot trend');
   });
 
   // ------------------------------------------------ rec calls scored on candidate levels
@@ -2892,6 +2909,8 @@ async function run() {
     const empty = renderSpot();
     for (const id of ['spot-trend-state-row', 'spot-trend-equity-panel', 'spot-trend-flips-table', 'spot-trend-backtest-panel', 'spot-trend-state-btc']) assert(empty.includes(`id="${id}"`), `empty page has ${id}`);
     assert(empty.includes('[NO DAILY CLOSE YET]') && empty.includes('[NO FLIPS YET]'), 'empty states shown');
+    assert(/<a href="how-to.html"[^>]*id="spot-trend-nav-how-to-link"/.test(empty), 'spot links to how-to');
+    assert(/<a href="risk.html"[^>]*id="spot-trend-nav-risk-link"/.test(empty), 'spot links to risk');
     const dir = tmp();
     updateSpotTrend(dir, { BTC: spotDays.slice(0, 250) }, spotDays[250].t);
     updateSpotTrend(dir, { BTC: spotDays.slice(0, 260) }, spotDays[260].t);

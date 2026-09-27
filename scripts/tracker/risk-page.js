@@ -30,14 +30,17 @@ const VENUE_FACTS = [
 ];
 
 // ---------- layer 2: the hard env caps ----------
-// Deployed live values per docs/AGENT_SESSION_RULES.md line 3 ("caps $20 / 2x / $2 / $25 / 1"),
-// not the larger placeholder numbers an earlier draft of this page assumed - verified against
-// the current rules doc rather than guessed. Env var names + the drift cap default: lib/execution/gates.js CAP_ENV,
-// entry-drift default from docs/PLAN_TELEGRAM_EXECUTION.md review fix #2 ("default 15" bps).
+// Deployed live values per docs/PLAN_TELEGRAM_EXECUTION.md's 30-trade evaluation line
+// ("env caps size $150 / loss $5 / day $25 / 1 open / 100x bind throughout", started
+// 2026-09-26T22:08Z) - verified against the current plan doc rather than guessed. Raised
+// from the earlier live-test ceiling ($20 / 2x / $2) once profiles (T-9 v2) and the risk
+// policy (T-8, G1) were live to size against real wallet equity instead. Env var names +
+// the drift cap default: lib/execution/gates.js CAP_ENV, entry-drift default from
+// docs/PLAN_TELEGRAM_EXECUTION.md review fix #2 ("default 15" bps).
 const ENV_CAPS = [
-  ['EXECUTION_MAX_SIZE_USD', '$20', 'largest position (notional) any single order can open'],
-  ['EXECUTION_MAX_LEVERAGE', '2x', 'far below the venue\'s 100x — this is the deliberate live-test ceiling, not a venue limit'],
-  ['EXECUTION_MAX_LOSS_USD_PER_TRADE', '$2', 'refuses an order whose loss at the stop would exceed this'],
+  ['EXECUTION_MAX_SIZE_USD', '$150', 'largest position (notional) any single order can open'],
+  ['EXECUTION_MAX_LEVERAGE', '100x', 'matches the venue\'s own max — the liquidation-safety math (lib/riskEngine.js) and the wallet-aware risk policy below are the real limits on most trades now'],
+  ['EXECUTION_MAX_LOSS_USD_PER_TRADE', '$5', 'refuses an order whose loss at the stop would exceed this'],
   ['EXECUTION_MAX_DAILY_LOSS_USD', '$25', 'refuses new orders once today\'s realized loss reaches this'],
   ['EXECUTION_MAX_OPEN_POSITIONS', '1', 'refuses a new order while this many are already open'],
   ['EXECUTION_MAX_ENTRY_DRIFT_BPS', '15 bps (default)', 'refuses a fill that has moved more than this from the plan\'s entry']
@@ -51,20 +54,20 @@ const WALLET_POLICY = [
   ['RISK_MAX_PER_SYMBOL_PCT', '15%', 'one symbol\'s notional as a % of equity'],
   ['RISK_DAILY_DRAWDOWN_PCT', '3%', 'today\'s realized loss vs. the equity you started the day with — breach engages the kill switch'],
   ['RISK_WEEKLY_DRAWDOWN_PCT', '8%', 'last 7 days\' realized loss vs. week-start equity — breach engages the kill switch'],
-  ['RISK_MIN_FREE_GAS_SOL', '0.05 SOL', 'floor of free (non-position) SOL the signing wallet must keep for fees']
+  ['RISK_MIN_FREE_GAS_SOL', '0.05 SOL', 'floor of free (non-position) SOL the signing wallet must keep for fees'],
+  ['Peak-drawdown kill (G1)', '15%', 'equity falling this far below its own stored high-water mark engages the kill switch, independent of the daily/weekly checks above — 25% on the Aggressive profile; docs/PLAN_RISK_GUARDRAILS_2026-09-27.md']
 ];
 
 // ---------- worked example ----------
-// Equity: owner-reported bot-wallet snapshot, ~0.12 SOL (docs/PROMPT_T14_AGENT_K.md line 21,
-// "fund the bot wallet (JEAzPi...TjwT2) rather than trading the main wallet"; full address in
-// scripts/transfer-funds.js:19). SOL/USD used only to express that in dollars for this example
-// (CoinGecko spot, 2026-09-26, SOL ≈ $121.51) - illustrative, not a live figure.
-const EXAMPLE_EQUITY_SOL = 0.12;
-const EXAMPLE_SOL_USD = 121.51;
-const EXAMPLE_EQUITY_USD = EXAMPLE_EQUITY_SOL * EXAMPLE_SOL_USD; // ≈ $14.58
-const EXAMPLE_PCT_PER_TRADE = 0.5; // RISK_DEFAULTS.pctPerTrade, lib/execution/riskPolicy.js
-const EXAMPLE_MAX_SIZE_CAP = 20; // EXECUTION_MAX_SIZE_USD live value, docs/AGENT_SESSION_RULES.md
-const EXAMPLE_LEVERAGE_CAP = 2; // EXECUTION_MAX_LEVERAGE live value, docs/AGENT_SESSION_RULES.md
+// Equity: the bot wallet's real starting equity for the live 30-trade Steady evaluation -
+// $523.14 ($504.30 USDC margin + $18.71 SOL/BTC/ETH holdings), started 2026-09-26T22:08Z
+// on prod 507cace (docs/PLAN_TELEGRAM_EXECUTION.md "30-trade Steady evaluation"). A fixed
+// snapshot, not a live read - update it if the tracker's own wallet-value tile has moved
+// well away from it.
+const EXAMPLE_EQUITY_USD = 523.14;
+const EXAMPLE_PCT_PER_TRADE = 0.5; // RISK_DEFAULTS.pctPerTrade / steady.riskPctPerTrade, lib/execution/riskPolicy.js
+const EXAMPLE_MAX_SIZE_CAP = 150; // EXECUTION_MAX_SIZE_USD live value, docs/PLAN_TELEGRAM_EXECUTION.md
+const EXAMPLE_LEVERAGE_CAP = 100; // EXECUTION_MAX_LEVERAGE live value, docs/PLAN_TELEGRAM_EXECUTION.md
 const EXAMPLE_LIQ_BUFFER = 0.05; // config/engine.json risk.liquidationBufferPct
 const EXAMPLE_MAINT_MARGIN = 0.3; // config/engine.json risk.maintenanceMarginPct
 const EXAMPLE_STOPS_PCT = [0.3, 0.65, 1, 1.5, 3];
@@ -119,8 +122,8 @@ const STEPS = [
 
 // ---------- growing size safely ----------
 const GROWING_SIZE = [
-  'There is no automatic step-up. The env caps ($20 / 2x / $2 / $25 / 1 today) only change when someone edits them in Vercel — that\'s a deliberate choke point, not a bug.',
-  'docs/PLAN_TELEGRAM_EXECUTION.md\'s own go-live plan (phase E) is the precedent: go live with tiny caps only after ≥ 3 clean dry-run orders, then raise by owner decision only, never automatically.',
+  'There is no automatic step-up. The env caps ($150 / 100x / $5 / $25 / 1 today) only change when someone edits them in Vercel — that\'s a deliberate choke point, not a bug.',
+  'docs/PLAN_TELEGRAM_EXECUTION.md\'s own go-live plan (phase E) was the precedent that got here: go live with tiny caps only after ≥ 3 clean dry-run orders (done 2026-09-26), then raise by owner decision only, never automatically — which is how the caps above replaced the original $20 / 2x / $2 live-test ceiling.',
   'Keep loss-per-trade in the 0.5–1% of equity range even once caps are raised — RISK_PCT_PER_TRADE defaults to 0.5% and can be tightened with /risk pct, never loosened past 2% (RISK_PCT_PER_TRADE_MAX).',
   'The daily/weekly drawdown kill (3% / 8%) is the backstop if sizing discipline slips — it engages the kill switch on its own, independent of any cap you\'ve set.',
   `Fund the bot wallet (JEAzPi…TjwT2 — scripts/transfer-funds.js) rather than trading the main wallet. Every % above is relative to THIS wallet's equity: a bigger wallet balance changes every suggested size and risk $ figure without you touching a single env var.`
@@ -153,7 +156,7 @@ export function renderRisk() {
     + jumpNav('risk-jump-nav', [
       ['#risk-intro-section', 'Overview'], ['#risk-layers-section', 'Layers'], ['#risk-example-section', 'Sizing example'], ['#risk-net-r-section', 'Net R'],
       ['#risk-steps-section', 'Step by step'], ['#risk-growing-section', 'Growing size'], ['#risk-tracker-section', 'Tracker numbers'],
-      ['how-to.html', '← How to use', 'class="nav-link" id="risk-nav-howto-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="risk-nav-strategies-link"'], ['index.html', 'Call tracker →', 'class="nav-link" id="risk-nav-tracker-link"']
+      ['how-to.html', '← How to use', 'class="nav-link" id="risk-nav-howto-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="risk-nav-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="risk-nav-spot-trend-link"'], ['index.html', 'Call tracker →', 'class="nav-link" id="risk-nav-tracker-link"']
     ]);
 
   const intro = zone({
@@ -183,9 +186,9 @@ export function renderRisk() {
     tiles: [
       tile({
         id: 'risk-example-tile', lg: 12,
-        body: `<p class="note" id="risk-example-intro">At ${EXAMPLE_EQUITY_SOL} SOL (~${usd(EXAMPLE_EQUITY_USD)} at a recent SOL price), risking the default 0.5% per trade is ${usd(EXAMPLE_EQUITY_USD * EXAMPLE_PCT_PER_TRADE / 100)} — before any cap or leverage math. Two steps: <b>risk $ = equity × pct</b>, then <b>size = risk $ ÷ stop distance %</b>, capped at ${usd(EXAMPLE_MAX_SIZE_CAP)} (EXECUTION_MAX_SIZE_USD). Leverage is whichever is smaller of the liquidation-safety cap (lib/riskEngine.js maxLeverageForStop, ≈100 / (stop% + 0.35)) and today's env cap of ${EXAMPLE_LEVERAGE_CAP}x — at these stop distances the env cap always binds first.</p>`
+        body: `<p class="note" id="risk-example-intro">At the bot wallet's real starting equity for the live evaluation (~${usd(EXAMPLE_EQUITY_USD)}), risking the default 0.5% per trade is ${usd(EXAMPLE_EQUITY_USD * EXAMPLE_PCT_PER_TRADE / 100)} — before any cap or leverage math. Two steps: <b>risk $ = equity × pct</b>, then <b>size = risk $ ÷ stop distance %</b>, capped at ${usd(EXAMPLE_MAX_SIZE_CAP)} (EXECUTION_MAX_SIZE_USD). Leverage is whichever is smaller of the liquidation-safety cap (lib/riskEngine.js maxLeverageForStop, ≈100 / (stop% + 0.35)) and today's env cap of ${EXAMPLE_LEVERAGE_CAP}x — now that the env cap matches the venue, the liquidation-safety math is usually the tighter one except at the very tightest stops.</p>`
           + sizingTable()
-          + `<p class="note" id="risk-example-note">Margin = size ÷ leverage: what actually gets locked up as collateral. This wallet's equity is smaller than the $20 size cap itself, so the wallet-risk layer — not the env cap — is usually the tighter limit right now; a bigger wallet balance raises every number in this table without any env change.</p>`
+          + `<p class="note" id="risk-example-note">Margin = size ÷ leverage: what actually gets locked up as collateral. At this wallet's equity, the ${usd(EXAMPLE_MAX_SIZE_CAP)} size cap — not the 0.5%-of-equity risk budget — is usually the tighter limit at tight-to-moderate stops (the 0.3-1.5% rows below); only the widest stops fall back to sizing purely off the risk budget. A bigger wallet balance raises every risk-budget number here without any env change, but the size cap stays fixed until raised by owner decision.</p>`
       })
     ]
   });

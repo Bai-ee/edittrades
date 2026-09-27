@@ -1,7 +1,7 @@
 # T1 — Call tracker: automatic collection, scoring, and a daily review page
 
 Last updated: 2026-09-23
-Status: built 2026-09-23. Page: https://edittrades-tracker.vercel.app (public URL, no account data). GitHub Pages and 10-min cadence dropped: GitHub Free bills private-repo Actions at 1 min per job, so one merged job every 30 min (1,440 min/month) with Kraken 1m backfill for candle continuity.
+Status: built 2026-09-23, since grown to six pages (index, how-to, risk & sizing, wallet strategies, spot trend, system map). Live site: https://bai-ee.github.io/edittrades-tracker (GitHub Pages, serves every `docs/*.html`; the Vercel deploy at https://edittrades-tracker.vercel.app exists too but only reliably serves `index.html`, so every cross-page link and alert uses the GitHub Pages URL - `scripts/tracker/alerts.js` `PAGES_URL`). 10-min cadence dropped: GitHub Free bills private-repo Actions at 1 min per job, so one merged job every 30 min (1,440 min/month) with Kraken 1m backfill for candle continuity.
 Goal: every engine call (flag plan + 21/200 recommendation) is recorded automatically, scored against later closed candles, and shown on one page the owner opens day to day. No self-tuning: the page shows numbers; threshold changes stay owner decisions.
 
 ## Shape
