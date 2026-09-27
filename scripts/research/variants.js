@@ -76,7 +76,7 @@ import { RSI, MACD } from 'technicalindicators';
 
 import { ENGINE_CONFIG, setConfigOverride } from '../../config/engine.js';
 import { buildScalpContext, dropUnclosedCandles, SYMBOLS, TIMEFRAMES, INTERVAL_MS } from '../../services/scalpContext.js';
-import { loadHistoryDir, closedRows, clockCloses, makeReplayFetch } from '../replay.js';
+import { loadHistoryDir, clockCloses, makeReplayFetch } from '../replay.js';
 import { scoreSignal } from '../swing/run.js';
 import { FILL_WINDOW_CANDLES, round, median, isFiniteNumber } from '../tracker/walk-outcome.js';
 import { netR } from '../tracker/costs.js';
@@ -125,8 +125,24 @@ async function buildPlain(symbol, historyByTf, cutMs, timeframes) {
   }));
 }
 
-function ownTimeframeAtr(historyByTf, tf, cutMs, period) {
-  const candles = closedRows(historyByTf[tf], tf, cutMs, period + 50);
+/**
+ * Closed candles for `tf` as of `cutMs`, correct for BOTH native timeframes (1m/5m/15m/
+ * 1h/4h/1d, read straight off `historyByTf`) and derived ones (3m - "derived, never
+ * stored", scripts/replay.js's own NATIVE_TIMEFRAMES comment). A candidate's own
+ * timeframe is 1m/3m/5m per `flag.timeframes`, so 3m candidates are common; reading
+ * `historyByTf['3m']` directly (as an earlier version of this file did) silently returns
+ * an empty array for every one of them - `makeReplayFetch` is the same production
+ * abstraction `buildPlain`/`servedCount` already route every candle read through
+ * (`services/marketData.js`'s `getCandlesWithProvenance`, which performs the 3m
+ * aggregation), so this is the one correct way to fetch a timeframe's candles here.
+ */
+async function fetchClosedCandles(historyByTf, cutMs, tf, limit) {
+  const env = await makeReplayFetch(historyByTf, cutMs)(null, tf, limit);
+  return dropUnclosedCandles(env.candles, tf, cutMs);
+}
+
+async function ownTimeframeAtr(historyByTf, cutMs, tf, period) {
+  const candles = await fetchClosedCandles(historyByTf, cutMs, tf, period + 50);
   if (candles.length < period + 1) return null;
   const r = calculateATR(candles, period);
   return r && isFiniteNum(r.atr) ? r.atr : null;
@@ -292,7 +308,7 @@ export function goldenPocketZone(direction, candles, cfg) {
  *   requireMacdTf:'own'|'15m'|null, requireGpFilter:bool, directionFilter:'long'|'short'|null
  * @returns {{entry:number, stop:number, tp1:number, grossRR:number, netRR:number|null, stopDistancePct:number}|null}
  */
-export function buildResearchPlan(candidate, ctx, cfg, ruleOpts) {
+export async function buildResearchPlan(candidate, ctx, cfg, ruleOpts) {
   if (candidate.chaseRisk === true) return null;
   const direction = candidate.direction;
   if (ruleOpts.directionFilter && direction !== ruleOpts.directionFilter) return null;
@@ -341,12 +357,12 @@ export function buildResearchPlan(candidate, ctx, cfg, ruleOpts) {
   // failing candidate ranks 'rejected' and a different candidate can win selectBest) ---
   if (ruleOpts.requireMacdTf) {
     const tf = ruleOpts.requireMacdTf === 'own' ? candidate.timeframe : '15m';
-    const macdCandles = closedRows(historyByTf[tf], tf, cutMs, 200);
+    const macdCandles = await fetchClosedCandles(historyByTf, cutMs, tf, 200);
     const macdSign = macdHistogramSign(macdCandles);
     if (macdSign === null || macdSign !== sign) return null;
   }
   if (ruleOpts.requireGpFilter) {
-    const ownCandles = closedRows(historyByTf[candidate.timeframe], candidate.timeframe, cutMs, 500);
+    const ownCandles = await fetchClosedCandles(historyByTf, cutMs, candidate.timeframe, 500);
     const gp = goldenPocketZone(direction, ownCandles, cfg);
     if (!gp || !(entry >= gp.low && entry <= gp.high)) return null;
   }
@@ -412,7 +428,7 @@ function processCloseL0(s, symbol, cutMs, candles1m, seen, sink) {
 }
 
 /** Every other "pool" variant: full confirmed-candidate-pool reselection under ruleOpts. */
-function processClosePool(s, symbol, cutMs, candles1m, historyByTf, cfg, ruleOpts, seen, sink) {
+async function processClosePool(s, symbol, cutMs, candles1m, historyByTf, cfg, ruleOpts, seen, sink) {
   const geometryContext = s.geometryContext || {};
   const pool = (s.candidateSetups || []).filter((c) => c && c.type === 'flag' && c.state === 'confirmed' && c.candidateId);
   if (!pool.length) return;
@@ -420,20 +436,20 @@ function processClosePool(s, symbol, cutMs, candles1m, historyByTf, cfg, ruleOpt
   const ctx = { geometryContext, historyByTf, cutMs };
   const attempts = [];
   for (const candidate of pool) {
-    const plan = buildResearchPlan(candidate, ctx, cfg, ruleOpts);
+    const plan = await buildResearchPlan(candidate, ctx, cfg, ruleOpts);
     let confidence = candidate.confidence;
     if (ruleOpts.rsiConfidence) {
-      const closes = closedRows(historyByTf[candidate.timeframe], candidate.timeframe, cutMs, 200).map((c) => c.close);
+      const closes = (await fetchClosedCandles(historyByTf, cutMs, candidate.timeframe, 200)).map((c) => c.close);
       const rsiSeries = closes.length > 15 ? RSI.calculate({ period: 14, values: closes }) : [];
       confidence = recomputeConfidenceRsi(candidate, rsiSeries, cfg);
     }
     if (!plan) { attempts.push({ candidateId: candidate.candidateId, timeframe: candidate.timeframe, confidence, status: 'rejected', plan: null }); continue; }
 
     const tf = candidate.timeframe;
-    const candles = closedRows(historyByTf[tf], tf, cutMs, 500);
+    const candles = await fetchClosedCandles(historyByTf, cutMs, tf, 500);
     const firstDetectedMs = typeof candidate.firstDetectedAt === 'string' ? Date.parse(candidate.firstDetectedAt) : NaN;
     const fromMs = isFiniteNum(firstDetectedMs) ? firstDetectedMs - INTERVAL_MS[tf] : null;
-    const atrValue = ownTimeframeAtr(historyByTf, tf, cutMs, cfg.flag.atrPeriod);
+    const atrValue = await ownTimeframeAtr(historyByTf, cutMs, tf, cfg.flag.atrPeriod);
     const currentPrice = candles.length ? candles[candles.length - 1].close : null;
     const { status } = observeRetestHold({ direction: candidate.direction, entry: plan.entry, stop: plan.stop, candles, fromMs, currentPrice, atrValue, toleranceAtr: cfg.flagPlan.entryToleranceAtr });
     attempts.push({ candidateId: candidate.candidateId, timeframe: tf, direction: candidate.direction, confidence, status, plan });
@@ -462,10 +478,10 @@ function processClosePool(s, symbol, cutMs, candles1m, historyByTf, cfg, ruleOpt
  * null (excluded, not a 0/loss row) when no completed swing exists yet or the zone is never
  * touched within 24h - "not filled if untouched."
  */
-export function rescoreGpEntryRow(row, historyByTf, cfg) {
+export async function rescoreGpEntryRow(row, historyByTf, cfg) {
   const tf = row.timeframe;
   const fromMs = Date.parse(row.firstReadyAt);
-  const ownCandles = closedRows(historyByTf[tf], tf, fromMs, 500);
+  const ownCandles = await fetchClosedCandles(historyByTf, fromMs, tf, 500);
   const gp = goldenPocketZone(row.direction, ownCandles, cfg);
   if (!gp) return null;
   const nearEdge = row.direction === 'long' ? gp.high : gp.low;
@@ -672,7 +688,7 @@ export async function replayVariantSymbol({ symbol, historyByTf, ruleOpts, cfg =
     const s = payload.symbols[symbol];
     if (!s) continue;
     if (ruleOpts === null) processCloseL0(s, symbol, cutMs, candles1m, seen, rows);
-    else processClosePool(s, symbol, cutMs, candles1m, historyByTf, cfg, ruleOpts, seen, rows);
+    else await processClosePool(s, symbol, cutMs, candles1m, historyByTf, cfg, ruleOpts, seen, rows);
   }
   return { rows, firstEligible: new Date(closes[first]).toISOString() };
 }
@@ -704,7 +720,7 @@ async function runRescoreVariant({ variantId, variant, historyDir, symbols }) {
     const baseRows = readFileSync(baseFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     for (const row of baseRows) {
       const rescored = variant.tier === 'gpEntryRescore'
-        ? rescoreGpEntryRow(row, historyByTfAll[symbol], cfg)
+        ? await rescoreGpEntryRow(row, historyByTfAll[symbol], cfg)
         : rescoreTrail1RRow(row)(historyByTfAll[symbol]);
       if (rescored) rows.push(rescored);
     }

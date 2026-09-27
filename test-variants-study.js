@@ -199,87 +199,87 @@ function buildKinkTrendCandles(flatN, trendN, flatPrice, step) {
   };
   const emptyCtx = { geometryContext: {}, historyByTf: { '1m': [flat(0, 100)] }, cutMs: 60000 };
 
-  await test('buildResearchPlan: chaseRisk candidates are rejected outright', () => {
-    const r = buildResearchPlan({ ...baseCandidateLong, chaseRisk: true }, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
+  await test('buildResearchPlan: chaseRisk candidates are rejected outright', async () => {
+    const r = await buildResearchPlan({ ...baseCandidateLong, chaseRisk: true }, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
     assertEqual(r, null);
   });
-  await test('buildResearchPlan: own stop/room target, grossRR gate (long)', () => {
+  await test('buildResearchPlan: own stop/room target, grossRR gate (long)', async () => {
     // risk=1 (100-99), reward=6 (106-100) -> grossRR=6, clears minRR 2.5
-    const r = buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
+    const r = await buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
     assert(r !== null, 'expected a plan');
     assertEqual(r.entry, 100);
     assertEqual(r.stop, 99);
     assertEqual(r.tp1, 106);
     assertEqual(r.grossRR, 6);
   });
-  await test('buildResearchPlan: mirrored for a short', () => {
-    const r = buildResearchPlan(baseCandidateShort, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
+  await test('buildResearchPlan: mirrored for a short', async () => {
+    const r = await buildResearchPlan(baseCandidateShort, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
     assert(r !== null, 'expected a plan');
     assertEqual(r.stop, 101);
     assertEqual(r.tp1, 94);
   });
-  await test('buildResearchPlan: gross R:R below minRR is rejected', () => {
+  await test('buildResearchPlan: gross R:R below minRR is rejected', async () => {
     const thin = { ...baseCandidateLong, measuredTarget: 100.5 }; // grossRR = 0.5
-    const r = buildResearchPlan(thin, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
+    const r = await buildResearchPlan(thin, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
     assertEqual(r, null);
   });
-  await test('buildResearchPlan: minNetRR gate rejects when set high, passes when off', () => {
-    const strict = buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: 50 });
+  await test('buildResearchPlan: minNetRR gate rejects when set high, passes when off', async () => {
+    const strict = await buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: 50 });
     assertEqual(strict, null);
-    const off = buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
+    const off = await buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null });
     assert(off !== null, 'expected a plan with the net gate off');
   });
-  await test('buildResearchPlan: stopMode nf widens a too-thin stop to max(0.5x ATR15m, 3x direction cost)', () => {
+  await test('buildResearchPlan: stopMode nf widens a too-thin stop to max(0.5x ATR15m, 3x direction cost)', async () => {
     const thinStopCandidate = { ...baseCandidateLong, invalidation: 99.99, measuredTarget: 130 }; // own stop distance 0.01
     const ctx = { geometryContext: { '15m': { atr: 4 } }, historyByTf: emptyCtx.historyByTf, cutMs: emptyCtx.cutMs };
-    const r = buildResearchPlan(thinStopCandidate, ctx, ENGINE_CONFIG, { stopMode: 'nf', targetMode: 'room', minRR: 2.5, minNetRR: 1.0 });
+    const r = await buildResearchPlan(thinStopCandidate, ctx, ENGINE_CONFIG, { stopMode: 'nf', targetMode: 'room', minRR: 2.5, minNetRR: 1.0 });
     assert(r !== null, 'expected a plan');
     // atrFloor = 0.5*4=2; costFloor = 3*0.34%*100=1.02 (long); floor=max(2,1.02)=2 > own 0.01 -> stop widens to entry-2=98
     assertEqual(r.stop, 98);
   });
-  await test('buildResearchPlan: stopMode nf rejects when ATR(15m) is missing (never guesses)', () => {
-    const r = buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'nf', targetMode: 'room', minRR: 2.5, minNetRR: 1.0 });
+  await test('buildResearchPlan: stopMode nf rejects when ATR(15m) is missing (never guesses)', async () => {
+    const r = await buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'nf', targetMode: 'room', minRR: 2.5, minNetRR: 1.0 });
     assertEqual(r, null);
   });
-  await test('buildResearchPlan: stopMode atr1x + targetMode fixedRR fixes grossRR exactly at minRR (mirrored long/short)', () => {
+  await test('buildResearchPlan: stopMode atr1x + targetMode fixedRR fixes grossRR exactly at minRR (mirrored long/short)', async () => {
     const ctx = { geometryContext: { '15m': { atr: 2 } }, historyByTf: emptyCtx.historyByTf, cutMs: emptyCtx.cutMs };
-    const long = buildResearchPlan(baseCandidateLong, ctx, ENGINE_CONFIG, { stopMode: 'atr1x', targetMode: 'fixedRR', minRR: 2.5, minNetRR: null });
+    const long = await buildResearchPlan(baseCandidateLong, ctx, ENGINE_CONFIG, { stopMode: 'atr1x', targetMode: 'fixedRR', minRR: 2.5, minNetRR: null });
     assertEqual(long.stop, 98); // entry(100) - 1xATR(2)
     assertEqual(long.grossRR, 2.5);
     assertEqual(long.tp1, 105); // 100 + 2*2.5
-    const short = buildResearchPlan(baseCandidateShort, ctx, ENGINE_CONFIG, { stopMode: 'atr1x', targetMode: 'fixedRR', minRR: 2.5, minNetRR: null });
+    const short = await buildResearchPlan(baseCandidateShort, ctx, ENGINE_CONFIG, { stopMode: 'atr1x', targetMode: 'fixedRR', minRR: 2.5, minNetRR: null });
     assertEqual(short.stop, 102); // entry(100) + 1xATR(2)
     assertEqual(short.grossRR, 2.5);
     assertEqual(short.tp1, 95); // 100 - 2*2.5
   });
-  await test('buildResearchPlan: directionFilter rejects the non-matching direction', () => {
-    const r = buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, directionFilter: 'short' });
+  await test('buildResearchPlan: directionFilter rejects the non-matching direction', async () => {
+    const r = await buildResearchPlan(baseCandidateLong, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, directionFilter: 'short' });
     assertEqual(r, null);
-    const keep = buildResearchPlan(baseCandidateShort, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, directionFilter: 'short' });
+    const keep = await buildResearchPlan(baseCandidateShort, emptyCtx, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, directionFilter: 'short' });
     assert(keep !== null, 'short should survive its own filter');
   });
-  await test('buildResearchPlan: requireMacdTf accepts agreement and rejects conflict (mirrored)', () => {
+  await test('buildResearchPlan: requireMacdTf accepts agreement and rejects conflict (mirrored)', async () => {
     const upTrend = { '1m': buildKinkTrendCandles(40, 20, 100, 2) };
     const downTrend = { '1m': buildKinkTrendCandles(40, 20, 200, -2) };
     const cutMs = 60 * 60000;
-    const longAgrees = buildResearchPlan(baseCandidateLong, { geometryContext: {}, historyByTf: upTrend, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, requireMacdTf: 'own' });
+    const longAgrees = await buildResearchPlan(baseCandidateLong, { geometryContext: {}, historyByTf: upTrend, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, requireMacdTf: 'own' });
     assert(longAgrees !== null, 'long + uptrend MACD should pass');
-    const longConflicts = buildResearchPlan(baseCandidateLong, { geometryContext: {}, historyByTf: downTrend, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, requireMacdTf: 'own' });
+    const longConflicts = await buildResearchPlan(baseCandidateLong, { geometryContext: {}, historyByTf: downTrend, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, requireMacdTf: 'own' });
     assertEqual(longConflicts, null);
-    const shortAgrees = buildResearchPlan(baseCandidateShort, { geometryContext: {}, historyByTf: downTrend, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, requireMacdTf: 'own' });
+    const shortAgrees = await buildResearchPlan(baseCandidateShort, { geometryContext: {}, historyByTf: downTrend, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 2.5, minNetRR: null, requireMacdTf: 'own' });
     assert(shortAgrees !== null, 'short + downtrend MACD should pass');
   });
-  await test('buildResearchPlan: requireGpFilter accepts a breakout inside the pocket, rejects outside (mirrored)', () => {
+  await test('buildResearchPlan: requireGpFilter accepts a breakout inside the pocket, rejects outside (mirrored)', async () => {
     const cutMs = 20 * 60000;
     const longInside = { ...baseCandidateLong, breakoutLevel: 136.5, invalidation: 134, measuredTarget: 200 };
-    const rIn = buildResearchPlan(longInside, { geometryContext: {}, historyByTf: { '1m': buildLongSwingCandles() }, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 0.01, minNetRR: null, requireGpFilter: true });
+    const rIn = await buildResearchPlan(longInside, { geometryContext: {}, historyByTf: { '1m': buildLongSwingCandles() }, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 0.01, minNetRR: null, requireGpFilter: true });
     assert(rIn !== null, 'breakout inside the golden pocket should pass');
     const longOutside = { ...baseCandidateLong, breakoutLevel: 150, invalidation: 147, measuredTarget: 200 };
-    const rOut = buildResearchPlan(longOutside, { geometryContext: {}, historyByTf: { '1m': buildLongSwingCandles() }, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 0.01, minNetRR: null, requireGpFilter: true });
+    const rOut = await buildResearchPlan(longOutside, { geometryContext: {}, historyByTf: { '1m': buildLongSwingCandles() }, cutMs }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 0.01, minNetRR: null, requireGpFilter: true });
     assertEqual(rOut, null);
     const cutMsShort = 20 * 60000;
     const shortInside = { ...baseCandidateShort, breakoutLevel: 163.5, invalidation: 167, measuredTarget: 50 };
-    const rShortIn = buildResearchPlan(shortInside, { geometryContext: {}, historyByTf: { '1m': buildShortSwingCandles() }, cutMs: cutMsShort }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 0.01, minNetRR: null, requireGpFilter: true });
+    const rShortIn = await buildResearchPlan(shortInside, { geometryContext: {}, historyByTf: { '1m': buildShortSwingCandles() }, cutMs: cutMsShort }, ENGINE_CONFIG, { stopMode: 'own', targetMode: 'room', minRR: 0.01, minNetRR: null, requireGpFilter: true });
     assert(rShortIn !== null, 'mirrored short breakout inside the pocket should pass');
   });
 
@@ -391,26 +391,26 @@ function buildKinkTrendCandles(flatN, trendN, flatPrice, step) {
   });
 
   // ===== rescoreGpEntryRow =====
-  await test('rescoreGpEntryRow: excludes a call when no completed swing exists yet', () => {
+  await test('rescoreGpEntryRow: excludes a call when no completed swing exists yet', async () => {
     const row = { timeframe: '1m', direction: 'long', firstReadyAt: new Date(19 * 60000).toISOString(), entry: 100, stop: 99, tp1: 106 };
     const historyByTf = { '1m': buildNoPivotCandles() };
-    assertEqual(rescoreGpEntryRow(row, historyByTf, ENGINE_CONFIG), null);
+    assertEqual(await rescoreGpEntryRow(row, historyByTf, ENGINE_CONFIG), null);
   });
-  await test('rescoreGpEntryRow: excludes a call whose zone is never touched within 24h', () => {
+  await test('rescoreGpEntryRow: excludes a call whose zone is never touched within 24h', async () => {
     // Same swing (low@5=100, high@15=200) but the ready-close candle (index19) sits far
     // above the zone [135, 138.2], and price never comes back down within the search window.
     const swingPrefix = buildLongSwingCandles().slice(0, 19);
     const staysAway = Array.from({ length: 30 }, (_, i) => flat((19 + i) * 60000, 250)); // never dips into the zone
     const historyByTf = { '1m': swingPrefix.concat(staysAway) };
     const row = { timeframe: '1m', direction: 'long', firstReadyAt: new Date(19 * 60000).toISOString(), entry: 100, stop: 99, tp1: 106 };
-    assertEqual(rescoreGpEntryRow(row, historyByTf, ENGINE_CONFIG), null);
+    assertEqual(await rescoreGpEntryRow(row, historyByTf, ENGINE_CONFIG), null);
   });
-  await test('rescoreGpEntryRow: fills at the pocket\'s near edge on first touch, keeps stop/TP1', () => {
+  await test('rescoreGpEntryRow: fills at the pocket\'s near edge on first touch, keeps stop/TP1', async () => {
     const swing = buildLongSwingCandles();
     const touch = Array.from({ length: 10 }, (_, i) => flat((20 + i) * 60000, 137)); // dips into [135, 138.2]
     const historyByTf = { '1m': swing.concat(touch) };
     const row = { timeframe: '1m', direction: 'long', firstReadyAt: new Date(19 * 60000).toISOString(), entry: 100, stop: 130, tp1: 150 };
-    const rescored = rescoreGpEntryRow(row, historyByTf, ENGINE_CONFIG);
+    const rescored = await rescoreGpEntryRow(row, historyByTf, ENGINE_CONFIG);
     assert(rescored !== null, 'expected a rescored row');
     assertEqual(rescored.entry, 138.2); // gp.high, the near/shallow edge for a long
     assertEqual(rescored.stop, 130); // unchanged
