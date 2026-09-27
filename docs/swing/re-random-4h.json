@@ -1,0 +1,2154 @@
+{
+  "meta": {
+    "id": "re-random-4h",
+    "label": "Control: seeded random direction, retest-entry mechanics (S3)",
+    "source": "docs/PROMPT_S3_RETEST_ENTRY.md",
+    "tf": "4h",
+    "holdMaxHours": 168,
+    "stopKind": "structure",
+    "notes": "Null baseline for re-flag-retest-4h.js: seeded (RANDOM_SEED=2026) deterministic random direction at every 4h close, no 1D trend gate - same FNV-1a -> mulberry32 seeding as ctl-random-4h.js/mr-random-1h.js. Requires a qualifying flag + retest print in the randomly drawn direction; skipped (not forced) otherwise.\nEntry/stop/target mechanics identical to re-flag-retest-4h.js: retest within 0.25 ATR(4h), stop min(retest low - 0.1 ATR, invalidation) NF-floored (0.5x ATR15m / 3x cost), TP1 = measured move, skipped when TP1 < 2.5R off the stop.\nExit: stop, target, 5 closed 4h candles back inside the flag range, or a 7-day hard cap - isolates what the 1D trend gate is worth against otherwise-identical mechanics."
+  },
+  "generatedAt": "2026-09-27T15:03:52.873Z",
+  "runtimeMs": 38978,
+  "combined": {
+    "stats": {
+      "n": 91,
+      "resolved": 90,
+      "winPct": 25.56,
+      "grossExpR": -0.0483,
+      "netExpR": -0.1615,
+      "netExpR_sens020": -0.1282,
+      "maxLosingStreak": 13,
+      "medianHoldHours": 32.09,
+      "medianStopPct": 3.179,
+      "timeouts": 15
+    },
+    "oos": {
+      "firstHalf": 0.0107,
+      "secondHalf": -0.3338
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 32,
+        "resolved": 32,
+        "winPct": 28.13,
+        "grossExpR": -0.0939,
+        "netExpR": -0.2471,
+        "netExpR_sens020": -0.2004,
+        "maxLosingStreak": 11,
+        "medianHoldHours": 38.77,
+        "medianStopPct": 1.97,
+        "timeouts": 5
+      },
+      "signals": [
+        {
+          "closedThrough": "2024-11-03T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 68679,
+          "stop": 69914.37,
+          "tp1": 64054.52,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.7787 (seed 2026, symbol BTC, ts 1730649600000) -> short, no trend gate",
+            "4h retest of breakout 68854.5 within 0.25 ATR(4h), closed below it at 68679",
+            "stop 69914.37 (retest extreme +/- 0.1 ATR vs invalidation 69914.37, NF-floored)",
+            "TP1 = measured move 64054.52 (pole length 4799.98)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2561,
+            "ambiguous": false
+          },
+          "netDir": -1.0778314189271234,
+          "netSens": -1.111187741324462
+        },
+        {
+          "closedThrough": "2024-11-14T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 90375.2,
+          "stop": 85072,
+          "tp1": 104102.28,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1400 (seed 2026, symbol BTC, ts 1731528000000) -> long, no trend gate",
+            "4h retest of breakout 89876.94 within 0.25 ATR(4h), closed above it at 90375.2",
+            "stop 85072 (retest extreme +/- 0.1 ATR vs invalidation 85072, NF-floored)",
+            "TP1 = measured move 104102.28 (pole length 14225.34)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.5037,
+            "holdCandles": 1921
+          },
+          "netDir": -0.5616415598129432,
+          "netSens": -0.5377832704782018
+        },
+        {
+          "closedThrough": "2024-12-10T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 96931.99,
+          "stop": 101351,
+          "tp1": 84458.58,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9359 (seed 2026, symbol BTC, ts 1733788800000) -> short, no trend gate",
+            "4h retest of breakout 97508.58 within 0.25 ATR(4h), closed below it at 96931.99",
+            "stop 101351 (retest extreme +/- 0.1 ATR vs invalidation 101351, NF-floored)",
+            "TP1 = measured move 84458.58 (pole length 13050)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2403,
+            "ambiguous": false
+          },
+          "netDir": -1.0307093186030356,
+          "netSens": -1.0438704551471936
+        },
+        {
+          "closedThrough": "2024-12-10T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 97196.44,
+          "stop": 101351,
+          "tp1": 84458.58,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9641 (seed 2026, symbol BTC, ts 1733803200000) -> short, no trend gate",
+            "4h retest of breakout 97508.58 within 0.25 ATR(4h), closed below it at 97196.44",
+            "stop 101351 (retest extreme +/- 0.1 ATR vs invalidation 101351, NF-floored)",
+            "TP1 = measured move 84458.58 (pole length 13050)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2163,
+            "ambiguous": false
+          },
+          "netDir": -1.0327531714549796,
+          "netSens": -1.0467902449356852
+        },
+        {
+          "closedThrough": "2024-12-30T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 93738.2,
+          "stop": 95733.99,
+          "tp1": 87546.31,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6101 (seed 2026, symbol BTC, ts 1735502400000) -> short, no trend gate",
+            "4h retest of breakout 94010 within 0.25 ATR(4h), closed below it at 93738.2",
+            "stop 95733.99 (retest extreme +/- 0.1 ATR vs invalidation 95733.99, NF-floored)",
+            "TP1 = measured move 87546.31 (pole length 6463.69)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2249,
+            "ambiguous": false
+          },
+          "netDir": -1.0657551546004336,
+          "netSens": -1.0939359351434765
+        },
+        {
+          "closedThrough": "2025-01-06T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 99318.7,
+          "stop": 97276.79,
+          "tp1": 104925.76,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1796 (seed 2026, symbol BTC, ts 1736136000000) -> long, no trend gate",
+            "4h retest of breakout 98836.85 within 0.25 ATR(4h), closed above it at 99318.7",
+            "stop 97276.79 (retest extreme +/- 0.1 ATR vs invalidation 97276.79, NF-floored)",
+            "TP1 = measured move 104925.76 (pole length 6088.91)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1906,
+            "ambiguous": false
+          },
+          "netDir": -1.165376329025275,
+          "netSens": -1.0972801935442795
+        },
+        {
+          "closedThrough": "2025-01-15T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 97301.35,
+          "stop": 95351.76,
+          "tp1": 105379.79,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1133 (seed 2026, symbol BTC, ts 1736913600000) -> long, no trend gate",
+            "4h retest of breakout 97265.48 within 0.25 ATR(4h), closed above it at 97301.35",
+            "stop 95351.76 (retest extreme +/- 0.1 ATR vs invalidation 95351.76, NF-floored)",
+            "TP1 = measured move 105379.79 (pole length 8114.31)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 4.1437,
+            "holdCandles": 3559,
+            "timeToTP1Candles": 3559
+          },
+          "netDir": 3.97401068583651,
+          "netSens": 4.043882756374417
+        },
+        {
+          "closedThrough": "2025-01-17T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 101440.5,
+          "stop": 97335.13,
+          "tp1": 112251.96,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1391 (seed 2026, symbol BTC, ts 1737086400000) -> long, no trend gate",
+            "4h retest of breakout 100641.99 within 0.25 ATR(4h), closed above it at 101440.5",
+            "stop 97335.13 (retest extreme +/- 0.1 ATR vs invalidation 97335.13, NF-floored)",
+            "TP1 = measured move 112251.96 (pole length 11609.97)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8784,
+            "holdCandles": 10080,
+            "exit": 105046.8
+          },
+          "netDir": 0.7943886441416972,
+          "netSens": 0.8289815553774689
+        },
+        {
+          "closedThrough": "2025-03-07T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 87820.1,
+          "stop": 91457.03,
+          "tp1": 75614.63,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6531 (seed 2026, symbol BTC, ts 1741363200000) -> short, no trend gate",
+            "4h retest of breakout 87836 within 0.25 ATR(4h), closed below it at 87820.1",
+            "stop 91457.03 (retest extreme +/- 0.1 ATR vs invalidation 91457.03, NF-floored)",
+            "TP1 = measured move 75614.63 (pole length 12221.37)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.898,
+            "holdCandles": 10080,
+            "exit": 84554
+          },
+          "netDir": 0.864194526702466,
+          "netSens": 0.8497064667178086
+        },
+        {
+          "closedThrough": "2025-03-30T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 83088.81,
+          "stop": 84624.73,
+          "tp1": 78708.23,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.8993 (seed 2026, symbol BTC, ts 1743292800000) -> short, no trend gate",
+            "4h retest of breakout 83662.86 within 0.25 ATR(4h), closed below it at 83088.81",
+            "stop 84624.73 (retest extreme +/- 0.1 ATR vs invalidation 84624.73, NF-floored)",
+            "TP1 = measured move 78708.23 (pole length 4954.63)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3554,
+            "ambiguous": false
+          },
+          "netDir": -1.0757359328610865,
+          "netSens": -1.1081941898015524
+        },
+        {
+          "closedThrough": "2025-04-12T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 84943.4,
+          "stop": 82792.95,
+          "tp1": 93711.87,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0266 (seed 2026, symbol BTC, ts 1744473600000) -> long, no trend gate",
+            "4h retest of breakout 84031.87 within 0.25 ATR(4h), closed above it at 84943.4",
+            "stop 82792.95 (retest extreme +/- 0.1 ATR vs invalidation 82792.95, NF-floored)",
+            "TP1 = measured move 93711.87 (pole length 9680)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0661,
+            "holdCandles": 10080,
+            "exit": 85085.55
+          },
+          "netDir": -0.06820098816526789,
+          "netSens": -0.012900581273686998
+        },
+        {
+          "closedThrough": "2025-04-13T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 84413.1,
+          "stop": 82792.95,
+          "tp1": 93711.87,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3693 (seed 2026, symbol BTC, ts 1744516800000) -> long, no trend gate",
+            "4h retest of breakout 84031.87 within 0.25 ATR(4h), closed above it at 84413.1",
+            "stop 82792.95 (retest extreme +/- 0.1 ATR vs invalidation 82792.95, NF-floored)",
+            "TP1 = measured move 93711.87 (pole length 9680)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.2289,
+            "holdCandles": 10080,
+            "exit": 84784.01
+          },
+          "netDir": 0.051753106193871884,
+          "netSens": 0.12469594481992462
+        },
+        {
+          "closedThrough": "2025-06-29T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 107750.72,
+          "stop": 106356.76,
+          "tp1": 111359.65,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2374 (seed 2026, symbol BTC, ts 1751198400000) -> long, no trend gate",
+            "4h retest of breakout 107709.22 within 0.25 ATR(4h), closed above it at 107750.72",
+            "stop 106356.76 (retest extreme +/- 0.1 ATR vs invalidation 106356.76, NF-floored)",
+            "TP1 = measured move 111359.65 (pole length 3650.43)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2570,
+            "ambiguous": false
+          },
+          "netDir": -1.2628141754426228,
+          "netSens": -1.154596573789778
+        },
+        {
+          "closedThrough": "2025-07-13T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 118961.08,
+          "stop": 116604.87,
+          "tp1": 129379.22,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1927 (seed 2026, symbol BTC, ts 1752422400000) -> long, no trend gate",
+            "4h retest of breakout 118259.24 within 0.25 ATR(4h), closed above it at 118961.08",
+            "stop 116604.87 (retest extreme +/- 0.1 ATR vs invalidation 116604.87, NF-floored)",
+            "TP1 = measured move 129379.22 (pole length 11119.98)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1930,
+            "ambiguous": false
+          },
+          "netDir": -1.1716602815538508,
+          "netSens": -1.1009766362081477
+        },
+        {
+          "closedThrough": "2025-08-15T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 116936.27,
+          "stop": 119216.82,
+          "tp1": 110008.33,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6206 (seed 2026, symbol BTC, ts 1755273600000) -> short, no trend gate",
+            "4h retest of breakout 117302.33 within 0.25 ATR(4h), closed below it at 116936.27",
+            "stop 119216.82 (retest extreme +/- 0.1 ATR vs invalidation 119216.82, NF-floored)",
+            "TP1 = measured move 110008.33 (pole length 7294)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.3171,
+            "holdCandles": 1441
+          },
+          "netDir": -0.38888565609173215,
+          "netSens": -0.4196509372739031
+        },
+        {
+          "closedThrough": "2025-09-13T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 116029.42,
+          "stop": 114740.99,
+          "tp1": 121222.02,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4678 (seed 2026, symbol BTC, ts 1757707200000) -> long, no trend gate",
+            "4h retest of breakout 115656.87 within 0.25 ATR(4h), closed above it at 116029.42",
+            "stop 114740.99 (retest extreme +/- 0.1 ATR vs invalidation 114740.99, NF-floored)",
+            "TP1 = measured move 121222.02 (pole length 5565.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3416,
+            "ambiguous": false
+          },
+          "netDir": -1.3061866209262452,
+          "netSens": -1.1801097770154383
+        },
+        {
+          "closedThrough": "2025-10-05T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 122803.17,
+          "stop": 121510,
+          "tp1": 133894.99,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0642 (seed 2026, symbol BTC, ts 1759665600000) -> long, no trend gate",
+            "4h retest of breakout 122800 within 0.25 ATR(4h), closed above it at 122803.17",
+            "stop 121510 (retest extreme +/- 0.1 ATR vs invalidation 121510, NF-floored)",
+            "TP1 = measured move 133894.99 (pole length 11094.99)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2859,
+            "ambiguous": false
+          },
+          "netDir": -1.3228738510791316,
+          "netSens": -1.1899257947524302
+        },
+        {
+          "closedThrough": "2026-01-15T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 95985.1,
+          "stop": 94559.28,
+          "tp1": 102165.78,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1929 (seed 2026, symbol BTC, ts 1768435200000) -> long, no trend gate",
+            "4h retest of breakout 95799.22 within 0.25 ATR(4h), closed above it at 95985.1",
+            "stop 94559.28 (retest extreme +/- 0.1 ATR vs invalidation 94559.28, NF-floored)",
+            "TP1 = measured move 102165.78 (pole length 6366.56)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.3967,
+            "holdCandles": 1921
+          },
+          "netDir": -0.6255853712249781,
+          "netSens": -0.5313384536617518
+        },
+        {
+          "closedThrough": "2026-01-15T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 96630.48,
+          "stop": 94559.28,
+          "tp1": 102165.78,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0945 (seed 2026, symbol BTC, ts 1768449600000) -> long, no trend gate",
+            "4h retest of breakout 95799.22 within 0.25 ATR(4h), closed above it at 96630.48",
+            "stop 94559.28 (retest extreme +/- 0.1 ATR vs invalidation 94559.28, NF-floored)",
+            "TP1 = measured move 102165.78 (pole length 6366.56)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.5847,
+            "holdCandles": 1681
+          },
+          "netDir": -0.7433247740440326,
+          "netSens": -0.6780086906141368
+        },
+        {
+          "closedThrough": "2026-02-02T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 76968.21,
+          "stop": 79424,
+          "tp1": 63087.59,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6408 (seed 2026, symbol BTC, ts 1769976000000) -> short, no trend gate",
+            "4h retest of breakout 77967.69 within 0.25 ATR(4h), closed below it at 76968.21",
+            "stop 79424 (retest extreme +/- 0.1 ATR vs invalidation 79424, NF-floored)",
+            "TP1 = measured move 63087.59 (pole length 14880.1)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.7459,
+            "holdCandles": 1921
+          },
+          "netDir": -0.7897781386030566,
+          "netSens": -0.8085830551472237
+        },
+        {
+          "closedThrough": "2026-02-02T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 76292.98,
+          "stop": 79424,
+          "tp1": 63087.59,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6821 (seed 2026, symbol BTC, ts 1769990400000) -> short, no trend gate",
+            "4h retest of breakout 77967.69 within 0.25 ATR(4h), closed below it at 76292.98",
+            "stop 79424 (retest extreme +/- 0.1 ATR vs invalidation 79424, NF-floored)",
+            "TP1 = measured move 63087.59 (pole length 14880.1)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.8007,
+            "holdCandles": 1681
+          },
+          "netDir": -0.8348135387190116,
+          "netSens": -0.8494336267414452
+        },
+        {
+          "closedThrough": "2026-04-10T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 73236.11,
+          "stop": 71426.15,
+          "tp1": 77799.99,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0658 (seed 2026, symbol BTC, ts 1775836800000) -> long, no trend gate",
+            "4h retest of breakout 72387 within 0.25 ATR(4h), closed above it at 73236.11",
+            "stop 71426.15 (retest extreme +/- 0.1 ATR vs invalidation 71426.15, NF-floored)",
+            "TP1 = measured move 77799.99 (pole length 5412.99)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1790,
+            "ambiguous": false
+          },
+          "netDir": -1.137573633671462,
+          "netSens": -1.0809256668655658
+        },
+        {
+          "closedThrough": "2026-04-11T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 72745.38,
+          "stop": 71426.15,
+          "tp1": 77799.99,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1926 (seed 2026, symbol BTC, ts 1775880000000) -> long, no trend gate",
+            "4h retest of breakout 72387 within 0.25 ATR(4h), closed above it at 72745.38",
+            "stop 71426.15 (retest extreme +/- 0.1 ATR vs invalidation 71426.15, NF-floored)",
+            "TP1 = measured move 77799.99 (pole length 5412.99)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1070,
+            "ambiguous": false
+          },
+          "netDir": -1.1874838292033973,
+          "netSens": -1.1102846054137632
+        },
+        {
+          "closedThrough": "2026-06-12T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 63524.82,
+          "stop": 62500,
+          "tp1": 66274.72,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0383 (seed 2026, symbol BTC, ts 1781222400000) -> long, no trend gate",
+            "4h retest of breakout 63257.21 within 0.25 ATR(4h), closed above it at 63524.82",
+            "stop 62500 (retest extreme +/- 0.1 ATR vs invalidation 62500, NF-floored)",
+            "TP1 = measured move 66274.72 (pole length 3017.51)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.6833,
+            "holdCandles": 4760,
+            "timeToTP1Candles": 4760
+          },
+          "netDir": 2.472546513534084,
+          "netSens": 2.5593273609024023
+        },
+        {
+          "closedThrough": "2026-06-14T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64545.3,
+          "stop": 63400,
+          "tp1": 67989.44,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3205 (seed 2026, symbol BTC, ts 1781395200000) -> long, no trend gate",
+            "4h retest of breakout 64350 within 0.25 ATR(4h), closed above it at 64545.3",
+            "stop 63400 (retest extreme +/- 0.1 ATR vs invalidation 63400, NF-floored)",
+            "TP1 = measured move 67989.44 (pole length 3639.44)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 6438,
+            "ambiguous": false
+          },
+          "netDir": -1.1916126953636597,
+          "netSens": -1.1127133502139175
+        },
+        {
+          "closedThrough": "2026-07-03T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 62210,
+          "stop": 61108.99,
+          "tp1": 66362.24,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1007 (seed 2026, symbol BTC, ts 1783094400000) -> long, no trend gate",
+            "4h retest of breakout 61962.43 within 0.25 ATR(4h), closed above it at 62210",
+            "stop 61108.99 (retest extreme +/- 0.1 ATR vs invalidation 61108.99, NF-floored)",
+            "TP1 = measured move 66362.24 (pole length 4399.81)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.5512,
+            "holdCandles": 10080,
+            "exit": 63917.88
+          },
+          "netDir": 1.359090936503756,
+          "netSens": 1.4381946685316211
+        },
+        {
+          "closedThrough": "2026-08-10T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 65202.73,
+          "stop": 64525,
+          "tp1": 67131.73,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0651 (seed 2026, symbol BTC, ts 1786334400000) -> long, no trend gate",
+            "4h retest of breakout 65192.54 within 0.25 ATR(4h), closed above it at 65202.73",
+            "stop 64525 (retest extreme +/- 0.1 ATR vs invalidation 64525, NF-floored)",
+            "TP1 = measured move 67131.73 (pole length 1939.19)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 354,
+            "ambiguous": false
+          },
+          "netDir": -1.3271056054771058,
+          "netSens": -1.1924150620453564
+        },
+        {
+          "closedThrough": "2026-08-12T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63835.59,
+          "stop": 64400,
+          "tp1": 62183.81,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9967 (seed 2026, symbol BTC, ts 1786492800000) -> short, no trend gate",
+            "4h retest of breakout 63852 within 0.25 ATR(4h), closed below it at 63835.59",
+            "stop 64400 (retest extreme +/- 0.1 ATR vs invalidation 64400, NF-floored)",
+            "TP1 = measured move 62183.81 (pole length 1668.19)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 510,
+            "ambiguous": false
+          },
+          "netDir": -1.1583420315019213,
+          "netSens": -1.226202902145602
+        },
+        {
+          "closedThrough": "2026-08-18T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64643.26,
+          "stop": 63983.898748,
+          "tp1": 66652.77,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4259 (seed 2026, symbol BTC, ts 1787068800000) -> long, no trend gate",
+            "4h retest of breakout 64578 within 0.25 ATR(4h), closed above it at 64643.26",
+            "stop 63983.898748 (retest extreme +/- 0.1 ATR vs invalidation 64047.73, NF-floored)",
+            "TP1 = measured move 66652.77 (pole length 2074.77)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.0477,
+            "holdCandles": 1152,
+            "timeToTP1Candles": 1152
+          },
+          "netDir": 2.7143666666666677,
+          "netSens": 2.8516215686274515
+        },
+        {
+          "closedThrough": "2026-08-19T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64725.42,
+          "stop": 64047.73,
+          "tp1": 66652.77,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3443 (seed 2026, symbol BTC, ts 1787083200000) -> long, no trend gate",
+            "4h retest of breakout 64578 within 0.25 ATR(4h), closed above it at 64725.42",
+            "stop 64047.73 (retest extreme +/- 0.1 ATR vs invalidation 64047.73, NF-floored)",
+            "TP1 = measured move 66652.77 (pole length 2074.77)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.844,
+            "holdCandles": 914,
+            "timeToTP1Candles": 914
+          },
+          "netDir": 2.5192697723147726,
+          "netSens": 2.6529822190086896
+        },
+        {
+          "closedThrough": "2026-08-25T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78992.75,
+          "stop": 75545.67,
+          "tp1": 93934,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2168 (seed 2026, symbol BTC, ts 1787601600000) -> long, no trend gate",
+            "4h retest of breakout 78600 within 0.25 ATR(4h), closed above it at 78992.75",
+            "stop 75545.67 (retest extreme +/- 0.1 ATR vs invalidation 75545.67, NF-floored)",
+            "TP1 = measured move 93934 (pole length 15334)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.4087,
+            "holdCandles": 6241
+          },
+          "netDir": -0.48661387203082024,
+          "netSens": -0.4545316894298943
+        },
+        {
+          "closedThrough": "2026-08-25T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 80488.01,
+          "stop": 75545.67,
+          "tp1": 93934,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4258 (seed 2026, symbol BTC, ts 1787616000000) -> long, no trend gate",
+            "4h retest of breakout 78600 within 0.25 ATR(4h), closed above it at 80488.01",
+            "stop 75545.67 (retest extreme +/- 0.1 ATR vs invalidation 75545.67, NF-floored)",
+            "TP1 = measured move 93934 (pole length 15334)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.5876,
+            "holdCandles": 6001
+          },
+          "netDir": -0.6429703779990855,
+          "netSens": -0.6201708105876974
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 30,
+        "resolved": 30,
+        "winPct": 20,
+        "grossExpR": -0.0415,
+        "netExpR": -0.1238,
+        "netExpR_sens020": -0.1026,
+        "maxLosingStreak": 13,
+        "medianHoldHours": 22.68,
+        "medianStopPct": 3.61,
+        "timeouts": 4
+      },
+      "signals": [
+        {
+          "closedThrough": "2024-11-03T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 163.53,
+          "stop": 168.61,
+          "tp1": 143.98,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9209 (seed 2026, symbol SOL, ts 1730606400000) -> short, no trend gate",
+            "4h retest of breakout 163.93 within 0.25 ATR(4h), closed below it at 163.53",
+            "stop 168.61 (retest extreme +/- 0.1 ATR vs invalidation 168.61, NF-floored)",
+            "TP1 = measured move 143.98 (pole length 19.95)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3395,
+            "ambiguous": false
+          },
+          "netDir": -1.0450673228346457,
+          "netSens": -1.0643818897637793
+        },
+        {
+          "closedThrough": "2024-11-10T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 208.47,
+          "stop": 194.86,
+          "tp1": 250.65,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3580 (seed 2026, symbol SOL, ts 1731254400000) -> long, no trend gate",
+            "4h retest of breakout 205 within 0.25 ATR(4h), closed above it at 208.47",
+            "stop 194.86 (retest extreme +/- 0.1 ATR vs invalidation 194.86, NF-floored)",
+            "TP1 = measured move 250.65 (pole length 45.65)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.9787,
+            "holdCandles": 10080,
+            "exit": 235.4
+          },
+          "netDir": 1.926620793534166,
+          "netSens": 1.9480651726671563
+        },
+        {
+          "closedThrough": "2024-11-18T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 242.5,
+          "stop": 229.4,
+          "tp1": 276.25,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2929 (seed 2026, symbol SOL, ts 1731916800000) -> long, no trend gate",
+            "4h retest of breakout 238.4 within 0.25 ATR(4h), closed above it at 242.5",
+            "stop 229.4 (retest extreme +/- 0.1 ATR vs invalidation 229.4, NF-floored)",
+            "TP1 = measured move 276.25 (pole length 37.85)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.7382,
+            "holdCandles": 10080,
+            "exit": 252.17
+          },
+          "netDir": 0.67526106870229,
+          "netSens": 0.7011770992366412
+        },
+        {
+          "closedThrough": "2025-01-17T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 218.6,
+          "stop": 208.53,
+          "tp1": 263.7,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3581 (seed 2026, symbol SOL, ts 1737115200000) -> long, no trend gate",
+            "4h retest of breakout 215.44 within 0.25 ATR(4h), closed above it at 218.6",
+            "stop 208.53 (retest extreme +/- 0.1 ATR vs invalidation 208.53, NF-floored)",
+            "TP1 = measured move 263.7 (pole length 48.26)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 4.4786,
+            "holdCandles": 1447,
+            "timeToTP1Candles": 1447
+          },
+          "netDir": 4.40479265143992,
+          "netSens": 4.435183912611718
+        },
+        {
+          "closedThrough": "2025-01-17T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 217.16,
+          "stop": 208.53,
+          "tp1": 263.7,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3419 (seed 2026, symbol SOL, ts 1737129600000) -> long, no trend gate",
+            "4h retest of breakout 215.44 within 0.25 ATR(4h), closed above it at 217.16",
+            "stop 208.53 (retest extreme +/- 0.1 ATR vs invalidation 208.53, NF-floored)",
+            "TP1 = measured move 263.7 (pole length 48.26)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 5.3928,
+            "holdCandles": 1207,
+            "timeToTP1Candles": 1207
+          },
+          "netDir": 5.3072444959443805,
+          "netSens": 5.342473232908459
+        },
+        {
+          "closedThrough": "2025-01-18T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 219.51,
+          "stop": 208.53,
+          "tp1": 263.7,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3093 (seed 2026, symbol SOL, ts 1737144000000) -> long, no trend gate",
+            "4h retest of breakout 215.44 within 0.25 ATR(4h), closed above it at 219.51",
+            "stop 208.53 (retest extreme +/- 0.1 ATR vs invalidation 208.53, NF-floored)",
+            "TP1 = measured move 263.7 (pole length 48.26)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 4.0246,
+            "holdCandles": 967,
+            "timeToTP1Candles": 967
+          },
+          "netDir": 3.9566278688524594,
+          "netSens": 3.9846163934426233
+        },
+        {
+          "closedThrough": "2025-02-28T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 128.55,
+          "stop": 142.9,
+          "tp1": 91.62,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6370 (seed 2026, symbol SOL, ts 1740715200000) -> short, no trend gate",
+            "4h retest of breakout 130.89 within 0.25 ATR(4h), closed below it at 128.55",
+            "stop 142.9 (retest extreme +/- 0.1 ATR vs invalidation 142.9, NF-floored)",
+            "TP1 = measured move 91.62 (pole length 39.27)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 367,
+            "ambiguous": false
+          },
+          "netDir": -1.0125414634146341,
+          "netSens": -1.0179163763066201
+        },
+        {
+          "closedThrough": "2025-03-25T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 145.03,
+          "stop": 138.17,
+          "tp1": 163.79,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0372 (seed 2026, symbol SOL, ts 1742918400000) -> long, no trend gate",
+            "4h retest of breakout 143.64 within 0.25 ATR(4h), closed above it at 145.03",
+            "stop 138.17 (retest extreme +/- 0.1 ATR vs invalidation 138.17, NF-floored)",
+            "TP1 = measured move 163.79 (pole length 20.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1294,
+            "ambiguous": false
+          },
+          "netDir": -1.0718807580174925,
+          "netSens": -1.0422827988338192
+        },
+        {
+          "closedThrough": "2025-04-21T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 138.99,
+          "stop": 135.64,
+          "tp1": 150.84,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0665 (seed 2026, symbol SOL, ts 1745222400000) -> long, no trend gate",
+            "4h retest of breakout 138.5 within 0.25 ATR(4h), closed above it at 138.99",
+            "stop 135.64 (retest extreme +/- 0.1 ATR vs invalidation 135.64, NF-floored)",
+            "TP1 = measured move 150.84 (pole length 12.34)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 298,
+            "ambiguous": false
+          },
+          "netDir": -1.1410644776119394,
+          "netSens": -1.0829791044776114
+        },
+        {
+          "closedThrough": "2025-05-11T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 175.86,
+          "stop": 167.36,
+          "tp1": 209.93,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4071 (seed 2026, symbol SOL, ts 1746921600000) -> long, no trend gate",
+            "4h retest of breakout 175.19 within 0.25 ATR(4h), closed above it at 175.86",
+            "stop 167.36 (retest extreme +/- 0.1 ATR vs invalidation 167.36, NF-floored)",
+            "TP1 = measured move 209.93 (pole length 34.74)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.3012,
+            "holdCandles": 1201
+          },
+          "netDir": -0.37154400000000004,
+          "netSens": -0.34257882352941177
+        },
+        {
+          "closedThrough": "2025-05-23T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 182.55,
+          "stop": 176.94,
+          "tp1": 201.79,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0578 (seed 2026, symbol SOL, ts 1747972800000) -> long, no trend gate",
+            "4h retest of breakout 180.36 within 0.25 ATR(4h), closed above it at 182.55",
+            "stop 176.94 (retest extreme +/- 0.1 ATR vs invalidation 176.94, NF-floored)",
+            "TP1 = measured move 201.79 (pole length 21.43)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 15,
+            "ambiguous": false
+          },
+          "netDir": -1.1106363636363634,
+          "netSens": -1.0650802139037432
+        },
+        {
+          "closedThrough": "2025-06-23T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 131.71,
+          "stop": 137.62,
+          "tp1": 114.04,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.5606 (seed 2026, symbol SOL, ts 1750622400000) -> short, no trend gate",
+            "4h retest of breakout 131.95 within 0.25 ATR(4h), closed below it at 131.71",
+            "stop 137.62 (retest extreme +/- 0.1 ATR vs invalidation 137.62, NF-floored)",
+            "TP1 = measured move 114.04 (pole length 17.91)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1083,
+            "ambiguous": false
+          },
+          "netDir": -1.0312003384094754,
+          "netSens": -1.0445719120135364
+        },
+        {
+          "closedThrough": "2025-07-01T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 154.81,
+          "stop": 149.45,
+          "tp1": 171.71,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3845 (seed 2026, symbol SOL, ts 1751313600000) -> long, no trend gate",
+            "4h retest of breakout 154.08 within 0.25 ATR(4h), closed above it at 154.81",
+            "stop 149.45 (retest extreme +/- 0.1 ATR vs invalidation 149.45, NF-floored)",
+            "TP1 = measured move 171.71 (pole length 17.63)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 442,
+            "ambiguous": false
+          },
+          "netDir": -1.0982003731343282,
+          "netSens": -1.0577649253731343
+        },
+        {
+          "closedThrough": "2025-07-14T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 164.3,
+          "stop": 157.74,
+          "tp1": 183.36,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1597 (seed 2026, symbol SOL, ts 1752508800000) -> long, no trend gate",
+            "4h retest of breakout 164.19 within 0.25 ATR(4h), closed above it at 164.3",
+            "stop 157.74 (retest extreme +/- 0.1 ATR vs invalidation 157.74, NF-floored)",
+            "TP1 = measured move 183.36 (pole length 19.17)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1137,
+            "ambiguous": false
+          },
+          "netDir": -1.085155487804878,
+          "netSens": -1.050091463414634
+        },
+        {
+          "closedThrough": "2025-08-19T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 180.11,
+          "stop": 185.7,
+          "tp1": 162.45,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6835 (seed 2026, symbol SOL, ts 1755576000000) -> short, no trend gate",
+            "4h retest of breakout 180.52 within 0.25 ATR(4h), closed below it at 180.11",
+            "stop 185.7 (retest extreme +/- 0.1 ATR vs invalidation 185.7, NF-floored)",
+            "TP1 = measured move 162.45 (pole length 18.07)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2025,
+            "ambiguous": false
+          },
+          "netDir": -1.0451080500894456,
+          "netSens": -1.064440071556351
+        },
+        {
+          "closedThrough": "2025-08-24T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 206.66,
+          "stop": 200.58,
+          "tp1": 238.24,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0906 (seed 2026, symbol SOL, ts 1756008000000) -> long, no trend gate",
+            "4h retest of breakout 205.66 within 0.25 ATR(4h), closed above it at 206.66",
+            "stop 200.58 (retest extreme +/- 0.1 ATR vs invalidation 200.58, NF-floored)",
+            "TP1 = measured move 238.24 (pole length 32.58)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1428,
+            "ambiguous": false
+          },
+          "netDir": -1.1155664473684213,
+          "netSens": -1.067980263157895
+        },
+        {
+          "closedThrough": "2025-09-12T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 228.73,
+          "stop": 220.53,
+          "tp1": 250.37,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4009 (seed 2026, symbol SOL, ts 1757620800000) -> long, no trend gate",
+            "4h retest of breakout 225.85 within 0.25 ATR(4h), closed above it at 228.73",
+            "stop 220.53 (retest extreme +/- 0.1 ATR vs invalidation 220.53, NF-floored)",
+            "TP1 = measured move 250.37 (pole length 24.52)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.639,
+            "holdCandles": 9662,
+            "timeToTP1Candles": 9662
+          },
+          "netDir": 2.5441607317073167,
+          "netSens": 2.583212195121951
+        },
+        {
+          "closedThrough": "2025-09-24T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 212.35,
+          "stop": 221.71,
+          "tp1": 183.48,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9532 (seed 2026, symbol SOL, ts 1758700800000) -> short, no trend gate",
+            "4h retest of breakout 212.96 within 0.25 ATR(4h), closed below it at 212.35",
+            "stop 221.71 (retest extreme +/- 0.1 ATR vs invalidation 221.71, NF-floored)",
+            "TP1 = measured move 183.48 (pole length 29.48)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.5769,
+            "holdCandles": 10080,
+            "exit": 217.75
+          },
+          "netDir": -0.6086617521367521,
+          "netSens": -0.6222739316239315
+        },
+        {
+          "closedThrough": "2025-11-26T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 138.15,
+          "stop": 133.13,
+          "tp1": 152.81,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0409 (seed 2026, symbol SOL, ts 1764115200000) -> long, no trend gate",
+            "4h retest of breakout 138.02 within 0.25 ATR(4h), closed above it at 138.15",
+            "stop 133.13 (retest extreme +/- 0.1 ATR vs invalidation 133.13, NF-floored)",
+            "TP1 = measured move 152.81 (pole length 14.79)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.1793,
+            "holdCandles": 4801
+          },
+          "netDir": -0.27286772908366513,
+          "netSens": -0.23433984063745006
+        },
+        {
+          "closedThrough": "2026-01-06T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 137.61,
+          "stop": 133.18,
+          "tp1": 149.23,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2792 (seed 2026, symbol SOL, ts 1767672000000) -> long, no trend gate",
+            "4h retest of breakout 136.79 within 0.25 ATR(4h), closed above it at 137.61",
+            "stop 133.18 (retest extreme +/- 0.1 ATR vs invalidation 133.18, NF-floored)",
+            "TP1 = measured move 149.23 (pole length 12.44)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3284,
+            "ambiguous": false
+          },
+          "netDir": -1.1056148984198644,
+          "netSens": -1.0621264108352144
+        },
+        {
+          "closedThrough": "2026-02-13T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 78.4,
+          "stop": 82.25,
+          "tp1": 67.76,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9328 (seed 2026, symbol SOL, ts 1770926400000) -> short, no trend gate",
+            "4h retest of breakout 78.8 within 0.25 ATR(4h), closed below it at 78.4",
+            "stop 82.25 (retest extreme +/- 0.1 ATR vs invalidation 82.25, NF-floored)",
+            "TP1 = measured move 67.76 (pole length 11.04)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 912,
+            "ambiguous": false
+          },
+          "netDir": -1.028509090909091,
+          "netSens": -1.0407272727272727
+        },
+        {
+          "closedThrough": "2026-03-03T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 86.31,
+          "stop": 81.69,
+          "tp1": 97.96,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1736 (seed 2026, symbol SOL, ts 1772496000000) -> long, no trend gate",
+            "4h retest of breakout 86.18 within 0.25 ATR(4h), closed above it at 86.31",
+            "stop 81.69 (retest extreme +/- 0.1 ATR vs invalidation 81.69, NF-floored)",
+            "TP1 = measured move 97.96 (pole length 11.78)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.4437,
+            "holdCandles": 6001
+          },
+          "netDir": -0.5072181818181818,
+          "netSens": -0.4810636363636363
+        },
+        {
+          "closedThrough": "2026-03-22T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 87.7,
+          "stop": 90.81,
+          "tp1": 77.45,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.5398 (seed 2026, symbol SOL, ts 1774152000000) -> short, no trend gate",
+            "4h retest of breakout 88.13 within 0.25 ATR(4h), closed below it at 87.7",
+            "stop 90.81 (retest extreme +/- 0.1 ATR vs invalidation 90.81, NF-floored)",
+            "TP1 = measured move 77.45 (pole length 10.68)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1627,
+            "ambiguous": false
+          },
+          "netDir": -1.0394790996784566,
+          "netSens": -1.0563987138263666
+        },
+        {
+          "closedThrough": "2026-03-23T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 86.4,
+          "stop": 87.74,
+          "tp1": 81.36,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9298 (seed 2026, symbol SOL, ts 1774224000000) -> short, no trend gate",
+            "4h retest of breakout 86.51 within 0.25 ATR(4h), closed below it at 86.4",
+            "stop 87.74 (retest extreme +/- 0.1 ATR vs invalidation 87.74, NF-floored)",
+            "TP1 = measured move 81.36 (pole length 5.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 426,
+            "ambiguous": false
+          },
+          "netDir": -1.0902686567164186,
+          "netSens": -1.128955223880598
+        },
+        {
+          "closedThrough": "2026-03-29T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 81.62,
+          "stop": 83.24,
+          "tp1": 70.83,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.7121 (seed 2026, symbol SOL, ts 1774800000000) -> short, no trend gate",
+            "4h retest of breakout 81.87 within 0.25 ATR(4h), closed below it at 81.62",
+            "stop 83.24 (retest extreme +/- 0.1 ATR vs invalidation 83.24, NF-floored)",
+            "TP1 = measured move 70.83 (pole length 11.04)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 406,
+            "ambiguous": false
+          },
+          "netDir": -1.0705358024691363,
+          "netSens": -1.100765432098766
+        },
+        {
+          "closedThrough": "2026-05-03T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 84.26,
+          "stop": 83.33,
+          "tp1": 86.76,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1158 (seed 2026, symbol SOL, ts 1777752000000) -> long, no trend gate",
+            "4h retest of breakout 84.18 within 0.25 ATR(4h), closed above it at 84.26",
+            "stop 83.33 (retest extreme +/- 0.1 ATR vs invalidation 83.33, NF-floored)",
+            "TP1 = measured move 86.76 (pole length 2.58)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2061,
+            "ambiguous": false
+          },
+          "netDir": -1.3080473118279548,
+          "netSens": -1.1812043010752675
+        },
+        {
+          "closedThrough": "2026-06-05T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 66.08,
+          "stop": 71.8,
+          "tp1": 50.64,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.8844 (seed 2026, symbol SOL, ts 1780646400000) -> short, no trend gate",
+            "4h retest of breakout 66.94 within 0.25 ATR(4h), closed below it at 66.08",
+            "stop 71.8 (retest extreme +/- 0.1 ATR vs invalidation 71.8, NF-floored)",
+            "TP1 = measured move 50.64 (pole length 16.3)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1486,
+            "holdCandles": 10080,
+            "exit": 66.93
+          },
+          "netDir": -0.16477342657342658,
+          "netSens": -0.17170489510489512
+        },
+        {
+          "closedThrough": "2026-06-25T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 68.11,
+          "stop": 70.44,
+          "tp1": 61.56,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9602 (seed 2026, symbol SOL, ts 1782331200000) -> short, no trend gate",
+            "4h retest of breakout 68.4 within 0.25 ATR(4h), closed below it at 68.11",
+            "stop 70.44 (retest extreme +/- 0.1 ATR vs invalidation 70.44, NF-floored)",
+            "TP1 = measured move 61.56 (pole length 6.84)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1864,
+            "ambiguous": false
+          },
+          "netDir": -1.0409244635193133,
+          "netSens": -1.0584635193133047
+        },
+        {
+          "closedThrough": "2026-07-04T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 82.72,
+          "stop": 80.09,
+          "tp1": 94.2,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1216 (seed 2026, symbol SOL, ts 1783137600000) -> long, no trend gate",
+            "4h retest of breakout 82.45 within 0.25 ATR(4h), closed above it at 82.72",
+            "stop 80.09 (retest extreme +/- 0.1 ATR vs invalidation 80.09, NF-floored)",
+            "TP1 = measured move 94.2 (pole length 11.75)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.8479,
+            "holdCandles": 1201
+          },
+          "netDir": -0.9548384030418253,
+          "netSens": -0.9108049429657795
+        },
+        {
+          "closedThrough": "2026-08-10T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 76.98,
+          "stop": 75.73,
+          "tp1": 81.12,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3003 (seed 2026, symbol SOL, ts 1786334400000) -> long, no trend gate",
+            "4h retest of breakout 76.65 within 0.25 ATR(4h), closed above it at 76.98",
+            "stop 75.73 (retest extreme +/- 0.1 ATR vs invalidation 75.73, NF-floored)",
+            "TP1 = measured move 81.12 (pole length 4.47)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 501,
+            "ambiguous": false
+          },
+          "netDir": -1.2093856,
+          "netSens": -1.123168
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 29,
+        "resolved": 28,
+        "winPct": 28.57,
+        "grossExpR": -0.0034,
+        "netExpR": -0.1042,
+        "netExpR_sens020": -0.073,
+        "maxLosingStreak": 10,
+        "medianHoldHours": 36.26,
+        "medianStopPct": 3.43,
+        "timeouts": 6
+      },
+      "signals": [
+        {
+          "closedThrough": "2024-11-08T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2895.47,
+          "stop": 2776,
+          "tp1": 3377.41,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1828 (seed 2026, symbol ETH, ts 1731009600000) -> long, no trend gate",
+            "4h retest of breakout 2855 within 0.25 ATR(4h), closed above it at 2895.47",
+            "stop 2776 (retest extreme +/- 0.1 ATR vs invalidation 2776, NF-floored)",
+            "TP1 = measured move 3377.41 (pole length 522.41)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 4.034,
+            "holdCandles": 5722,
+            "timeToTP1Candles": 5722
+          },
+          "netDir": 3.951597740018414,
+          "netSens": 3.985528082363773
+        },
+        {
+          "closedThrough": "2024-11-30T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3674,
+          "stop": 3529.76,
+          "tp1": 4093.92,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1763 (seed 2026, symbol ETH, ts 1732968000000) -> long, no trend gate",
+            "4h retest of breakout 3661 within 0.25 ATR(4h), closed above it at 3674",
+            "stop 3529.76 (retest extreme +/- 0.1 ATR vs invalidation 3529.76, NF-floored)",
+            "TP1 = measured move 4093.92 (pole length 432.92)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.4094,
+            "holdCandles": 4081
+          },
+          "netDir": -0.49600288408208554,
+          "netSens": -0.4603428729894621
+        },
+        {
+          "closedThrough": "2025-01-06T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3687.44,
+          "stop": 3593.7,
+          "tp1": 3980.13,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3086 (seed 2026, symbol ETH, ts 1736179200000) -> long, no trend gate",
+            "4h retest of breakout 3656.88 within 0.25 ATR(4h), closed above it at 3687.44",
+            "stop 3593.7 (retest extreme +/- 0.1 ATR vs invalidation 3593.7, NF-floored)",
+            "TP1 = measured move 3980.13 (pole length 323.25)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1140,
+            "ambiguous": false
+          },
+          "netDir": -1.133745423511841,
+          "netSens": -1.078673778536377
+        },
+        {
+          "closedThrough": "2025-02-01T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3300.99,
+          "stop": 3213.8,
+          "tp1": 3522.9,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4998 (seed 2026, symbol ETH, ts 1738353600000) -> long, no trend gate",
+            "4h retest of breakout 3279.5 within 0.25 ATR(4h), closed above it at 3300.99",
+            "stop 3213.8 (retest extreme +/- 0.1 ATR vs invalidation 3213.8, NF-floored)",
+            "TP1 = measured move 3522.9 (pole length 243.4)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1166,
+            "ambiguous": false
+          },
+          "netDir": -1.128723087510036,
+          "netSens": -1.0757194632411977
+        },
+        {
+          "closedThrough": "2025-02-01T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3291.97,
+          "stop": 3213.8,
+          "tp1": 3522.9,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2267 (seed 2026, symbol ETH, ts 1738368000000) -> long, no trend gate",
+            "4h retest of breakout 3279.5 within 0.25 ATR(4h), closed above it at 3291.97",
+            "stop 3213.8 (retest extreme +/- 0.1 ATR vs invalidation 3213.8, NF-floored)",
+            "TP1 = measured move 3522.9 (pole length 243.4)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 926,
+            "ambiguous": false
+          },
+          "netDir": -1.1431840603812211,
+          "netSens": -1.0842259178713065
+        },
+        {
+          "closedThrough": "2025-02-27T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2336.37,
+          "stop": 2533.49,
+          "tp1": 1813.2,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.5599 (seed 2026, symbol ETH, ts 1740600000000) -> short, no trend gate",
+            "4h retest of breakout 2357.05 within 0.25 ATR(4h), closed below it at 2336.37",
+            "stop 2533.49 (retest extreme +/- 0.1 ATR vs invalidation 2533.49, NF-floored)",
+            "TP1 = measured move 1813.2 (pole length 543.85)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 5624,
+            "ambiguous": false
+          },
+          "netDir": -1.0165935369318182,
+          "netSens": -1.0237050527597402
+        },
+        {
+          "closedThrough": "2025-03-29T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1840.24,
+          "stop": 1913.6,
+          "tp1": 1638.62,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.8117 (seed 2026, symbol ETH, ts 1743249600000) -> short, no trend gate",
+            "4h retest of breakout 1862.14 within 0.25 ATR(4h), closed below it at 1840.24",
+            "stop 1913.6 (retest extreme +/- 0.1 ATR vs invalidation 1913.6, NF-floored)",
+            "TP1 = measured move 1638.62 (pole length 223.52)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 4276,
+            "ambiguous": false
+          },
+          "netDir": -1.0351190839694657,
+          "netSens": -1.0501701199563795
+        },
+        {
+          "closedThrough": "2025-06-23T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2227.7,
+          "stop": 2314.48,
+          "tp1": 1883.05,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.8745 (seed 2026, symbol ETH, ts 1750622400000) -> short, no trend gate",
+            "4h retest of breakout 2236.05 within 0.25 ATR(4h), closed below it at 2227.7",
+            "stop 2314.48 (retest extreme +/- 0.1 ATR vs invalidation 2314.48, NF-floored)",
+            "TP1 = measured move 1883.05 (pole length 353)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1177,
+            "ambiguous": false
+          },
+          "netDir": -1.0359389260198202,
+          "netSens": -1.0513413228854573
+        },
+        {
+          "closedThrough": "2025-07-14T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3051.72,
+          "stop": 2903.85,
+          "tp1": 3500.78,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1701 (seed 2026, symbol ETH, ts 1752480000000) -> long, no trend gate",
+            "4h retest of breakout 3020.31 within 0.25 ATR(4h), closed above it at 3051.72",
+            "stop 2903.85 (retest extreme +/- 0.1 ATR vs invalidation 2903.85, NF-floored)",
+            "TP1 = measured move 3500.78 (pole length 480.47)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.5033,
+            "holdCandles": 1201
+          },
+          "netDir": -0.5734687157638466,
+          "netSens": -0.5445757151552039
+        },
+        {
+          "closedThrough": "2025-07-20T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3668.49,
+          "stop": 3477.58,
+          "tp1": 4339.8,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0330 (seed 2026, symbol ETH, ts 1752984000000) -> long, no trend gate",
+            "4h retest of breakout 3624.8 within 0.25 ATR(4h), closed above it at 3668.49",
+            "stop 3477.58 (retest extreme +/- 0.1 ATR vs invalidation 3477.58, NF-floored)",
+            "TP1 = measured move 4339.8 (pole length 715)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2025-08-03T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 3393.94,
+          "stop": 3537.69,
+          "tp1": 3004.51,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9506 (seed 2026, symbol ETH, ts 1754164800000) -> short, no trend gate",
+            "4h retest of breakout 3451.43 within 0.25 ATR(4h), closed below it at 3393.94",
+            "stop 3537.69 (retest extreme +/- 0.1 ATR vs invalidation 3537.69, NF-floored)",
+            "TP1 = measured move 3004.51 (pole length 446.92)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.735,
+            "holdCandles": 1441
+          },
+          "netDir": -0.7680540243478261,
+          "netSens": -0.7822200347826087
+        },
+        {
+          "closedThrough": "2025-08-11T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 4273.69,
+          "stop": 4153.07,
+          "tp1": 4949.95,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0511 (seed 2026, symbol ETH, ts 1754884800000) -> long, no trend gate",
+            "4h retest of breakout 4264.98 within 0.25 ATR(4h), closed above it at 4273.69",
+            "stop 4153.07 (retest extreme +/- 0.1 ATR vs invalidation 4153.07, NF-floored)",
+            "TP1 = measured move 4949.95 (pole length 684.97)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1345,
+            "holdCandles": 10080,
+            "exit": 4257.47
+          },
+          "netDir": -0.2549654783617975,
+          "netSens": -0.205362046095175
+        },
+        {
+          "closedThrough": "2025-08-11T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 4329.74,
+          "stop": 4153.07,
+          "tp1": 4949.95,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4162 (seed 2026, symbol ETH, ts 1754913600000) -> long, no trend gate",
+            "4h retest of breakout 4264.98 within 0.25 ATR(4h), closed above it at 4329.74",
+            "stop 4153.07 (retest extreme +/- 0.1 ATR vs invalidation 4153.07, NF-floored)",
+            "TP1 = measured move 4949.95 (pole length 684.97)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0893,
+            "holdCandles": 10080,
+            "exit": 4345.52
+          },
+          "netDir": 0.005974500481123038,
+          "netSens": 0.04028500028301355
+        },
+        {
+          "closedThrough": "2025-11-17T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 3095.29,
+          "stop": 3249,
+          "tp1": 2581.04,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.8016 (seed 2026, symbol ETH, ts 1763323200000) -> short, no trend gate",
+            "4h retest of breakout 3099.23 within 0.25 ATR(4h), closed below it at 3095.29",
+            "stop 3249 (retest extreme +/- 0.1 ATR vs invalidation 3249, NF-floored)",
+            "TP1 = measured move 2581.04 (pole length 518.19)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.907,
+            "holdCandles": 10080,
+            "exit": 2802.16
+          },
+          "netDir": 1.8788079110012361,
+          "netSens": 1.866725587144623
+        },
+        {
+          "closedThrough": "2026-01-05T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3180.27,
+          "stop": 3118.75,
+          "tp1": 3366.98,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.0001 (seed 2026, symbol ETH, ts 1767600000000) -> long, no trend gate",
+            "4h retest of breakout 3163.19 within 0.25 ATR(4h), closed above it at 3180.27",
+            "stop 3118.75 (retest extreme +/- 0.1 ATR vs invalidation 3118.75, NF-floored)",
+            "TP1 = measured move 3366.98 (pole length 203.79)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3985,
+            "ambiguous": false
+          },
+          "netDir": -1.1757626462938882,
+          "netSens": -1.1033897919375812
+        },
+        {
+          "closedThrough": "2026-01-06T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3219.24,
+          "stop": 3135.02,
+          "tp1": 3438.28,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2640 (seed 2026, symbol ETH, ts 1767672000000) -> long, no trend gate",
+            "4h retest of breakout 3205 within 0.25 ATR(4h), closed above it at 3219.24",
+            "stop 3135.02 (retest extreme +/- 0.1 ATR vs invalidation 3135.02, NF-floored)",
+            "TP1 = measured move 3438.28 (pole length 233.28)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2066,
+            "ambiguous": false
+          },
+          "netDir": -1.1299621942531468,
+          "netSens": -1.0764483495606747
+        },
+        {
+          "closedThrough": "2026-01-20T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 3188.67,
+          "stop": 3236.26,
+          "tp1": 3006.16,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.5104 (seed 2026, symbol ETH, ts 1768867200000) -> short, no trend gate",
+            "4h retest of breakout 3197.3 within 0.25 ATR(4h), closed below it at 3188.67",
+            "stop 3236.26 (retest extreme +/- 0.1 ATR vs invalidation 3236.26, NF-floored)",
+            "TP1 = measured move 3006.16 (pole length 191.14)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.835,
+            "holdCandles": 668,
+            "timeToTP1Candles": 668
+          },
+          "netDir": 3.7411958814877075,
+          "netSens": 3.700994116411011
+        },
+        {
+          "closedThrough": "2026-02-02T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2239.02,
+          "stop": 2475.98,
+          "tp1": 1488.39,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.8468 (seed 2026, symbol ETH, ts 1769990400000) -> short, no trend gate",
+            "4h retest of breakout 2284.17 within 0.25 ATR(4h), closed below it at 2239.02",
+            "stop 2475.98 (retest extreme +/- 0.1 ATR vs invalidation 2475.98, NF-floored)",
+            "TP1 = measured move 1488.39 (pole length 795.78)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.4443,
+            "holdCandles": 1441
+          },
+          "netDir": -0.4575285111411208,
+          "netSens": -0.46319787305874405
+        },
+        {
+          "closedThrough": "2026-02-02T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2282.32,
+          "stop": 2475.98,
+          "tp1": 1488.39,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.7082 (seed 2026, symbol ETH, ts 1770019200000) -> short, no trend gate",
+            "4h retest of breakout 2284.17 within 0.25 ATR(4h), closed below it at 2282.32",
+            "stop 2475.98 (retest extreme +/- 0.1 ATR vs invalidation 2475.98, NF-floored)",
+            "TP1 = measured move 1488.39 (pole length 795.78)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.2042,
+            "holdCandles": 1201
+          },
+          "netDir": -0.2206992667561706,
+          "netSens": -0.22777038108024375
+        },
+        {
+          "closedThrough": "2026-02-14T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2087.43,
+          "stop": 2038.69,
+          "tp1": 2236.93,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3491 (seed 2026, symbol ETH, ts 1771070400000) -> long, no trend gate",
+            "4h retest of breakout 2060.49 within 0.25 ATR(4h), closed above it at 2087.43",
+            "stop 2038.69 (retest extreme +/- 0.1 ATR vs invalidation 2038.69, NF-floored)",
+            "TP1 = measured move 2236.93 (pole length 176.44)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 695,
+            "ambiguous": false
+          },
+          "netDir": -1.145614731226919,
+          "netSens": -1.0856557242511289
+        },
+        {
+          "closedThrough": "2026-03-23T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2052.54,
+          "stop": 2122.94,
+          "tp1": 1870.75,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.6133 (seed 2026, symbol ETH, ts 1774224000000) -> short, no trend gate",
+            "4h retest of breakout 2054.35 within 0.25 ATR(4h), closed below it at 2052.54",
+            "stop 2122.94 (retest extreme +/- 0.1 ATR vs invalidation 2122.94, NF-floored)",
+            "TP1 = measured move 1870.75 (pole length 183.6)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 426,
+            "ambiguous": false
+          },
+          "netDir": -1.0408175568181817,
+          "netSens": -1.0583107954545454
+        },
+        {
+          "closedThrough": "2026-05-04T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2337.59,
+          "stop": 2297.59,
+          "tp1": 2457.15,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3033 (seed 2026, symbol ETH, ts 1777881600000) -> long, no trend gate",
+            "4h retest of breakout 2333.91 within 0.25 ATR(4h), closed above it at 2337.59",
+            "stop 2297.59 (retest extreme +/- 0.1 ATR vs invalidation 2297.59, NF-floored)",
+            "TP1 = measured move 2457.15 (pole length 123.24)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 4473,
+            "ambiguous": false
+          },
+          "netDir": -1.19869515,
+          "netSens": -1.1168795
+        },
+        {
+          "closedThrough": "2026-06-04T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1813.05,
+          "stop": 1893.07,
+          "tp1": 1606.57,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.9742 (seed 2026, symbol ETH, ts 1780516800000) -> short, no trend gate",
+            "4h retest of breakout 1827.65 within 0.25 ATR(4h), closed below it at 1813.05",
+            "stop 1893.07 (retest extreme +/- 0.1 ATR vs invalidation 1893.07, NF-floored)",
+            "TP1 = measured move 1606.57 (pole length 221.08)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.5804,
+            "holdCandles": 2285,
+            "timeToTP1Candles": 2285
+          },
+          "netDir": 2.5486795551112222,
+          "netSens": 2.5350850787303174
+        },
+        {
+          "closedThrough": "2026-06-14T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1681.18,
+          "stop": 1657.38,
+          "tp1": 1770.07,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.4361 (seed 2026, symbol ETH, ts 1781380800000) -> long, no trend gate",
+            "4h retest of breakout 1679.92 within 0.25 ATR(4h), closed above it at 1681.18",
+            "stop 1657.38 (retest extreme +/- 0.1 ATR vs invalidation 1657.38, NF-floored)",
+            "TP1 = measured move 1770.07 (pole length 90.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 876,
+            "ambiguous": false
+          },
+          "netDir": -1.240168571428572,
+          "netSens": -1.1412756302521012
+        },
+        {
+          "closedThrough": "2026-07-03T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1731.24,
+          "stop": 1686.49,
+          "tp1": 1897.01,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2656 (seed 2026, symbol ETH, ts 1783080000000) -> long, no trend gate",
+            "4h retest of breakout 1722.21 within 0.25 ATR(4h), closed above it at 1731.24",
+            "stop 1686.49 (retest extreme +/- 0.1 ATR vs invalidation 1686.49, NF-floored)",
+            "TP1 = measured move 1897.01 (pole length 174.8)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.3379,
+            "holdCandles": 10080,
+            "exit": 1791.11
+          },
+          "netDir": 1.2063644469273744,
+          "netSens": 1.2605261452513967
+        },
+        {
+          "closedThrough": "2026-07-03T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1745.38,
+          "stop": 1686.49,
+          "tp1": 1897.01,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3194 (seed 2026, symbol ETH, ts 1783094400000) -> long, no trend gate",
+            "4h retest of breakout 1722.21 within 0.25 ATR(4h), closed above it at 1745.38",
+            "stop 1686.49 (retest extreme +/- 0.1 ATR vs invalidation 1686.49, NF-floored)",
+            "TP1 = measured move 1897.01 (pole length 174.8)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8032,
+            "holdCandles": 10080,
+            "exit": 1792.68
+          },
+          "netDir": 0.7024309050772629,
+          "netSens": 0.7439240618101547
+        },
+        {
+          "closedThrough": "2026-07-06T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1785.65,
+          "stop": 1748.79,
+          "tp1": 1991.71,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.1157 (seed 2026, symbol ETH, ts 1783281600000) -> long, no trend gate",
+            "4h retest of breakout 1781.28 within 0.25 ATR(4h), closed above it at 1785.65",
+            "stop 1748.79 (retest extreme +/- 0.1 ATR vs invalidation 1748.79, NF-floored)",
+            "TP1 = measured move 1991.71 (pole length 210.43)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 724,
+            "ambiguous": false
+          },
+          "netDir": -1.1647099837221915,
+          "netSens": -1.0968882257189363
+        },
+        {
+          "closedThrough": "2026-08-07T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1918.85,
+          "stop": 1894.35,
+          "tp1": 2002.1,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.2845 (seed 2026, symbol ETH, ts 1786118400000) -> long, no trend gate",
+            "4h retest of breakout 1910.85 within 0.25 ATR(4h), closed above it at 1918.85",
+            "stop 1894.35 (retest extreme +/- 0.1 ATR vs invalidation 1894.35, NF-floored)",
+            "TP1 = measured move 2002.1 (pole length 91.25)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 4014,
+            "ambiguous": false
+          },
+          "netDir": -1.266289387755102,
+          "netSens": -1.1566408163265307
+        },
+        {
+          "closedThrough": "2026-08-21T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2326.82,
+          "stop": 2221.54,
+          "tp1": 2784.48,
+          "tp2": null,
+          "reason": [
+            "seeded random draw 0.3788 (seed 2026, symbol ETH, ts 1787256000000) -> long, no trend gate",
+            "4h retest of breakout 2320 within 0.25 ATR(4h), closed above it at 2326.82",
+            "stop 2221.54 (retest extreme +/- 0.1 ATR vs invalidation 2221.54, NF-floored)",
+            "TP1 = measured move 2784.48 (pole length 464.48)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.7489,
+            "holdCandles": 10080,
+            "exit": 2510.94
+          },
+          "netDir": 1.6737557370820668,
+          "netSens": 1.7046974924012157
+        }
+      ]
+    }
+  }
+}
