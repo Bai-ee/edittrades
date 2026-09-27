@@ -17,6 +17,9 @@ import {
   parseChartArg,
   buildChartSpec,
   computeLayout,
+  computeIndicatorLayout,
+  computeRSI14,
+  chartCanvasHeight,
   renderChart,
   renderContextChart,
   ChartRequestError,
@@ -26,6 +29,7 @@ import {
   CHART_WIDTH,
   CHART_HEIGHT,
   CHART_MAX_BYTES,
+  RSI_PANEL_HEIGHT,
   normalizeTradeOverlay,
   tradeLegendText,
   chartOverlays,
@@ -398,6 +402,81 @@ async function run() {
     const out = path.join(os.tmpdir(), 'edittrades-trade-chart-sample.png');
     writeFileSync(out, png);
     console.log(`    sample trade chart: ${out} (${png.length} B)`);
+  });
+
+  console.log('\nENTRY / EXIT markers + RSI panel (T-16)');
+
+  await test('computeRSI14: Wilder RSI, mirrored around 100 for a price series mirrored around its mean', () => {
+    const closes = [100, 101, 99, 102, 98, 103, 97, 104, 96, 105, 95, 106, 94, 107, 93, 108, 92, 109, 91, 110];
+    const up = computeRSI14(closes.map((c) => ({ c })), 5);
+    const down = computeRSI14(closes.map((c) => ({ c: 200 - c })), 5);
+    for (let i = 0; i < 5; i++) assertEqual(up[i], null, `not enough deltas yet at ${i}`);
+    assert(typeof up[5] === 'number', 'seeded once the period elapses');
+    for (let i = 5; i < closes.length; i++) {
+      assert(Math.abs(up[i] + down[i] - 100) < 1e-9, `mirrored series sums to 100 at ${i} (${up[i]} + ${down[i]})`);
+    }
+  });
+
+  // Entry at flat[10], exit at flat[20] on the T-13 synthetic 1h fixture (24 candles);
+  // the trade overlay is the same one T-13 already covers, plus entryAt/exit and rsi14.
+  const RSI_TRADE = { ...TRADE, entryAt: flat[10].t, exit: { price: 102, at: flat[20].t } };
+  const rspec = buildChartSpec(synthetic, { symbol: 'BTC', timeframe: '1h', tradeOverlay: RSI_TRADE, indicators: ['rsi14'] }, series);
+  const rlayout = computeLayout(rspec);
+  const rind = computeIndicatorLayout(rspec);
+  const rpng = await renderChart(rspec);
+  const rbmp = await decode(rpng);
+
+  await test('buildChartSpec: entryAt/exit.at resolve to the candle at or after them; exit.r defaults from entry/stop', () => {
+    assertEqual(rspec.trade.entryIndex, 10, 'entry index matches flat[10]');
+    assertEqual(rspec.trade.exit.index, 20, 'exit index matches flat[20]');
+    assertEqual(rspec.trade.exit.r, Math.round(((102 - 101) / Math.abs(101 - 100.2)) * 100) / 100, 'R multiple computed from entry/stop');
+    assertEqual(normalizeTradeOverlay({ direction: 'long', entry: 100, stop: 99, tp1: 105, entryAt: 'not a date' }).entryAt, null, 'unparseable entryAt -> null');
+  });
+
+  await test('computeIndicatorLayout: null without the rsi14 indicator; with it, higher RSI values sit higher in the panel', () => {
+    assertEqual(computeIndicatorLayout(tspec), null, 'no indicator -> null');
+    assert(rind !== null, 'indicator layout present with rsi14');
+    assertEqual(rind.top, CHART_HEIGHT + 22, 'panel top offset');
+    assertEqual(rind.bottom, CHART_HEIGHT + RSI_PANEL_HEIGHT - 18, 'panel bottom offset');
+    assert(rind.yOf(70) < rind.yOf(50) && rind.yOf(50) < rind.yOf(30), '70 above 50 above 30');
+  });
+
+  await test('chartCanvasHeight / renderChart: the rsi14 indicator adds exactly RSI_PANEL_HEIGHT; without it, unchanged', () => {
+    assertEqual(chartCanvasHeight(tspec), CHART_HEIGHT, 'no indicator');
+    assertEqual(chartCanvasHeight(rspec), CHART_HEIGHT + RSI_PANEL_HEIGHT, 'with rsi14');
+    assertEqual(`${rbmp.width}x${rbmp.height}`, `${CHART_WIDTH}x${CHART_HEIGHT + RSI_PANEL_HEIGHT}`, 'decoded PNG dimensions');
+  });
+
+  await test('the RSI line sits on the row its value maps to', () => {
+    const i = 15;
+    const v = rspec.rsi14[i];
+    assert(typeof v === 'number', 'rsi value present well past the 14-period seed');
+    const near = (y) => [y - 1, y, y + 1].some((yy) => pixelHex(rbmp, rlayout.xOf(i), yy) === CHART_COLORS.rsi);
+    assert(near(rind.yOf(v)), 'RSI line at its row');
+  });
+
+  await test('ENTRY marker: a dashed white vertical line at the entry candle, through both panels', () => {
+    const x = rlayout.xOf(rspec.trade.entryIndex);
+    let on = 0;
+    let off = 0;
+    for (let y = 60; y < CHART_HEIGHT + RSI_PANEL_HEIGHT - 30; y++) {
+      if (pixelHex(rbmp, x, y) === CHART_COLORS.entryMarker) on++; else off++;
+    }
+    assert(on > 20, `entry marker drawn (${on} px)`);
+    assert(off > 5, `entry marker is dashed, not solid (${off} gap px)`);
+  });
+
+  await test('EXIT marker: an amber vertical line at the exit candle, distinct from ENTRY', () => {
+    const x = rlayout.xOf(rspec.trade.exit.index);
+    let on = 0;
+    for (let y = 60; y < CHART_HEIGHT + RSI_PANEL_HEIGHT - 30; y++) if (pixelHex(rbmp, x, y) === CHART_COLORS.exitMarker) on++;
+    assert(on > 15, `exit marker drawn (${on} px)`);
+    assert(CHART_COLORS.exitMarker !== CHART_COLORS.entryMarker, 'exit and entry markers use different colours');
+  });
+
+  await test('a trade chart with the RSI panel and both markers stays under CHART_MAX_BYTES', () => {
+    assert(rpng.length <= CHART_MAX_BYTES, `bytes ${rpng.length} > ${CHART_MAX_BYTES}`);
+    console.log(`    T-16 sample (entry + exit + RSI): ${rpng.length} B`);
   });
 
   console.log('\nopenapi');
