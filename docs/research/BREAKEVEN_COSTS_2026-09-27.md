@@ -1,5 +1,31 @@
 # Break-even cost table — every studied strategy vs what EditTrades pays (2026-09-27)
 
+> **ADDENDUM 2026-09-27 (later the same day) — the borrow assumption below was wrong. See [harness/WP6_JUPITER_BORROW.md](./harness/WP6_JUPITER_BORROW.md).**
+>
+> The real Jupiter long borrow was measured at **≈0.0013%/h (BTC, ETH) and 0.0015%/h (SOL)** at about 10–12% pool utilization. Two independent sources agree:
+> - decoded custody `jumpRateState` + utilization;
+> - Jupiter's own API, `perps-api.jup.ag/v1/pool-info` → `longBorrowRatePercent`.
+>
+> That is 13–18× below the 0.02–0.024%/h used in this document, which came from older Jupiter docs written when utilization was high. The curve gives ≈0.003–0.004%/h at its 80% utilization target and at most ≈0.01–0.017%/h at 100%.
+>
+> Re-run (`node scripts/research/edge/breakeven.js --main ../snapshot_tradingview --borrow <rate>`):
+>
+> | Verdict (79 strategies) | 0.02%/h (old) | **0.0015%/h (measured)** | 0.004%/h (80%-util stress) |
+> | --- | --- | --- | --- |
+> | Survives, n ≥ 30 | 2 | **16** | 14 |
+> | Survives, n < 30 | 6 | 11 | 9 |
+> | Borrow kills | 21 | 2 | 6 |
+> | Fees kill | 26 | 26 | 26 |
+> | No gross edge | 24 | 24 | 24 |
+>
+> At the measured rate, the 4h Donchian breakouts (incl. Quattro's F1-don-4h-N20 entry), the 4h squeeze, the daily RSI(2) pullback and `re-flag-retest-1h` all clear costs with a 1.7–11× margin. **The earlier finding that “borrow, not fees, kills slow perps edges” is withdrawn.** Fees still kill the fast strategies.
+>
+> Caveats:
+> - These are train-phase, in-sample configs from a 52-config search. The original edge search found none with t ≥ 1, so they still need holdout + significance (WP3/WP4) before any claim of edge.
+> - Borrow is utilization-driven, so re-check it before any live use.
+> - Side finding (not fixed, engine freeze): `services/jupiterPerps.js` `getPerpQuote()` reads the legacy `hourlyFundingDbps` field, which is **0 on every custody**, so the app's own borrow estimate is stale.
+
+
 Research only. Question: for each strategy already studied, how much round-trip cost could it absorb before its net result hits zero, and how does that compare with what EditTrades pays?
 
 **Script:** `scripts/research/edge/breakeven.js`.

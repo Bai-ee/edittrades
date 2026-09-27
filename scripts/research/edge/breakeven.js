@@ -10,7 +10,7 @@ import { runSma4h } from './sma4h-trend.js';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, arr) => (x.startsWith('--') ? [...a, [x.slice(2), arr[i + 1]]] : a), []));
 const MAIN = args.main || '../snapshot_tradingview';
-const BORROW_PER_H = 0.02; // % per hour, edge-search base scenario (Jupiter borrow proxy)
+const BORROW_PER_H = Number(args.borrow ?? 0.02); // % per hour; 0.02 = old doc-based proxy, measured 2026-09-27 ≈ 0.0015 (WP6)
 const ACTUAL = { long: 0.20, short: 0.14, spotPerSide: 0.15 }; // % round trip (perps), % per side (spot)
 
 // Per-trade R data: netR_i = grossR_i - (c + b*h_i) / risk_i  =>  c* = (sum grossR - sum b*h/risk) / sum 1/risk
@@ -135,7 +135,8 @@ out.push('| symbol | rule | gross CAGR | net CAGR @0.15% | B&H CAGR | break-even
 out.push('| --- | --- | --- | --- | --- | --- | --- |');
 for (const s of spot) out.push(`| ${s.sym} | ${s.id} | ${p(s.grossCagr * 100, 0)} | ${p(s.netCagr * 100, 0)} | ${p(s.bhCagr * 100, 0)} | ${s.beZero < 0 ? 'none' : p(s.beZero * 100)} | ${s.beHold < 0 ? 'never beats B&H' : p(s.beHold * 100)} |`);
 const md = out.join('\n');
-fs.mkdirSync('var/research/breakeven', { recursive: true });
-fs.writeFileSync('var/research/breakeven/REPORT.md', `${md}\n`);
-fs.writeFileSync('var/research/breakeven/rows.json', JSON.stringify({ perps: rows, spot }, null, 1));
+const outDir = `var/research/breakeven${args.borrow ? `-b${args.borrow}` : ''}`;
+fs.mkdirSync(outDir, { recursive: true });
+fs.writeFileSync(`${outDir}/REPORT.md`, `${md}\n`);
+fs.writeFileSync(`${outDir}/rows.json`, JSON.stringify({ perps: rows, spot }, null, 1));
 console.log(md);
