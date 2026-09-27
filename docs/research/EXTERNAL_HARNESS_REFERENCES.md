@@ -39,7 +39,7 @@ The proposal that triggered this review contained claims that do not hold. The o
 | C2 | Use Jesse as an independent validator (“EditTrades 1.08 vs Jesse 1.05”). | Jesse fills market orders at the **current candle's close** (`Strategy.py`, `broker.py`), not the next open. By default it will disagree with our next-open semantics. The 1.08/1.05/1.07 figures were illustrative, not measured. | Freqtrade (entry at next open, per `docs/backtesting.md` “Assumptions”) is the closer second implementation. See R6. |
 | C3 | Jesse significance and Monte Carlo are exposed through MCP. | True, but the MCP wrapper is metered (free 100 runs/day, guest 0) in `jesse/mcp/usage_limits.py`. Direct Research-API calls are not gated. | Don't design around Jesse MCP. |
 | C4 | CCXT and Nautilus are data/execution layers for our venue. | Neither supports Jupiter or any Solana perps. Nautilus has 18 adapters, none on Solana. CCXT has no Jupiter class. | CCXT is only useful for cross-venue **price and funding reference** data (R5). Nautilus only matters for concepts (R8). |
-| C5 | A “Hyperliquid AI agent repo” provides a prediction ledger and forward scoring. | That repo was not identified or supplied, so it is unverified. EditTrades already has `scripts/paper-ledger.js` and tracker `score.js`, `calibration.js`, `shadow.js`, `v3-shadow.js` and `walk-outcome.js`. | The ledger stage of the proposed pipeline mostly exists. Only drift detection is possibly missing (R10, verify first). |
+| C5 | A “Hyperliquid AI agent repo” provides a prediction ledger and forward scoring. | Now identified: `jsacramento22/Hyperliquid-AI-trading-agent` @ `efee645`, no licence (see Reconciliation). Previously unverified. EditTrades already has `scripts/paper-ledger.js` and tracker `score.js`, `calibration.js`, `shadow.js`, `v3-shadow.js` and `walk-outcome.js`. | The ledger stage of the proposed pipeline mostly exists. Only drift detection is possibly missing (R10, verify first). |
 | C6 | Proposal named `freqtrade/freq` and `AI4Finance-Foundation/FinRL`. | Correct repos are `freqtrade/freqtrade` and, for new work, `AI4Finance-Foundation/FinRL-Trading` (the FinRL README redirects there). | Naming only. |
 
 ---
@@ -167,7 +167,75 @@ Size: S ≈ ≤ 1 day, M ≈ 2–3 days, L ≈ a week or more. Order is by value
 
 ---
 
-## Suggested rollout order (for the orchestrator to confirm)
+## Reconciliation with the owner's orchestrator handoff (2026-09-27)
+
+Source: [external-refs/EDITTRADES_HARNESS_UPGRADE_ORCHESTRATOR_HANDOFF_2026-09-27.md](./external-refs/EDITTRADES_HARNESS_UPGRADE_ORCHESTRATOR_HANDOFF_2026-09-27.md), 2,245 lines, written independently of this review.
+
+**This document is the source of truth.** Where the two disagree, this document wins. The handoff's useful additions are merged below as new or extended items.
+
+### Where this document overrides the handoff
+
+| Handoff says | Source of truth | Why |
+| --- | --- | --- |
+| Jesse rule significance = rule vs random entries (§5.2, §10) | Jesse's test is a **block bootstrap of the rule's own detrended returns** (C1). Matched-random controls are a **separate** method, kept as R3b. | Verified in source @ `840beb9`. |
+| Jesse as an external reproduction validator (§14.1) | Jesse fills at the **same-bar close**, so it disagrees with our next-open convention by default. **Freqtrade** is the primary second implementation (R6). | Verified (C2). |
+| Priorities are ranked by signal-observability value only | **Cost survival comes first.** Card 6 ([BREAKEVEN_COSTS_2026-09-27.md](./BREAKEVEN_COSTS_2026-09-27.md)): Jupiter borrow (≈ 0.024%/h) kills every slower perps edge, and fees kill the fast ones. Every ledger, backfill, significance and drift output **must report net R under actual Jupiter costs including borrow, plus break-even cost**, not just direction or gross R. | A statistically significant signal that cannot survive fees, slippage and borrow is not an edge. §10.5's "economically meaningful" rule must be defined as **net of borrow**. |
+| Signal Observation Ledger and outcome backfill are new P0 builds (§8–9) | **Mostly already exist.** `scripts/tracker/records.js` captures every cron and served payload with `schemaVersion`/`configVersion`; `score.js` + `walk-outcome.js` score stop-vs-TP1 ordering on closed 1m candles; `calibration.js` has Brier + reliability buckets for `pathOutlook`; `shadow.js`/`nf-shadow.js` score counterfactual rules. Only the gaps are new items (R11–R14). | §18.1 “add, do not replace”; answers handoff Q1, Q3, Q5. |
+| CCXT not in this rollout unless a data problem is proven (§26) | Agreed. A concrete problem **is** proven: the Binance main API is geo-blocked here (HTTP 451), and Card 6 needs real funding history. **Prefer direct REST (no dependency)** for R5. | — |
+| Deterministic risk gate audit, conditional (§15) | **Likely exists → no-op.** Live execution caps ($20 / 2x / $2 / $25 / 1) and `PLAN_RISK_GUARDRAILS` G1 are enforced in code per `docs/AGENT_SESSION_RULES.md`. The orchestrator confirms with one read of the execution gate; no item. | Handoff Q18. |
+
+### Hyperliquid AI agent repo (was C5 “unverified”)
+
+- `jsacramento22/Hyperliquid-AI-trading-agent` exists, pinned `efee645b25db5b07778883744075af1c0b387849`, 2 stars, last push 2026-06-23.
+- **No licence file, so copy no code** (answers handoff Q21). The files the handoff names exist (`storage.py`, `tree_outcomes.py`, `scripts/drift_check.py`, `features.py`, `risk.py`, tests).
+- Concerns A–C (forming candle in snapshot, train/serve feature mismatch, fold-boundary label leakage) were **not** re-verified here. They only matter if someone copies its model, which both documents forbid.
+- Take the ideas only: deferred outcome scoring, drift vs a frozen baseline, version attribution. These are covered by R10–R13.
+
+### New and extended items from the handoff
+
+| ID | Item | Size | Status | What exists today | Gap |
+| --- | --- | --- | --- | --- | --- |
+| R1+ | Extend R1 with handoff tests B–D and F–G: closed-candle gate per timeframe (1m…1d), HTF availability (latest *completed* HTF bar only), timestamp chain (bar close → feature available → decision → order eligible → fill), forward-label purge/embargo for any horizon-labelled study, partial-data status propagation | S–M | PARKED (with R1) | `lib/freshness.js`, `-partial` provider labels in `services/scalpContext.js:1136`, per-module append-future tests | No single suite; label purge is untested. Only relevant if a labelled/ML study is run. |
+| R3b | **Matched-random entry controls** (handoff §10.3): same count, side mix, asset, dates, exit rule, risk and cost; matched on time-of-day / vol / HTF-trend buckets where n allows. Outputs: observed vs control expectancy, **net R including borrow**, TP1/MFE/MAE, percentile, bootstrap CI, seed. | M | PARKED (after R3) | `ctl-random-4h`, `re-random-4h`, `mr-random-1h`: random direction, not matched | Timing/regime matching. Harness spec §6. First target: `re-flag-retest-1h` (Card 6.3). |
+| R10+ | Drift monitor detail: freeze a baseline at PAPER CANDIDATE (version, code SHA, config, expected frequency, expectancy, MFE/MAE, TP/stop rates, cost drag, calibration, regime mix); states **INSUFFICIENT / OK / WATCH / ALERT**; **never** auto-retune, retrain, promote or change leverage | S–M | PARKED | Tracker scores forward calls; no baseline comparison | Baseline freeze + state report. |
+| R11 | **WAIT / no-trade outcome scoring** (missed trades): for captures with no actionable plan, score MFE/MAE at fixed horizons in both directions, so false negatives and good WAITs are measurable | S–M | PARKED | Captures of WAIT states are stored (`records.js`); `score.js` only walks plan/ready calls | Missing. Handoff Q2. |
+| R12 | **Fixed-horizon backfill for every capture**: close return, MFE, MAE at 15m / 1h / 4h (strategy-appropriate), with outcome completeness `pending / complete / partial / unscorable` and the unscored share reported | S–M | PARKED | Trade-level stop/TP walks only | Missing. Handoff Q4. |
+| R13 | **Code SHA on every capture row** (plus existing schema/config versions) | S | PARKED | `schemaVersion`, `configVersion` on rows (`records.js:140-141`) | No code SHA. Handoff Q14. Touches the recorder (`lib/servedCalls.js`), so post-freeze or tracker-side only. |
+| R14 | **Reason-code attribution**: per structured code (`plan.reasonCode`, candidate qualification codes, clarity `gate`/`killIf`), incremental net expectancy (with vs without, net of costs) | M | PARKED (after R12) | Codes exist in `lib/flagRecommendation.js` / `lib/candidateQualifier.js` | No attribution report. Handoff Q16. Answers "which components actually improve outcomes". |
+| R15 | **Calibration of recommendation confidence** by bucket (the confidence the GPT/Telegram shows, not only `pathOutlook`) | S | PARKED (after R12) | `calibration.js` reliability buckets for `pathOutlook` only | Extend to the headline confidence. Handoff Q15. |
+| — | Advisor-evidence interface (handoff §13) | — | PARKED, low | — | Revisit only if Card 1 picks the regime/confidence role (1.4). |
+| — | Feature metadata contract (handoff §7.4) | — | Optional, with R1+ | — | Only for new research features; don't retrofit the engine. |
+
+### Revised rollout order (supersedes the earlier suggested order and handoff §23–25)
+
+Guiding rule: **an edge must survive fees, slippage, borrow and execution**. Every phase reports net R under actual Jupiter costs and the break-even cost. No phase changes live signal behaviour.
+
+1. **H1 — Is the evidence real?** R1 + R1+ (causality suite), R2 (warm-up audit), R13 (code SHA; tracker side). Pure research. Could reveal existing bugs.
+2. **H2 — What did the engine say, and what happened, net of cost?** R12 (horizon backfill), R11 (WAIT scoring), R15 (confidence calibration). This builds on the existing tracker; it does not replace it.
+3. **H3 — Does it beat chance, net of cost?** R3 (Jesse bootstrap) + R3b (matched random) + R4 (trade shuffle). First targets: `re-flag-retest-1h`, SMA200 / 20-week spot.
+4. **H4 — Is cost the real blocker?** Card 6.1 (real Jupiter borrow history) and R5 with direct REST (funding history, cross-venue).
+5. **H5 — Finalists only:** R6 Freqtrade reproduction, R14 reason-code attribution, R10+ drift once a paper arm runs, R7 and R8 as needed.
+
+Answers to the handoff's §22 questions that are settled here:
+- Q1: yes, partly (tracker).
+- Q2: stored, not scored (R11).
+- Q3: `pathOutlook` only (R15).
+- Q5: yes (fill window in `walk-outcome.js`).
+- Q11: random-direction only (R3b).
+- Q12: bootstrap only (R4).
+- Q14: schema/config yes, code SHA no (R13).
+- Q18: likely yes (verify).
+- Q19–20: see R3, R6 and R1.
+- Q21: no licence.
+- Q22: every item above.
+- Q23: R1 + R2.
+- Q24: R13 and anything touching `lib/servedCalls.js` or engine payloads.
+
+The rest (Q6–10, Q13, Q15–17, Q25) are answered by H1–H2 outputs.
+
+---
+
+## Earlier suggested rollout order (superseded by “Revised rollout order” above)
 
 The order is based on dependencies. Each phase is a separate approval and a separate thread.
 

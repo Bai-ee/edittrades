@@ -108,7 +108,15 @@ What we know from reading the source (not run):
 | 3.7 (R7) | Candle block-bootstrap Monte Carlo | M | PARKED after 3.3 | Jesse MC candles |
 | 3.8 (R8) | Adaptive same-bar ordering as a second bound | S | PARKED | Nautilus concept |
 | 3.9 (R10) | Drift check on the forward ledger | S | verify first | — |
+| 3.10 (R3b) | Matched-random entry controls (timing/regime-matched, net of borrow) | M | PARKED after 3.3 | Owner handoff §10 |
+| 3.11 (R11) | WAIT / no-trade outcome scoring (missed trades) | S–M | PARKED | Owner handoff §9.5 |
+| 3.12 (R12) | Fixed-horizon MFE/MAE backfill for every capture + completeness states | S–M | PARKED | Owner handoff §9 |
+| 3.13 (R13) | Code SHA on capture rows | S | PARKED | Owner handoff §8.5 |
+| 3.14 (R14) | Reason-code incremental attribution, net of costs | M | PARKED after 3.12 | Owner handoff §8.4 |
+| 3.15 (R15) | Calibration of headline recommendation confidence | S | PARKED after 3.12 | Owner handoff §8.3 |
 | — | Adopt Jesse / Nautilus / Hummingbot / FinRL / Eliza as platforms | — | DROPPED | No Jupiter support, rebuild cost, or off-goal |
+
+Reconciled with the owner's orchestrator handoff doc (2026-09-27), copied to `external-refs/`. `EXTERNAL_HARNESS_REFERENCES.md` is the source of truth; its **Revised rollout order** (H1–H5) supersedes both earlier orders. Every phase must report net R under actual Jupiter costs including borrow (Card 6).
 
 Key corrections to the proposal:
 - Jesse's significance test is a bootstrap of the rule's own returns, not random entries.
