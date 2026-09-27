@@ -210,11 +210,45 @@ Read:
 
 ---
 
+## Card 7 — Deep-research report: external strategy repos (owner-supplied, 2026-09-27)
+
+- **Source:** [external-refs/DEEP_RESEARCH_REPORT_STRATEGY_REPOS_2026-09-27.md](./external-refs/DEEP_RESEARCH_REPORT_STRATEGY_REPOS_2026-09-27.md). It screens about 17 repos and ranks Quattro and Trend Atlas as “PAPER CANDIDATE”.
+- **Verified here:**
+  - All 9 new repos exist, and their licences match the report (sentinel NOASSERTION, Shri and SainyTK none, the rest MIT).
+  - Almost all have 0–1 stars; the maximum is 10. The evidence is self-published and unaudited.
+- **Verdict:** the report's method is sound and its rejections are right, but its top ranking **ignores venue carry cost**. It costs Quattro with Binance funding. On Jupiter perps, Card 6 found that Quattro's entry (F1-don-4h-N20) tolerates only ≈ 0.005%/h of borrow against ≈ 0.024%/h actual. **Card 6 overrides:** slow trend families (Quattro, Trend Atlas, daily TSMOM) are **spot or low-carry-venue only**, and Card 6.1 (real Jupiter borrow) comes before building either.
+
+### Checks run on our data / their artifacts
+
+| Candidate | Check | Result | Decision |
+| --- | --- | --- | --- |
+| `wzf01195010-png/Crypto-day-night-effects` @ `5693993` (12h session momentum/reversal, peer-reviewed) | Read the paper's own `preferred_vs_buyhold_tests.csv` | Preferred rules are **not significant even at 0 bps**: BTC Reversal/Reversal p = 0.66 (Holm 1.0), ETH Long/Reversal p = 0.17 (Holm 0.50). At 2 bps, BTC's mean edge is +0.14 bps/day. Our round trip is 14–20 bps per switch. | **DROP** |
+| `PeterLP123/systematic-crypto-research` @ `a16b8c5`: vol-normalized trend z = (close/SMA140 − 1)/vol30, active if \|z\| > 1 | Long-only adaptation on `var/edge/daily-long`, 0.15%/side, next-open, vs plain SMA140 (exploratory, unregistered) | z>1 **raises** switches on 6 of 9 rows (e.g. BTC full 81 vs 67) and **lowers** CAGR on 8 of 9 (BTC 43% vs 48%, ETH 27% vs 35%). Plain daily SMA140 (≈ 20-week) again beats B&H on BTC/ETH/SOL full history, consistent with Card 4. | **DROP** as a whipsaw filter. Original is an MVO portfolio input (not tested); low-priority advisor feature at most. |
+| `EstebanSP23/crypto_systematic_research`, Quattro | Already Card 2 | The report confirms the spec/code EMA200-slope mismatch and the costed +610% (fees + Binance funding, **no slippage**, pyramid + leverage) | Card 2.1 must reproduce **both** interpretations (close > EMA200 vs rising EMA200); build spot/low-carry only (6.4). |
+| `0xpg/crypto-trend-following`, Trend Atlas (daily multi-speed TSMOM, vol targeting, no-trade buffer, future-tampering tests) | Not run | Daily holds put it in the Card 6 “borrow kills” class on Jupiter (F2-tsmom-1d rows). Its new value is the **vol-targeting + no-trade-buffer sizing layer** and its **future-tampering test pattern**, not the signal. | Item 7.1 |
+
+### Bucket of work
+
+| # | Item | Size | Status | Notes |
+| --- | --- | --- | --- | --- |
+| 7.1 | Verify Trend Atlas at a pinned SHA; extract its **vol-target + no-trade buffer** rule and test it as a sizing overlay on the spot trend arm (SMA200 / 20-week / EMA20), registered | M | PARKED | Merge with Card 1.7 (portfolio + vol target). The buffer targets our main cost leak: turnover. |
+| 7.2 | Use Trend Atlas's future-tampering tests as a reference design for R1 / R1+ | S | PARKED (with H1) | Concept only (MIT; still reimplement). |
+| 7.3 | Report's rollout (“first wave = Quattro + Trend Atlas”) | — | SUPERSEDED | Order is Card 6.1 (real borrow) → spot-first slow-trend work → only then any perps port. |
+
+---
+
 ## Reviewed and dropped (don't re-review without new evidence)
 
 | Date | Source | Claim | Why dropped |
 | --- | --- | --- | --- |
 | 2026-09-27 | X post, @0x_Punisher, “7 indicators” Polymarket bot thread (marked “Paid partnership”, Telegram funnel) | RSI + MACD + Stoch + EMA + OBV + VWAP + ATR filter stack gives bot edge on 5-min BTC Up/Down markets | No rules, no verifiable P&L, survivorship framing. The venue is binary contracts, not Jupiter perps. Already tested and failed after costs: RSI-extreme reversion (`MEANREV_STUDY_2026-09-26.md`, −0.52R), vol-squeeze, RSI(2) and Bollinger families (`EDGE_SEARCH_2026-09-27.md`, 0 of 76 net-positive). EMA, Stoch RSI, VWAP and ATR already exist. OBV is covered by the in-flight volume-context work. MACD is redundant with the tested momentum families. |
+| 2026-09-27 | Card 7 report: `matiasjarnal/crypto-momentum-strategy` | Cross-sectional momentum, OOS Sharpe 1.12 | Needs a 35-coin universe (EditTrades trades 3); notebook-only. |
+| 2026-09-27 | Card 7 report: `adensvaz/sentinel-hyperliquid` “Champion” | CAGR 39%, Sharpe 1.12 | Licence NOASSERTION; the current config diverges from the backtested spec; 24-asset universe. |
+| 2026-09-27 | Card 7 report: `abailey81/Crypto-Statistical-Arbitrage` | Sharpe 5.81, 95% win rate over 44,652 trades | Implausible; the report itself rejects it pending a fill/leakage audit. |
+| 2026-09-27 | Card 7 report: `Shri-Gopalakrishnan/Volatility_regime_backtest` | Vol-spike fade, SOL Sharpe up to 11.7 | No licence, 6-month sample, 12 trades, no costs. |
+| 2026-09-27 | Card 7 report: `SainyTK/funding-arb-analysis` | Funding arbitrage (published paper) | No licence. The paper (doi 10.1016/j.bcra.2025.100354) is worth reading if a carry family is ever opened. |
+| 2026-09-27 | Card 7 report: `AKzar1el/walk-forward-crypto` | 4h walk-forward | No implementation source in the repo. |
+| 2026-09-27 | Card 7 report: day/night session effect; PeterLP z-buffer | see Card 7 | Not significant at 0 bps / worse than plain SMA140. |
 
 ---
 
