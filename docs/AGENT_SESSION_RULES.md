@@ -1,6 +1,6 @@
 # Rules for every agent session on this repo (2026-09-26)
 
-Live perps trading is ON in production (EXECUTION_MODE=live, simulate-only OFF, caps $20 / 2x / $2 / $25 / 1). One orchestrator thread ("EditTrades Live Perps Execution") owns live orders, env, and deploys.
+Live perps trading is ON in production (EXECUTION_MODE=live, simulate-only OFF, caps $150 / 100x / $5 / $25 / 1, NF stop floor + trailing live since 2026-09-27). One orchestrator thread ("EditTrades Live Perps Execution") owns live orders, env, and deploys.
 
 1. Never place, confirm, or suggest a Telegram order. `/order`, `/confirm`, Open buttons move real money.
 2. Never deploy (`vercel --prod`), never touch Vercel env, never read `.env*` values.
