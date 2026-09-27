@@ -628,7 +628,9 @@ async function run() {
     const good = a.alerts.filter((x) => x.kind === 'GOOD');
     assertEqual(good.length, 1, 'one GOOD');
     // T-13: the GOOD chart carries the plan's trade overlay (no NF shadow in this fixture).
-    assertEqual(JSON.stringify(good[0].chart), JSON.stringify({ symbol: 'BTC', timeframe: '5m', tradeOverlay: { direction: 'long', entry: 84600, stop: 84390, tp1: 85146, tp2: 85300, nfStop: null, grossRR: 2.6, netRR: 2.1 } }), 'chart');
+    // T-16: entryAt is the ready close (asOf = payload.closedThrough here); indicators
+    // requests the RSI(14) panel.
+    assertEqual(JSON.stringify(good[0].chart), JSON.stringify({ symbol: 'BTC', timeframe: '5m', tradeOverlay: { direction: 'long', entry: 84600, stop: 84390, tp1: 85146, tp2: 85300, nfStop: null, grossRR: 2.6, netRR: 2.1, entryAt: '2026-09-24T14:05:00.000Z' }, indicators: ['rsi14'] }), 'chart');
     assert(/^Enter: retest hold at 84,600\.00\nWrong if: close below 84,390\.00 \(0\.25 %\)/.test(good[0].approach), good[0].approach);
     assert(a.changed, 'state changed');
     const st = a.state.symbols.BTC;
@@ -1788,6 +1790,9 @@ async function run() {
     st = r.state;
     const go = r.alerts.filter((a) => a.kind === 'TRACK');
     assert(go.length === 1 && go[0].text.startsWith('🟢 ◎ <b>SOL 3m ▼ SHORT</b> · TRACK · GET IN NOW') && go[0].more[0].startsWith('🧭 PLAN · ◎ <b>SOL 3m ▼ SHORT</b>') && go[0].chart, 'GET IN NOW with the Plan card');
+    // T-16: the ENTRY marker sits at the ready close (asOf), and the chart asks for the RSI panel.
+    assertEqual(go[0].chart.tradeOverlay.entryAt, '2026-09-24T14:05:00.000Z', 'entryAt = ready close');
+    assertEqual(go[0].chart.indicators.join(), 'rsi14', 'RSI panel requested');
     assert(!r.alerts.some((a) => a.kind === 'GOOD'), 'one message per change (no second GOOD)');
     assertEqual(st.tracked[0].ready, true, 'now watching TP1/stop');
     // Cron delivers the follow-up Plan card.
@@ -1863,6 +1868,19 @@ async function run() {
     assertEqual(NUDGE_AFTER_MS, 10 * MIN, '10 min');
   });
 
+  await test('T-16: a taken trade\'s own TRACK update carries the chart - ENTRY at when it was taken, current SL/TP', () => {
+    const short = trackEntry({ symbol: 'SOL', candidateId: SOL_ID, timeframe: '3m', direction: 'short', entry: 116.77, stop: 117.1, tp1: 115.9 }, T0, { took: true });
+    const r = diffAlerts({ ...emptyState(), tracked: [short] }, payload({ BTC: watchSym(), ETH: watchSym(), SOL: { ...watchSym(), price: 116.5, mark: { price: 116.4, driftBps: 1, status: 'ok' } } }), T0 + MIN);
+    const upd = r.alerts.find((a) => a.kind === 'TRACK' && /TRACK · (UPDATE|CHECK-IN)/.test(a.text));
+    assert(upd, `no update alert: ${r.alerts.map((a) => `${a.kind}:${(a.text || '').slice(0, 40)}`).join(', ')}`);
+    assert(upd.chart, 'chart attached to the update');
+    assertEqual(upd.chart.symbol, 'SOL', 'symbol');
+    assertEqual(upd.chart.timeframe, '3m', 'timeframe');
+    assertEqual(`${upd.chart.tradeOverlay.entry}|${upd.chart.tradeOverlay.stop}|${upd.chart.tradeOverlay.tp1}`, '116.77|117.1|115.9', 'current SL/TP (post-trailing when the trailing stop already moved t.stop)');
+    assertEqual(upd.chart.tradeOverlay.entryAt, new Date(T0).toISOString(), 'ENTRY marker at when it was taken (t.since)');
+    assertEqual(upd.chart.indicators.join(), 'rsi14', 'RSI panel requested');
+  });
+
   await test('Took it -> TP1 hit -> Closed here writes kind close (exit = hit mark, resultR vs logged entry/stop, engineRef); Partial = adjust; Still in re-arms; /positions + Close @ mark', async () => {
     const blob = fakeBlob();
     const build = async () => solPayload(solSym());
@@ -1903,6 +1921,27 @@ async function run() {
     const last = blob.files.get('journal/2026-09-24.jsonl').text.trim().split('\n').map((l) => JSON.parse(l)).pop();
     assertEqual(`${last.kind}|${last.exitPrice}|${last.resultR}`, 'close|84610.2|-0.05', 'Close @ mark (BTC mark 84,610.20)');
     assert(pc.tg.calls[1].text.includes('-0.0R') || pc.tg.calls[1].text.includes('+0.0R') || pc.tg.calls[1].text.includes('-0.1R'), pc.tg.calls[1].text);
+  });
+
+  await test('T-16: Closed here sends the journal-close chart - ENTRY at the Took it tap, EXIT at the hit price/time/R, caption leads with the LOGGED line', async () => {
+    const blob = fakeBlob();
+    const build = async () => solPayload(solSym());
+    await tap({ data: `log:took:SOL:${SOL_REF}`, blob, build, nowMs: T0 });
+    const hitRun = await cron({ blob, build: async () => solPayload(solSym({ price: 116.2, mark: { price: 115.88, driftBps: 2, status: 'ok' } })), nowMs: T0 + 21 * MIN });
+    assert(hitRun.tg.calls.some((c) => c.text && c.text.includes('TRACK · TP1 HIT')), 'TP1 alert first');
+    const rr = recordingRender();
+    const closed = await tap({ data: `closed:${SOL_REF}`, blob, build, render: rr.fn, nowMs: T0 + 22 * MIN });
+    const logLine = closed.tg.calls.find((c) => String(c.text || '').startsWith(`[LOGGED tg_close_${SOL_REF}]`));
+    assert(logLine, 'closed and logged');
+    const photo = closed.tg.calls.find((c) => c.method === 'sendPhoto');
+    assert(photo && photo.caption.startsWith(logLine.text), `caption leads with the LOGGED line: ${photo && photo.caption}`);
+    assertEqual(rr.seen.length, 1, 'one chart render');
+    const req = rr.seen[0].request;
+    assertEqual(`${req.symbol}|${req.timeframe}`, 'SOL|3m', 'symbol/timeframe');
+    assertEqual(req.tradeOverlay.entryAt, new Date(T0).toISOString(), 'ENTRY marker at the Took it tap (t.since)');
+    assertEqual(`${req.tradeOverlay.exit.price}|${req.tradeOverlay.exit.at}`, `115.88|${new Date(T0 + 21 * MIN).toISOString()}`, 'EXIT marker at the TP1-hit price/time');
+    assert(typeof req.tradeOverlay.exit.r === 'number', 'exit R present');
+    assertEqual(req.indicators.join(), 'rsi14', 'RSI panel requested');
   });
 
   await test('positions from journal opens/closes (by candidate, else symbol+direction); closeBody R long + short; cron drops a nudge whose trade is already closed', async () => {
@@ -2293,6 +2332,9 @@ async function run() {
     assert(photos[0].caption.startsWith('✅ FILLED · ₿ <b>BTC 5m ▲ LONG</b>') && photos[0].caption.includes('tx 5sigLi…PQRS'), photos[0].caption);
     const req = rr.seen[0].request;
     assert(req.symbol === 'BTC' && req.timeframe === '5m' && req.tradeOverlay && req.tradeOverlay.entry === 84600 && req.tradeOverlay.stop === 84390 && req.tradeOverlay.tp1 === 85146, JSON.stringify(req));
+    // T-16: the ENTRY marker sits at the fill time (now()); the RSI panel is requested.
+    assertEqual(req.tradeOverlay.entryAt, new Date(T0).toISOString(), 'entryAt = fill time');
+    assertEqual(req.indicators.join(), 'rsi14', 'RSI panel requested');
     const dryEx = mockExecutor({ mode: 'dry' });
     const dblob = fakeBlob();
     await xtap({ data: `open:${GOOD_REF}`, executor: dryEx, blob: dblob });
@@ -3146,6 +3188,9 @@ async function run() {
     }
     const req = rr.seen[0].request;
     assert(req.tradeOverlay && req.tradeOverlay.nfStop === null && req.tradeOverlay.stop === 84134.7 && req.timeframe === '5m', JSON.stringify(req));
+    // T-16: entryAt is the ready close (payload.closedThrough); the RSI panel is requested.
+    assertEqual(req.tradeOverlay.entryAt, '2026-09-24T14:05:00.000Z', 'entryAt = ready close');
+    assertEqual(req.indicators.join(), 'rsi14', 'RSI panel requested');
   });
 
   await test('cron: a card too long for one caption goes as text, the chart carries the approach block', async () => {
@@ -3172,6 +3217,9 @@ async function run() {
     const cap = t.tg.calls[photoIdx].caption;
     assert(cap.startsWith('✋ ₿ <b>BTC 5m ▲ LONG</b> · TOOK IT') && cap.includes('Enter: retest hold at 84,600.00') && cap.includes('stop: 0.55 % (floored from 0.12 %)'), cap);
     assert(rr.seen[0].request.tradeOverlay.entry === 84600, 'overlay from the live plan');
+    // T-16: the ENTRY marker sits at the tap time (now()), not the ready close.
+    assertEqual(rr.seen[0].request.tradeOverlay.entryAt, new Date(T0).toISOString(), 'entryAt = Took it tap time');
+    assertEqual(rr.seen[0].request.indicators.join(), 'rsi14', 'RSI panel requested');
     const again = await tap({ data: took, blob, render: rr.fn });
     assertEqual(again.tg.calls.filter((c) => c.method === 'sendPhoto').length, 0, 'duplicate: no chart');
   });

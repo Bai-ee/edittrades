@@ -60,7 +60,7 @@ import {
   parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot,
   collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS,
   resolveRef, formatPlanCard, formatThesisCard, tradeKeyboard, swapTrackButton, candidateSnapshot, trackEntry, applyTrackChange, formatTrackingList,
-  trackingKeyboard, signalsSnapshots, applyButtonSnapshots, openPositions, positionRef, formatPositions, positionsKeyboard, closeBody, livePrice,
+  trackingKeyboard, signalsSnapshots, applyButtonSnapshots, openPositions, openTimeframe, positionRef, formatPositions, positionsKeyboard, closeBody, livePrice,
   EXPIRED_REPLY, TRACK_MAX, formatMarket, fmtTag, fmtLvl, RULE,
   EXEC_OFF_REPLY, ORDER_USAGE, CONFIRM_USAGE, STOPS_USAGE, EXEC_TICKETS_PATH, EXEC_TICKET_TTL_MS, withOpenButton, execCaps, execMode,
   orderIntentFromCandidate, candidateLevels, openSourceKind, parseOrderArgs, parseConfirmArgs, parseStopsArgs, quoteFill, formatRefusedCard, formatTicketCard, ticketKeyboard, confirmPrompt,
@@ -344,10 +344,14 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
    * already the net-floored one - the plan carries no separate floor stop to overlay any
    * more), captioned `head` + the approach block + the stop-floor line (just `head` when
    * that would pass 1,000 chars). Levels: the live plan / SETUP of `candidateId` when the build
-   * still has it, else `fallback` ({direction, entry, stop, tp1}). Never throws and never
-   * blocks the reply it follows; a failure is logged as reason=trade_chart_<Error>.
+   * still has it, else `fallback` ({direction, entry, stop, tp1}). T-16: an RSI(14) panel is
+   * always requested, plus a vertical ENTRY marker (`entryAt`, default the build's
+   * `closedThrough` - the ready close - when the caller has no more specific time, e.g. a
+   * fill or a Took it tap) and an optional EXIT marker (`exit` = {price, at?, r?}, the
+   * journal-close card). Never throws and never blocks the reply it follows; a failure is
+   * logged as reason=trade_chart_<Error>.
    */
-  const sendTradeChart = async ({ symbol, timeframe, candidateId = null, fallback = null, head, payload = null, windows = null }) => {
+  const sendTradeChart = async ({ symbol, timeframe, candidateId = null, fallback = null, head, payload = null, windows = null, entryAt = null, exit = null }) => {
     try {
       if (!symbol || !CHART_TIMEFRAMES.includes(timeframe)) return false;
       let win = null;
@@ -355,10 +359,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       const sym = p && p.symbols ? p.symbols[symbol] : null;
       const live = candidateId ? tradeLevelsOf(sym, candidateId) : null;
       const levels = live || fallback;
-      const overlay = tradeOverlayFor(levels);
+      const overlay = tradeOverlayFor(levels, { entryAt: entryAt || (p && p.closedThrough) || null, exit });
       if (!overlay) return false;
       if (!win && windows) win = windows.get(`${symbol}|${timeframe}`) || null;
-      const chart = await render(p, { symbol, timeframe, tradeOverlay: overlay }, win ? { window: win } : undefined);
+      const chart = await render(p, { symbol, timeframe, tradeOverlay: overlay, indicators: ['rsi14'] }, win ? { window: win } : undefined);
       const clarity = sym && sym.flagRecommendation && sym.flagRecommendation.clarity && sym.flagRecommendation.clarity.candidateId === candidateId ? sym.flagRecommendation.clarity : null;
       const nfLine = candidateId ? stopFloorLine(stopFloorOf(sym, candidateId)) : '';
       const caption = fitCaption([head, [approachBlock(levels, clarity), nfLine].filter(Boolean).join('\n')]) || head;
@@ -628,7 +632,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
               await sendTradeChart({
                 symbol: tk.symbol, timeframe: tk.timeframe, candidateId: tk.candidateId || (tk.snap && tk.snap.candidateId) || null,
                 fallback: { direction: tk.direction, entry: tk.entry, stop: tk.stop, tp1: tk.tp1 },
-                head: resultCard
+                head: resultCard, entryAt: new Date(now()).toISOString() // T-16: the fill time
               });
             }
           }
@@ -968,7 +972,8 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
               await sendTradeChart({
                 symbol: parsed.symbol, timeframe: snap.timeframe, candidateId: snap.candidateId || null,
                 fallback: { direction: snap.direction, entry: snap.entry, stop: snap.stop, tp1: snap.tp1 },
-                head: msgHeader('✋', parsed.symbol, snap.timeframe, snap.direction, 'TOOK IT')
+                head: msgHeader('✋', parsed.symbol, snap.timeframe, snap.direction, 'TOOK IT'),
+                entryAt: new Date(now()).toISOString() // T-16: the tap time
               });
             }
           }
@@ -1082,7 +1087,21 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
             else {
               const { duplicate } = await appendRecord(store, checked.record);
               if (kind === 'close') await writeState((text) => applyTrackChange(text, { action: 'closed', ref: parsed.ref }, now()));
-              await reply(`[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''} · ${escapeHtml(checked.record.text)}`);
+              const resultLine = `[LOGGED ${escapeHtml(checked.record.id)}]${duplicate ? ' (already logged)' : ''} · ${escapeHtml(checked.record.text)}`;
+              await reply(resultLine);
+              // T-16: a full close (Closed here / Close @ mark) also shows the chart, entry
+              // marker at when the trade was taken plus an EXIT marker at the exit price/R;
+              // the journal card is the caption. Never for Partial (still open) or a repeat.
+              if (kind === 'close' && !duplicate) {
+                await sendTradeChart({
+                  symbol: open.symbol, timeframe: (t && t.timeframe) || openTimeframe(open),
+                  candidateId: (open.engineRef && open.engineRef.candidateId) || null,
+                  fallback: { direction: open.direction, entry: open.entry, stop: open.stop, tp1: open.tp1 },
+                  entryAt: (t && t.since) || open.saidAt || open.receivedAt || null,
+                  exit: { price: exit.price, at: (cmd !== 'pclose' && t && t.hit && t.hit.at) || new Date(now()).toISOString(), r: Number.isFinite(checked.record.resultR) ? checked.record.resultR : null },
+                  head: resultLine
+                });
+              }
             }
           }
         }
