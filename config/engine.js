@@ -24,8 +24,10 @@
  *     own leverage-cap model for a NEW position (maxLeverageForStop). No live per-asset
  *     maintenance-margin tier exists in this repo; an existing position's real
  *     liquidation price is always a given input (Phase 3b), never derived from this.
- *   - maxWalletRiskPct (2): most of margin, in percent, positionPlan will size a new
- *     position to lose at its own stop - a standard 1-2% per-trade risk-of-ruin cap.
+ *   - maxWalletRiskPct (0.5, G2 config 2026.10.08-1, was 2): most of margin, in percent,
+ *     positionPlan will size a new position to lose at its own stop. Matches the execution
+ *     `steady` profile (docs/PLAN_RISK_GUARDRAILS_2026-09-27.md; losing streaks of 11-17
+ *     make 2% a ~50% p95 drawdown, docs/RISK_SIZING_STUDY_2026-09-26.md).
  *   - defaultMarginUsd (10): the "~$10, up to 100x" preference. `attachRisk`
  *     (services/scalpContext.js) sizes every position against
  *     min(defaultMarginUsd, account.margin.usd) - a slice of the wallet, never the

@@ -1,8 +1,9 @@
 {
-  "configVersion": "2026.09.24-5",
+  "configVersion": "2026.10.08-1",
 
   "scalp": {
-    "maxStopDistancePct": 3.0
+    "maxStopDistancePct": 3.0,
+    "minStopDistancePct": 0.1
   },
 
   "stops": {
@@ -33,7 +34,7 @@
   "risk": {
     "liquidationBufferPct": 0.05,
     "maintenanceMarginPct": 0.3,
-    "maxWalletRiskPct": 2,
+    "maxWalletRiskPct": 0.5,
     "defaultMarginUsd": 10,
     "maxLeverage": 100,
     "feeBps": 5,
