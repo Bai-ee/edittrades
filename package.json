@@ -71,7 +71,9 @@
     "test:swing:controls": "node test-swing-rules-controls.js",
     "test:swing:meanrev": "node test-swing-rules-meanrev.js",
     "study:exits": "node scripts/research/exits.js",
-    "test:exits": "node test-exits-study.js"
+    "test:exits": "node test-exits-study.js",
+    "study:variants": "node scripts/research/variants.js",
+    "test:variants": "node test-variants-study.js"
   },
   "keywords": [
     "trading",
