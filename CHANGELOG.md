@@ -23,6 +23,17 @@ Worktree `nf-live` (branch `nf-live`, off `origin/upgrade-signal-engine`). Owner
 
 Tests: `test:flagplan` 74, `test:scalp` 122 (worst-case payload byte cap 81,200→81,500 B / 45,800→46,000 B for the new fields), `test:config` 19, `test:tracker` 135 - schemaVersion assertions updated to 1.28.0, NF_RULE parity now reads `flagPlan.stopFloor` directly. `test:execution` 89 → 99 (+10: `trailStops` refusals/success/mirrored-short/cooldown/kill/no-owner, `checkPin`). `test:telegram` 155 → 160 (+5: cron trailing arm/gate/alert-throttle, `/exec trail`, `/positions` trail line) plus every net-floor-line/overlay/card fixture rewritten in place for the live rule (count-neutral). All 40 `test:*`/`check:gpt` targets green; `git diff --check` clean; guard scan 0/0/0 (`jupiterPerps`/`walletManager`/`signTransaction`/`Keypair` absent from `api/telegram-cron.js`, `api/telegram-webhook.js`, `lib/telegram.js`).
 
+## 2026-09-27 — G2 engine guardrails: 0.1% stop floor, 0.5% payload sizing (branch `risk-guardrails-g2`; merged 2026-09-27 with T-15 under the same owner freeze exception; configVersion 2026.09.27-2)
+
+Plan: `docs/PLAN_RISK_GUARDRAILS_2026-09-27.md` (G2). Engine rule change, so built on its own branch and **not merged** while the engine freeze runs (until 2026-10-08, `docs/AGENT_SESSION_RULES.md`). configVersion 2026.09.24-5 → 2026.10.08-1. schemaVersion unchanged here: one additive `reasonCode` enum value; the merger assigns the schema number (1.26.0 is reserved).
+
+- `config/engine.json`: `scalp.minStopDistancePct: 0.1` (new); `risk.maxWalletRiskPct` 2 → 0.5 (payload sizing now matches the execution `steady` profile).
+- `lib/flagTradePlan.js`: a plan whose stop is closer than `scalp.minStopDistancePct` is rejected `stop_distance_below_floor` (after the 3% cap check, before the R:R gates), levels kept. `null` turns it off.
+- `lib/flagRecommendation.js`: the new code is a hard BAD like `stop_distance_exceeds_cap`, with its own remedy text. `lib/telegram.js`: plain words "stop too tight for fees". `openapi/scalp-context.yaml`: enum + description.
+- Effect on the 85-day replay (`docs/COST_GATE_STUDY_2026-09-26.md`, L0): calls 425 → 230 (~5.5 → ~3.0/day), mean net R −7.6 → −0.9 (dir-cost). The floor removes the near-zero-stop outliers and a large share of ordinary tight-stop calls; it does not make the live rules net-positive on its own.
+- Tests: `test:flagplan` 73 → 75 (+1 floor test long/short; the two T6 net-gate fixtures use sub-0.1% stops, so they run with the floor off and the BTC 0.066% incident now also asserts the shipped floor rejects it). All suites green (sltp 50, scalp 122, mcp 52, wallet 28, config 19, risk 24, riskpolicy 52, pattern 33, geometry 36, chart 22, replay 45, bias 15, flagrec 33, flagrec:fixtures 19, execution 89, tracker 135, telegram 155).
+- Not changed: `lib/breakoutEntry.js` (breakout-entry shadow keeps only the 3% cap), `buildConfigSnapshot` (does not publish the floor).
+
 ## 2026-09-27 — G1 risk guardrails: steady 0.5%/trade, equity peak-drawdown kill (execution policy; not deployed)
 
 Plan: `docs/PLAN_RISK_GUARDRAILS_2026-09-27.md` (G1). Evidence: `docs/COST_GATE_STUDY_2026-09-26.md`, `docs/RISK_SIZING_STUDY_2026-09-26.md` (losing streaks 11 median / 17 p95; 1%/trade gives ~28% p95 drawdown on the best cell, 0.5% ~15%). Execution policy only: no engine rule, threshold or payload change (engine freeze until 2026-10-08 respected).

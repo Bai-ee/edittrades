@@ -881,6 +881,7 @@ components:
           description: >-
             Null only when status=ready. awaiting_retest/awaiting_breakout
             (conditional; awaiting_retest replaced awaiting_retest_hold in 1.15.0); invalid_levels, chase, room_at_entry, stop_distance_exceeds_cap,
+            stop_distance_below_floor (config 2026.09.27-2: stop closer than scalp.minStopDistancePct, 0.1%),
             rr_below_min (grossRR below flagPlan.minRR; replaced net_rr_below_3 in 1.17.0),
             net_rr_below_min / stop_inside_costs (1.21.0, T6 phase 1: netRR below
             flagPlan.minNetRR, checked after rr_below_min; stop_inside_costs is the
@@ -894,6 +895,7 @@ components:
             - chase
             - room_at_entry
             - stop_distance_exceeds_cap
+            - stop_distance_below_floor
             - rr_below_min
             - net_rr_below_min
             - stop_inside_costs

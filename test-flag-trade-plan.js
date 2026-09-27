@@ -448,6 +448,12 @@ async function run() {
     // silently ignored - these tests exist specifically to reach the legacy minNetRR path.
     return { ...ENGINE_CONFIG, flagPlan: { ...ENGINE_CONFIG.flagPlan, stopFloor: null, minNetRR } };
   }
+  // G2: the 0.1% stop floor (scalp.minStopDistancePct) now rejects sub-0.1% stops before the
+  // net gate runs; the net-gate fixtures below use such stops, so they switch the floor off.
+  function withMinNetRRNoFloor(minNetRR) {
+    const cfg = withMinNetRR(minNetRR);
+    return { ...cfg, scalp: { ...cfg.scalp, minStopDistancePct: null } };
+  }
 
   await test('net gate override (2.0): a gross-passing plan whose round-trip cost alone eats over half its risk is rejected stop_inside_costs (long + short mirror), levels kept', () => {
     // T6 completion plan C1: risk scaled to each direction's own dir-cost amount (34bps
@@ -456,7 +462,7 @@ async function run() {
     // D-variant revised: minNetRR ships null, so stop_inside_costs only fires under an
     // explicit override here (this reasonCode is research-only in production now).
     for (const cand of [longCandidate({ invalidation: 998.3, measuredTarget: 1005.1 }), shortCandidate({ invalidation: 1000.7, measuredTarget: 997.9 })]) {
-      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRR(2.0));
+      const plan = buildFlagTradePlan(baseParams({ candidate: cand, candles: levelCandles(cand.direction, 'retest') }), withMinNetRRNoFloor(2.0));
       assertEqual(plan.status, 'rejected', `${cand.direction}: status`);
       assertEqual(plan.reasonCode, 'stop_inside_costs', `${cand.direction}: reasonCode (costR >= 0.5)`);
       assertEqual(plan.grossRR, 3, `${cand.direction}: grossRR still published`);
@@ -480,12 +486,15 @@ async function run() {
       candidateId: 'BTC:1m:short:incident', timeframe: '1m', type: 'flag', direction: 'short', state: 'confirmed',
       confidence: 80, chaseRisk: false, breakoutLevel: 83409.4, invalidation: 83464.3, measuredTarget: 83228
     };
-    const plan = buildFlagTradePlan(baseParams({ candidate: cand }), withMinNetRR(2.0));
+    const plan = buildFlagTradePlan(baseParams({ candidate: cand }), withMinNetRRNoFloor(2.0));
     assertClose(plan.grossRR, 3.30, 0.01, 'grossRR matches the incident (3.30)');
     assertClose(plan.netRR, 0.376, 0.001, 'netRR at the short (14bps) dir-cost');
     assertClose(plan.costR, 2.127, 0.001, 'costR at the short (14bps) dir-cost - still far over the 0.5 threshold');
     assertEqual(plan.status, 'rejected', 'status');
     assertEqual(plan.reasonCode, 'stop_inside_costs', 'reasonCode');
+    // G2: with the shipped 0.1% floor on, the same 0.066% stop never reaches the net gate.
+    const shipped = buildFlagTradePlan(baseParams({ candidate: cand }));
+    assertEqual(shipped.reasonCode, 'stop_distance_below_floor', 'shipped config: rejected by the 0.1% stop floor');
   });
 
   // T6 completion plan C1: the fixtures below scale risk proportionally to each
@@ -568,6 +577,15 @@ async function run() {
   await test('rejected/stop_distance_exceeds_cap (short mirror)', () => {
     const plan = buildFlagTradePlan(baseParams({ candidate: shortCandidate({ invalidation: 1050, measuredTarget: 800 }) }));
     assertEqual(plan.reasonCode, 'stop_distance_exceeds_cap', 'reasonCode');
+  });
+
+  await test('rejected/stop_distance_below_floor: a 0.05% stop is under the 0.1% floor (G2, long and short)', () => {
+    const long = buildFlagTradePlan(baseParams({ candidate: longCandidate({ invalidation: 999.5, measuredTarget: 1200 }) }));
+    assertEqual(long.status, 'rejected', 'status');
+    assertEqual(long.reasonCode, 'stop_distance_below_floor', 'reasonCode');
+    assert(long.stopDistancePct < 0.1, `stopDistancePct ${long.stopDistancePct}`);
+    const short = buildFlagTradePlan(baseParams({ candidate: shortCandidate({ invalidation: 1000.5, measuredTarget: 800 }) }));
+    assertEqual(short.reasonCode, 'stop_distance_below_floor', 'short reasonCode');
   });
 
   await test('rejected/stale_data: the candidate\'s own timeframe is stale', () => {
