@@ -34,6 +34,8 @@ import { spotDir } from './spot-trend.js';
 
 export const ALERT_MAX_AGE_MIN = 90;
 export const PAGE_URL = 'https://edittrades-tracker.vercel.app';
+/** Live tracker pages (GitHub Pages serves every docs/*.html; the Vercel URL above only serves index.html). */
+export const PAGES_URL = 'https://bai-ee.github.io/edittrades-tracker';
 export const CHART_TIMEFRAMES = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const CHART_MAX_BYTES = 200 * 1024;
@@ -155,7 +157,7 @@ export function findNewSpotFlips(flips, alertedKeys, nowMs) {
   return out;
 }
 
-export function formatSpotAlert({ key, flip }, { mention = null, page = PAGE_URL } = {}) {
+export function formatSpotAlert({ key, flip }, { mention = null, page = PAGES_URL } = {}) {
   const into = flip.to === 'IN';
   const w = isNum(flip.weight) ? `${Math.round(flip.weight * 100)}%` : '–';
   const title = `SPOT ${flip.symbol} → ${into ? 'IN (hold the coin)' : 'OUT (hold USDC)'} · daily close ${fmt(flip.close)} vs EMA20 ${fmt(flip.ema20)}`;
@@ -205,7 +207,7 @@ export async function runAlerts(dataDir, { nowMs = Date.now(), mention = null, p
     })));
   }
   const spot = findNewSpotFlips(readJsonl(path.join(spotDir(dataDir), 'flips.jsonl')), alerted, nowMs);
-  for (const f of spot) alerts.push({ ...formatSpotAlert(f, { mention, page }), chartUrl: null });
+  for (const f of spot) alerts.push({ ...formatSpotAlert(f, { mention }), chartUrl: null });
   if (spot.length) {
     appendJsonl(alertsFile(dataDir), spot.map(({ key, flip }) => ({
       key, alertedAt: new Date(nowMs).toISOString(), symbol: flip.symbol, capturedAt: flip.recordedAt, source: 'spot-trend'
