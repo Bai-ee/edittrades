@@ -131,6 +131,17 @@ account equity, since Quattro's units are risk-sized fractions of equity, not al
    the window's first bar (same convention as `runSma4h`), so a trade open across a window boundary still affects
    the equity curve even if excluded from the trade list.
 
+## 3b. Cost update (2026-09-27, post-registration, before results were run)
+
+Real Jupiter borrow was measured today via `perps-api.jup.ag/v1/pool-info`: **≈0.0015%/h for BTC/ETH, ≈0.0015%/h for
+SOL** (both far below the 0.02–0.024%/h static assumption `BREAKEVEN_COSTS_2026-09-27.md` used), with the pool's own
+curve implying **≈0.004%/h at ~80% utilization** as a stress case. Open fee is 0.06%/side (unchanged). `quattro.js`
+reports perps break-even and net-of-cost results at **0.0015%/h (base verdict) and 0.004%/h (stress)**, in addition
+to the prior 0.02/0.024%/h scenarios (kept for continuity with Card 6). **0.20% round-trip long** stays the
+conservative all-in fee figure. This changes the perps verdict materially versus Card 6's "Quattro on Jupiter perps
+is dead on arrival" conclusion, which was based on the old 0.02–0.024%/h assumption — see WP8_QUATTRO.md §"spot vs
+perps verdict" for the reconciled numbers.
+
 ## 4. What "reproduction" will and won't claim
 
 - Signal-level fields (entry/exit dates, exit reason, R-multiple) are compared bar-for-bar against the six reference
