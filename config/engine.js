@@ -184,14 +184,25 @@
  *     `ready`/`conditional`; below it the plan is rejected `rr_below_min`. Owner
  *     decision 2026-09-23 item 1a: 3R is gross price R. `netRR` (after `risk.feeBps`/
  *     `slippageBps` round trip) is published on every plan, gross-gated or not.
- *   - minNetRR (2.0, T6 phase 1, config 2026.09.24-3, `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`,
+ *   - minNetRR (null, T6 phase 1, config 2026.09.24-3, `docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md`,
  *     owner decision D1 from the `docs/GOOD_QUALITY_REPLAY.md` phase 0 study - variant
- *     V1c): NET R:R floor (after `risk.feeBps`/`slippageBps`), checked in
- *     `lib/flagTradePlan.js` right after the gross `minRR` gate. Below the floor:
- *     `status: 'rejected'`, `reasonCode: 'net_rr_below_min'` (or `stop_inside_costs`
- *     when the round-trip cost alone is >= 0.5R), levels kept. `null` turns the gate
- *     off (used by `scripts/replay-rules.js`'s V0/pre-net-gate variants via
- *     `setConfigOverride`); production runs with it on.
+ *     V1c): legacy flat NET R:R floor, superseded in production by `stopFloor.minNetRR`
+ *     below (T-15). Only takes effect when `stopFloor` itself is off/null (e.g.
+ *     `scripts/replay-rules.js`'s `L0-pre-nf`); `null` there too turns the net gate off
+ *     entirely (used by `scripts/replay-rules.js`'s V0/pre-net-gate variants via
+ *     `setConfigOverride`).
+ *   - stopFloor (`{atrMult: 0.5, costMult: 3, minNetRR: 1.0}`, T-15, config 2026.09.27-1,
+ *     owner decision 2026-09-27, `docs/OWNER_DECISIONS_2026-09-27.md` - freeze lifted for
+ *     exactly this change; was the T-13 `NF` shadow variant, now the live rule):
+ *     `lib/flagTradePlan.js`'s `buildPlanAttempt` widens every candidate's stop to
+ *     `netFloorStopDistance` (`max(atrMult x ATR(15m), costMult x round-trip cost)`)
+ *     before every gate (chase, room, 3 % cap, gross/net R, retest-hold) - TP1 stays at
+ *     the measured move, so gross R falls as the stop widens. `ready`/`conditional`
+ *     requires gross R:R >= `minRR` (above) AND net R:R >= `stopFloor.minNetRR`; below
+ *     the net floor: `status: 'rejected'`, `reasonCode: 'net_rr_below_min'` (or
+ *     `stop_inside_costs` when the round-trip cost alone is >= 0.5R), levels kept. Null
+ *     turns flooring off entirely and falls back to the legacy `minNetRR` gate above
+ *     (`scripts/replay-rules.js`'s `L0-pre-nf` - the pre-T-15 behaviour verbatim).
  *   - entryToleranceAtr (0.1): after a closed candle has closed through the entry level,
  *     the latest closed candle's low (high for a short) must reach within this many ATR
  *     of it and close on the hold side for `ready` (else `conditional`). Tight on

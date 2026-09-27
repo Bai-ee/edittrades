@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.24-5",
+  "configVersion": "2026.09.27-1",
 
   "scalp": {
     "maxStopDistancePct": 3.0
@@ -180,7 +180,8 @@
   "flagPlan": {
     "minRR": 2.5,
     "entryToleranceAtr": 0.1,
-    "minNetRR": null
+    "minNetRR": null,
+    "stopFloor": { "atrMult": 0.5, "costMult": 3, "minNetRR": 1.0 }
   },
 
   "mark": {
