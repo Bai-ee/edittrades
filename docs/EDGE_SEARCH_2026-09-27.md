@@ -17,7 +17,7 @@ payload or deploy change. Code: `scripts/research/edge/`. Outputs: `var/edge/` (
 - **Fills:** signal on a closed bar, entry at the next 5m open; stop and target in one 5m bar
   → stop; gaps through a stop fill at the open.
 - **Trial ledger** (for multiple-testing honesty): round 1 38 configs, hour-of-day scan 24,
-  round 2 14, spot trend 3 (+ EMA-length plateau 7, reported, not selected on).
+  round 2 14, zone-touch re-run 1, spot trend 3 (+ EMA-length plateau 7, reported, not selected on).
 
 ## Perps results: no edge (76 configs, search period)
 
@@ -38,8 +38,11 @@ trend (R2b, 4), 1h shock bars fade/follow (R2c, 4).
   worth only ~10–25 bps over the window — under a 20–28 bps round trip. Not tradeable alone.
 - Earlier studies agree (`CONDITIONS_`, `EXITS_`, `MEANREV_`, `VARIANTS_`, `COST_GATE_STUDY`):
   short-timeframe flag scalps have no gross edge; the one gross edge seen (1h zone-touch mean
-  reversion, +0.41R on 60 days) is killed by costs at its 0.39% median stop. Its 2-year re-run
-  is below.
+  reversion, +0.41R on 60 days) is killed by costs at its 0.39% median stop.
+- **Zone-touch 2-year re-run** (`scripts/swing/run.js --history deep2y --rules mr-zone-touch-1h,mr-random-1h`,
+  per symbol, `var/edge/zone2y/`): gross +0.010R BTC (n=401) / +0.016R SOL (412) / +0.050R ETH (410),
+  net −0.74 / −0.31 / −0.36R, win 44–49%; random control gross −0.02 to +0.01R. The 60-day
+  +0.41R gross edge was noise; closed.
 
 ## Found: spot trend filter (daily EMA20, long or cash)
 
