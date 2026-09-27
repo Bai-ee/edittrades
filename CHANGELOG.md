@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-27 — T-16: trade chart v2, ENTRY/EXIT time markers + RSI(14) panel on every trade touchpoint
+
+Worktree `trade-charts-v2` (branch off `origin/upgrade-signal-engine`), `docs/PROMPT_T16_AGENT_N.md`. Owner: "this is what I should receive when tracking trades I took." Presentation only: no engine, rule, cap or gate change.
+
+- `lib/chartRender.js`: `tradeOverlay` gains `entryAt` (vertical dashed ENTRY marker, white, label `ENTRY LONG 09-26 09:07z`) and `exit` (`{price, at?, r?}`, vertical dashed EXIT marker, amber, label `EXIT 84,204.90 · +1.0R`); `request.indicators: ['rsi14']` adds an RSI(14) panel (Wilder, `computeRSI14`, no new library) under the price panel with 30/50/70 guides and an `RSI at entry` readout. Both markers cut through the RSI panel. Canvas grows by `RSI_PANEL_HEIGHT` (170 px) only when requested; `CHART_MAX_BYTES` unchanged and respected (~40 KB samples). New exports: `computeRSI14`, `computeIndicatorLayout`, `chartCanvasHeight`, `RSI_PERIOD`, `RSI_PANEL_HEIGHT`.
+- `lib/telegram.js` / `api/telegram-webhook.js`: `tradeOverlayFor(levels, {entryAt, exit})` threads the markers through every touchpoint that already sends the T-13 trade chart - GOOD and TRACK · GET IN NOW (ENTRY at the ready close), Took it and a live FILLED result (ENTRY at the tap/fill time), a taken trade's own TRACK · UPDATE/CHECK-IN (ENTRY at when it was taken), `/chart SYM TF trade` (ENTRY defaults to the build's closedThrough), and Closed here / Close @ mark full closes (new EXIT marker at the exit price/time/R). `api/telegram-cron.js` needed no change - it already forwards `alert.chart` verbatim. See `docs/PLAN_TELEGRAM.md` "Trade chart v2" for the full touchpoint list and a noted gap (a T-15 auto-trailed on-chain stop does not yet write back into `state.tracked`, so a taken trade's own update chart shows the tracked SL/TP, not a trailed one).
+- Journal: described, not built - `data/journal-outcomes.jsonl` rows could carry `chart: {symbol, timeframe, entryAt}` for the tracker to re-render this chart on demand later, instead of storing a PNG per trade.
+- Tests: `test:chart` 22 → 30, `test:telegram` 160 → 162; guard scan 0 mentions of `jupiterPerps`/`walletManager`/`signTransaction`/`Keypair` across the three Telegram files.
+
 ## 2026-09-27 — Tracker alerts: spot flips to Telegram, GitHub issue alerts removed
 
 Owner: "i dont need github alerts … telegram is fine". Tracker only.

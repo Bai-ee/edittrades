@@ -1876,7 +1876,7 @@ async function run() {
     assert(upd.chart, 'chart attached to the update');
     assertEqual(upd.chart.symbol, 'SOL', 'symbol');
     assertEqual(upd.chart.timeframe, '3m', 'timeframe');
-    assertEqual(`${upd.chart.tradeOverlay.entry}|${upd.chart.tradeOverlay.stop}|${upd.chart.tradeOverlay.tp1}`, '116.77|117.1|115.9', 'current SL/TP (post-trailing when the trailing stop already moved t.stop)');
+    assertEqual(`${upd.chart.tradeOverlay.entry}|${upd.chart.tradeOverlay.stop}|${upd.chart.tradeOverlay.tp1}`, '116.77|117.1|115.9', 'current SL/TP as the tracked entry has them on file');
     assertEqual(upd.chart.tradeOverlay.entryAt, new Date(T0).toISOString(), 'ENTRY marker at when it was taken (t.since)');
     assertEqual(upd.chart.indicators.join(), 'rsi14', 'RSI panel requested');
   });
