@@ -40,6 +40,7 @@ jobs:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: |
           node scripts/collect.js --data data
+          node scripts/spot-trend.js --data data || echo "spot-trend failed (non-blocking)"
           node scripts/score.js --data data
           node scripts/paths.js --data data
           node scripts/calibration.js --data data

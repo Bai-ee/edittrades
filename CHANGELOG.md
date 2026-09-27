@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-27 — Spot trend filter P1: paper tracking in the tracker (not synced/deployed)
+
+Plan: `docs/PLAN_SPOT_TREND_2026-09-27.md` (P1). Evidence: `docs/EDGE_SEARCH_2026-09-27.md`. Tracker only: no engine, payload, MCP, Telegram, executor or Vercel change.
+
+- `scripts/tracker/spot-trend.js` (new): Kraken public 1d OHLC for BTC/ETH/SOL, closed days only; per day EMA20 state (IN/OUT) and vol-target weight min(1, 40% / 20-day realized vol); writes `data/spot-trend/days.jsonl`, `flips.jsonl` (`live` = after the first live day; earlier flips are history), `meta.json` (`startDate` = latest closed day at the first run) and `ledger.json` (equal-share paper equity vs buy & hold from `startDate`, 0.15% per unit of weight changed). Idempotent per symbol+date. Self-contained (imports only `store.js`).
+- `scripts/tracker/repo-template/.github/workflows/track.yml`: runs it after `collect.js`, non-blocking.
+- `scripts/research/edge/spot-portfolio.js`: exports `portfolioSeries` (main run unchanged) so the tracker can be parity-tested against it.
+- `test-tracker.js` 135 → 140: EMA identical to the research `ema`; daily returns identical to `portfolioSeries` (40% vol target and 0/1); state/weight/flip rules; Kraken parsing drops the forming day and bad rows; idempotency, `live` flag, ledger start.
+- Live smoke run (scratch dir): 2,103 day rows, 251 historical flips, second run +0. P2 (flip alerts, `spot.html`) not started.
+
 ## 2026-09-27 — T-15: NF stop floor goes live + automatic +1R trailing stop (engine + execution; not deployed)
 
 Worktree `nf-live` (branch `nf-live`, off `origin/upgrade-signal-engine`). Owner decision 2026-09-27 lifts the rule freeze (to 2026-10-08) for exactly this change: `docs/OWNER_DECISIONS_2026-09-27.md`. Evidence: `docs/VARIANTS_STUDY_2026-09-26.md` (live rules median −2.45R net; NF-live −1.31R; NF-live + trail1R −0.20R both halves, 61% wins), `docs/CONDITIONS_STUDY_2026-09-26.md` (95% of GOOD calls carry a stop < 0.5%), `docs/EXITS_STUDY_2026-09-26.md`. Nothing else changes: no indicator swaps, no entry filters, no cap or gate changes.

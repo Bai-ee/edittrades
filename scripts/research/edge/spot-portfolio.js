@@ -3,9 +3,8 @@
 import { loadBars, ema } from './lib.js';
 const C = 0.0015;
 // Portfolio: equal thirds BTC/ETH/SOL (SOL from 2020-08, before that halves), EMA20 filter, optional vol target.
-const load = s => loadBars(s, '1d', 'var/edge/daily-long');
-const D = { BTC: load('BTC'), ETH: load('ETH'), SOL: load('SOL') };
-function series(d, N, volTarget) {
+/** Per-day {ret, bh} keyed by bar open time; weight decided on close i applies from day i+1. */
+export function portfolioSeries(d, N, volTarget) {
   const e = ema(d.c, N); const out = new Map(); let w = 0;
   for (let i = 21; i < d.n; i++) {
     const r = d.c[i] / d.c[i-1] - 1;
@@ -18,8 +17,11 @@ function series(d, N, volTarget) {
   }
   return out;
 }
+if (import.meta.url === `file://${process.argv[1]}`) {
+const load = s => loadBars(s, '1d', 'var/edge/daily-long');
+const D = { BTC: load('BTC'), ETH: load('ETH'), SOL: load('SOL') };
 for (const vt of [null, 0.6, 0.4]) {
-  const S = Object.fromEntries(Object.entries(D).map(([k, d]) => [k, series(d, 20, vt)]));
+  const S = Object.fromEntries(Object.entries(D).map(([k, d]) => [k, portfolioSeries(d, 20, vt)]));
   const days = [...S.BTC.keys()].sort((a, b) => a - b);
   const byYear = {}; let eq = 1, bh = 1, pk = 1, dd = 0, bpk = 1, bdd = 0; const rs = [], brs = [];
   for (const t of days) {
@@ -33,4 +35,5 @@ for (const vt of [null, 0.6, 0.4]) {
   const yrs = days.length / 365;
   console.log(`\nEMA20 portfolio${vt ? `, vol target ${vt * 100}%` : ''}: CAGR ${((eq ** (1 / yrs) - 1) * 100).toFixed(0)}% (B&H ${((bh ** (1 / yrs) - 1) * 100).toFixed(0)}%), maxDD ${(dd * 100).toFixed(0)}% (B&H ${(bdd * 100).toFixed(0)}%), Sharpe ${sh(rs)} (B&H ${sh(brs)})`);
   console.log('  ' + Object.entries(byYear).map(([y, [a, b]]) => `${y}: ${((a - 1) * 100).toFixed(0)}% vs ${((b - 1) * 100).toFixed(0)}%`).join(' | '));
+}
 }

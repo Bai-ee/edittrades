@@ -68,6 +68,9 @@ import { readTelegramAlerts, readTransitions, appendTelegramAlerts, appendTransi
 import { scoreAlerts, scoreAlertsDataDir, alertLatencyMin } from './scripts/tracker/score.js';
 import { computeAlertAggregates } from './scripts/tracker/aggregate.js';
 import { alertsZoneTiles, NO_ALERT_LOG, NO_TRANSITIONS } from './scripts/tracker/build-page.js';
+import { emaSeries, dailyStates, flipsFrom, symbolReturns, dailyFromKraken, updateSpotTrend, spotDir } from './scripts/tracker/spot-trend.js';
+import { ema as researchEma } from './scripts/research/edge/lib.js';
+import { portfolioSeries as researchPortfolioSeries } from './scripts/research/edge/spot-portfolio.js';
 import {
   goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines
 } from './scripts/tracker/collect.js';
@@ -2791,6 +2794,80 @@ async function run() {
     assert(html.includes('Calls (1-min log)') && html.includes('Of which captured') && html.includes('Median GOOD window (min)'), 'new columns rendered');
     const md = readFileSync(mdFile, 'utf8');
     assert(md.includes('1-minute alert log since 2026-09-25'), 'report.md carries the same note');
+  });
+
+  console.log('\nSpot trend filter (docs/PLAN_SPOT_TREND_2026-09-27.md P1)');
+  // Seeded random walk: 300 closed UTC days.
+  const spotDays = (() => {
+    let seed = 7, px = 100;
+    const out = [];
+    for (let i = 0; i < 300; i++) {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      px *= 1 + ((seed / 2147483648) - 0.48) * 0.08;
+      out.push({ t: Date.UTC(2025, 0, 1) + i * 86_400_000, c: Math.round(px * 100) / 100 });
+    }
+    return out;
+  })();
+  const spotBars = { n: spotDays.length, t: spotDays.map((d) => d.t), c: Float64Array.from(spotDays.map((d) => d.c)) };
+
+  await test('spot-trend: emaSeries matches the research ema exactly', () => {
+    const mine = emaSeries(spotDays.map((d) => d.c), 20), ref = researchEma(spotBars.c, 20);
+    for (let i = 0; i < mine.length; i++) {
+      if (Number.isNaN(ref[i])) { assert(Number.isNaN(mine[i]), `warmup NaN at ${i}`); continue; }
+      assert(Math.abs(mine[i] - ref[i]) < 1e-9, `ema ${i}: ${mine[i]} vs ${ref[i]}`);
+    }
+  });
+
+  await test('spot-trend: daily returns match research portfolioSeries (vol target 40% and 0/1)', () => {
+    for (const vt of [0.4, null]) {
+      const mine = symbolReturns(dailyStates('BTC', spotDays, vt));
+      const ref = researchPortfolioSeries(spotBars, 20, vt);
+      let compared = 0;
+      for (let i = 22; i < spotDays.length; i++) {
+        const a = mine.get(new Date(spotDays[i].t).toISOString().slice(0, 10)), b = ref.get(spotDays[i].t);
+        assert(Math.abs(a.ret - b.ret) < 1e-12 && Math.abs(a.bh - b.bh) < 1e-12, `vt=${vt} day ${i}: ${a.ret} vs ${b.ret}`);
+        compared++;
+      }
+      assertEqual(compared, spotDays.length - 22, 'every warmed day compared');
+    }
+  });
+
+  await test('spot-trend: states, weights and flips follow close vs EMA20', () => {
+    const rows = dailyStates('ETH', spotDays);
+    assert(rows.every((r) => r.state === (r.close > r.ema20 ? 'IN' : 'OUT')), 'state = close above EMA20');
+    assert(rows.every((r) => r.state === 'OUT' ? r.weight === 0 : r.weight === null || (r.weight > 0 && r.weight <= 1)), 'weight 0 when OUT, (0,1] when IN');
+    const flips = flipsFrom(rows);
+    assert(flips.length > 0, 'the random walk crosses its EMA');
+    assert(flips.every((f) => f.from !== f.to), 'a flip changes state');
+  });
+
+  await test('spot-trend: dailyFromKraken keeps closed candles only and drops bad rows', () => {
+    const t0 = Date.UTC(2026, 8, 25) / 1000;
+    const result = { XXBTZUSD: [[t0, '1', '1', '1', '100', '0', '1', 1], [t0 + 86400, '1', '1', '1', 'x', '0', '1', 1], [t0 + 2 * 86400, '1', '1', '1', '102', '0', '1', 1]], last: 0 };
+    const out = dailyFromKraken(result, (t0 + 2 * 86400 + 3600) * 1000);
+    assertEqual(out.length, 1, 'bad close dropped, forming day dropped');
+    assertEqual(out[0].c, 100, 'first closed day kept');
+  });
+
+  await test('spot-trend: updateSpotTrend is idempotent and starts the ledger at the first live day', () => {
+    const dir = tmp();
+    {
+      const first = updateSpotTrend(dir, { BTC: spotDays.slice(0, 250) }, spotDays[250].t);
+      assert(first.days > 200, `history rows written (${first.days})`);
+      assertEqual(first.startDate, new Date(spotDays[249].t).toISOString().slice(0, 10), 'startDate = latest closed day at first run');
+      assertEqual(first.ledgerDays, 0, 'nothing earned yet on the first live day');
+      const again = updateSpotTrend(dir, { BTC: spotDays.slice(0, 250) }, spotDays[250].t);
+      assertEqual(again.days, 0, 'second run adds no day rows');
+      assertEqual(again.flips, 0, 'second run adds no flips');
+      const next = updateSpotTrend(dir, { BTC: spotDays.slice(0, 252) }, spotDays[252].t);
+      assertEqual(next.days, 2, 'two new closed days');
+      const flipRows = readFileSync(path.join(spotDir(dir), 'flips.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+      assert(flipRows.every((f) => f.live === f.date > first.startDate), 'live marks only flips after startDate');
+      assertEqual(next.ledgerDays, 2, 'ledger earns from the day after startDate');
+      const ledger = JSON.parse(readFileSync(path.join(spotDir(dir), 'ledger.json'), 'utf8'));
+      assertEqual(ledger.startDate, first.startDate, 'startDate persisted');
+      assert(ledger.rows.every((r) => Number.isFinite(r.equity) && Number.isFinite(r.bh)), 'equity and buy & hold are numbers');
+    }
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
