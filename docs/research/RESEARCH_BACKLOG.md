@@ -117,6 +117,71 @@ Key corrections to the proposal:
 
 ---
 
+## Card 4 — Lessons from the “70 bot strategies” write-up (external, 2026-09-27)
+
+- **Source:** an anonymous builder's article, “I Tested 70 Trading Bot Strategies So You Don't Have To…”, pasted by the owner. BTC/ETH on Binance 2020–mid-2026, Hyperliquid BTC perps bot, 4h pullback + scoring.
+- **Credibility:** methodologically sound. Rules were written down before testing, fills at the next price, real fees, slippage and funding, and a 2020–23 train / 2024–26 test split. The author states negative results and caveats. There is no raw data or code, so treat the numbers as anecdote and the method as sound.
+- **Verdict:** it mostly **confirms** existing EditTrades findings:
+  - Fast trading loses to fees (`EDGE_SEARCH_2026-09-27.md`).
+  - Sizing is what controls drawdown (`RISK_SIZING_STUDY_2026-09-26.md`).
+  - Slow trend rules have no edge after 2024 on BTC but survive as drawdown control (Card 1).
+  - Market making loses to adverse selection (Card 3 dropped Hummingbot).
+  Four new actionable items below.
+
+### Exploratory check on our data (NOT registered; counts as trials)
+
+Train/test split and a 20-week SMA (N=840 on 4h, ≈ the article's “20-week average” rule), S3 costs, `runSma4h`:
+
+| | 2020–23 CAGR / DD | 2024–26 CAGR / DD | B&H 2024–26 CAGR / DD | Entries 20–23 / 24–26 |
+| --- | --- | --- | --- | --- |
+| BTC SMA200 | 61% / 46% | 23% / 35% | 29% / 53% | 130 / 83 |
+| BTC 20-wk | 76% / 41% | 31% / 26% | 29% / 53% | 22 / 31 |
+| ETH SMA200 | 126% / 43% | 31% / 45% | 6% / 68% | 100 / 81 |
+| ETH 20-wk | 82% / 63% | 34% / 41% | 6% / 68% | 43 / 19 |
+| SOL SMA200 | 227% / 87% | 14% / 57% | 7% / 78% | 121 / 96 |
+| SOL 20-wk | 327% / 71% | 8% / 61% | 7% / 78% | 35 / 45 |
+
+Read:
+- On BTC, SMA200 lags B&H in the test years; only the drawdown benefit remains.
+- The slower 20-week rule held on BTC in both halves with far fewer trades, but was worse on ETH in 2020–23.
+- This matches the article: slow trend is a drawdown tool, not a return edge on BTC.
+- Caveat: N=840 warm-up delays the start of the first window, and SOL starts in 2020-08.
+
+### Bucket of work
+
+| # | Item | Size | Status | Why / notes |
+| --- | --- | --- | --- | --- |
+| 4.1 | **DCA benchmark** for spot filters: plain weekly DCA vs DCA into the filter (cash builds while the filter is flat, deployed when long). Apply to EMA20 (tracker arm) and SMA200. | S | PARKED | The article's strongest finding: nothing beat weekly DCA. Our spot comparisons use lump-sum B&H only, which is the wrong baseline for a contribution-funded spot arm. |
+| 4.2 | **Global trial ledger + multiple-testing discount** (deflated Sharpe or White's Reality Check) across all EditTrades studies: 76 edge-search configs, 15 variants, swing rules, Card 1 sweeps and the Card 4 exploratory runs | S–M | PARKED | “Test 70 things and one looks great by luck.” The harness spec §1/§6 already requires it; nothing implements it. Pairs with Card 3 R3. |
+| 4.3 | **Side-mix / filter-blocking audit** of the live engine: long/short share of served calls vs market regime; which gates block which side and how often | S | PARKED | The author's bot was 86% shorts in a bull market because a funding filter blocked longs. Our guardrail plan lists “shorts negative on every variant” as undecided. |
+| 4.4 | **Slow-trend registered variant**: 20-week SMA (N=840) and a 4-week Donchian, frozen, both windows | S | PARKED → merge into Card 1 item 1.6 | The exploratory table above justifies registering it; do not adopt from the exploratory run. |
+| — | Funding look-ahead check | — | N/A | The engine uses funding only in execution (`positionManager.js`, `jupiterPerps.js`), not in signals. Guardrail for the future: any funding feature must use settlement-time availability. |
+| — | Risk cut from 6% to 1% | — | DONE already | `RISK_SIZING_STUDY_2026-09-26.md` (0.5%/trade keeps p95 DD ~15%) and guardrails G1. |
+| — | Power-law / MVRV / Fear & Greed DCA sizing | — | DROPPED | Within ±1% of DCA in the article; DCA sizing is not the EditTrades product. |
+| — | AI market making | — | DROPPED | The article's simulation lost before fees to adverse selection; consistent with Card 3. |
+
+---
+
+## Card 5 — Indicator additions: MACD and OBV
+
+- **Requested by:** owner, 2026-09-27 (“good indicators, document for install”).
+- **Current state:**
+  - Neither exists in the engine (`services/`, `lib/`).
+  - VWAP exists (`lib/advancedIndicators.js:14`); RSI, Stoch RSI, EMA and ATR exist.
+  - A volume-context engine change is **parked** (commit `2330db1`, schema 1.26, not merged, owner deferred 2026-09-26). OBV belongs with it.
+- **Honest prior:**
+  - MACD is EMA(12) − EMA(26); it largely overlaps the momentum families already tested (none net-positive).
+  - OBV adds genuinely new input (volume), which the engine currently barely uses.
+  - Neither should affect live signals without evidence.
+
+| # | Item | Size | Status | Notes |
+| --- | --- | --- | --- | --- |
+| 5.1 | Add `macd(close, 12, 26, 9)` and `obv(bars)` to research `scripts/research/edge/lib.js`, with tests (hand-computed fixture, append-future invariance) | S | PARKED | Research only; no engine change. |
+| 5.2 | Evidence test: (a) MACD cross as an entry signal; (b) OBV-confirmed vs unconfirmed breakouts, on existing swing and breakout replays. Score with Card 3 R3 significance plus net R after costs. | M | PARKED, after 3.3 | Register before running. OBV question: does “price up + OBV up” separate winners from losers? |
+| 5.3 | Engine / MCP exposure: add as **context fields only** (no gate), bundled with the parked volume-context P1 | S–M | BLOCKED | Engine freeze until 2026-10-08; needs 5.2 evidence; schema bump + openapi + CHANGELOG per the repo phase rules. |
+
+---
+
 ## Reviewed and dropped (don't re-review without new evidence)
 
 | Date | Source | Claim | Why dropped |
@@ -132,6 +197,8 @@ Key corrections to the proposal:
 3. After Card 1, should Quattro run next, or should the new strategy you're handing to another agent get priority?
 4. Card 3: approve the `ccxt` npm dependency, or use direct Bybit/OKX REST calls (3.5)?
 5. Card 3: build H1 (3.1 + 3.2) before any more strategy studies? It checks every study we already have.
+6. Card 4.1: should the spot arm be judged against weekly DCA, as the natural baseline for contribution-funded holding?
+7. Card 5: MACD/OBV as display context only, or candidates for gates if 5.2 shows evidence?
 
 ---
 
