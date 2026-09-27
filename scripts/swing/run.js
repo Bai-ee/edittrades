@@ -221,11 +221,26 @@ export function firstAtOrAfter(candles1m, tsMs) {
  * Score one signal with the tracker's walkOutcome. Slices the 1m array down to a small
  * window around fromMs first (binary search) so walkOutcome's own linear scan-to-start
  * stays cheap regardless of how deep into a multi-month fixture the signal sits.
+ *
+ * `holdRule` (S3, docs/PROMPT_S3_RETEST_ENTRY.md) is an additional early-exit option, on
+ * top of stop/target: when given, `scoreSignalWithHoldRule` below runs an interleaved
+ * walk (stop/target exactly as walkOutcome, PLUS the structure exit) instead of calling
+ * walkOutcome directly. Omitting it (every pre-S3 rule) takes the original path,
+ * byte-for-byte unchanged.
+ * @param {{insideLow:number, insideHigh:number, n:number, tfCandleMs:number}} [holdRule] -
+ *   exit early once `n` consecutive closes, sampled at `tfCandleMs` boundaries from
+ *   `fromMs`, land inside `[insideLow, insideHigh]` (the pre-breakout flag range) -
+ *   "closed back inside the flag" per the S3 prompt.
  */
-export function scoreSignal({ candles1m, fromMs, direction, entry, stop, target, fillWindowCandles, maxHoldCandles }) {
+export function scoreSignal({ candles1m, fromMs, direction, entry, stop, target, fillWindowCandles, maxHoldCandles, holdRule }) {
   const startIdx = Math.max(0, firstAtOrAfter(candles1m, fromMs) - 1);
   const endIdx = Math.min(candles1m.length, startIdx + fillWindowCandles + maxHoldCandles + 2);
   const slice = candles1m.slice(startIdx, endIdx);
+
+  if (holdRule) {
+    return scoreSignalWithHoldRule({ slice, fromMs, direction, entry, stop, target, fillWindowCandles, maxHoldCandles, holdRule });
+  }
+
   const out = walkOutcome({
     candles1m: slice,
     fromMs,
@@ -257,7 +272,80 @@ export function scoreSignal({ candles1m, fromMs, direction, entry, stop, target,
   const r = risk > 0 ? (direction === 'long' ? (exit - entry) : (entry - exit)) / risk : 0;
   return { status: dataEnd ? 'data_end' : 'timeout', r: Math.round(r * 10000) / 10000, holdCandles: lastIdx - fillIdx + 1, exit };
 }
-const RESOLVED = new Set(['win', 'loss', 'timeout']);
+
+/**
+ * S3 structure exit (docs/PROMPT_S3_RETEST_ENTRY.md): `scoreSignal`'s `holdRule` path.
+ * Walks the same fill -> stop/target sequence walkOutcome uses (same-candle stop still
+ * loses; a target touch only counts on a LATER candle than the fill - never intrabar),
+ * but ALSO watches, at every native-timeframe boundary since `fromMs`
+ * (`fromMs + k*tfCandleMs`, k=1,2,...), whether that boundary's close (read off the 1m
+ * candle whose own close lands on it - exact under continuous 1m coverage, which every
+ * timeframe here divides evenly and crypto trades 24/7) sits inside
+ * `[holdRule.insideLow, holdRule.insideHigh]`. `holdRule.n` consecutive such closes exit
+ * the trade there ("closed back inside the flag for N candles" - the breakout has
+ * failed), ahead of either the stop, the target, or the hold cap. A trade that never
+ * triggers the structure exit still falls through to the same `timeout`/`data_end`
+ * mark-to-market convention the non-holdRule path above uses.
+ * @param {Object} p
+ * @param {Array} p.slice - the 1m window already sliced around fromMs
+ * @param {number} p.fromMs
+ * @param {'long'|'short'} p.direction
+ * @param {number} p.entry
+ * @param {number} p.stop
+ * @param {number} p.target
+ * @param {number} p.fillWindowCandles
+ * @param {number} p.maxHoldCandles
+ * @param {{insideLow:number, insideHigh:number, n:number, tfCandleMs:number}} p.holdRule
+ */
+function scoreSignalWithHoldRule({ slice, fromMs, direction, entry, stop, target, fillWindowCandles, maxHoldCandles, holdRule }) {
+  if (!isFiniteNumber(entry) || !isFiniteNumber(stop) || !isFiniteNumber(target)) return { status: 'invalid_levels' };
+
+  let start = 0;
+  while (start < slice.length && slice[start].timestamp < fromMs) start++;
+  const fillEnd = Math.min(slice.length, start + fillWindowCandles);
+  let fillIdx = -1;
+  for (let i = start; i < fillEnd; i++) {
+    if (slice[i].low <= entry && slice[i].high >= entry) { fillIdx = i; break; }
+  }
+  if (fillIdx === -1) return { status: 'not_filled' };
+
+  const long = direction !== 'short';
+  const risk = Math.abs(entry - stop);
+  const rTarget = round(Math.abs(target - entry) / risk, 4);
+  const { insideLow, insideHigh, n, tfCandleMs } = holdRule;
+  let insideStreak = 0;
+  let nextBoundaryMs = fromMs + tfCandleMs; // first native-tf close strictly after the signal candle
+
+  const exitEnd = Math.min(slice.length, fillIdx + maxHoldCandles);
+  for (let i = fillIdx; i < exitEnd; i++) {
+    const c = slice[i];
+    const stopHit = long ? c.low <= stop : c.high >= stop;
+    const targetHit = long ? c.high >= target : c.low <= target;
+    const holdCandles = i - fillIdx + 1;
+    if (stopHit) return { status: 'loss', r: -1, holdCandles, ambiguous: targetHit };
+    if (targetHit && i > fillIdx) return { status: 'win', r: rTarget, holdCandles, timeToTP1Candles: holdCandles };
+
+    while (nextBoundaryMs <= c.timestamp) {
+      const inside = c.close >= insideLow && c.close <= insideHigh;
+      insideStreak = inside ? insideStreak + 1 : 0;
+      if (insideStreak >= n) {
+        const r = risk > 0 ? (long ? (c.close - entry) : (entry - c.close)) / risk : 0;
+        return { status: 'structure_exit', r: round(r, 4), holdCandles };
+      }
+      nextBoundaryMs += tfCandleMs;
+    }
+  }
+
+  // Hold cap reached (or the fixture ran out first) still open - mark-to-market, same
+  // timeout/data_end convention the non-holdRule path uses.
+  const lastIdx = Math.min(slice.length - 1, fillIdx + maxHoldCandles - 1);
+  const dataEnd = lastIdx < fillIdx + maxHoldCandles - 1;
+  const exit = slice[lastIdx].close;
+  const r = risk > 0 ? (long ? (exit - entry) : (entry - exit)) / risk : 0;
+  return { status: dataEnd ? 'data_end' : 'timeout', r: round(r, 4), holdCandles: lastIdx - fillIdx + 1, exit };
+}
+
+const RESOLVED = new Set(['win', 'loss', 'timeout', 'structure_exit']);
 const isResolved = (r) => RESOLVED.has(r.outcome.status);
 const grossR = (r) => (r.outcome.status === 'loss' ? -1 : r.outcome.r);
 
@@ -334,7 +422,7 @@ export function runRuleOnSymbol(rule, symbol, historyByTf) {
       throw new Error(`${rule.meta.id} ${symbol} @${new Date(ctx.cutMs).toISOString()}: signalAt threw - ${err.message}`);
     }
     if (!signal) continue;
-    const { direction, entry, stop, tp1, tp2, reason } = signal;
+    const { direction, entry, stop, tp1, tp2, reason, holdRule } = signal;
     if (direction !== 'long' && direction !== 'short') continue;
     if (!isFiniteNumber(entry) || !isFiniteNumber(stop) || !isFiniteNumber(tp1)) continue;
     // Reject a stop on the wrong side of entry (mirrors validateStrategySignal's own check).
@@ -348,9 +436,12 @@ export function runRuleOnSymbol(rule, symbol, historyByTf) {
     const oneMinEnd = candles1m[candles1m.length - 1].timestamp;
     if (ctx.cutMs < oneMinStart) continue;
     if (ctx.cutMs + (fillWindowCandles + maxHoldCandles) * 60000 > oneMinEnd) continue;
+    // S3 (docs/PROMPT_S3_RETEST_ENTRY.md): a rule may return `holdRule` alongside the
+    // standard fields to opt into scoreSignal's structure-exit path - additive, every
+    // pre-S3 rule leaves it undefined and takes the original walkOutcome-only path.
     const outcome = scoreSignal({
       candles1m, fromMs: ctx.cutMs, direction, entry, stop, target: tp1,
-      fillWindowCandles, maxHoldCandles
+      fillWindowCandles, maxHoldCandles, holdRule
     });
     if (outcome.status === 'invalid_levels') continue;
 

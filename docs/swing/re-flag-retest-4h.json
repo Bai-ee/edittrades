@@ -1,0 +1,1193 @@
+{
+  "meta": {
+    "id": "re-flag-retest-4h",
+    "label": "4h flag retest entry, with 1D trend (S3)",
+    "source": "docs/PROMPT_S3_RETEST_ENTRY.md",
+    "tf": "4h",
+    "holdMaxHours": 168,
+    "stopKind": "structure",
+    "notes": "Entry: after the 4h flag (lib/patternDetector.js detectFlagLifecycle, 1D EMA21/EMA200 stack + slope trend gate, same as pb-4h-flag-continuation.js) reaches triggering, wait for a close within 0.25 ATR(4h) of the breakout level that holds in the trade direction; entry = that close.\nStop: min(retest low - 0.1 ATR, invalidation) (mirrored short), floored by the T-15 net floor (lib/flagTradePlan.js netFloorStopDistance, 0.5x ATR15m / 3x round-trip cost). TP1 = measured move; skipped when TP1 < 2.5R off the stop.\nExit: stop, target, 5 closed 4h candles back inside the flag range, or a 7-day hard cap (scoreSignal's holdRule option)."
+  },
+  "generatedAt": "2026-09-27T15:03:13.893Z",
+  "runtimeMs": 39008,
+  "combined": {
+    "stats": {
+      "n": 49,
+      "resolved": 48,
+      "winPct": 25,
+      "grossExpR": -0.0686,
+      "netExpR": -0.1559,
+      "netExpR_sens020": -0.1455,
+      "maxLosingStreak": 19,
+      "medianHoldHours": 31.54,
+      "medianStopPct": 3.316,
+      "timeouts": 7
+    },
+    "oos": {
+      "firstHalf": 0.1082,
+      "secondHalf": -0.4199
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 18,
+        "resolved": 18,
+        "winPct": 33.33,
+        "grossExpR": 0.1614,
+        "netExpR": 0.015,
+        "netExpR_sens020": 0.0476,
+        "maxLosingStreak": 4,
+        "medianHoldHours": 42.09,
+        "medianStopPct": 1.8,
+        "timeouts": 2
+      },
+      "signals": [
+        {
+          "closedThrough": "2025-06-29T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 107750.72,
+          "stop": 106356.76,
+          "tp1": 111359.65,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 107709.22 within 0.25 ATR(4h), closed above it at 107750.72",
+            "stop 106356.76 (retest extreme +/- 0.1 ATR vs invalidation 106356.76, NF-floored)",
+            "TP1 = measured move 111359.65 (pole length 3650.43)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2570,
+            "ambiguous": false
+          },
+          "netDir": -1.2628141754426228,
+          "netSens": -1.154596573789778
+        },
+        {
+          "closedThrough": "2025-07-13T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 118961.08,
+          "stop": 116604.87,
+          "tp1": 129379.22,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 118259.24 within 0.25 ATR(4h), closed above it at 118961.08",
+            "stop 116604.87 (retest extreme +/- 0.1 ATR vs invalidation 116604.87, NF-floored)",
+            "TP1 = measured move 129379.22 (pole length 11119.98)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1930,
+            "ambiguous": false
+          },
+          "netDir": -1.1716602815538508,
+          "netSens": -1.1009766362081477
+        },
+        {
+          "closedThrough": "2025-07-14T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 119086.64,
+          "stop": 116604.87,
+          "tp1": 129379.22,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 118259.24 within 0.25 ATR(4h), closed above it at 119086.64",
+            "stop 116604.87 (retest extreme +/- 0.1 ATR vs invalidation 116604.87, NF-floored)",
+            "TP1 = measured move 129379.22 (pole length 11119.98)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1690,
+            "ambiguous": false
+          },
+          "netDir": -1.1631475019844704,
+          "netSens": -1.0959691188143945
+        },
+        {
+          "closedThrough": "2025-08-10T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 117808.3,
+          "stop": 116359.89,
+          "tp1": 121826.96,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 117238.04 within 0.25 ATR(4h), closed above it at 117808.3",
+            "stop 116359.89 (retest extreme +/- 0.1 ATR vs invalidation 116359.89, NF-floored)",
+            "TP1 = measured move 121826.96 (pole length 4588.92)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.7745,
+            "holdCandles": 1131,
+            "timeToTP1Candles": 1131
+          },
+          "netDir": 2.4979566041383316,
+          "netSens": 2.611827414199019
+        },
+        {
+          "closedThrough": "2025-09-13T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 116029.42,
+          "stop": 114740.99,
+          "tp1": 121222.02,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 115656.87 within 0.25 ATR(4h), closed above it at 116029.42",
+            "stop 114740.99 (retest extreme +/- 0.1 ATR vs invalidation 114740.99, NF-floored)",
+            "TP1 = measured move 121222.02 (pole length 5565.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3416,
+            "ambiguous": false
+          },
+          "netDir": -1.3061866209262452,
+          "netSens": -1.1801097770154383
+        },
+        {
+          "closedThrough": "2025-09-13T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 115957,
+          "stop": 114740.99,
+          "tp1": 121222.02,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 115656.87 within 0.25 ATR(4h), closed above it at 115957",
+            "stop 114740.99 (retest extreme +/- 0.1 ATR vs invalidation 114740.99, NF-floored)",
+            "TP1 = measured move 121222.02 (pole length 5565.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3176,
+            "ambiguous": false
+          },
+          "netDir": -1.3242192087236138,
+          "netSens": -1.1907171816021258
+        },
+        {
+          "closedThrough": "2025-10-05T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 123464.64,
+          "stop": 121510,
+          "tp1": 133894.99,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 122800 within 0.25 ATR(4h), closed above it at 123464.64",
+            "stop 121510 (retest extreme +/- 0.1 ATR vs invalidation 121510, NF-floored)",
+            "TP1 = measured move 133894.99 (pole length 11094.99)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3099,
+            "ambiguous": false
+          },
+          "netDir": -1.2147606597634348,
+          "netSens": -1.126329799860844
+        },
+        {
+          "closedThrough": "2025-10-05T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 122803.17,
+          "stop": 121510,
+          "tp1": 133894.99,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 122800 within 0.25 ATR(4h), closed above it at 122803.17",
+            "stop 121510 (retest extreme +/- 0.1 ATR vs invalidation 121510, NF-floored)",
+            "TP1 = measured move 133894.99 (pole length 11094.99)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2859,
+            "ambiguous": false
+          },
+          "netDir": -1.3228738510791316,
+          "netSens": -1.1899257947524302
+        },
+        {
+          "closedThrough": "2025-11-17T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 94261.44,
+          "stop": 96846.68,
+          "tp1": 83047.36,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 94368.24 within 0.25 ATR(4h), closed below it at 94261.44",
+            "stop 96846.68 (retest extreme +/- 0.1 ATR vs invalidation 96846.68, NF-floored)",
+            "TP1 = measured move 83047.36 (pole length 11320.88)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 4.3377,
+            "holdCandles": 6215,
+            "timeToTP1Candles": 6215
+          },
+          "netDir": 4.286654056103108,
+          "netSens": 4.26477722300444
+        },
+        {
+          "closedThrough": "2025-12-14T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 89022.91,
+          "stop": 90666,
+          "tp1": 84151.64,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 89480 within 0.25 ATR(4h), closed below it at 89022.91",
+            "stop 90666 (retest extreme +/- 0.1 ATR vs invalidation 90666, NF-floored)",
+            "TP1 = measured move 84151.64 (pole length 5328.36)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.5812,
+            "holdCandles": 10080,
+            "exit": 88067.95
+          },
+          "netDir": 0.5053477496667862,
+          "netSens": 0.4728396423811232
+        },
+        {
+          "closedThrough": "2025-12-15T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 89282.6,
+          "stop": 90666,
+          "tp1": 84151.64,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 89480 within 0.25 ATR(4h), closed below it at 89282.6",
+            "stop 90666 (retest extreme +/- 0.1 ATR vs invalidation 90666, NF-floored)",
+            "TP1 = measured move 84151.64 (pole length 5328.36)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3676,
+            "holdCandles": 10080,
+            "exit": 88774.12
+          },
+          "netDir": 0.2772460604308222,
+          "netSens": 0.23852294347260317
+        },
+        {
+          "closedThrough": "2026-02-02T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 76968.21,
+          "stop": 79424,
+          "tp1": 63087.59,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 77967.69 within 0.25 ATR(4h), closed below it at 76968.21",
+            "stop 79424 (retest extreme +/- 0.1 ATR vs invalidation 79424, NF-floored)",
+            "TP1 = measured move 63087.59 (pole length 14880.1)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.7459,
+            "holdCandles": 1921
+          },
+          "netDir": -0.7897781386030566,
+          "netSens": -0.8085830551472237
+        },
+        {
+          "closedThrough": "2026-02-02T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 76292.98,
+          "stop": 79424,
+          "tp1": 63087.59,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 77967.69 within 0.25 ATR(4h), closed below it at 76292.98",
+            "stop 79424 (retest extreme +/- 0.1 ATR vs invalidation 79424, NF-floored)",
+            "TP1 = measured move 63087.59 (pole length 14880.1)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.8007,
+            "holdCandles": 1681
+          },
+          "netDir": -0.8348135387190116,
+          "netSens": -0.8494336267414452
+        },
+        {
+          "closedThrough": "2026-02-04T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 75770.21,
+          "stop": 79360,
+          "tp1": 66496.53,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 76628.28 within 0.25 ATR(4h), closed below it at 75770.21",
+            "stop 79360 (retest extreme +/- 0.1 ATR vs invalidation 79360, NF-floored)",
+            "TP1 = measured move 66496.53 (pole length 10131.75)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.5833,
+            "holdCandles": 2481,
+            "timeToTP1Candles": 2481
+          },
+          "netDir": 2.5537500001392837,
+          "netSens": 2.5410857144846912
+        },
+        {
+          "closedThrough": "2026-02-04T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 73923.29,
+          "stop": 76971.52,
+          "tp1": 64392.04,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 74586.54 within 0.25 ATR(4h), closed below it at 73923.29",
+            "stop 76971.52 (retest extreme +/- 0.1 ATR vs invalidation 76971.52, NF-floored)",
+            "TP1 = measured move 64392.04 (pole length 10194.5)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.1268,
+            "holdCandles": 1457,
+            "timeToTP1Candles": 1457
+          },
+          "netDir": 3.0928482949121294,
+          "netSens": 3.078297564160185
+        },
+        {
+          "closedThrough": "2026-02-16T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 67913.43,
+          "stop": 69100,
+          "tp1": 64707.48,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 68000 within 0.25 ATR(4h), closed below it at 67913.43",
+            "stop 69100 (retest extreme +/- 0.1 ATR vs invalidation 69100, NF-floored)",
+            "TP1 = measured move 64707.48 (pole length 3292.52)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 373,
+            "ambiguous": false
+          },
+          "netDir": -1.0801291133266469,
+          "netSens": -1.11447016189521
+        },
+        {
+          "closedThrough": "2026-06-26T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 59794,
+          "stop": 61962.4,
+          "tp1": 53333.87,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 59854 within 0.25 ATR(4h), closed below it at 59794",
+            "stop 61962.4 (retest extreme +/- 0.1 ATR vs invalidation 61962.4, NF-floored)",
+            "TP1 = measured move 53333.87 (pole length 6520.13)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.3194,
+            "holdCandles": 1921
+          },
+          "netDir": -0.3580052388858144,
+          "netSens": -0.37455034126544917
+        },
+        {
+          "closedThrough": "2026-08-13T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63479.99,
+          "stop": 64249.5,
+          "tp1": 61297.55,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 63534.01 within 0.25 ATR(4h), closed below it at 63479.99",
+            "stop 64249.5 (retest extreme +/- 0.1 ATR vs invalidation 64249.5, NF-floored)",
+            "TP1 = measured move 61297.55 (pole length 2236.46)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 6799,
+            "ambiguous": false
+          },
+          "netDir": -1.1154916583280265,
+          "netSens": -1.1649880833257522
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 18,
+        "resolved": 18,
+        "winPct": 11.11,
+        "grossExpR": -0.4223,
+        "netExpR": -0.4785,
+        "netExpR_sens020": -0.487,
+        "maxLosingStreak": 14,
+        "medianHoldHours": 21.9,
+        "medianStopPct": 3.15,
+        "timeouts": 1
+      },
+      "signals": [
+        {
+          "closedThrough": "2025-06-23T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 131.71,
+          "stop": 137.62,
+          "tp1": 114.04,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 131.95 within 0.25 ATR(4h), closed below it at 131.71",
+            "stop 137.62 (retest extreme +/- 0.1 ATR vs invalidation 137.62, NF-floored)",
+            "TP1 = measured move 114.04 (pole length 17.91)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1083,
+            "ambiguous": false
+          },
+          "netDir": -1.0312003384094754,
+          "netSens": -1.0445719120135364
+        },
+        {
+          "closedThrough": "2025-08-24T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 206.66,
+          "stop": 200.58,
+          "tp1": 238.24,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 205.66 within 0.25 ATR(4h), closed above it at 206.66",
+            "stop 200.58 (retest extreme +/- 0.1 ATR vs invalidation 200.58, NF-floored)",
+            "TP1 = measured move 238.24 (pole length 32.58)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1428,
+            "ambiguous": false
+          },
+          "netDir": -1.1155664473684213,
+          "netSens": -1.067980263157895
+        },
+        {
+          "closedThrough": "2025-09-11T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 226.71,
+          "stop": 220.53,
+          "tp1": 250.37,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 225.85 within 0.25 ATR(4h), closed above it at 226.71",
+            "stop 220.53 (retest extreme +/- 0.1 ATR vs invalidation 220.53, NF-floored)",
+            "TP1 = measured move 250.37 (pole length 24.52)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.8285,
+            "holdCandles": 9902,
+            "timeToTP1Candles": 9902
+          },
+          "netDir": 3.7037728155339806,
+          "netSens": 3.755131067961165
+        },
+        {
+          "closedThrough": "2025-09-12T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 228.73,
+          "stop": 220.53,
+          "tp1": 250.37,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 225.85 within 0.25 ATR(4h), closed above it at 228.73",
+            "stop 220.53 (retest extreme +/- 0.1 ATR vs invalidation 220.53, NF-floored)",
+            "TP1 = measured move 250.37 (pole length 24.52)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.639,
+            "holdCandles": 9662,
+            "timeToTP1Candles": 9662
+          },
+          "netDir": 2.5441607317073167,
+          "netSens": 2.583212195121951
+        },
+        {
+          "closedThrough": "2025-11-18T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 134.51,
+          "stop": 143.28,
+          "tp1": 112.37,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 134.91 within 0.25 ATR(4h), closed below it at 134.51",
+            "stop 143.28 (retest extreme +/- 0.1 ATR vs invalidation 143.28, NF-floored)",
+            "TP1 = measured move 112.37 (pole length 22.54)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.6933,
+            "holdCandles": 1200
+          },
+          "netDir": -0.71477251995439,
+          "netSens": -0.7239750285062714
+        },
+        {
+          "closedThrough": "2025-12-15T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 131.16,
+          "stop": 134.28,
+          "tp1": 115.67,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 131.6 within 0.25 ATR(4h), closed below it at 131.16",
+            "stop 134.28 (retest extreme +/- 0.1 ATR vs invalidation 134.28, NF-floored)",
+            "TP1 = measured move 115.67 (pole length 15.93)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 615,
+            "ambiguous": false
+          },
+          "netDir": -1.0588538461538461,
+          "netSens": -1.084076923076923
+        },
+        {
+          "closedThrough": "2026-02-02T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 100.07,
+          "stop": 106.43,
+          "tp1": 72.95,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 103.59 within 0.25 ATR(4h), closed below it at 100.07",
+            "stop 106.43 (retest extreme +/- 0.1 ATR vs invalidation 106.43, NF-floored)",
+            "TP1 = measured move 72.95 (pole length 30.64)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.7186,
+            "holdCandles": 1681
+          },
+          "netDir": -0.7406279874213836,
+          "netSens": -0.7500685534591195
+        },
+        {
+          "closedThrough": "2026-02-13T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 78.4,
+          "stop": 82.25,
+          "tp1": 67.76,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 78.8 within 0.25 ATR(4h), closed below it at 78.4",
+            "stop 82.25 (retest extreme +/- 0.1 ATR vs invalidation 82.25, NF-floored)",
+            "TP1 = measured move 67.76 (pole length 11.04)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 912,
+            "ambiguous": false
+          },
+          "netDir": -1.028509090909091,
+          "netSens": -1.0407272727272727
+        },
+        {
+          "closedThrough": "2026-03-08T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 82.34,
+          "stop": 85.07,
+          "tp1": 73.49,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 83.9 within 0.25 ATR(4h), closed below it at 82.34",
+            "stop 85.07 (retest extreme +/- 0.1 ATR vs invalidation 85.07, NF-floored)",
+            "TP1 = measured move 73.49 (pole length 10.41)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2012,
+            "ambiguous": false
+          },
+          "netDir": -1.0422256410256412,
+          "netSens": -1.0603223443223446
+        },
+        {
+          "closedThrough": "2026-03-23T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 86.4,
+          "stop": 87.74,
+          "tp1": 81.36,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 86.51 within 0.25 ATR(4h), closed below it at 86.4",
+            "stop 87.74 (retest extreme +/- 0.1 ATR vs invalidation 87.74, NF-floored)",
+            "TP1 = measured move 81.36 (pole length 5.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 426,
+            "ambiguous": false
+          },
+          "netDir": -1.0902686567164186,
+          "netSens": -1.128955223880598
+        },
+        {
+          "closedThrough": "2026-03-23T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 85.99,
+          "stop": 87.74,
+          "tp1": 81.36,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 86.51 within 0.25 ATR(4h), closed below it at 85.99",
+            "stop 87.74 (retest extreme +/- 0.1 ATR vs invalidation 87.74, NF-floored)",
+            "TP1 = measured move 81.36 (pole length 5.15)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 186,
+            "ambiguous": false
+          },
+          "netDir": -1.068792,
+          "netSens": -1.0982742857142858
+        },
+        {
+          "closedThrough": "2026-03-29T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 81.62,
+          "stop": 83.24,
+          "tp1": 70.83,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 81.87 within 0.25 ATR(4h), closed below it at 81.62",
+            "stop 83.24 (retest extreme +/- 0.1 ATR vs invalidation 83.24, NF-floored)",
+            "TP1 = measured move 70.83 (pole length 11.04)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 406,
+            "ambiguous": false
+          },
+          "netDir": -1.0705358024691363,
+          "netSens": -1.100765432098766
+        },
+        {
+          "closedThrough": "2026-03-30T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 81.44,
+          "stop": 83.24,
+          "tp1": 70.83,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 81.87 within 0.25 ATR(4h), closed below it at 81.44",
+            "stop 83.24 (retest extreme +/- 0.1 ATR vs invalidation 83.24, NF-floored)",
+            "TP1 = measured move 70.83 (pole length 11.04)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 165,
+            "ambiguous": false
+          },
+          "netDir": -1.0633422222222224,
+          "netSens": -1.090488888888889
+        },
+        {
+          "closedThrough": "2026-05-18T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 84.85,
+          "stop": 87.29,
+          "tp1": 75.12,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 85.59 within 0.25 ATR(4h), closed below it at 84.85",
+            "stop 87.29 (retest extreme +/- 0.1 ATR vs invalidation 87.29, NF-floored)",
+            "TP1 = measured move 75.12 (pole length 10.47)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.75,
+            "holdCandles": 4561
+          },
+          "netDir": -0.798684426229508,
+          "netSens": -0.8195491803278685
+        },
+        {
+          "closedThrough": "2026-05-18T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 84.76,
+          "stop": 87.29,
+          "tp1": 75.12,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 85.59 within 0.25 ATR(4h), closed below it at 84.76",
+            "stop 87.29 (retest extreme +/- 0.1 ATR vs invalidation 87.29, NF-floored)",
+            "TP1 = measured move 75.12 (pole length 10.47)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.7589,
+            "holdCandles": 4321
+          },
+          "netDir": -0.805802766798419,
+          "netSens": -0.8259039525691699
+        },
+        {
+          "closedThrough": "2026-06-05T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 66.08,
+          "stop": 71.8,
+          "tp1": 50.64,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 66.94 within 0.25 ATR(4h), closed below it at 66.08",
+            "stop 71.8 (retest extreme +/- 0.1 ATR vs invalidation 71.8, NF-floored)",
+            "TP1 = measured move 50.64 (pole length 16.3)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1486,
+            "holdCandles": 10080,
+            "exit": 66.93
+          },
+          "netDir": -0.16477342657342658,
+          "netSens": -0.17170489510489512
+        },
+        {
+          "closedThrough": "2026-06-25T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 68.11,
+          "stop": 70.44,
+          "tp1": 61.56,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 68.4 within 0.25 ATR(4h), closed below it at 68.11",
+            "stop 70.44 (retest extreme +/- 0.1 ATR vs invalidation 70.44, NF-floored)",
+            "TP1 = measured move 61.56 (pole length 6.84)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1864,
+            "ambiguous": false
+          },
+          "netDir": -1.0409244635193133,
+          "netSens": -1.0584635193133047
+        },
+        {
+          "closedThrough": "2026-06-25T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 66.2,
+          "stop": 69.66,
+          "tp1": 57.11,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 67.4 within 0.25 ATR(4h), closed below it at 66.2",
+            "stop 69.66 (retest extreme +/- 0.1 ATR vs invalidation 69.66, NF-floored)",
+            "TP1 = measured move 57.11 (pole length 10.29)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 644,
+            "ambiguous": false
+          },
+          "netDir": -1.0267861271676302,
+          "netSens": -1.0382658959537574
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 13,
+        "resolved": 12,
+        "winPct": 33.33,
+        "grossExpR": 0.1169,
+        "netExpR": 0.0719,
+        "netExpR_sens020": 0.0769,
+        "maxLosingStreak": 5,
+        "medianHoldHours": 24.02,
+        "medianStopPct": 4.845,
+        "timeouts": 4
+      },
+      "signals": [
+        {
+          "closedThrough": "2025-06-23T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2227.7,
+          "stop": 2314.48,
+          "tp1": 1883.05,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 2236.05 within 0.25 ATR(4h), closed below it at 2227.7",
+            "stop 2314.48 (retest extreme +/- 0.1 ATR vs invalidation 2314.48, NF-floored)",
+            "TP1 = measured move 1883.05 (pole length 353)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1177,
+            "ambiguous": false
+          },
+          "netDir": -1.0359389260198202,
+          "netSens": -1.0513413228854573
+        },
+        {
+          "closedThrough": "2025-06-23T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2234.68,
+          "stop": 2314.48,
+          "tp1": 1883.05,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 2236.05 within 0.25 ATR(4h), closed below it at 2234.68",
+            "stop 2314.48 (retest extreme +/- 0.1 ATR vs invalidation 2314.48, NF-floored)",
+            "TP1 = measured move 1883.05 (pole length 353)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 937,
+            "ambiguous": false
+          },
+          "netDir": -1.0392049122807017,
+          "netSens": -1.0560070175438596
+        },
+        {
+          "closedThrough": "2025-07-14T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3045.02,
+          "stop": 2903.85,
+          "tp1": 3500.78,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 3020.31 within 0.25 ATR(4h), closed above it at 3045.02",
+            "stop 2903.85 (retest extreme +/- 0.1 ATR vs invalidation 2903.85, NF-floored)",
+            "TP1 = measured move 3500.78 (pole length 480.47)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.4797,
+            "holdCandles": 1441
+          },
+          "netDir": -0.5530375929730112,
+          "netSens": -0.5228397605723596
+        },
+        {
+          "closedThrough": "2025-07-14T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3051.72,
+          "stop": 2903.85,
+          "tp1": 3500.78,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 3020.31 within 0.25 ATR(4h), closed above it at 3051.72",
+            "stop 2903.85 (retest extreme +/- 0.1 ATR vs invalidation 2903.85, NF-floored)",
+            "TP1 = measured move 3500.78 (pole length 480.47)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.5033,
+            "holdCandles": 1201
+          },
+          "netDir": -0.5734687157638466,
+          "netSens": -0.5445757151552039
+        },
+        {
+          "closedThrough": "2025-07-20T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 3668.49,
+          "stop": 3477.58,
+          "tp1": 4339.8,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 3624.8 within 0.25 ATR(4h), closed above it at 3668.49",
+            "stop 3477.58 (retest extreme +/- 0.1 ATR vs invalidation 3477.58, NF-floored)",
+            "TP1 = measured move 4339.8 (pole length 715)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2025-08-11T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 4273.69,
+          "stop": 4153.07,
+          "tp1": 4949.95,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 4264.98 within 0.25 ATR(4h), closed above it at 4273.69",
+            "stop 4153.07 (retest extreme +/- 0.1 ATR vs invalidation 4153.07, NF-floored)",
+            "TP1 = measured move 4949.95 (pole length 684.97)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1345,
+            "holdCandles": 10080,
+            "exit": 4257.47
+          },
+          "netDir": -0.2549654783617975,
+          "netSens": -0.205362046095175
+        },
+        {
+          "closedThrough": "2025-08-11T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 4329.74,
+          "stop": 4153.07,
+          "tp1": 4949.95,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 4264.98 within 0.25 ATR(4h), closed above it at 4329.74",
+            "stop 4153.07 (retest extreme +/- 0.1 ATR vs invalidation 4153.07, NF-floored)",
+            "TP1 = measured move 4949.95 (pole length 684.97)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0893,
+            "holdCandles": 10080,
+            "exit": 4345.52
+          },
+          "netDir": 0.005974500481123038,
+          "netSens": 0.04028500028301355
+        },
+        {
+          "closedThrough": "2025-11-17T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 3095.29,
+          "stop": 3249,
+          "tp1": 2581.04,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 3099.23 within 0.25 ATR(4h), closed below it at 3095.29",
+            "stop 3249 (retest extreme +/- 0.1 ATR vs invalidation 3249, NF-floored)",
+            "TP1 = measured move 2581.04 (pole length 518.19)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.907,
+            "holdCandles": 10080,
+            "exit": 2802.16
+          },
+          "netDir": 1.8788079110012361,
+          "netSens": 1.866725587144623
+        },
+        {
+          "closedThrough": "2026-02-02T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2239.02,
+          "stop": 2475.98,
+          "tp1": 1488.39,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 2284.17 within 0.25 ATR(4h), closed below it at 2239.02",
+            "stop 2475.98 (retest extreme +/- 0.1 ATR vs invalidation 2475.98, NF-floored)",
+            "TP1 = measured move 1488.39 (pole length 795.78)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.4443,
+            "holdCandles": 1441
+          },
+          "netDir": -0.4575285111411208,
+          "netSens": -0.46319787305874405
+        },
+        {
+          "closedThrough": "2026-02-02T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2228.93,
+          "stop": 2475.98,
+          "tp1": 1488.39,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 2284.17 within 0.25 ATR(4h), closed below it at 2228.93",
+            "stop 2475.98 (retest extreme +/- 0.1 ATR vs invalidation 2475.98, NF-floored)",
+            "TP1 = measured move 1488.39 (pole length 795.78)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.467,
+            "holdCandles": 1201
+          },
+          "netDir": -0.4796310544424206,
+          "netSens": -0.48504436348917224
+        },
+        {
+          "closedThrough": "2026-02-02T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2282.32,
+          "stop": 2475.98,
+          "tp1": 1488.39,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 2284.17 within 0.25 ATR(4h), closed below it at 2282.32",
+            "stop 2475.98 (retest extreme +/- 0.1 ATR vs invalidation 2475.98, NF-floored)",
+            "TP1 = measured move 1488.39 (pole length 795.78)"
+          ],
+          "outcome": {
+            "status": "structure_exit",
+            "r": -0.2042,
+            "holdCandles": 1201
+          },
+          "netDir": -0.2206992667561706,
+          "netSens": -0.22777038108024375
+        },
+        {
+          "closedThrough": "2026-02-05T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2148.26,
+          "stop": 2343.82,
+          "tp1": 1653.82,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 2188.25 within 0.25 ATR(4h), closed below it at 2148.26",
+            "stop 2343.82 (retest extreme +/- 0.1 ATR vs invalidation 2343.82, NF-floored)",
+            "TP1 = measured move 1653.82 (pole length 534.43)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.0589,
+            "holdCandles": 10080,
+            "exit": 1941.18
+          },
+          "netDir": 1.0435207608917978,
+          "netSens": 1.0369296584168541
+        },
+        {
+          "closedThrough": "2026-06-04T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1813.05,
+          "stop": 1893.07,
+          "tp1": 1606.57,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + slope)",
+            "4h retest of breakout 1827.65 within 0.25 ATR(4h), closed below it at 1813.05",
+            "stop 1893.07 (retest extreme +/- 0.1 ATR vs invalidation 1893.07, NF-floored)",
+            "TP1 = measured move 1606.57 (pole length 221.08)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.5804,
+            "holdCandles": 2285,
+            "timeToTP1Candles": 2285
+          },
+          "netDir": 2.5486795551112222,
+          "netSens": 2.5350850787303174
+        }
+      ]
+    }
+  }
+}
