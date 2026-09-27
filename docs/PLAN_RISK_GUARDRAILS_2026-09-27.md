@@ -51,8 +51,12 @@ Two separate layers:
      `stop_distance_below_floor` reason (mirror of `stop_distance_exceeds_cap`). configVersion bump.
   2. `risk.maxWalletRiskPct` 2 → 0.5 so the payload's suggested size matches `steady`.
   3. Replay L0 before/after on deep60 to confirm the floor removes the outlier losses only.
-- **Phase G3 — direction (only if the 2-year re-run confirms longs+ / shorts−):** owner
-  decision on suppressing or downgrading flag shorts. Not planned until data is in.
+- **Phase G3 — direction: dropped (2026-09-27).** The 2-year V6 re-run shows pre-July-2026
+  shorts at breakeven-to-slightly-positive and longs no better
+  (`docs/COST_GATE_STUDY_2026-09-26.md` addendum 2). No short suppression.
+
+Status 2026-09-27: G1 built (`afb1470`, `upgrade-signal-engine`, not deployed). G2 built
+(`79260a6`, branch `risk-guardrails-g2`, merge on/after 2026-10-08).
 
 ## Keep vs change
 
@@ -79,4 +83,4 @@ Two separate layers:
 
 ## Phase order and approval
 
-G1 → (freeze lifts) G2 → G3 only on data. Each phase needs owner approval before coding.
+G1 → (freeze lifts) G2. G3 dropped. Each phase needs owner approval before coding.

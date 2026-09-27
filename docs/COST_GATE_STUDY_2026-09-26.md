@@ -302,6 +302,51 @@ trades, 1 trade/day; `var/risk-sim/cg-V6-min08-L015.json`):
 | 1% | 2.16x | 27.7% | 27.0% | 11 / 17 |
 | 2% | 4.18x | 48.8% | 96.2% | 11 / 17 |
 
+## Addendum 2026-09-27 (2) — V6 on the 2-year history: the long edge does not hold
+
+`scripts/replay-rules.js --variant V6 --history test/fixtures/history/deep2y-2026-09-26 --step 5`,
+one process per symbol, outputs `var/cost-gate-2y/`. 6,925 resolved calls, first ready call
+2025-04-23, last 2026-09-26. "pre-Jul" (2025-04-23 → 2026-06-30) is out of sample for the
+V6 ≥0.8% finding above, which was picked on July–September 2026. Short cost 0.14% throughout.
+
+| long cost | min stop | dir | n (pre-Jul) | win% | net R pre-Jul | 1st/2nd half pre-Jul | n (Jul-Sep) | net R Jul-Sep |
+|---|---|---|---|---|---|---|---|---|
+| 0.34% | 0.3 | long | 3019 | 28.3 | -0.562 | -0.45 / -0.68 | 353 | -0.408 |
+| 0.34% | 0.3 | short | 3228 | 30.9 | -0.043 | -0.05 / -0.04 | 325 | -0.239 |
+| 0.34% | 0.3 | both | 6247 | 29.6 | -0.294 | -0.26 / -0.32 | 678 | -0.327 |
+| 0.34% | 0.5 | long | 1338 | 27.1 | -0.414 | -0.31 / -0.52 | 142 | 0.009 |
+| 0.34% | 0.5 | short | 1568 | 30.4 | 0.018 | -0.02 / 0.05 | 131 | -0.112 |
+| 0.34% | 0.5 | both | 2906 | 28.9 | -0.181 | -0.17 / -0.19 | 273 | -0.049 |
+| 0.34% | 0.8 | long | 380 | 27.6 | -0.226 | -0.16 / -0.30 | 29 | 0.576 |
+| 0.34% | 0.8 | short | 520 | 29.6 | 0.051 | -0.09 / 0.19 | 33 | -0.055 |
+| 0.34% | 0.8 | both | 900 | 28.8 | -0.066 | -0.08 / -0.05 | 62 | 0.240 |
+| 0.34% | 1 | long | 192 | 31.3 | -0.028 | -0.07 / 0.02 | 7 | 1.590 |
+| 0.34% | 1 | short | 270 | 26.7 | -0.044 | -0.28 / 0.20 | 13 | -0.508 |
+| 0.34% | 1 | both | 462 | 28.6 | -0.037 | -0.14 / 0.06 | 20 | 0.226 |
+| 0.15% | 0.3 | long | 3019 | 28.3 | -0.174 | -0.05 / -0.29 | 353 | -0.004 |
+| 0.15% | 0.3 | short | 3228 | 30.9 | -0.043 | -0.05 / -0.04 | 325 | -0.239 |
+| 0.15% | 0.3 | both | 6247 | 29.6 | -0.106 | -0.07 / -0.15 | 678 | -0.117 |
+| 0.15% | 0.5 | long | 1338 | 27.1 | -0.137 | -0.03 / -0.24 | 142 | 0.295 |
+| 0.15% | 0.5 | short | 1568 | 30.4 | 0.018 | -0.02 / 0.05 | 131 | -0.112 |
+| 0.15% | 0.5 | both | 2906 | 28.9 | -0.053 | -0.04 / -0.07 | 273 | 0.100 |
+| 0.15% | 0.8 | long | 380 | 27.6 | -0.041 | 0.03 / -0.11 | 29 | 0.774 |
+| 0.15% | 0.8 | short | 520 | 29.6 | 0.051 | -0.09 / 0.19 | 33 | -0.055 |
+| 0.15% | 0.8 | both | 900 | 28.8 | 0.012 | -0.00 / 0.03 | 62 | 0.333 |
+| 0.15% | 1 | long | 192 | 31.3 | 0.128 | 0.08 / 0.17 | 7 | 1.739 |
+| 0.15% | 1 | short | 270 | 26.7 | -0.044 | -0.28 / 0.20 | 13 | -0.508 |
+| 0.15% | 1 | both | 462 | 28.6 | 0.028 | -0.08 / 0.13 | 20 | 0.278 |
+
+Reading:
+- **V6 longs with stop ≥ 0.8% do not repeat out of sample.** 380 longs: −0.23R at 0.34%,
+  −0.04R at 0.15%. The +1.01R above was a July–September 2026 effect (29 longs here).
+- **Shorts are not a consistent loser.** Pre-July shorts with stop ≥ 0.5–0.8% run
+  +0.02 to +0.05R. The long/short split in the 85-day window was regime, not structure.
+- **V6 overall is about breakeven, not an edge**: −0.05 to +0.03R per trade at ≥ 0.5–0.8%
+  with the leverage-aware long cost, ~29% wins. Wider stops only stop the bleed.
+- Only faint positive: longs ≥ 1.0% at 0.15% cost, +0.13R, n=192, both halves positive
+  (+0.08 / +0.17). Too thin and too selected to trade on.
+- Plan consequence: G3 (suppress flag shorts) is **not supported** — dropped.
+
 ## Files
 
 - `scripts/research/cost-gate-grid.js` — the post-filter grid tool (new, read-only over
@@ -310,3 +355,4 @@ trades, 1 trade/day; `var/risk-sim/cg-V6-min08-L015.json`):
 - `var/cost-gate/{L0,L1b,V6}.summary.json` / `.log` — `replay-rules.js`'s own summary/console output.
 - `var/cost-gate/{L0,L1b,V6}.grid.json` — full grid + best-3-cell long/short splits, machine-readable.
 - `scripts/research/rescore-long-cost.js` — re-scores `.calls.jsonl` at alternative long costs (addendum).
+- `var/cost-gate-2y/` — 2-year V6 calls per symbol, combined `V6.calls.jsonl`, `rescore.md` (addendum 2).
