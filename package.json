@@ -69,7 +69,9 @@
     "test:swing": "node test-swing-rules.js",
     "test:swing:playbook": "node test-swing-rules-playbook.js",
     "test:swing:controls": "node test-swing-rules-controls.js",
-    "test:swing:meanrev": "node test-swing-rules-meanrev.js"
+    "test:swing:meanrev": "node test-swing-rules-meanrev.js",
+    "study:exits": "node scripts/research/exits.js",
+    "test:exits": "node test-exits-study.js"
   },
   "keywords": [
     "trading",

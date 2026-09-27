@@ -26,4 +26,5 @@ paper-ledger/
 var/replay-rules/
 
 # scripts/research/conditions.js raw per-symbol scored rows (S1 Agent B; regenerate with npm run study:conditions)
+# scripts/research/exits.js raw per-variant output (S1 agent C; regenerate with npm run study:exits)
 var/research/
