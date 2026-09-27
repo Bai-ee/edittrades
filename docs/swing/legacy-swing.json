@@ -12,8 +12,8 @@
       "entry/stop/tp1/tp2 collapse the evaluator's entryZone {min,max} to its midpoint since the rule interface takes a single entry price, not a zone."
     ]
   },
-  "generatedAt": "2026-09-27T02:05:28.463Z",
-  "runtimeMs": 7746,
+  "generatedAt": "2026-09-27T02:15:50.831Z",
+  "runtimeMs": 7523,
   "combined": {
     "stats": {
       "n": 0,
@@ -23,7 +23,9 @@
       "netExpR": null,
       "netExpR_sens020": null,
       "maxLosingStreak": 0,
-      "medianHoldHours": null
+      "medianHoldHours": null,
+      "medianStopPct": null,
+      "timeouts": 0
     },
     "oos": {
       "firstHalf": null,
@@ -40,7 +42,9 @@
         "netExpR": null,
         "netExpR_sens020": null,
         "maxLosingStreak": 0,
-        "medianHoldHours": null
+        "medianHoldHours": null,
+        "medianStopPct": null,
+        "timeouts": 0
       },
       "signals": []
     },
@@ -53,7 +57,9 @@
         "netExpR": null,
         "netExpR_sens020": null,
         "maxLosingStreak": 0,
-        "medianHoldHours": null
+        "medianHoldHours": null,
+        "medianStopPct": null,
+        "timeouts": 0
       },
       "signals": []
     },
@@ -66,7 +72,9 @@
         "netExpR": null,
         "netExpR_sens020": null,
         "maxLosingStreak": 0,
-        "medianHoldHours": null
+        "medianHoldHours": null,
+        "medianStopPct": null,
+        "timeouts": 0
       },
       "signals": []
     }

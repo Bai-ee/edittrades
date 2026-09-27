@@ -1,0 +1,2718 @@
+{
+  "meta": {
+    "id": "ctl-4h-range-break",
+    "label": "Control: prior-24h range breakout (4h, 1D-bias-aligned)",
+    "source": "docs/PROMPT_S0_SWING_RESEARCH.md Agent S0-C",
+    "tf": "4h",
+    "holdMaxHours": 24,
+    "stopKind": "structure",
+    "notes": "Breaks the prior 6x4h (24h) range in the EMA21/EMA200(1D) bias direction; stop = range midpoint; TP1 = one range-height measured move. Hold 24h per spec."
+  },
+  "generatedAt": "2026-09-27T02:15:36.323Z",
+  "runtimeMs": 4673,
+  "combined": {
+    "stats": {
+      "n": 120,
+      "resolved": 119,
+      "winPct": 44.54,
+      "grossExpR": 0.0378,
+      "netExpR": -0.0903,
+      "netExpR_sens020": -0.0865,
+      "maxLosingStreak": 7,
+      "medianHoldHours": 22.3,
+      "medianStopPct": 1.88,
+      "timeouts": 57
+    },
+    "oos": {
+      "firstHalf": -0.0551,
+      "secondHalf": -0.125
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 43,
+        "resolved": 43,
+        "winPct": 41.86,
+        "grossExpR": -0.026,
+        "netExpR": -0.1835,
+        "netExpR_sens020": -0.1801,
+        "maxLosingStreak": 6,
+        "medianHoldHours": 14.83,
+        "medianStopPct": 1.427,
+        "timeouts": 16
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-08T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62247,
+          "stop": 63318.6,
+          "tp1": 60491,
+          "tp2": null,
+          "reason": [
+            "4h close 62247 broke below the prior-24h low (62440.6)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (63318.6); TP1 = entry +/- one range-height (1756) -> 60491"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4432,
+            "holdCandles": 1440,
+            "exit": 62721.9
+          },
+          "netDir": -0.5245230683090707,
+          "netSens": -0.5593758118701009
+        },
+        {
+          "closedThrough": "2026-07-08T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 61646.5,
+          "stop": 62948.3,
+          "tp1": 59149.9,
+          "tp2": null,
+          "reason": [
+            "4h close 61646.5 broke below the prior-24h low (61700)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (62948.3); TP1 = entry +/- one range-height (2496.5999999999985) -> 59149.9"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 902,
+            "ambiguous": false
+          },
+          "netDir": -1.0662967429712704,
+          "netSens": -1.0947096328161006
+        },
+        {
+          "closedThrough": "2026-07-13T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62766.2,
+          "stop": 63920.85,
+          "tp1": 62126.1,
+          "tp2": null,
+          "reason": [
+            "4h close 62766.2 broke below the prior-24h low (63600.8)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (63920.850000000006); TP1 = entry +/- one range-height (640.0999999999985) -> 62126.1"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.5544,
+            "holdCandles": 592,
+            "timeToTP1Candles": 592
+          },
+          "netDir": 0.4782966959684759,
+          "netSens": 0.4456809942406798
+        },
+        {
+          "closedThrough": "2026-07-16T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64190,
+          "stop": 64936.35,
+          "tp1": 63035.1,
+          "tp2": null,
+          "reason": [
+            "4h close 64190 broke below the prior-24h low (64358.9)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64936.350000000006); TP1 = entry +/- one range-height (1154.9000000000015) -> 63035.1"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.5474,
+            "holdCandles": 1301,
+            "timeToTP1Candles": 1301
+          },
+          "netDir": 1.4269926843974017,
+          "netSens": 1.3753895491391452
+        },
+        {
+          "closedThrough": "2026-07-17T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63789.5,
+          "stop": 64407.5,
+          "tp1": 62602.5,
+          "tp2": null,
+          "reason": [
+            "4h close 63789.5 broke below the prior-24h low (63814)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64407.5); TP1 = entry +/- one range-height (1187) -> 62602.5"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.9207,
+            "holdCandles": 817,
+            "timeToTP1Candles": 817
+          },
+          "netDir": 1.7761930420711975,
+          "netSens": 1.7142614886731393
+        },
+        {
+          "closedThrough": "2026-07-17T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63511.4,
+          "stop": 64322.2,
+          "tp1": 62277.2,
+          "tp2": null,
+          "reason": [
+            "4h close 63511.4 broke below the prior-24h low (63705.1)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64322.2); TP1 = entry +/- one range-height (1234.2000000000044) -> 62277.2"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 890,
+            "ambiguous": false
+          },
+          "netDir": -1.1096644795263944,
+          "netSens": -1.1566635421805633
+        },
+        {
+          "closedThrough": "2026-07-17T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62777.9,
+          "stop": 64146.6,
+          "tp1": 61192.5,
+          "tp2": null,
+          "reason": [
+            "4h close 62777.9 broke below the prior-24h low (63353.9)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64146.600000000006); TP1 = entry +/- one range-height (1585.4000000000015) -> 61192.5"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 588,
+            "ambiguous": false
+          },
+          "netDir": -1.0642135310878935,
+          "netSens": -1.0917336158398476
+        },
+        {
+          "closedThrough": "2026-07-20T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64198.2,
+          "stop": 64650.6,
+          "tp1": 63409,
+          "tp2": null,
+          "reason": [
+            "4h close 64198.2 broke below the prior-24h low (64256)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64650.6); TP1 = entry +/- one range-height (789.1999999999971) -> 63409"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 213,
+            "ambiguous": false
+          },
+          "netDir": -1.1986681697612727,
+          "netSens": -1.2838116710875322
+        },
+        {
+          "closedThrough": "2026-07-23T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 65404.8,
+          "stop": 65940.15,
+          "tp1": 64533.5,
+          "tp2": null,
+          "reason": [
+            "4h close 65404.8 broke below the prior-24h low (65504.5)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (65940.15); TP1 = entry +/- one range-height (871.3000000000029) -> 64533.5"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.091,
+            "holdCandles": 1440,
+            "exit": 65453.5
+          },
+          "netDir": -0.26204085177921266,
+          "netSens": -0.33534407397030386
+        },
+        {
+          "closedThrough": "2026-07-23T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64907.8,
+          "stop": 65819.2,
+          "tp1": 63843.8,
+          "tp2": null,
+          "reason": [
+            "4h close 64907.8 broke below the prior-24h low (65287.2)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (65819.2); TP1 = entry +/- one range-height (1064) -> 63843.8"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.1674,
+            "holdCandles": 1338,
+            "timeToTP1Candles": 1338
+          },
+          "netDir": 1.0676952380952374,
+          "netSens": 1.0249646258503393
+        },
+        {
+          "closedThrough": "2026-07-24T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64026.3,
+          "stop": 65185.15,
+          "tp1": 62862.8,
+          "tp2": null,
+          "reason": [
+            "4h close 64026.3 broke below the prior-24h low (64603.4)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (65185.149999999994); TP1 = entry +/- one range-height (1163.4999999999927) -> 62862.80000000001"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.087,
+            "holdCandles": 1440,
+            "exit": 64127.1
+          },
+          "netDir": -0.164349803684688,
+          "netSens": -0.19749971954955425
+        },
+        {
+          "closedThrough": "2026-07-28T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63697.1,
+          "stop": 64967.75,
+          "tp1": 62267.4,
+          "tp2": null,
+          "reason": [
+            "4h close 63697.1 broke below the prior-24h low (64252.9)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64967.75); TP1 = entry +/- one range-height (1429.7000000000044) -> 62267.399999999994"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1279,
+            "holdCandles": 1440,
+            "exit": 63859.6
+          },
+          "netDir": -0.19808135599889815,
+          "netSens": -0.22815907999842588
+        },
+        {
+          "closedThrough": "2026-07-28T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63274.6,
+          "stop": 64616.3,
+          "tp1": 61142,
+          "tp2": null,
+          "reason": [
+            "4h close 63274.6 broke below the prior-24h low (63550)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64616.3); TP1 = entry +/- one range-height (2132.600000000006) -> 61141.99999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.285,
+            "holdCandles": 1440,
+            "exit": 63657
+          },
+          "netDir": -0.3510240292166652,
+          "netSens": -0.37932004173809314
+        },
+        {
+          "closedThrough": "2026-07-31T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63732.6,
+          "stop": 64595.3,
+          "tp1": 62183.6,
+          "tp2": null,
+          "reason": [
+            "4h close 63732.6 broke below the prior-24h low (63820.8)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64595.3); TP1 = entry +/- one range-height (1549) -> 62183.6"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8237,
+            "holdCandles": 1440,
+            "exit": 63022
+          },
+          "netDir": 0.7202739654572858,
+          "netSens": 0.6759485220818369
+        },
+        {
+          "closedThrough": "2026-07-31T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62643,
+          "stop": 64464.9,
+          "tp1": 60833.2,
+          "tp2": null,
+          "reason": [
+            "4h close 62643 broke below the prior-24h low (63560)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64464.9); TP1 = entry +/- one range-height (1809.800000000003) -> 60833.2"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1719,
+            "holdCandles": 1440,
+            "exit": 62956.1
+          },
+          "netDir": -0.22003667050880943,
+          "netSens": -0.24066667215544207
+        },
+        {
+          "closedThrough": "2026-08-01T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62477.9,
+          "stop": 62914.05,
+          "tp1": 61855.2,
+          "tp2": null,
+          "reason": [
+            "4h close 62477.9 broke below the prior-24h low (62602.7)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (62914.05); TP1 = entry +/- one range-height (622.7000000000044) -> 61855.2"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 315,
+            "ambiguous": false
+          },
+          "netDir": -1.2005481141809005,
+          "netSens": -1.286497305972715
+        },
+        {
+          "closedThrough": "2026-08-03T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62531,
+          "stop": 63216,
+          "tp1": 61538.8,
+          "tp2": null,
+          "reason": [
+            "4h close 62531 broke below the prior-24h low (62719.9)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (63216); TP1 = entry +/- one range-height (992.1999999999971) -> 61538.8"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 354,
+            "ambiguous": false
+          },
+          "netDir": -1.1278005839416059,
+          "netSens": -1.1825722627737227
+        },
+        {
+          "closedThrough": "2026-08-03T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62469,
+          "stop": 63096.05,
+          "tp1": 61236.9,
+          "tp2": null,
+          "reason": [
+            "4h close 62469 broke below the prior-24h low (62480)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (63096.05); TP1 = entry +/- one range-height (1232.0999999999985) -> 61236.9"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 109,
+            "ambiguous": false
+          },
+          "netDir": -1.1394730882704722,
+          "netSens": -1.1992472689578175
+        },
+        {
+          "closedThrough": "2026-08-09T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64730.9,
+          "stop": 64970.95,
+          "tp1": 64389,
+          "tp2": null,
+          "reason": [
+            "4h close 64730.9 broke below the prior-24h low (64800)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64970.95); TP1 = entry +/- one range-height (341.90000000000146) -> 64389"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 548,
+            "ambiguous": false
+          },
+          "netDir": -1.3775182670277095,
+          "netSens": -1.5393118100395848
+        },
+        {
+          "closedThrough": "2026-08-10T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64231.7,
+          "stop": 65100.65,
+          "tp1": 63582,
+          "tp2": null,
+          "reason": [
+            "4h close 64231.7 broke below the prior-24h low (64775.8)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (65100.65); TP1 = entry +/- one range-height (649.6999999999971) -> 63582"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.7477,
+            "holdCandles": 1418,
+            "timeToTP1Candles": 1418
+          },
+          "netDir": 0.6442137464756321,
+          "netSens": 0.5998624949651886
+        },
+        {
+          "closedThrough": "2026-08-10T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63975.7,
+          "stop": 64792.15,
+          "tp1": 62709,
+          "tp2": null,
+          "reason": [
+            "4h close 63975.7 broke below the prior-24h low (64158.8)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64792.15); TP1 = entry +/- one range-height (1266.699999999997) -> 62709"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.6091,
+            "holdCandles": 1440,
+            "exit": 63478.4
+          },
+          "netDir": 0.4993982668871339,
+          "netSens": 0.4523832384101913
+        },
+        {
+          "closedThrough": "2026-08-11T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63558.1,
+          "stop": 64465,
+          "tp1": 62128.1,
+          "tp2": null,
+          "reason": [
+            "4h close 63558.1 broke below the prior-24h low (63750)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (64465); TP1 = entry +/- one range-height (1430) -> 62128.1"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.2006,
+            "holdCandles": 1440,
+            "exit": 63376.2
+          },
+          "netDir": 0.10248406660050738,
+          "netSens": 0.060434380857867676
+        },
+        {
+          "closedThrough": "2026-08-17T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62819.1,
+          "stop": 63102.6,
+          "tp1": 62404.3,
+          "tp2": null,
+          "reason": [
+            "4h close 62819.1 broke below the prior-24h low (62895.2)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (63102.6); TP1 = entry +/- one range-height (414.8000000000029) -> 62404.299999999996"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 91,
+            "ambiguous": false
+          },
+          "netDir": -1.3102177777777777,
+          "netSens": -1.443168253968254
+        },
+        {
+          "closedThrough": "2026-08-23T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 75976.4,
+          "stop": 77408.1,
+          "tp1": 73192.8,
+          "tp2": null,
+          "reason": [
+            "4h close 75976.4 broke below the prior-24h low (76016.3)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (77408.1); TP1 = entry +/- one range-height (2783.5999999999913) -> 73192.8"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 318,
+            "ambiguous": false
+          },
+          "netDir": -1.0742941677725775,
+          "netSens": -1.1061345253893964
+        },
+        {
+          "closedThrough": "2026-08-28T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 78333.7,
+          "stop": 80161.45,
+          "tp1": 75734.6,
+          "tp2": null,
+          "reason": [
+            "4h close 78333.7 broke below the prior-24h low (78861.9)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (80161.45); TP1 = entry +/- one range-height (2599.100000000006) -> 75734.59999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.26,
+            "holdCandles": 1440,
+            "exit": 77858.4
+          },
+          "netDir": 0.19999880727670633,
+          "netSens": 0.17428401039529479
+        },
+        {
+          "closedThrough": "2026-08-28T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 77561.2,
+          "stop": 79889.15,
+          "tp1": 74417.5,
+          "tp2": null,
+          "reason": [
+            "4h close 77561.2 broke below the prior-24h low (78317.3)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (79889.15); TP1 = entry +/- one range-height (3143.699999999997) -> 74417.5"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2594,
+            "holdCandles": 1440,
+            "exit": 78165.1
+          },
+          "netDir": -0.30604433514465523,
+          "netSens": -0.3260347644923646
+        },
+        {
+          "closedThrough": "2026-08-30T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78808.3,
+          "stop": 77925.5,
+          "tp1": 79591.1,
+          "tp2": null,
+          "reason": [
+            "4h close 78808.3 broke above the prior-24h high (78316.9)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (77925.5); TP1 = entry +/- one range-height (782.7999999999884) -> 79591.09999999999"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 444,
+            "ambiguous": false
+          },
+          "netDir": -1.303520865428182,
+          "netSens": -1.1785416855459894
+        },
+        {
+          "closedThrough": "2026-09-03T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 81361.7,
+          "stop": 77331.75,
+          "tp1": 82896.4,
+          "tp2": null,
+          "reason": [
+            "4h close 81361.7 broke above the prior-24h high (78099.1)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (77331.75); TP1 = entry +/- one range-height (1534.7000000000116) -> 82896.40000000001"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4815,
+            "holdCandles": 1440,
+            "exit": 79421.1
+          },
+          "netDir": -0.5501434769662155,
+          "netSens": -0.5218785158624797
+        },
+        {
+          "closedThrough": "2026-09-03T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 81746.9,
+          "stop": 79152,
+          "tp1": 86205.7,
+          "tp2": null,
+          "reason": [
+            "4h close 81746.9 broke above the prior-24h high (81381.4)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (79152); TP1 = entry +/- one range-height (4458.799999999988) -> 86205.69999999998"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1056,
+            "ambiguous": false
+          },
+          "netDir": -1.107109892481406,
+          "netSens": -1.0630058191067095
+        },
+        {
+          "closedThrough": "2026-09-07T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 80334.3,
+          "stop": 79683.9,
+          "tp1": 81227.9,
+          "tp2": null,
+          "reason": [
+            "4h close 80334.3 broke above the prior-24h high (80130.7)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (79683.9); TP1 = entry +/- one range-height (893.5999999999913) -> 81227.9"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 219,
+            "ambiguous": false
+          },
+          "netDir": -1.419951752767522,
+          "netSens": -1.2470304428044248
+        },
+        {
+          "closedThrough": "2026-09-09T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 79262.5,
+          "stop": 78288.65,
+          "tp1": 80621,
+          "tp2": null,
+          "reason": [
+            "4h close 79262.5 broke above the prior-24h high (78967.9)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (78288.65); TP1 = entry +/- one range-height (1358.5) -> 80621"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 432,
+            "ambiguous": false
+          },
+          "netDir": -1.2767289623658657,
+          "netSens": -1.1627817425681564
+        },
+        {
+          "closedThrough": "2026-09-14T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77560.2,
+          "stop": 76929.85,
+          "tp1": 78500.5,
+          "tp2": null,
+          "reason": [
+            "4h close 77560.2 broke above the prior-24h high (77400)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (76929.85); TP1 = entry +/- one range-height (940.3000000000029) -> 78500.5"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.4917,
+            "holdCandles": 616,
+            "timeToTP1Candles": 616
+          },
+          "netDir": 1.0733535575473885,
+          "netSens": 1.2456138573808169
+        },
+        {
+          "closedThrough": "2026-09-14T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77850,
+          "stop": 77087.8,
+          "tp1": 79326,
+          "tp2": null,
+          "reason": [
+            "4h close 77850 broke above the prior-24h high (77825.8)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (77087.8); TP1 = entry +/- one range-height (1476) -> 79326"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.9365,
+            "holdCandles": 738,
+            "timeToTP1Candles": 738
+          },
+          "netDir": 1.5892289425347665,
+          "netSens": 1.7322229073733921
+        },
+        {
+          "closedThrough": "2026-09-14T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78553.6,
+          "stop": 77344.25,
+          "tp1": 80542.5,
+          "tp2": null,
+          "reason": [
+            "4h close 78553.6 broke above the prior-24h high (78338.7)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (77344.25); TP1 = entry +/- one range-height (1988.8999999999942) -> 80542.5"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 795,
+            "ambiguous": false
+          },
+          "netDir": -1.2208477611940287,
+          "netSens": -1.1299104477611934
+        },
+        {
+          "closedThrough": "2026-09-14T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 79000,
+          "stop": 77507.5,
+          "tp1": 81315.4,
+          "tp2": null,
+          "reason": [
+            "4h close 79000 broke above the prior-24h high (78665.2)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (77507.5); TP1 = entry +/- one range-height (2315.399999999994) -> 81315.4"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 551,
+            "ambiguous": false
+          },
+          "netDir": -1.179966499162479,
+          "netSens": -1.105862646566164
+        },
+        {
+          "closedThrough": "2026-09-18T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77303,
+          "stop": 76515.9,
+          "tp1": 78461.8,
+          "tp2": null,
+          "reason": [
+            "4h close 77303 broke above the prior-24h high (77095.3)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (76515.9); TP1 = entry +/- one range-height (1158.800000000003) -> 78461.8"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.4722,
+            "holdCandles": 579,
+            "timeToTP1Candles": 579
+          },
+          "netDir": 1.1382777537797,
+          "netSens": 1.2757751492821765
+        },
+        {
+          "closedThrough": "2026-09-18T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77727.4,
+          "stop": 76733.4,
+          "tp1": 79321.2,
+          "tp2": null,
+          "reason": [
+            "4h close 77727.4 broke above the prior-24h high (77530.3)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (76733.4); TP1 = entry +/- one range-height (1593.800000000003) -> 79321.2"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.6034,
+            "holdCandles": 346,
+            "timeToTP1Candles": 346
+          },
+          "netDir": 1.3375316297786721,
+          "netSens": 1.4470068410462775
+        },
+        {
+          "closedThrough": "2026-09-18T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77993,
+          "stop": 76855,
+          "tp1": 79830,
+          "tp2": null,
+          "reason": [
+            "4h close 77993 broke above the prior-24h high (77773.5)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (76855); TP1 = entry +/- one range-height (1837) -> 79830"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.6142,
+            "holdCandles": 108,
+            "timeToTP1Candles": 108
+          },
+          "netDir": 1.3811804920913886,
+          "netSens": 1.4771297012302285
+        },
+        {
+          "closedThrough": "2026-09-18T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 80693.8,
+          "stop": 77175.5,
+          "tp1": 83171.8,
+          "tp2": null,
+          "reason": [
+            "4h close 80693.8 broke above the prior-24h high (78414.5)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (77175.5); TP1 = entry +/- one range-height (2478) -> 83171.8"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.26,
+            "holdCandles": 1440,
+            "exit": 81608.6
+          },
+          "netDir": 0.18201946394565566,
+          "netSens": 0.21412909643862096
+        },
+        {
+          "closedThrough": "2026-09-18T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 81190.7,
+          "stop": 78659,
+          "tp1": 86108.7,
+          "tp2": null,
+          "reason": [
+            "4h close 81190.7 broke above the prior-24h high (81118)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (78659); TP1 = entry +/- one range-height (4918) -> 86108.7"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0595,
+            "holdCandles": 1440,
+            "exit": 81341.4
+          },
+          "netDir": -0.0495367658095352,
+          "netSens": -0.0046392740056089565
+        },
+        {
+          "closedThrough": "2026-09-21T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 84870.7,
+          "stop": 81108.05,
+          "tp1": 86802.6,
+          "tp2": null,
+          "reason": [
+            "4h close 84870.7 broke above the prior-24h high (82074)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (81108.05); TP1 = entry +/- one range-height (1931.8999999999942) -> 86802.59999999999"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.5134,
+            "holdCandles": 455,
+            "timeToTP1Candles": 455
+          },
+          "netDir": 0.43670926873347227,
+          "netSens": 0.4682878051373366
+        },
+        {
+          "closedThrough": "2026-09-21T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 85927.9,
+          "stop": 82774.3,
+          "tp1": 90891.3,
+          "tp2": null,
+          "reason": [
+            "4h close 85927.9 broke above the prior-24h high (85256)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (82774.3); TP1 = entry +/- one range-height (4963.399999999994) -> 90891.29999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.1507,
+            "holdCandles": 1440,
+            "exit": 86403
+          },
+          "netDir": 0.0580583016235411,
+          "netSens": 0.09620488330796535
+        },
+        {
+          "closedThrough": "2026-09-21T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 86489.3,
+          "stop": 83455.8,
+          "tp1": 92239.7,
+          "tp2": null,
+          "reason": [
+            "4h close 86489.3 broke above the prior-24h high (86331)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (83455.8); TP1 = entry +/- one range-height (5750.399999999994) -> 92239.7"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1043,
+            "holdCandles": 1440,
+            "exit": 86172.8
+          },
+          "netDir": -0.20123872424592054,
+          "netSens": -0.16132277896818856
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 40,
+        "resolved": 39,
+        "winPct": 48.72,
+        "grossExpR": 0.1107,
+        "netExpR": 0.0199,
+        "netExpR_sens020": 0.0149,
+        "maxLosingStreak": 7,
+        "medianHoldHours": 24,
+        "medianStopPct": 2.26,
+        "timeouts": 23
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-05T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 80.48,
+          "stop": 82.595,
+          "tp1": 77.89,
+          "tp2": null,
+          "reason": [
+            "4h close 80.48 broke below the prior-24h low (81.3)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (82.595); TP1 = entry +/- one range-height (2.5900000000000034) -> 77.89"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0946,
+            "holdCandles": 1440,
+            "exit": 80.68
+          },
+          "netDir": -0.14787281323877083,
+          "netSens": -0.17070401891252973
+        },
+        {
+          "closedThrough": "2026-07-08T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 78.64,
+          "stop": 81.515,
+          "tp1": 76.21,
+          "tp2": null,
+          "reason": [
+            "4h close 78.64 broke below the prior-24h low (80.3)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (81.515); TP1 = entry +/- one range-height (2.430000000000007) -> 76.21"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.4696,
+            "holdCandles": 1440,
+            "exit": 77.29
+          },
+          "netDir": 0.4313057391304348,
+          "netSens": 0.4148939130434783
+        },
+        {
+          "closedThrough": "2026-07-08T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 77.47,
+          "stop": 80.23,
+          "tp1": 72.47,
+          "tp2": null,
+          "reason": [
+            "4h close 77.47 broke below the prior-24h low (77.73)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (80.23); TP1 = entry +/- one range-height (5) -> 72.47"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0326,
+            "holdCandles": 1440,
+            "exit": 77.56
+          },
+          "netDir": -0.07189637681159414,
+          "netSens": -0.08873768115942018
+        },
+        {
+          "closedThrough": "2026-07-08T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.68,
+          "stop": 79.785,
+          "tp1": 70.79,
+          "tp2": null,
+          "reason": [
+            "4h close 76.68 broke below the prior-24h low (76.84)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (79.785); TP1 = entry +/- one range-height (5.890000000000001) -> 70.79"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2834,
+            "holdCandles": 1440,
+            "exit": 77.56
+          },
+          "netDir": -0.3179739130434784,
+          "netSens": -0.3327913043478262
+        },
+        {
+          "closedThrough": "2026-07-12T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.74,
+          "stop": 78.095,
+          "tp1": 75.39,
+          "tp2": null,
+          "reason": [
+            "4h close 76.74 broke below the prior-24h low (77.42)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (78.095); TP1 = entry +/- one range-height (1.3499999999999943) -> 75.39"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0812,
+            "holdCandles": 1440,
+            "exit": 76.85
+          },
+          "netDir": -0.16048856088560862,
+          "netSens": -0.1944693726937266
+        },
+        {
+          "closedThrough": "2026-07-16T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.89,
+          "stop": 77.925,
+          "tp1": 74.84,
+          "tp2": null,
+          "reason": [
+            "4h close 76.89 broke below the prior-24h low (76.9)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (77.92500000000001); TP1 = entry +/- one range-height (2.049999999999997) -> 74.84"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.9807,
+            "holdCandles": 1359,
+            "timeToTP1Candles": 1359
+          },
+          "netDir": 1.8766942028985518,
+          "netSens": 1.832120289855074
+        },
+        {
+          "closedThrough": "2026-07-16T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.36,
+          "stop": 77.8,
+          "tp1": 74.06,
+          "tp2": null,
+          "reason": [
+            "4h close 76.36 broke below the prior-24h low (76.65)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (77.80000000000001); TP1 = entry +/- one range-height (2.299999999999997) -> 74.06"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.2569,
+            "holdCandles": 1440,
+            "exit": 74.55
+          },
+          "netDir": 1.1826611111111116,
+          "netSens": 1.1508444444444452
+        },
+        {
+          "closedThrough": "2026-07-17T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 75.27,
+          "stop": 76.51,
+          "tp1": 72.95,
+          "tp2": null,
+          "reason": [
+            "4h close 75.27 broke below the prior-24h low (75.35)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (76.50999999999999); TP1 = entry +/- one range-height (2.3200000000000074) -> 72.94999999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.2339,
+            "holdCandles": 1440,
+            "exit": 74.98
+          },
+          "netDir": 0.14891774193548352,
+          "netSens": 0.11249677419354788
+        },
+        {
+          "closedThrough": "2026-07-17T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.55,
+          "stop": 76.115,
+          "tp1": 71.72,
+          "tp2": null,
+          "reason": [
+            "4h close 74.55 broke below the prior-24h low (74.7)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (76.11500000000001); TP1 = entry +/- one range-height (2.8299999999999983) -> 71.72"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2364,
+            "holdCandles": 1440,
+            "exit": 74.92
+          },
+          "netDir": -0.30309009584664487,
+          "netSens": -0.33167156549520693
+        },
+        {
+          "closedThrough": "2026-07-22T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 77.04,
+          "stop": 78.135,
+          "tp1": 75.67,
+          "tp2": null,
+          "reason": [
+            "4h close 77.04 broke below the prior-24h low (77.45)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (78.13499999999999); TP1 = entry +/- one range-height (1.3699999999999903) -> 75.67000000000002"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 366,
+            "ambiguous": false
+          },
+          "netDir": -1.0984986301369877,
+          "netSens": -1.1407123287671252
+        },
+        {
+          "closedThrough": "2026-07-23T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 76.33,
+          "stop": 77.895,
+          "tp1": 74.54,
+          "tp2": null,
+          "reason": [
+            "4h close 76.33 broke below the prior-24h low (77)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (77.89500000000001); TP1 = entry +/- one range-height (1.7900000000000063) -> 74.53999999999999"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.1438,
+            "holdCandles": 1266,
+            "timeToTP1Candles": 1266
+          },
+          "netDir": 1.0755175718849845,
+          "netSens": 1.0462536741214064
+        },
+        {
+          "closedThrough": "2026-07-23T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 75.72,
+          "stop": 77.295,
+          "tp1": 72.81,
+          "tp2": null,
+          "reason": [
+            "4h close 75.72 broke below the prior-24h low (75.84)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (77.295); TP1 = entry +/- one range-height (2.9099999999999966) -> 72.81"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.1619,
+            "holdCandles": 1440,
+            "exit": 73.89
+          },
+          "netDir": 1.0945933333333333,
+          "netSens": 1.0657476190476192
+        },
+        {
+          "closedThrough": "2026-07-24T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 75.13,
+          "stop": 76.535,
+          "tp1": 72.54,
+          "tp2": null,
+          "reason": [
+            "4h close 75.13 broke below the prior-24h low (75.24)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (76.535); TP1 = entry +/- one range-height (2.5900000000000034) -> 72.53999999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.9253,
+            "holdCandles": 1440,
+            "exit": 73.83
+          },
+          "netDir": 0.8504373665480428,
+          "netSens": 0.8183533807829182
+        },
+        {
+          "closedThrough": "2026-07-24T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.95,
+          "stop": 76.315,
+          "tp1": 71.22,
+          "tp2": null,
+          "reason": [
+            "4h close 73.95 broke below the prior-24h low (74.95)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (76.315); TP1 = entry +/- one range-height (2.730000000000004) -> 71.22"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0634,
+            "holdCandles": 1440,
+            "exit": 74.1
+          },
+          "netDir": -0.10717589852008466,
+          "netSens": -0.12593699788583523
+        },
+        {
+          "closedThrough": "2026-07-28T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.13,
+          "stop": 76.19,
+          "tp1": 71.67,
+          "tp2": null,
+          "reason": [
+            "4h close 74.13 broke below the prior-24h low (74.96)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (76.19); TP1 = entry +/- one range-height (2.460000000000008) -> 71.66999999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.1893,
+            "holdCandles": 1440,
+            "exit": 73.74
+          },
+          "netDir": 0.13892038834951462,
+          "netSens": 0.1173291262135923
+        },
+        {
+          "closedThrough": "2026-07-28T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.21,
+          "stop": 75.56,
+          "tp1": 69.49,
+          "tp2": null,
+          "reason": [
+            "4h close 73.21 broke below the prior-24h low (73.7)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (75.56); TP1 = entry +/- one range-height (3.719999999999999) -> 69.49"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0936,
+            "holdCandles": 1440,
+            "exit": 72.99
+          },
+          "netDir": 0.049985531914893785,
+          "netSens": 0.03129361702127682
+        },
+        {
+          "closedThrough": "2026-07-31T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73,
+          "stop": 74.225,
+          "tp1": 70.99,
+          "tp2": null,
+          "reason": [
+            "4h close 73 broke below the prior-24h low (73.22)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (74.225); TP1 = entry +/- one range-height (2.010000000000005) -> 70.99"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.1878,
+            "holdCandles": 1440,
+            "exit": 72.77
+          },
+          "netDir": 0.10437142857142818,
+          "netSens": 0.0686163265306117
+        },
+        {
+          "closedThrough": "2026-08-01T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 71.21,
+          "stop": 72.94,
+          "tp1": 70.33,
+          "tp2": null,
+          "reason": [
+            "4h close 71.21 broke below the prior-24h low (72.5)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (72.94); TP1 = entry +/- one range-height (0.8799999999999955) -> 70.33"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 366,
+            "ambiguous": false
+          },
+          "netDir": -1.0576265895953756,
+          "netSens": -1.0823236994219652
+        },
+        {
+          "closedThrough": "2026-08-03T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 72.42,
+          "stop": 73.44,
+          "tp1": 70.82,
+          "tp2": null,
+          "reason": [
+            "4h close 72.42 broke below the prior-24h low (72.64)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (73.44); TP1 = entry +/- one range-height (1.5999999999999943) -> 70.82000000000001"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 389,
+            "ambiguous": false
+          },
+          "netDir": -1.0994000000000004,
+          "netSens": -1.1420000000000006
+        },
+        {
+          "closedThrough": "2026-08-03T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 72.35,
+          "stop": 73.305,
+          "tp1": 70.48,
+          "tp2": null,
+          "reason": [
+            "4h close 72.35 broke below the prior-24h low (72.37)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (73.305); TP1 = entry +/- one range-height (1.8699999999999903) -> 70.48"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 148,
+            "ambiguous": false
+          },
+          "netDir": -1.1060628272251294,
+          "netSens": -1.151518324607328
+        },
+        {
+          "closedThrough": "2026-08-06T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 72.74,
+          "stop": 73.765,
+          "tp1": 70.79,
+          "tp2": null,
+          "reason": [
+            "4h close 72.74 broke below the prior-24h low (72.79)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (73.765); TP1 = entry +/- one range-height (1.9499999999999886) -> 70.79"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 969,
+            "ambiguous": false
+          },
+          "netDir": -1.0993521951219507,
+          "netSens": -1.1419317073170725
+        },
+        {
+          "closedThrough": "2026-08-10T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 75.91,
+          "stop": 76.93,
+          "tp1": 74.35,
+          "tp2": null,
+          "reason": [
+            "4h close 75.91 broke below the prior-24h low (76.15)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (76.93); TP1 = entry +/- one range-height (1.559999999999988) -> 74.35000000000001"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.0196,
+            "holdCandles": 1440,
+            "exit": 74.87
+          },
+          "netDir": 0.9154098039215698,
+          "netSens": 0.8707568627450997
+        },
+        {
+          "closedThrough": "2026-08-11T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.87,
+          "stop": 76.195,
+          "tp1": 73.18,
+          "tp2": null,
+          "reason": [
+            "4h close 74.87 broke below the prior-24h low (75.35)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (76.195); TP1 = entry +/- one range-height (1.690000000000012) -> 73.17999999999999"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 358,
+            "ambiguous": false
+          },
+          "netDir": -1.0791079245283026,
+          "netSens": -1.1130113207547179
+        },
+        {
+          "closedThrough": "2026-08-14T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.93,
+          "stop": 75.67,
+          "tp1": 73.53,
+          "tp2": null,
+          "reason": [
+            "4h close 74.93 broke below the prior-24h low (74.97)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (75.67); TP1 = entry +/- one range-height (1.4000000000000057) -> 73.53"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.7432,
+            "holdCandles": 1440,
+            "exit": 75.48
+          },
+          "netDir": -0.8849594594594604,
+          "netSens": -0.9457135135135148
+        },
+        {
+          "closedThrough": "2026-08-17T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.55,
+          "stop": 75.305,
+          "tp1": 73.86,
+          "tp2": null,
+          "reason": [
+            "4h close 74.55 broke below the prior-24h low (74.96)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (75.305); TP1 = entry +/- one range-height (0.6900000000000119) -> 73.85999999999999"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 157,
+            "ambiguous": false
+          },
+          "netDir": -1.1382384105960246,
+          "netSens": -1.1974834437086068
+        },
+        {
+          "closedThrough": "2026-08-28T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 103.38,
+          "stop": 107.13,
+          "tp1": 96.42,
+          "tp2": null,
+          "reason": [
+            "4h close 103.38 broke below the prior-24h low (103.65)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (107.13); TP1 = entry +/- one range-height (6.959999999999994) -> 96.42"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.528,
+            "holdCandles": 1440,
+            "exit": 105.36
+          },
+          "netDir": -0.5665952000000001,
+          "netSens": -0.583136
+        },
+        {
+          "closedThrough": "2026-08-30T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 106.29,
+          "stop": 104.615,
+          "tp1": 108.72,
+          "tp2": null,
+          "reason": [
+            "4h close 106.29 broke above the prior-24h high (105.83)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (104.61500000000001); TP1 = entry +/- one range-height (2.4299999999999926) -> 108.72"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 285,
+            "ambiguous": false
+          },
+          "netDir": -1.2157528358208958,
+          "netSens": -1.126913432835821
+        },
+        {
+          "closedThrough": "2026-09-03T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 105.13,
+          "stop": 99.46,
+          "tp1": 108.85,
+          "tp2": null,
+          "reason": [
+            "4h close 105.13 broke above the prior-24h high (101.32)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (99.46); TP1 = entry +/- one range-height (3.719999999999999) -> 108.85"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.6473,
+            "holdCandles": 1440,
+            "exit": 101.46
+          },
+          "netDir": -0.7103409171075837,
+          "netSens": -0.6843828924162257
+        },
+        {
+          "closedThrough": "2026-09-06T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 105.97,
+          "stop": 103,
+          "tp1": 108.73,
+          "tp2": null,
+          "reason": [
+            "4h close 105.97 broke above the prior-24h high (104.38)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (103); TP1 = entry +/- one range-height (2.759999999999991) -> 108.72999999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.3468,
+            "holdCandles": 1440,
+            "exit": 104.94
+          },
+          "netDir": -0.4681124579124579,
+          "netSens": -0.4181602693602694
+        },
+        {
+          "closedThrough": "2026-09-11T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.57,
+          "stop": 100.015,
+          "tp1": 104.62,
+          "tp2": null,
+          "reason": [
+            "4h close 101.57 broke above the prior-24h high (101.54)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (100.015); TP1 = entry +/- one range-height (3.0500000000000114) -> 104.62"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3023,
+            "holdCandles": 1440,
+            "exit": 102.04
+          },
+          "netDir": 0.08021768488745878,
+          "netSens": 0.17166334405144634
+        },
+        {
+          "closedThrough": "2026-09-14T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.23,
+          "stop": 100.615,
+          "tp1": 106.56,
+          "tp2": null,
+          "reason": [
+            "4h close 103.23 broke above the prior-24h high (102.28)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (100.61500000000001); TP1 = entry +/- one range-height (3.3299999999999983) -> 106.56"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 558,
+            "ambiguous": false
+          },
+          "netDir": -1.1342187380497135,
+          "netSens": -1.0789521988527726
+        },
+        {
+          "closedThrough": "2026-09-17T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 99.87,
+          "stop": 97.435,
+          "tp1": 102.68,
+          "tp2": null,
+          "reason": [
+            "4h close 99.87 broke above the prior-24h high (98.84)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (97.435); TP1 = entry +/- one range-height (2.8100000000000023) -> 102.68"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.154,
+            "holdCandles": 1312,
+            "timeToTP1Candles": 1312
+          },
+          "netDir": 1.0145511293634497,
+          "netSens": 1.071971252566735
+        },
+        {
+          "closedThrough": "2026-09-17T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.17,
+          "stop": 98.515,
+          "tp1": 106.14,
+          "tp2": null,
+          "reason": [
+            "4h close 101.17 broke above the prior-24h high (101)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (98.515); TP1 = entry +/- one range-height (4.969999999999999) -> 106.14"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.8719,
+            "holdCandles": 963,
+            "timeToTP1Candles": 963
+          },
+          "netDir": 1.7423414312617702,
+          "netSens": 1.795689077212806
+        },
+        {
+          "closedThrough": "2026-09-18T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.5,
+          "stop": 100.16,
+          "tp1": 108.08,
+          "tp2": null,
+          "reason": [
+            "4h close 104.5 broke above the prior-24h high (101.95)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (100.16); TP1 = entry +/- one range-height (3.5799999999999983) -> 108.08"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.8249,
+            "holdCandles": 587,
+            "timeToTP1Candles": 587
+          },
+          "netDir": 0.7430336405529954,
+          "netSens": 0.7767433179723502
+        },
+        {
+          "closedThrough": "2026-09-18T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 105.67,
+          "stop": 102.03,
+          "tp1": 111.59,
+          "tp2": null,
+          "reason": [
+            "4h close 105.67 broke above the prior-24h high (104.99)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (102.03); TP1 = entry +/- one range-height (5.920000000000002) -> 111.59"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.6264,
+            "holdCandles": 478,
+            "timeToTP1Candles": 478
+          },
+          "netDir": 1.5276972527472528,
+          "netSens": 1.5683395604395605
+        },
+        {
+          "closedThrough": "2026-09-18T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 111.16,
+          "stop": 103.07,
+          "tp1": 118.16,
+          "tp2": null,
+          "reason": [
+            "4h close 111.16 broke above the prior-24h high (106.57)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (103.07); TP1 = entry +/- one range-height (7) -> 118.16"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0519,
+            "holdCandles": 1440,
+            "exit": 111.58
+          },
+          "netDir": 0.005182571075401758,
+          "netSens": 0.02441915945611868
+        },
+        {
+          "closedThrough": "2026-09-18T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 114.22,
+          "stop": 106.105,
+          "tp1": 125.17,
+          "tp2": null,
+          "reason": [
+            "4h close 114.22 broke above the prior-24h high (111.58)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (106.10499999999999); TP1 = entry +/- one range-height (10.950000000000003) -> 125.17"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-09-21T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 111.54,
+          "stop": 109.405,
+          "tp1": 115.59,
+          "tp2": null,
+          "reason": [
+            "4h close 111.54 broke above the prior-24h high (111.43)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (109.405); TP1 = entry +/- one range-height (4.050000000000011) -> 115.59000000000002"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.897,
+            "holdCandles": 281,
+            "timeToTP1Candles": 281
+          },
+          "netDir": 1.7193718969555039,
+          "netSens": 1.7925128805620612
+        },
+        {
+          "closedThrough": "2026-09-21T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 116.76,
+          "stop": 110.545,
+          "tp1": 122.43,
+          "tp2": null,
+          "reason": [
+            "4h close 116.76 broke above the prior-24h high (113.38)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (110.54499999999999); TP1 = entry +/- one range-height (5.670000000000002) -> 122.43"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0869,
+            "holdCandles": 1440,
+            "exit": 117.3
+          },
+          "netDir": 0.023024859211585064,
+          "netSens": 0.049326387771520624
+        },
+        {
+          "closedThrough": "2026-09-21T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 117.93,
+          "stop": 112.52,
+          "tp1": 127.11,
+          "tp2": null,
+          "reason": [
+            "4h close 117.93 broke above the prior-24h high (117.11)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (112.52000000000001); TP1 = entry +/- one range-height (9.179999999999993) -> 127.11"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1054,
+            "holdCandles": 1440,
+            "exit": 117.36
+          },
+          "netDir": -0.1795149722735675,
+          "netSens": -0.14899704251386325
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 37,
+        "resolved": 37,
+        "winPct": 43.24,
+        "grossExpR": 0.0351,
+        "netExpR": -0.0983,
+        "netExpR_sens020": -0.0846,
+        "maxLosingStreak": 5,
+        "medianHoldHours": 21.9,
+        "medianStopPct": 1.928,
+        "timeouts": 18
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-08T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1749.73,
+          "stop": 1783.46,
+          "tp1": 1695.61,
+          "tp2": null,
+          "reason": [
+            "4h close 1749.73 broke below the prior-24h low (1756.4)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1783.46); TP1 = entry +/- one range-height (54.11999999999989) -> 1695.6100000000001"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.622,
+            "holdCandles": 1440,
+            "exit": 1728.75
+          },
+          "netDir": 0.5493755707085681,
+          "netSens": 0.5182508152979544
+        },
+        {
+          "closedThrough": "2026-07-08T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1721.32,
+          "stop": 1767.395,
+          "tp1": 1635.07,
+          "tp2": null,
+          "reason": [
+            "4h close 1721.32 broke below the prior-24h low (1724.27)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1767.395); TP1 = entry +/- one range-height (86.25) -> 1635.07"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.3609,
+            "holdCandles": 1440,
+            "exit": 1737.95
+          },
+          "netDir": -0.4132027238198589,
+          "netSens": -0.4356181768855127
+        },
+        {
+          "closedThrough": "2026-07-17T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1850.96,
+          "stop": 1892.01,
+          "tp1": 1779.94,
+          "tp2": null,
+          "reason": [
+            "4h close 1850.96 broke below the prior-24h low (1856.5)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1892.01); TP1 = entry +/- one range-height (71.01999999999998) -> 1779.94"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.1591,
+            "holdCandles": 1440,
+            "exit": 1844.43
+          },
+          "netDir": 0.0959734713763702,
+          "netSens": 0.068919244823386
+        },
+        {
+          "closedThrough": "2026-07-17T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1826.5,
+          "stop": 1884.87,
+          "tp1": 1741.2,
+          "tp2": null,
+          "reason": [
+            "4h close 1826.5 broke below the prior-24h low (1842.22)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1884.87); TP1 = entry +/- one range-height (85.29999999999995) -> 1741.2"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2784,
+            "holdCandles": 1440,
+            "exit": 1842.75
+          },
+          "netDir": -0.32220846325167046,
+          "netSens": -0.3409835189309578
+        },
+        {
+          "closedThrough": "2026-07-22T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1912.97,
+          "stop": 1932.47,
+          "tp1": 1876.33,
+          "tp2": null,
+          "reason": [
+            "4h close 1912.97 broke below the prior-24h low (1914.15)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1932.47); TP1 = entry +/- one range-height (36.63999999999987) -> 1876.3300000000002"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 338,
+            "ambiguous": false
+          },
+          "netDir": -1.1373414358974359,
+          "netSens": -1.1962020512820513
+        },
+        {
+          "closedThrough": "2026-07-23T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1894.36,
+          "stop": 1932.74,
+          "tp1": 1849.02,
+          "tp2": null,
+          "reason": [
+            "4h close 1894.36 broke below the prior-24h low (1910.07)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1932.74); TP1 = entry +/- one range-height (45.340000000000146) -> 1849.0199999999998"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.1813,
+            "holdCandles": 1314,
+            "timeToTP1Candles": 1314
+          },
+          "netDir": 1.1121988014590936,
+          "netSens": 1.0825840020844193
+        },
+        {
+          "closedThrough": "2026-07-23T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1875.42,
+          "stop": 1918.705,
+          "tp1": 1802.01,
+          "tp2": null,
+          "reason": [
+            "4h close 1875.42 broke below the prior-24h low (1882)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1918.705); TP1 = entry +/- one range-height (73.41000000000008) -> 1802.01"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3227,
+            "holdCandles": 1440,
+            "exit": 1861.45
+          },
+          "netDir": 0.26204185052558604,
+          "netSens": 0.23604550075083716
+        },
+        {
+          "closedThrough": "2026-07-28T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1891.1,
+          "stop": 1944.425,
+          "tp1": 1821.97,
+          "tp2": null,
+          "reason": [
+            "4h close 1891.1 broke below the prior-24h low (1909.86)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1944.425); TP1 = entry +/- one range-height (69.13000000000011) -> 1821.9699999999998"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.5397,
+            "holdCandles": 1440,
+            "exit": 1919.88
+          },
+          "netDir": -0.5893491326769806,
+          "netSens": -0.6106273323956868
+        },
+        {
+          "closedThrough": "2026-07-28T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1879.37,
+          "stop": 1930.245,
+          "tp1": 1781.88,
+          "tp2": null,
+          "reason": [
+            "4h close 1879.37 broke below the prior-24h low (1881.5)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1930.245); TP1 = entry +/- one range-height (97.49000000000001) -> 1781.8799999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2009,
+            "holdCandles": 1440,
+            "exit": 1889.59
+          },
+          "netDir": -0.2526173071253071,
+          "netSens": -0.2747818673218673
+        },
+        {
+          "closedThrough": "2026-07-31T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1888.75,
+          "stop": 1916.105,
+          "tp1": 1851.2,
+          "tp2": null,
+          "reason": [
+            "4h close 1888.75 broke below the prior-24h low (1897.33)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1916.105); TP1 = entry +/- one range-height (37.55000000000018) -> 1851.1999999999998"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.3727,
+            "holdCandles": 367,
+            "timeToTP1Candles": 367
+          },
+          "netDir": 1.276035770425882,
+          "netSens": 1.2346082434655457
+        },
+        {
+          "closedThrough": "2026-07-31T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1882.03,
+          "stop": 1908.945,
+          "tp1": 1830.16,
+          "tp2": null,
+          "reason": [
+            "4h close 1882.03 broke below the prior-24h low (1883.01)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1908.9450000000002); TP1 = entry +/- one range-height (51.87000000000012) -> 1830.1599999999999"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.6394,
+            "holdCandles": 1440,
+            "exit": 1864.82
+          },
+          "netDir": 0.5415050715214571,
+          "netSens": 0.49955010217351015
+        },
+        {
+          "closedThrough": "2026-07-31T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1860.5,
+          "stop": 1905.255,
+          "tp1": 1801.25,
+          "tp2": null,
+          "reason": [
+            "4h close 1860.5 broke below the prior-24h low (1875.63)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1905.255); TP1 = entry +/- one range-height (59.25) -> 1801.25"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1917,
+            "holdCandles": 1440,
+            "exit": 1869.08
+          },
+          "netDir": -0.24989908390123994,
+          "netSens": -0.2748415484303428
+        },
+        {
+          "closedThrough": "2026-08-01T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1835.56,
+          "stop": 1866.59,
+          "tp1": 1817.6,
+          "tp2": null,
+          "reason": [
+            "4h close 1835.56 broke below the prior-24h low (1857.61)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1866.59); TP1 = entry +/- one range-height (17.960000000000036) -> 1817.6"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 365,
+            "ambiguous": false
+          },
+          "netDir": -1.0828161134386078,
+          "netSens": -1.1183087334837256
+        },
+        {
+          "closedThrough": "2026-08-03T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1841.17,
+          "stop": 1872,
+          "tp1": 1793.05,
+          "tp2": null,
+          "reason": [
+            "4h close 1841.17 broke below the prior-24h low (1847.94)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1872); TP1 = entry +/- one range-height (48.11999999999989) -> 1793.0500000000002"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 563,
+            "ambiguous": false
+          },
+          "netDir": -1.0836081089847553,
+          "netSens": -1.1194401556925075
+        },
+        {
+          "closedThrough": "2026-08-03T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1836.75,
+          "stop": 1867.08,
+          "tp1": 1778.79,
+          "tp2": null,
+          "reason": [
+            "4h close 1836.75 broke below the prior-24h low (1838.1)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1867.08); TP1 = entry +/- one range-height (57.960000000000036) -> 1778.79"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 158,
+            "ambiguous": false
+          },
+          "netDir": -1.0847823936696341,
+          "netSens": -1.1211177052423347
+        },
+        {
+          "closedThrough": "2026-08-10T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1908.63,
+          "stop": 1918.36,
+          "tp1": 1894.35,
+          "tp2": null,
+          "reason": [
+            "4h close 1908.63 broke below the prior-24h low (1911.22)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1918.3600000000001); TP1 = entry +/- one range-height (14.279999999999973) -> 1894.3500000000001"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 11,
+            "ambiguous": false
+          },
+          "netDir": -1.2746230215827334,
+          "netSens": -1.3923186022610476
+        },
+        {
+          "closedThrough": "2026-08-10T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1875.59,
+          "stop": 1919.95,
+          "tp1": 1843.79,
+          "tp2": null,
+          "reason": [
+            "4h close 1875.59 broke below the prior-24h low (1904.05)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1919.9499999999998); TP1 = entry +/- one range-height (31.799999999999955) -> 1843.79"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.351,
+            "holdCandles": 1440,
+            "exit": 1860.02
+          },
+          "netDir": 0.29180644724977445,
+          "netSens": 0.266437781785392
+        },
+        {
+          "closedThrough": "2026-08-11T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1861.39,
+          "stop": 1894.085,
+          "tp1": 1806.44,
+          "tp2": null,
+          "reason": [
+            "4h close 1861.39 broke below the prior-24h low (1866.61)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1894.085); TP1 = entry +/- one range-height (54.950000000000045) -> 1806.44"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 967,
+            "ambiguous": false
+          },
+          "netDir": -1.0797047254931949,
+          "netSens": -1.113863893561707
+        },
+        {
+          "closedThrough": "2026-08-17T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1873.89,
+          "stop": 1882.735,
+          "tp1": 1859.44,
+          "tp2": null,
+          "reason": [
+            "4h close 1873.89 broke below the prior-24h low (1875.51)",
+            "1D EMA21/EMA200 bias: short",
+            "stop at the 24h range midpoint (1882.7350000000001); TP1 = entry +/- one range-height (14.450000000000045) -> 1859.44"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 62,
+            "ambiguous": false
+          },
+          "netDir": -1.296602148106274,
+          "netSens": -1.423717354437534
+        },
+        {
+          "closedThrough": "2026-08-27T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2507.08,
+          "stop": 2448.905,
+          "tp1": 2574.27,
+          "tp2": null,
+          "reason": [
+            "4h close 2507.08 broke above the prior-24h high (2482.5)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2448.9049999999997); TP1 = entry +/- one range-height (67.19000000000005) -> 2574.27"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0002,
+            "holdCandles": 1440,
+            "exit": 2507.07
+          },
+          "netDir": -0.1467246583584009,
+          "netSens": -0.08639097550494172
+        },
+        {
+          "closedThrough": "2026-08-30T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2480.85,
+          "stop": 2450.15,
+          "tp1": 2514.15,
+          "tp2": null,
+          "reason": [
+            "4h close 2480.85 broke above the prior-24h high (2466.8)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2450.15); TP1 = entry +/- one range-height (33.30000000000018) -> 2514.15"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.0847,
+            "holdCandles": 16,
+            "timeToTP1Candles": 16
+          },
+          "netDir": 0.8099478827361548,
+          "netSens": 0.9230811074918557
+        },
+        {
+          "closedThrough": "2026-08-30T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2503.44,
+          "stop": 2463.77,
+          "tp1": 2541.9,
+          "tp2": null,
+          "reason": [
+            "4h close 2503.44 broke above the prior-24h high (2483)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2463.77); TP1 = entry +/- one range-height (38.460000000000036) -> 2541.9"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 43,
+            "ambiguous": false
+          },
+          "netDir": -1.214562540962944,
+          "netSens": -1.126213259389967
+        },
+        {
+          "closedThrough": "2026-09-03T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2517.04,
+          "stop": 2393.91,
+          "tp1": 2565.64,
+          "tp2": null,
+          "reason": [
+            "4h close 2517.04 broke above the prior-24h high (2418.21)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2393.91); TP1 = entry +/- one range-height (48.59999999999991) -> 2565.64"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.5265,
+            "holdCandles": 1440,
+            "exit": 2452.21
+          },
+          "netDir": -0.5960032567205391,
+          "netSens": -0.5673842686591407
+        },
+        {
+          "closedThrough": "2026-09-05T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2477.82,
+          "stop": 2453.9,
+          "tp1": 2498.82,
+          "tp2": null,
+          "reason": [
+            "4h close 2477.82 broke above the prior-24h high (2464.4)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2453.9); TP1 = entry +/- one range-height (21) -> 2498.82"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.8779,
+            "holdCandles": 312,
+            "timeToTP1Candles": 312
+          },
+          "netDir": 0.5257015050167235,
+          "netSens": 0.6707244147157196
+        },
+        {
+          "closedThrough": "2026-09-06T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2509.93,
+          "stop": 2469.14,
+          "tp1": 2557.85,
+          "tp2": null,
+          "reason": [
+            "4h close 2509.93 broke above the prior-24h high (2493.1)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2469.14); TP1 = entry +/- one range-height (47.92000000000007) -> 2557.85"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 633,
+            "ambiguous": false
+          },
+          "netDir": -1.2092121108114735,
+          "netSens": -1.1230659475361608
+        },
+        {
+          "closedThrough": "2026-09-09T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2510.13,
+          "stop": 2474.025,
+          "tp1": 2576.18,
+          "tp2": null,
+          "reason": [
+            "4h close 2510.13 broke above the prior-24h high (2507.05)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2474.025); TP1 = entry +/- one range-height (66.05000000000018) -> 2576.1800000000003"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 443,
+            "ambiguous": false
+          },
+          "netDir": -1.2363783963439965,
+          "netSens": -1.1390461154964686
+        },
+        {
+          "closedThrough": "2026-09-11T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2559.01,
+          "stop": 2444.05,
+          "tp1": 2637.21,
+          "tp2": null,
+          "reason": [
+            "4h close 2559.01 broke above the prior-24h high (2483.15)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2444.05); TP1 = entry +/- one range-height (78.20000000000027) -> 2637.2100000000005"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2136,
+            "holdCandles": 1440,
+            "exit": 2534.45
+          },
+          "netDir": -0.2892840118302018,
+          "netSens": -0.2581200069589422
+        },
+        {
+          "closedThrough": "2026-09-14T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2539.29,
+          "stop": 2499.27,
+          "tp1": 2607.83,
+          "tp2": null,
+          "reason": [
+            "4h close 2539.29 broke above the prior-24h high (2533.54)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2499.27); TP1 = entry +/- one range-height (68.53999999999996) -> 2607.83"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 369,
+            "ambiguous": false
+          },
+          "netDir": -1.215731784107946,
+          "netSens": -1.1269010494752625
+        },
+        {
+          "closedThrough": "2026-09-17T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2433.61,
+          "stop": 2399.055,
+          "tp1": 2497.72,
+          "tp2": null,
+          "reason": [
+            "4h close 2433.61 broke above the prior-24h high (2431.11)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2399.0550000000003); TP1 = entry +/- one range-height (64.11000000000013) -> 2497.7200000000003"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.2456,
+            "holdCandles": 1440,
+            "exit": 2476.65
+          },
+          "netDir": 1.0061477065547666,
+          "netSens": 1.104745709738098
+        },
+        {
+          "closedThrough": "2026-09-17T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2468.17,
+          "stop": 2409.38,
+          "tp1": 2552.93,
+          "tp2": null,
+          "reason": [
+            "4h close 2468.17 broke above the prior-24h high (2451.76)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2409.38); TP1 = entry +/- one range-height (84.76000000000022) -> 2552.9300000000003"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.4417,
+            "holdCandles": 1310,
+            "timeToTP1Candles": 1310
+          },
+          "netDir": 1.2989584112944377,
+          "netSens": 1.3577343595849634
+        },
+        {
+          "closedThrough": "2026-09-18T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2487.85,
+          "stop": 2452.88,
+          "tp1": 2547.93,
+          "tp2": null,
+          "reason": [
+            "4h close 2487.85 broke above the prior-24h high (2482.92)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2452.88); TP1 = entry +/- one range-height (60.07999999999993) -> 2547.93"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.718,
+            "holdCandles": 348,
+            "timeToTP1Candles": 348
+          },
+          "netDir": 1.4761158135544739,
+          "netSens": 1.5757151844438082
+        },
+        {
+          "closedThrough": "2026-09-18T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2505.82,
+          "stop": 2460.96,
+          "tp1": 2575.9,
+          "tp2": null,
+          "reason": [
+            "4h close 2505.82 broke above the prior-24h high (2496)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2460.96); TP1 = entry +/- one range-height (70.07999999999993) -> 2575.9"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.5622,
+            "holdCandles": 113,
+            "timeToTP1Candles": 113
+          },
+          "netDir": 1.3722805171645125,
+          "netSens": 1.4504826571555955
+        },
+        {
+          "closedThrough": "2026-09-18T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2582.73,
+          "stop": 2474.7,
+          "tp1": 2672.21,
+          "tp2": null,
+          "reason": [
+            "4h close 2582.73 broke above the prior-24h high (2519.44)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2474.7); TP1 = entry +/- one range-height (89.48000000000002) -> 2672.21"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.5309,
+            "holdCandles": 1440,
+            "exit": 2640.08
+          },
+          "netDir": 0.44961441266314933,
+          "netSens": 0.483084948625382
+        },
+        {
+          "closedThrough": "2026-09-18T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2636.73,
+          "stop": 2515.93,
+          "tp1": 2798.89,
+          "tp2": null,
+          "reason": [
+            "4h close 2636.73 broke above the prior-24h high (2597.01)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2515.9300000000003); TP1 = entry +/- one range-height (162.1600000000003) -> 2798.8900000000003"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0228,
+            "holdCandles": 1440,
+            "exit": 2633.97
+          },
+          "netDir": -0.0970125993377485,
+          "netSens": -0.06645447019867559
+        },
+        {
+          "closedThrough": "2026-09-21T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2665.34,
+          "stop": 2606.31,
+          "tp1": 2751.3,
+          "tp2": null,
+          "reason": [
+            "4h close 2665.34 broke above the prior-24h high (2649.29)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2606.31); TP1 = entry +/- one range-height (85.96000000000004) -> 2751.3"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.4562,
+            "holdCandles": 651,
+            "timeToTP1Candles": 651
+          },
+          "netDir": 1.3026821954938173,
+          "netSens": 1.36589540911401
+        },
+        {
+          "closedThrough": "2026-09-21T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2724.79,
+          "stop": 2636.64,
+          "tp1": 2864.05,
+          "tp2": null,
+          "reason": [
+            "4h close 2724.79 broke above the prior-24h high (2706.27)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2636.6400000000003); TP1 = entry +/- one range-height (139.25999999999976) -> 2864.0499999999997"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.1917,
+            "holdCandles": 1440,
+            "exit": 2741.69
+          },
+          "netDir": 0.08660316505955715,
+          "netSens": 0.1298783323879748
+        },
+        {
+          "closedThrough": "2026-09-21T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2755.5,
+          "stop": 2660.075,
+          "tp1": 2933.09,
+          "tp2": null,
+          "reason": [
+            "4h close 2755.5 broke above the prior-24h high (2748.87)",
+            "1D EMA21/EMA200 bias: long",
+            "stop at the 24h range midpoint (2660.075); TP1 = entry +/- one range-height (177.5899999999997) -> 2933.0899999999997"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1238,
+            "holdCandles": 1440,
+            "exit": 2743.69
+          },
+          "netDir": -0.2219786743515848,
+          "netSens": -0.18155216138328517
+        }
+      ]
+    }
+  }
+}

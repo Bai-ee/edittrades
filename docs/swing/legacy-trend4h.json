@@ -12,35 +12,39 @@
       "entry/stop/tp1/tp2 collapse the evaluator's entryZone {min,max} to its midpoint since the rule interface takes a single entry price, not a zone."
     ]
   },
-  "generatedAt": "2026-09-27T02:05:35.540Z",
-  "runtimeMs": 7076,
+  "generatedAt": "2026-09-27T02:15:57.985Z",
+  "runtimeMs": 7151,
   "combined": {
     "stats": {
-      "n": 559,
-      "resolved": 63,
-      "winPct": 11.11,
-      "grossExpR": -0.5553,
-      "netExpR": -0.6927,
-      "netExpR_sens020": -0.646,
-      "maxLosingStreak": 29,
-      "medianHoldHours": 18.77
+      "n": 552,
+      "resolved": 149,
+      "winPct": 38.93,
+      "grossExpR": -0.0614,
+      "netExpR": -0.1756,
+      "netExpR_sens020": -0.1379,
+      "maxLosingStreak": 11,
+      "medianHoldHours": 48,
+      "medianStopPct": 2.96,
+      "timeouts": 86
     },
     "oos": {
-      "firstHalf": -0.8798,
-      "secondHalf": -0.5114
+      "firstHalf": -0.3139,
+      "secondHalf": -0.039
     }
   },
   "perSymbol": {
     "BTC": {
       "stats": {
-        "n": 206,
-        "resolved": 18,
-        "winPct": 0,
-        "grossExpR": -1,
-        "netExpR": -1.155,
-        "netExpR_sens020": -1.1086,
-        "maxLosingStreak": 18,
-        "medianHoldHours": 14.06
+        "n": 203,
+        "resolved": 44,
+        "winPct": 27.27,
+        "grossExpR": -0.3193,
+        "netExpR": -0.4287,
+        "netExpR_sens020": -0.3997,
+        "maxLosingStreak": 8,
+        "medianHoldHours": 48,
+        "medianStopPct": 2.656,
+        "timeouts": 26
       },
       "signals": [
         {
@@ -126,11 +130,13 @@
             "4h flat, 1h uptrend, price retracing ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned, 4h MORNING_STAR pattern (bullish), 1h THREE_WHITE_SOLDIERS pattern (bullish). Confidence reduced from 104% → 100% | RR penalty: 3.00R < 3R]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0966,
+            "holdCandles": 2880,
+            "exit": 62965.9
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.02804759252772912,
+          "netSens": 0.023277886748394636
         },
         {
           "closedThrough": "2026-07-08T04:00:00.000Z",
@@ -331,11 +337,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 74.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.4786,
+            "holdCandles": 2880,
+            "exit": 62596.2
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.5783284358125161,
+          "netSens": -0.5372637857720683
         },
         {
           "closedThrough": "2026-07-12T08:00:00.000Z",
@@ -610,11 +618,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 64.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.0349,
+            "holdCandles": 2880,
+            "exit": 63975.6
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.12263368134855894,
+          "netSens": -0.0865080478520935
         },
         {
           "closedThrough": "2026-07-16T08:00:00.000Z",
@@ -628,11 +638,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.0531,
+            "holdCandles": 2880,
+            "exit": 63936
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.14063813343406642,
+          "netSens": -0.10459301966709789
         },
         {
           "closedThrough": "2026-07-16T12:00:00.000Z",
@@ -646,11 +658,13 @@
             "4h uptrend, 1h flat, price entry zone ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 74.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.0016,
+            "holdCandles": 2880,
+            "exit": 64070.7
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.08891573357274407,
+          "netSens": -0.052962196219261216
         },
         {
           "closedThrough": "2026-07-16T16:00:00.000Z",
@@ -664,11 +678,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 90%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0551,
+            "holdCandles": 2880,
+            "exit": 64261.9
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.030664030967498375,
+          "netSens": 0.004650570019118595
         },
         {
           "closedThrough": "2026-07-16T20:00:00.000Z",
@@ -682,11 +698,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.1795,
+            "holdCandles": 2880,
+            "exit": 64581.2
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.09382416725447941,
+          "netSens": 0.12910245132616435
         },
         {
           "closedThrough": "2026-07-17T20:00:00.000Z",
@@ -921,11 +939,13 @@
             "4h uptrend, 1h uptrend, price retracing ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 2 lower timeframes show exhaustion, 1h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 88.125%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.7718,
+            "holdCandles": 2880,
+            "exit": 65844.2
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.6624292695860545,
+          "netSens": 0.7074642762270908
         },
         {
           "closedThrough": "2026-07-20T16:00:00.000Z",
@@ -939,11 +959,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 2 lower timeframes show exhaustion, 1h MORNING_STAR pattern (bullish). Final confidence: 88.125%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.1235,
+            "holdCandles": 2880,
+            "exit": 66022.1
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.056114848712767146,
+          "netSens": 0.08386167571339244
         },
         {
           "closedThrough": "2026-07-20T20:00:00.000Z",
@@ -1127,11 +1149,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h ENGULFING_BULL pattern (bullish), 1h HAMMER pattern (bullish). Confidence reduced from 105% → 100%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.7546,
+            "holdCandles": 2880,
+            "exit": 64004.6
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.8630990385879167,
+          "netSens": -0.8184229638752452
         },
         {
           "closedThrough": "2026-07-23T04:00:00.000Z",
@@ -1145,11 +1169,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.7114,
+            "holdCandles": 2880,
+            "exit": 64093.4
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.819895969002059,
+          "netSens": -0.7752211582365053
         },
         {
           "closedThrough": "2026-07-24T08:00:00.000Z",
@@ -1356,11 +1382,13 @@
             "4h downtrend, 1h downtrend, price retracing, lower TF stoch down/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 75.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.044,
+            "holdCandles": 2880,
+            "exit": 64313.2
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.09888952347240228,
+          "netSens": -0.12241360496057468
         },
         {
           "closedThrough": "2026-07-29T08:00:00.000Z",
@@ -1408,11 +1436,13 @@
             "4h downtrend, 1h downtrend, price entry zone, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern contradicts direction. Final confidence: 66.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.7451,
+            "holdCandles": 2880,
+            "exit": 62904.8
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.6923967050500665,
+          "netSens": 0.6698095786429521
         },
         {
           "closedThrough": "2026-07-30T04:00:00.000Z",
@@ -1443,11 +1473,13 @@
             "4h downtrend, 1h downtrend, price entry zone ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.6466,
+            "holdCandles": 2880,
+            "exit": 63037.7
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.594563280890153,
+          "netSens": 0.5722618298430757
         },
         {
           "closedThrough": "2026-07-31T00:00:00.000Z",
@@ -1586,11 +1618,13 @@
             "4h downtrend, 1h downtrend, price retracing, lower TF stoch down/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1046,
+            "holdCandles": 2880,
+            "exit": 63692.5
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.14707188808381289,
+          "netSens": -0.16527412583401843
         },
         {
           "closedThrough": "2026-08-02T04:00:00.000Z",
@@ -1604,11 +1638,13 @@
             "4h downtrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern contradicts direction. Final confidence: 66.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1281,
+            "holdCandles": 2880,
+            "exit": 63740.3
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.1705384688675303,
+          "netSens": -0.18872638409647186
         },
         {
           "closedThrough": "2026-08-02T12:00:00.000Z",
@@ -1639,11 +1675,13 @@
             "4h downtrend, 1h downtrend, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.3559,
+            "holdCandles": 2880,
+            "exit": 64173.3
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.3969555400355213,
+          "netSens": -0.4145507714793162
         },
         {
           "closedThrough": "2026-08-03T04:00:00.000Z",
@@ -1810,11 +1848,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h MORNING_STAR pattern (bullish), 1h THREE_WHITE_SOLDIERS pattern (bullish). Confidence reduced from 105% → 100%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1416,
+            "holdCandles": 2880,
+            "exit": 64884.9
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.2551371222118306,
+          "netSens": -0.2083865424775474
         },
         {
           "closedThrough": "2026-08-07T16:00:00.000Z",
@@ -2123,11 +2163,13 @@
             "4h downtrend, 1h downtrend, price retracing, lower TF stoch down/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 75.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0406,
+            "holdCandles": 2880,
+            "exit": 63029.2
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.002945079049236167,
+          "netSens": -0.01319274421537691
         },
         {
           "closedThrough": "2026-08-13T20:00:00.000Z",
@@ -2192,11 +2234,13 @@
             "4h downtrend, 1h downtrend, price retracing ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1146,
+            "holdCandles": 2880,
+            "exit": 62998.7
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.162283128014017,
+          "netSens": -0.18271875430573858
         },
         {
           "closedThrough": "2026-08-14T12:00:00.000Z",
@@ -2210,11 +2254,13 @@
             "4h downtrend, 1h downtrend, price retracing ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_BLACK_CROWS pattern (bearish). Final confidence: 91.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1604,
+            "holdCandles": 2880,
+            "exit": 62940
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.2039308279973283,
+          "netSens": -0.22258689713904048
         },
         {
           "closedThrough": "2026-08-14T16:00:00.000Z",
@@ -2591,11 +2637,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.5671,
+            "holdCandles": 2880,
+            "exit": 79527.2
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.46779555971546244,
+          "netSens": 0.5086856233620367
         },
         {
           "closedThrough": "2026-08-26T20:00:00.000Z",
@@ -3080,11 +3128,13 @@
             "4h uptrend, 1h uptrend, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.47,
+            "holdCandles": 2880,
+            "exit": 78275.1
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.5709129607308251,
+          "netSens": -0.5293605651357794
         },
         {
           "closedThrough": "2026-09-06T16:00:00.000Z",
@@ -3243,11 +3293,13 @@
             "4h flat, 1h downtrend, price retracing, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned, 1h HAMMER pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.6986,
+            "holdCandles": 2880,
+            "exit": 76673.2
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.6424540995865335,
+          "netSens": 0.6183915708379051
         },
         {
           "closedThrough": "2026-09-14T04:00:00.000Z",
@@ -3380,11 +3432,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 89.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 2.8994,
+            "holdCandles": 2880,
+            "exit": 81869.1
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 2.758551585273416,
+          "netSens": 2.8165479913373037
         },
         {
           "closedThrough": "2026-09-18T04:00:00.000Z",
@@ -3568,78 +3622,28 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_WHITE_SOLDIERS pattern (bullish), 1h THREE_WHITE_SOLDIERS pattern (bullish). Confidence reduced from 106% → 100%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.6816,
+            "holdCandles": 2880,
+            "exit": 86240.1
           },
-          "netDir": null,
-          "netSens": null
-        },
-        {
-          "closedThrough": "2026-09-23T12:00:00.000Z",
-          "symbol": "BTC",
-          "direction": "long",
-          "entry": 84288.75,
-          "stop": 79901.67,
-          "tp1": 97449.99,
-          "tp2": 101837.07,
-          "reason": [
-            "4h uptrend, 1h flat, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h ENGULFING_BEAR pattern contradicts direction. Final confidence: 66.2%]"
-          ],
-          "outcome": {
-            "status": "open",
-            "holdCandles": 1453
-          },
-          "netDir": null,
-          "netSens": null
-        },
-        {
-          "closedThrough": "2026-09-23T20:00:00.000Z",
-          "symbol": "BTC",
-          "direction": "long",
-          "entry": 84269.14,
-          "stop": 80051.72,
-          "tp1": 96921.39,
-          "tp2": 101138.81,
-          "reason": [
-            "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 2 lower timeframes show exhaustion. Final confidence: 74.325%]"
-          ],
-          "outcome": {
-            "status": "open",
-            "holdCandles": 1088
-          },
-          "netDir": null,
-          "netSens": null
-        },
-        {
-          "closedThrough": "2026-09-24T08:00:00.000Z",
-          "symbol": "BTC",
-          "direction": "long",
-          "entry": 84251.005,
-          "stop": 80596.98,
-          "tp1": 95213.08,
-          "tp2": 98867.1,
-          "reason": [
-            "4h uptrend, 1h flat, price entry zone, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 2 lower timeframes show exhaustion. Final confidence: 74.325%]"
-          ],
-          "outcome": {
-            "status": "open",
-            "holdCandles": 372
-          },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.6357552895359065,
+          "netSens": 0.6546325232564156
         }
       ]
     },
     "SOL": {
       "stats": {
-        "n": 160,
-        "resolved": 22,
-        "winPct": 18.18,
-        "grossExpR": -0.272,
-        "netExpR": -0.3898,
-        "netExpR_sens020": -0.3486,
-        "maxLosingStreak": 11,
-        "medianHoldHours": 24.23
+        "n": 158,
+        "resolved": 45,
+        "winPct": 40,
+        "grossExpR": -0.0177,
+        "netExpR": -0.1183,
+        "netExpR_sens020": -0.0875,
+        "maxLosingStreak": 6,
+        "medianHoldHours": 48,
+        "medianStopPct": 3.4,
+        "timeouts": 23
       },
       "signals": [
         {
@@ -4080,11 +4084,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.7612,
+            "holdCandles": 2880,
+            "exit": 77.82
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.665061194029851,
+          "netSens": 0.7046477611940299
         },
         {
           "closedThrough": "2026-07-20T08:00:00.000Z",
@@ -4115,11 +4121,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 74.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.6874,
+            "holdCandles": 2880,
+            "exit": 77.85
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.5957087033747779,
+          "netSens": 0.6334639431616341
         },
         {
           "closedThrough": "2026-07-20T20:00:00.000Z",
@@ -4462,11 +4470,13 @@
             "4h downtrend, 1h flat, price entry zone, lower TF stoch down/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h ENGULFING_BEAR pattern (bearish). Final confidence: 90.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.6056,
+            "holdCandles": 2880,
+            "exit": 73.46
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.5688554973821991,
+          "netSens": 0.5531078534031415
         },
         {
           "closedThrough": "2026-07-27T12:00:00.000Z",
@@ -4500,11 +4510,13 @@
             "4h downtrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 74.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.2118,
+            "holdCandles": 2880,
+            "exit": 73.16
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 1.159648275862069,
+          "netSens": 1.137297536945813
         },
         {
           "closedThrough": "2026-07-28T16:00:00.000Z",
@@ -4586,11 +4598,13 @@
             "4h downtrend, 1h downtrend, price retracing, lower TF stoch down/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.3924,
+            "holdCandles": 2880,
+            "exit": 73.09
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.3606061068702291,
+          "netSens": 0.34698015267175586
         },
         {
           "closedThrough": "2026-07-30T04:00:00.000Z",
@@ -4621,11 +4635,13 @@
             "4h downtrend, 1h downtrend, price retracing, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4h EVENING_STAR pattern (bearish). Final confidence: 90.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.3287,
+            "holdCandles": 2880,
+            "exit": 72.88
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.29981866295264625,
+          "netSens": 0.28744094707520895
         },
         {
           "closedThrough": "2026-07-31T08:00:00.000Z",
@@ -4792,11 +4808,13 @@
             "4h downtrend, 1h downtrend, price retracing, lower TF stoch down/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern contradicts direction. Final confidence: 66.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.2044,
+            "holdCandles": 2880,
+            "exit": 73.67
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.24995288888888917,
+          "netSens": -0.26947555555555597
         },
         {
           "closedThrough": "2026-08-02T04:00:00.000Z",
@@ -4810,11 +4828,13 @@
             "4h downtrend, 1h flat, price entry zone, lower TF stoch down/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern contradicts direction. Final confidence: 66.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1911,
+            "holdCandles": 2880,
+            "exit": 73.64
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.2366528888888892,
+          "netSens": -0.256175555555556
         },
         {
           "closedThrough": "2026-08-02T12:00:00.000Z",
@@ -4845,11 +4865,13 @@
             "4h downtrend, 1h flat, price entry zone, lower TF stoch down/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 75.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.208,
+            "holdCandles": 2880,
+            "exit": 73.67
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.253345132743363,
+          "netSens": -0.27277876106194715
         },
         {
           "closedThrough": "2026-08-03T04:00:00.000Z",
@@ -4897,11 +4919,13 @@
             "4h downtrend, 1h downtrend, price retracing, lower TF stoch down/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_BLACK_CROWS pattern (bearish). Final confidence: 91.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.3631,
+            "holdCandles": 2880,
+            "exit": 73.68
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.4282936305732481,
+          "netSens": -0.456233757961783
         },
         {
           "closedThrough": "2026-08-05T08:00:00.000Z",
@@ -5091,11 +5115,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 89.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0344,
+            "holdCandles": 2880,
+            "exit": 75.78
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.03930888252149008,
+          "netSens": -0.008958166189111813
         },
         {
           "closedThrough": "2026-08-10T20:00:00.000Z",
@@ -5126,11 +5152,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.039,
+            "holdCandles": 2880,
+            "exit": 75.61
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.13029361702127681,
+          "netSens": -0.09270212765957458
         },
         {
           "closedThrough": "2026-08-11T04:00:00.000Z",
@@ -5144,11 +5172,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 74.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.2273,
+            "holdCandles": 2880,
+            "exit": 76.29
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.1208884297520668,
+          "netSens": 0.16470495867768636
         },
         {
           "closedThrough": "2026-08-11T12:00:00.000Z",
@@ -5162,11 +5192,13 @@
             "4h uptrend, 1h uptrend, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 74.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0429,
+            "holdCandles": 2880,
+            "exit": 75.82
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.12711122112211215,
+          "netSens": -0.057106600660065975
         },
         {
           "closedThrough": "2026-08-12T00:00:00.000Z",
@@ -5231,11 +5263,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 90%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.4286,
+            "holdCandles": 2880,
+            "exit": 75.22
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.599989368770763,
+          "netSens": -0.5294172757475076
         },
         {
           "closedThrough": "2026-08-13T04:00:00.000Z",
@@ -5283,11 +5317,13 @@
             "4h uptrend, 1h uptrend, price entry zone, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.2189,
+            "holdCandles": 2880,
+            "exit": 75.52
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.39255185185185193,
+          "netSens": -0.3210481481481482
         },
         {
           "closedThrough": "2026-08-15T04:00:00.000Z",
@@ -5352,11 +5388,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): contradiction detected. Primary trend (4H+1H): aligned. Penalties: severe macro contradiction detected, 1h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 71.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.9729,
+            "holdCandles": 2880,
+            "exit": 76.74
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.79931559322034,
+          "netSens": 0.8707915254237294
         },
         {
           "closedThrough": "2026-08-18T00:00:00.000Z",
@@ -5827,11 +5865,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.794,
+            "holdCandles": 2880,
+            "exit": 106.62
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.7288142322097377,
+          "netSens": 0.7556554307116105
         },
         {
           "closedThrough": "2026-09-05T12:00:00.000Z",
@@ -5930,11 +5970,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0094,
+            "holdCandles": 2880,
+            "exit": 104.12
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.07366854460093886,
+          "netSens": -0.039463849765258165
         },
         {
           "closedThrough": "2026-09-07T20:00:00.000Z",
@@ -5948,11 +5990,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 2 lower timeframes show exhaustion. Final confidence: 74.325%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.4167,
+            "holdCandles": 2880,
+            "exit": 102.27
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.5009066666666666,
+          "netSens": -0.46623333333333333
         },
         {
           "closedThrough": "2026-09-08T16:00:00.000Z",
@@ -6077,11 +6121,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4h EVENING_STAR pattern contradicts direction. Final confidence: 66.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.0761,
+            "holdCandles": 2880,
+            "exit": 101.16
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.16511858064516097,
+          "netSens": -0.12846387096774176
         },
         {
           "closedThrough": "2026-09-12T08:00:00.000Z",
@@ -6129,11 +6175,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.4239,
+            "holdCandles": 2880,
+            "exit": 103.24
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.33703534591194984,
+          "netSens": 0.37280314465408815
         },
         {
           "closedThrough": "2026-09-13T00:00:00.000Z",
@@ -6164,11 +6212,13 @@
             "4h flat, 1h downtrend, price retracing, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned, 1h THREE_BLACK_CROWS pattern (bearish). Final confidence: 89.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.8421,
+            "holdCandles": 2880,
+            "exit": 97.06
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.8130474871794873,
+          "netSens": 0.8005964102564104
         },
         {
           "closedThrough": "2026-09-14T08:00:00.000Z",
@@ -6416,55 +6466,21 @@
           },
           "netDir": null,
           "netSens": null
-        },
-        {
-          "closedThrough": "2026-09-23T12:00:00.000Z",
-          "symbol": "SOL",
-          "direction": "long",
-          "entry": 115.105,
-          "stop": 107.39,
-          "tp1": 138.25,
-          "tp2": 145.96,
-          "reason": [
-            "4h uptrend, 1h flat, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
-          ],
-          "outcome": {
-            "status": "open",
-            "holdCandles": 1463
-          },
-          "netDir": null,
-          "netSens": null
-        },
-        {
-          "closedThrough": "2026-09-24T08:00:00.000Z",
-          "symbol": "SOL",
-          "direction": "long",
-          "entry": 114.935,
-          "stop": 110.36,
-          "tp1": 128.67,
-          "tp2": 133.25,
-          "reason": [
-            "4h uptrend, 1h uptrend, price entry zone, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 75.2625%]"
-          ],
-          "outcome": {
-            "status": "open",
-            "holdCandles": 372
-          },
-          "netDir": null,
-          "netSens": null
         }
       ]
     },
     "ETH": {
       "stats": {
-        "n": 193,
-        "resolved": 23,
-        "winPct": 13.04,
-        "grossExpR": -0.4782,
-        "netExpR": -0.6205,
-        "netExpR_sens020": -0.5683,
+        "n": 191,
+        "resolved": 60,
+        "winPct": 46.67,
+        "grossExpR": 0.0949,
+        "netExpR": -0.0329,
+        "netExpR_sens020": 0.0163,
         "maxLosingStreak": 11,
-        "medianHoldHours": 25.12
+        "medianHoldHours": 48,
+        "medianStopPct": 2.952,
+        "timeouts": 37
       },
       "signals": [
         {
@@ -6590,11 +6606,13 @@
             "4h flat, 1h downtrend, price retracing, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned. Final confidence: 74.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.4987,
+            "holdCandles": 2880,
+            "exit": 1797.84
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.5277673841059602,
+          "netSens": -0.5402248344370861
         },
         {
           "closedThrough": "2026-07-09T12:00:00.000Z",
@@ -6829,11 +6847,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.1146,
+            "holdCandles": 2880,
+            "exit": 1867.45
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 1.0237717904776098,
+          "netSens": 1.0611716414574175
         },
         {
           "closedThrough": "2026-07-16T12:00:00.000Z",
@@ -6864,11 +6884,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1468,
+            "holdCandles": 2880,
+            "exit": 1845.51
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.19998150371520937,
+          "netSens": -0.17808323747953492
         },
         {
           "closedThrough": "2026-07-16T20:00:00.000Z",
@@ -6882,11 +6904,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 64.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.0278,
+            "holdCandles": 2880,
+            "exit": 1860.52
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.08062463218438715,
+          "netSens": -0.0588733130496395
         },
         {
           "closedThrough": "2026-07-18T20:00:00.000Z",
@@ -7019,11 +7043,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.1565,
+            "holdCandles": 2880,
+            "exit": 1931.63
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 1.056391881188119,
+          "netSens": 1.0976128712871287
         },
         {
           "closedThrough": "2026-07-20T08:00:00.000Z",
@@ -7037,11 +7063,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h EVENING_STAR pattern contradicts direction. Final confidence: 64.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.9862,
+            "holdCandles": 2880,
+            "exit": 1921.07
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.8862372034166404,
+          "netSens": 0.9273983549509649
         },
         {
           "closedThrough": "2026-07-20T12:00:00.000Z",
@@ -7055,11 +7083,13 @@
             "4h uptrend, 1h uptrend, price retracing ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 89.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.1527,
+            "holdCandles": 2880,
+            "exit": 1937.58
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 1.0568045454545456,
+          "netSens": 1.0962909090909092
         },
         {
           "closedThrough": "2026-07-20T16:00:00.000Z",
@@ -7073,11 +7103,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 2 lower timeframes show exhaustion, 4h HAMMER pattern (bullish), 1h MORNING_STAR pattern (bullish). Confidence reduced from 103% → 100%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.3325,
+            "holdCandles": 2880,
+            "exit": 1939.3
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.27253309859154934,
+          "netSens": 0.2972253521126761
         },
         {
           "closedThrough": "2026-07-20T20:00:00.000Z",
@@ -7261,11 +7293,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h MORNING_STAR pattern (bullish). Final confidence: 90%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.7478,
+            "holdCandles": 2880,
+            "exit": 1855.49
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.8353193157327586,
+          "netSens": -0.7992819504310344
         },
         {
           "closedThrough": "2026-07-25T04:00:00.000Z",
@@ -7313,11 +7347,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 90%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0329,
+            "holdCandles": 2880,
+            "exit": 1878.61
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.13758856837606814,
+          "netSens": -0.06738739316239302
         },
         {
           "closedThrough": "2026-07-26T08:00:00.000Z",
@@ -7399,11 +7435,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h ENGULFING_BULL pattern (bullish). Final confidence: 89.0625% | RR penalty: 3.00R < 3R]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.3152,
+            "holdCandles": 2880,
+            "exit": 1920.53
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.2036404139715397,
+          "netSens": 0.2495767141009057
         },
         {
           "closedThrough": "2026-07-28T20:00:00.000Z",
@@ -7417,11 +7455,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 1h MARUBOZU pattern (bullish). Final confidence: 90%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.4154,
+            "holdCandles": 2880,
+            "exit": 1926.15
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.29599479752790314,
+          "netSens": 0.3451616456046489
         },
         {
           "closedThrough": "2026-07-29T00:00:00.000Z",
@@ -7435,11 +7475,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 89.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0579,
+            "holdCandles": 2880,
+            "exit": 1908.15
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.058788208269525515,
+          "netSens": -0.010740122511485602
         },
         {
           "closedThrough": "2026-07-29T08:00:00.000Z",
@@ -7470,11 +7512,13 @@
             "4h uptrend, 1h uptrend, price entry zone, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.5519,
+            "holdCandles": 2880,
+            "exit": 1874.5
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.6676871671134941,
+          "netSens": -0.6200100983020553
         },
         {
           "closedThrough": "2026-07-30T00:00:00.000Z",
@@ -7650,11 +7694,13 @@
             "4h flat, 1h downtrend, price retracing, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4H flat but 1H aligned, 1h EVENING_STAR pattern (bearish). Final confidence: 91.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.2797,
+            "holdCandles": 2880,
+            "exit": 1862.47
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.23664361449725926,
+          "netSens": 0.21819087785322752
         },
         {
           "closedThrough": "2026-08-02T12:00:00.000Z",
@@ -7702,11 +7748,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 89.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1249,
+            "holdCandles": 2880,
+            "exit": 1865.55
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.23632057922827898,
+          "netSens": -0.19044151719310526
         },
         {
           "closedThrough": "2026-08-03T20:00:00.000Z",
@@ -7720,11 +7768,13 @@
             "4h uptrend, 1h flat, price entry zone ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Final confidence: 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.1059,
+            "holdCandles": 2880,
+            "exit": 1919.38
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.9773157371729873,
+          "netSens": 1.0302621983370512
         },
         {
           "closedThrough": "2026-08-04T00:00:00.000Z",
@@ -7758,11 +7808,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (1d): contradiction detected. Primary trend (4H+1H): aligned. Penalties: severe macro contradiction detected, 4h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 71.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.0188,
+            "holdCandles": 2880,
+            "exit": 1914.44
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.889398040416412,
+          "netSens": 0.9426812002449483
         },
         {
           "closedThrough": "2026-08-04T20:00:00.000Z",
@@ -7776,11 +7828,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (1d): contradiction detected. Primary trend (4H+1H): aligned. Penalties: severe macro contradiction detected, 4h THREE_WHITE_SOLDIERS pattern (bullish), 1h THREE_WHITE_SOLDIERS pattern (bullish). Caps applied: MACRO_CONTRADICTION. Confidence reduced from 87% → 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.8641,
+            "holdCandles": 2880,
+            "exit": 1908.11
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.7363980265807487,
+          "netSens": 0.7889811921063228
         },
         {
           "closedThrough": "2026-08-05T00:00:00.000Z",
@@ -7794,11 +7848,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h ENGULFING_BEAR pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.6971,
+            "holdCandles": 2880,
+            "exit": 1900.04
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.5697225748142196,
+          "netSens": 0.622172102831894
         },
         {
           "closedThrough": "2026-08-05T08:00:00.000Z",
@@ -7812,11 +7868,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h MORNING_STAR pattern (bullish), 1h HAMMER pattern (bullish). Confidence reduced from 105% → 100%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.0484,
+            "holdCandles": 2880,
+            "exit": 1911.68
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.9042773915019313,
+          "netSens": 0.9636219950011361
         },
         {
           "closedThrough": "2026-08-05T16:00:00.000Z",
@@ -8261,11 +8319,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (1d): contradiction detected. Primary trend (4H+1H): aligned. Penalties: severe macro contradiction detected, 4h THREE_WHITE_SOLDIERS pattern (bullish), 1h THREE_WHITE_SOLDIERS pattern (bullish). Caps applied: MACRO_CONTRADICTION. Confidence reduced from 87% → 75%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.5709,
+            "holdCandles": 2880,
+            "exit": 1866.1
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.7144329613925464,
+          "netSens": -0.6553311537603215
         },
         {
           "closedThrough": "2026-08-13T16:00:00.000Z",
@@ -8347,11 +8407,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): contradiction detected. Primary trend (4H+1H): aligned. Penalties: severe macro contradiction detected, 1h MARUBOZU pattern (bullish). Final confidence: 71.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.0413,
+            "holdCandles": 2880,
+            "exit": 1905.78
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.7775278877887789,
+          "netSens": 0.8861399339933993
         },
         {
           "closedThrough": "2026-08-16T16:00:00.000Z",
@@ -8382,11 +8444,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): contradiction detected. Primary trend (4H+1H): aligned. Penalties: severe macro contradiction detected, 1h MORNING_STAR pattern (bullish). Final confidence: 72%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.3624,
+            "holdCandles": 2880,
+            "exit": 1912.3
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 1.092751529213248,
+          "netSens": 1.2037832524783811
         },
         {
           "closedThrough": "2026-08-17T12:00:00.000Z",
@@ -8596,11 +8660,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h ENGULFING_BEAR pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.7878,
+            "holdCandles": 2880,
+            "exit": 2507.61
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.6947412497894557,
+          "netSens": 0.7330595586996799
         },
         {
           "closedThrough": "2026-08-26T00:00:00.000Z",
@@ -8614,11 +8680,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch down/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.7926,
+            "holdCandles": 2880,
+            "exit": 2508.48
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.6997872340425529,
+          "netSens": 0.7380042553191487
         },
         {
           "closedThrough": "2026-08-26T04:00:00.000Z",
@@ -8666,11 +8734,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch down/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.5947,
+            "holdCandles": 2880,
+            "exit": 2499.8
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.5071988835053719,
+          "netSens": 0.5432287550031599
         },
         {
           "closedThrough": "2026-08-26T16:00:00.000Z",
@@ -8684,11 +8754,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4h ENGULFING_BEAR pattern contradicts direction. Final confidence: 65.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.0343,
+            "holdCandles": 2880,
+            "exit": 2441.5
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.16283725247524686,
+          "netSens": -0.1099101485148511
         },
         {
           "closedThrough": "2026-08-26T20:00:00.000Z",
@@ -9071,11 +9143,13 @@
             "4h uptrend, 1h uptrend, price retracing ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_WHITE_SOLDIERS pattern (bullish). Final confidence: 90.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.0679,
+            "holdCandles": 2880,
+            "exit": 2476.42
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.017458404066073685,
+          "netSens": 0.01768917407878018
         },
         {
           "closedThrough": "2026-09-06T16:00:00.000Z",
@@ -9140,11 +9214,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch down/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h ENGULFING_BEAR pattern contradicts direction. Final confidence: 66.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.6533,
+            "holdCandles": 2880,
+            "exit": 2511.95
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.49422494806421235,
+          "netSens": 0.5597264400377719
         },
         {
           "closedThrough": "2026-09-07T08:00:00.000Z",
@@ -9175,11 +9251,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 0.5463,
+            "holdCandles": 2880,
+            "exit": 2508.73
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 0.39173561342380403,
+          "netSens": 0.4553797726022376
         },
         {
           "closedThrough": "2026-09-07T20:00:00.000Z",
@@ -9193,11 +9271,13 @@
             "4h uptrend, 1h uptrend, price retracing, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 2 lower timeframes show exhaustion. Final confidence: 74.325%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.4481,
+            "holdCandles": 2880,
+            "exit": 2454.67
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.6018510077519384,
+          "netSens": -0.5385417692658462
         },
         {
           "closedThrough": "2026-09-08T00:00:00.000Z",
@@ -9211,11 +9291,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/flat ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 4h HAMMER pattern (bullish). Final confidence: 90.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1046,
+            "holdCandles": 2880,
+            "exit": 2475.37
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.2967135566188203,
+          "netSens": -0.21760797448165903
         },
         {
           "closedThrough": "2026-09-08T04:00:00.000Z",
@@ -9229,11 +9311,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 76.2%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.1082,
+            "holdCandles": 2880,
+            "exit": 2475.64
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.30715635248318884,
+          "netSens": -0.22523314851952284
         },
         {
           "closedThrough": "2026-09-08T16:00:00.000Z",
@@ -9531,11 +9615,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Final confidence: 75.2625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": -0.2969,
+            "holdCandles": 2880,
+            "exit": 2471.73
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": -0.3777677246163348,
+          "netSens": -0.3444692497743146
         },
         {
           "closedThrough": "2026-09-13T20:00:00.000Z",
@@ -9677,11 +9763,13 @@
             "4h uptrend, 1h flat, price retracing, lower TF stoch up/down ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 4h ENGULFING_BULL pattern (bullish). Final confidence: 89.0625%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 2.0129,
+            "holdCandles": 2880,
+            "exit": 2636.3
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 1.9256200042003568,
+          "netSens": 1.96155882600021
         },
         {
           "closedThrough": "2026-09-17T20:00:00.000Z",
@@ -9695,11 +9783,13 @@
             "4h uptrend, 1h flat, price entry zone, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (none): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 65%]"
           ],
           "outcome": {
-            "status": "open",
-            "holdCandles": 2880
+            "status": "timeout",
+            "r": 1.9156,
+            "holdCandles": 2880,
+            "exit": 2627.08
           },
-          "netDir": null,
-          "netSens": null
+          "netDir": 1.8283332143419602,
+          "netSens": 1.864266596671741
         },
         {
           "closedThrough": "2026-09-18T04:00:00.000Z",
@@ -9816,41 +9906,6 @@
           ],
           "outcome": {
             "status": "not_filled"
-          },
-          "netDir": null,
-          "netSens": null
-        },
-        {
-          "closedThrough": "2026-09-23T08:00:00.000Z",
-          "symbol": "ETH",
-          "direction": "long",
-          "entry": 2697.39,
-          "stop": 2555.64,
-          "tp1": 3122.65,
-          "tp2": 3264.41,
-          "reason": [
-            "4h uptrend, 1h flat, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h THREE_BLACK_CROWS pattern contradicts direction. Final confidence: 66.2%]"
-          ],
-          "outcome": {
-            "status": "not_filled"
-          },
-          "netDir": null,
-          "netSens": null
-        },
-        {
-          "closedThrough": "2026-09-23T12:00:00.000Z",
-          "symbol": "ETH",
-          "direction": "long",
-          "entry": 2699.875,
-          "stop": 2559.31,
-          "tp1": 3121.57,
-          "tp2": 3262.13,
-          "reason": [
-            "4h uptrend, 1h flat, price retracing, lower TF stoch flat/up ✅ HIGH CONFIDENCE [Macro alignment (1d): aligned. Primary trend (4H+1H): aligned. Penalties: 1h ENGULFING_BEAR pattern contradicts direction. Final confidence: 66.2%]"
-          ],
-          "outcome": {
-            "status": "open",
-            "holdCandles": 1464
           },
           "netDir": null,
           "netSens": null

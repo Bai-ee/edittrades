@@ -1,0 +1,254 @@
+{
+  "meta": {
+    "id": "ctl-donchian-20d",
+    "label": "Control: 20-day Donchian breakout (1D, EMA200-aligned)",
+    "source": "docs/PROMPT_S0_SWING_RESEARCH.md Agent S0-C",
+    "tf": "1d",
+    "holdMaxHours": 72,
+    "stopKind": "structure",
+    "notes": "Textbook Donchian(20) breakout gated by EMA200(1D) bias; stop = opposite Donchian(10); TP1 = 2R. Hold bucket (72h) not specified in spec - chosen as the longest bucket for a daily-timeframe swing entry."
+  },
+  "generatedAt": "2026-09-27T02:15:37.574Z",
+  "runtimeMs": 1250,
+  "combined": {
+    "stats": {
+      "n": 8,
+      "resolved": 7,
+      "winPct": 71.43,
+      "grossExpR": 0.1821,
+      "netExpR": 0.1646,
+      "netExpR_sens020": 0.1718,
+      "maxLosingStreak": 1,
+      "medianHoldHours": 72,
+      "medianStopPct": 18.98,
+      "timeouts": 7
+    },
+    "oos": {
+      "firstHalf": 0.2341,
+      "secondHalf": 0.1126
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 2,
+        "resolved": 2,
+        "winPct": 100,
+        "grossExpR": 0.2455,
+        "netExpR": 0.2252,
+        "netExpR_sens020": 0.2336,
+        "maxLosingStreak": 0,
+        "medianHoldHours": 72,
+        "medianStopPct": 17.31,
+        "timeouts": 2
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-21T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 73001.1,
+          "stop": 62490,
+          "tp1": 94023.3,
+          "tp2": null,
+          "reason": [
+            "1D close 73001.1 broke above the 20-day high (70001.8) of the prior 20 daily candles",
+            "EMA200(1D) bias long: close 73001.1 vs EMA200 71534.84674034559",
+            "stop at the opposite 10-day Donchian extreme (62490); TP1 = 2R (94023.30000000002)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.4506,
+            "holdCandles": 4320,
+            "exit": 77737.5
+          },
+          "netDir": 0.4269865114022319,
+          "netSens": 0.4367097125895482
+        },
+        {
+          "closedThrough": "2026-08-22T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78327.2,
+          "stop": 62490,
+          "tp1": 110001.6,
+          "tp2": null,
+          "reason": [
+            "1D close 78327.2 broke above the 20-day high (73387) of the prior 20 daily candles",
+            "EMA200(1D) bias long: close 78327.2 vs EMA200 71607.52750667353",
+            "stop at the opposite 10-day Donchian extreme (62490); TP1 = 2R (110001.59999999999)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0403,
+            "holdCandles": 4320,
+            "exit": 78966.1
+          },
+          "netDir": 0.02348437097466724,
+          "netSens": 0.03040845351451014
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 4,
+        "resolved": 3,
+        "winPct": 66.67,
+        "grossExpR": 0.1351,
+        "netExpR": 0.1186,
+        "netExpR_sens020": 0.1254,
+        "maxLosingStreak": 1,
+        "medianHoldHours": 72,
+        "medianStopPct": 18.02,
+        "timeouts": 3
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-02T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 71.88,
+          "stop": 78.79,
+          "tp1": 58.06,
+          "tp2": null,
+          "reason": [
+            "1D close 71.88 broke below the 20-day low (72.25) of the prior 20 daily candles",
+            "EMA200(1D) bias short: close 71.88 vs EMA200 90.94304338753868",
+            "stop at the opposite 10-day Donchian extreme (78.79); TP1 = 2R (58.059999999999974)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-08-22T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 93.72,
+          "stop": 74.05,
+          "tp1": 133.06,
+          "tp2": null,
+          "reason": [
+            "1D close 93.72 broke above the 20-day high (88.01) of the prior 20 daily candles",
+            "EMA200(1D) bias long: close 93.72 vs EMA200 88.60028543225195",
+            "stop at the opposite 10-day Donchian extreme (74.05); TP1 = 2R (133.06)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.2679,
+            "holdCandles": 4320,
+            "exit": 98.99
+          },
+          "netDir": 0.2517003050330453,
+          "netSens": 0.25837076766649725
+        },
+        {
+          "closedThrough": "2026-08-28T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 109.15,
+          "stop": 74.37,
+          "tp1": 178.71,
+          "tp2": null,
+          "reason": [
+            "1D close 109.15 broke above the 20-day high (103.07) of the prior 20 daily candles",
+            "EMA200(1D) bias long: close 109.15 vs EMA200 89.29006811546317",
+            "stop at the opposite 10-day Donchian extreme (74.37); TP1 = 2R (178.71)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2271,
+            "holdCandles": 4320,
+            "exit": 101.25
+          },
+          "netDir": -0.23777021276595744,
+          "netSens": -0.23337659574468084
+        },
+        {
+          "closedThrough": "2026-09-19T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 112.69,
+          "stop": 95.73,
+          "tp1": 146.61,
+          "tp2": null,
+          "reason": [
+            "1D close 112.69 broke above the 20-day high (107.44) of the prior 20 daily candles",
+            "EMA200(1D) bias long: close 112.69 vs EMA200 92.214424099764",
+            "stop at the opposite 10-day Donchian extreme (95.73); TP1 = 2R (146.60999999999999)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3644,
+            "holdCandles": 4320,
+            "exit": 118.87
+          },
+          "netDir": 0.34180884433962266,
+          "netSens": 0.3511110849056604
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 2,
+        "resolved": 2,
+        "winPct": 50,
+        "grossExpR": 0.1892,
+        "netExpR": 0.1732,
+        "netExpR_sens020": 0.1798,
+        "maxLosingStreak": 1,
+        "medianHoldHours": 72,
+        "medianStopPct": 22.05,
+        "timeouts": 2
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-20T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2251.9,
+          "stop": 1852.43,
+          "tp1": 3050.84,
+          "tp2": null,
+          "reason": [
+            "1D close 2251.9 broke above the 20-day high (1940) of the prior 20 daily candles",
+            "EMA200(1D) bias long: close 2251.9 vs EMA200 2107.3063806922464",
+            "stop at the opposite 10-day Donchian extreme (1852.43); TP1 = 2R (3050.84)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.4282,
+            "holdCandles": 4320,
+            "exit": 2422.94
+          },
+          "netDir": 0.4090334543269833,
+          "netSens": 0.4169255613688137
+        },
+        {
+          "closedThrough": "2026-08-22T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2515.72,
+          "stop": 1852.43,
+          "tp1": 3842.3,
+          "tp2": null,
+          "reason": [
+            "1D close 2515.72 broke above the 20-day high (2357.88) of the prior 20 daily candles",
+            "EMA200(1D) bias long: close 2515.72 vs EMA200 2113.9703658891917",
+            "stop at the opposite 10-day Donchian extreme (1852.43); TP1 = 2R (3842.2999999999993)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0498,
+            "holdCandles": 4320,
+            "exit": 2482.69
+          },
+          "netDir": -0.06269548764492153,
+          "netSens": -0.0573855809676009
+        }
+      ]
+    }
+  }
+}

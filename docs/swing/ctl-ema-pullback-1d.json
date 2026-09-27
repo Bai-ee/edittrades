@@ -1,0 +1,565 @@
+{
+  "meta": {
+    "id": "ctl-ema-pullback-1d",
+    "label": "Control: EMA21/EMA200 pullback-and-reclaim (1D)",
+    "source": "docs/PROMPT_S0_SWING_RESEARCH.md Agent S0-C",
+    "tf": "1d",
+    "holdMaxHours": 72,
+    "stopKind": "atr",
+    "notes": "Textbook EMA21 pullback in an EMA21>EMA200 stack, entering on the reclaim close; stop = 1.5xATR(14, 1D) from entry; TP1 = 2R. Hold bucket (72h) not specified in spec - chosen as the longest bucket for a daily-timeframe swing entry."
+  },
+  "generatedAt": "2026-09-27T02:15:38.838Z",
+  "runtimeMs": 1264,
+  "combined": {
+    "stats": {
+      "n": 22,
+      "resolved": 22,
+      "winPct": 31.82,
+      "grossExpR": -0.039,
+      "netExpR": -0.0789,
+      "netExpR_sens020": -0.0793,
+      "maxLosingStreak": 5,
+      "medianHoldHours": 72,
+      "medianStopPct": 5.04,
+      "timeouts": 19
+    },
+    "oos": {
+      "firstHalf": -0.1437,
+      "secondHalf": -0.0142
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 9,
+        "resolved": 9,
+        "winPct": 44.44,
+        "grossExpR": -0.0927,
+        "netExpR": -0.141,
+        "netExpR_sens020": -0.1399,
+        "maxLosingStreak": 2,
+        "medianHoldHours": 72,
+        "medianStopPct": 4.206,
+        "timeouts": 7
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-09T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62241.1,
+          "stop": 65538.672504,
+          "tp1": 55645.954992,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 63304 pulled back up to EMA21 (62653.59396007309); current close 62241.1 reclaimed EMA21 (62616.09450915735)",
+            "stop = 1.5x ATR14(1D) (2198.381669302686) from entry -> 65538.67250395403; TP1 = 2R (55645.95499209193)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4665,
+            "holdCandles": 4320,
+            "exit": 63779.5
+          },
+          "netDir": -0.49292475332855173,
+          "netSens": -0.5042496476122168
+        },
+        {
+          "closedThrough": "2026-07-14T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62253.5,
+          "stop": 65229.328906,
+          "tp1": 56301.842188,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 63737.4 pulled back up to EMA21 (62965.757768702504); current close 62253.5 reclaimed EMA21 (62901.00706245682)",
+            "stop = 1.5x ATR14(1D) (1983.8859374821545) from entry -> 65229.32890622323; TP1 = 2R (56301.84218755354)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2223,
+            "ambiguous": false
+          },
+          "netDir": -1.0292876044781125,
+          "netSens": -1.041839434968732
+        },
+        {
+          "closedThrough": "2026-07-25T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64087.8,
+          "stop": 66737.378764,
+          "tp1": 58788.642471,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 65050.1 pulled back up to EMA21 (64255.02169757158); current close 64087.8 reclaimed EMA21 (64239.81972506507)",
+            "stop = 1.5x ATR14(1D) (1766.385842872642) from entry -> 66737.37876430896; TP1 = 2R (58788.64247138209)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.1475,
+            "holdCandles": 4320,
+            "exit": 63697.1
+          },
+          "netDir": 0.1136369115692619,
+          "netSens": 0.09912415938465985
+        },
+        {
+          "closedThrough": "2026-07-28T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63697.1,
+          "stop": 66230.506412,
+          "tp1": 58630.287176,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 65336.6 pulled back up to EMA21 (64345.5667149298); current close 63697.1 reclaimed EMA21 (64286.615195390725)",
+            "stop = 1.5x ATR14(1D) (1688.9376081600565) from entry -> 66230.50641224008; TP1 = 2R (58630.287175519836)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4049,
+            "holdCandles": 4320,
+            "exit": 64723
+          },
+          "netDir": -0.4401000135348,
+          "netSens": -0.45518573362114284
+        },
+        {
+          "closedThrough": "2026-08-01T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62822,
+          "stop": 65430.169201,
+          "tp1": 57605.661597,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 64723 pulled back up to EMA21 (64262.335233201135); current close 62822 reclaimed EMA21 (64131.39566654649)",
+            "stop = 1.5x ATR14(1D) (1738.7794675827615) from entry -> 65430.16920137414; TP1 = 2R (57605.66159725172)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2453,
+            "holdCandles": 4320,
+            "exit": 63461.7
+          },
+          "netDir": -0.2790212784943792,
+          "netSens": -0.2934732549919703
+        },
+        {
+          "closedThrough": "2026-08-11T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63922.1,
+          "stop": 65997.243077,
+          "tp1": 59771.813845,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 64860 pulled back up to EMA21 (64229.35525056881); current close 63922.1 reclaimed EMA21 (64201.42295506255)",
+            "stop = 1.5x ATR14(1D) (1383.4287182412643) from entry -> 65997.2430773619; TP1 = 2R (59771.8138452762)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.2404,
+            "holdCandles": 4320,
+            "exit": 63423.3
+          },
+          "netDir": 0.19727480975347078,
+          "netSens": 0.17879258536210113
+        },
+        {
+          "closedThrough": "2026-09-12T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77210.9,
+          "stop": 73702.912983,
+          "tp1": 84226.874035,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) > EMA200(1D) on the pullback and entry candles (uptrend)",
+            "prior 1D close 76542 pulled back to/through EMA21 (76801.82342724601); current close 77210.9 reclaimed EMA21 (76839.01220658729)",
+            "stop = 1.5x ATR14(1D) (2338.658011626077) from entry -> 73702.91298256088; TP1 = 2R (84226.87403487822)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.28,
+            "holdCandles": 4320,
+            "exit": 78193.1
+          },
+          "netDir": 0.20516589750903874,
+          "netSens": 0.23597993971119927
+        },
+        {
+          "closedThrough": "2026-09-15T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78193.1,
+          "stop": 74903.988857,
+          "tp1": 84771.322287,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) > EMA200(1D) on the pullback and entry candles (uptrend)",
+            "prior 1D close 76800.2 pulled back to/through EMA21 (76870.68116246883); current close 78193.1 reclaimed EMA21 (76990.90105678984)",
+            "stop = 1.5x ATR14(1D) (2192.74076222394) from entry -> 74903.9888566641; TP1 = 2R (84771.32228667181)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1129,
+            "ambiguous": false
+          },
+          "netDir": -1.0808292965528556,
+          "netSens": -1.0475466450310915
+        },
+        {
+          "closedThrough": "2026-09-19T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 80878.1,
+          "stop": 77338.804491,
+          "tp1": 87956.691018,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) > EMA200(1D) on the pullback and entry candles (uptrend)",
+            "prior 1D close 76354.8 pulled back to/through EMA21 (76757.63550472564); current close 80878.1 reclaimed EMA21 (77132.22318611422)",
+            "stop = 1.5x ATR14(1D) (2359.5303391784146) from entry -> 77338.80449123238; TP1 = 2R (87956.69101753525)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.6149,
+            "holdCandles": 4320,
+            "exit": 86593.8
+          },
+          "netDir": 1.5372050069374543,
+          "netSens": 1.5691970629043848
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 8,
+        "resolved": 8,
+        "winPct": 25,
+        "grossExpR": -0.0352,
+        "netExpR": -0.0689,
+        "netExpR_sens020": -0.0678,
+        "maxLosingStreak": 5,
+        "medianHoldHours": 72,
+        "medianStopPct": 6.77,
+        "timeouts": 7
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-14T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.9,
+          "stop": 80.358231,
+          "tp1": 63.983537,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 76.85 pulled back up to EMA21 (76.67405369146925); current close 74.9 reclaimed EMA21 (76.51277608315387)",
+            "stop = 1.5x ATR14(1D) (3.6388209106621052) from entry -> 80.35823136599316; TP1 = 2R (63.98353726801369)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0678,
+            "holdCandles": 4320,
+            "exit": 75.27
+          },
+          "netDir": -0.08701135125442234,
+          "netSens": -0.09524478750631762
+        },
+        {
+          "closedThrough": "2026-07-17T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 75.27,
+          "stop": 80.493334,
+          "tp1": 64.823331,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 77.22 pulled back up to EMA21 (76.6851042009536); current close 75.27 reclaimed EMA21 (76.55645836450327)",
+            "stop = 1.5x ATR14(1D) (3.4822228646955713) from entry -> 80.49333429704335; TP1 = 2R (64.8233314059133)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2048,
+            "holdCandles": 4320,
+            "exit": 76.34
+          },
+          "netDir": -0.22497446979406407,
+          "netSens": -0.23362067113437726
+        },
+        {
+          "closedThrough": "2026-07-24T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 75.82,
+          "stop": 80.17121,
+          "tp1": 67.11758,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 77.92 pulled back up to EMA21 (76.72860160305132); current close 75.82 reclaimed EMA21 (76.64600145731937)",
+            "stop = 1.5x ATR14(1D) (2.9008065545676076) from entry -> 80.1712098318514; TP1 = 2R (67.11758033629718)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2022,
+            "holdCandles": 4320,
+            "exit": 76.7
+          },
+          "netDir": -0.22659505427271817,
+          "netSens": -0.23705007753245452
+        },
+        {
+          "closedThrough": "2026-07-28T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.13,
+          "stop": 78.381462,
+          "tp1": 65.627076,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 76.7 pulled back up to EMA21 (76.26326180114151); current close 74.13 reclaimed EMA21 (76.06932891012863)",
+            "stop = 1.5x ATR14(1D) (2.834307996798352) from entry -> 78.38146199519753; TP1 = 2R (65.62707600960493)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0729,
+            "holdCandles": 4320,
+            "exit": 74.44
+          },
+          "netDir": -0.09731089679673313,
+          "netSens": -0.10777270970961875
+        },
+        {
+          "closedThrough": "2026-08-17T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.55,
+          "stop": 77.645211,
+          "tp1": 68.359578,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 75.29 pulled back up to EMA21 (75.0999330525643); current close 74.55 reclaimed EMA21 (75.04993913869481)",
+            "stop = 1.5x ATR14(1D) (2.063473905325897) from entry -> 77.64521085798884; TP1 = 2R (68.3595782840223)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 3638,
+            "ambiguous": false
+          },
+          "netDir": -1.0337198351868717,
+          "netSens": -1.0481711931241027
+        },
+        {
+          "closedThrough": "2026-09-12T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.43,
+          "stop": 95.091788,
+          "tp1": 117.106425,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) > EMA200(1D) on the pullback and entry candles (uptrend)",
+            "prior 1D close 98.64 pulled back to/through EMA21 (98.68647865822179); current close 102.43 reclaimed EMA21 (99.02679878020162)",
+            "stop = 1.5x ATR14(1D) (4.892141609265513) from entry -> 95.09178758610173; TP1 = 2R (117.10642482779656)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0177,
+            "holdCandles": 4320,
+            "exit": 102.56
+          },
+          "netDir": -0.029758697071838085,
+          "netSens": -0.010216880630492992
+        },
+        {
+          "closedThrough": "2026-09-15T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.56,
+          "stop": 95.616659,
+          "tp1": 116.446682,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) > EMA200(1D) on the pullback and entry candles (uptrend)",
+            "prior 1D close 99.25 pulled back to/through EMA21 (99.27214775223274); current close 102.56 reclaimed EMA21 (99.57104341112067)",
+            "stop = 1.5x ATR14(1D) (4.628893992549684) from entry -> 95.61665901117547; TP1 = 2R (116.44668197764906)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1498,
+            "holdCandles": 4320,
+            "exit": 101.52
+          },
+          "netDir": -0.20002135605341104,
+          "netSens": -0.17934197414906533
+        },
+        {
+          "closedThrough": "2026-09-18T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.52,
+          "stop": 94.640789,
+          "tp1": 115.278422,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) > EMA200(1D) on the pullback and entry candles (uptrend)",
+            "prior 1D close 98.54 pulled back to/through EMA21 (99.24995323233112); current close 101.52 reclaimed EMA21 (99.45632112030103)",
+            "stop = 1.5x ATR14(1D) (4.586140707591711) from entry -> 94.64078893861243; TP1 = 2R (115.27842212277513)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.3984,
+            "holdCandles": 4320,
+            "exit": 111.14
+          },
+          "netDir": 1.3482244788654039,
+          "netSens": 1.3688849875678846
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 5,
+        "resolved": 5,
+        "winPct": 20,
+        "grossExpR": 0.0516,
+        "netExpR": 0.0167,
+        "netExpR_sens020": 0.0113,
+        "maxLosingStreak": 4,
+        "medianHoldHours": 72,
+        "medianStopPct": 5.293,
+        "timeouts": 5
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-01T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1860.49,
+          "stop": 1963.002394,
+          "tp1": 1655.465211,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 1916.66 pulled back up to EMA21 (1868.4163137459466); current close 1860.49 reclaimed EMA21 (1867.6957397690423)",
+            "stop = 1.5x ATR14(1D) (68.34159630792736) from entry -> 1963.002394461891; TP1 = 2R (1655.4652110762179)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0945,
+            "holdCandles": 4320,
+            "exit": 1870.18
+          },
+          "netDir": -0.11990849829596255,
+          "netSens": -0.13079785470851793
+        },
+        {
+          "closedThrough": "2026-08-04T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1858.77,
+          "stop": 1957.160612,
+          "tp1": 1661.988775,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 1882.88 pulled back up to EMA21 (1867.0773055942498); current close 1858.77 reclaimed EMA21 (1866.3220959947726)",
+            "stop = 1.5x ATR14(1D) (65.59374165033397) from entry -> 1957.160612475501; TP1 = 2R (1661.988775048998)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.442,
+            "holdCandles": 4320,
+            "exit": 1902.26
+          },
+          "netDir": -0.468448437859333,
+          "netSens": -0.47978348265619
+        },
+        {
+          "closedThrough": "2026-08-11T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1871.15,
+          "stop": 1954.60282,
+          "tp1": 1704.244359,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 1908.63 pulled back up to EMA21 (1882.8117336206722); current close 1871.15 reclaimed EMA21 (1881.751576018793)",
+            "stop = 1.5x ATR14(1D) (55.635213514386045) from entry -> 1954.6028202715793; TP1 = 2R (1704.2443594568417)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1607,
+            "holdCandles": 4320,
+            "exit": 1884.56
+          },
+          "netDir": -0.19209031121386966,
+          "netSens": -0.20554330173409951
+        },
+        {
+          "closedThrough": "2026-08-15T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1880.21,
+          "stop": 1957.194394,
+          "tp1": 1726.241211,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) < EMA200(1D) on the pullback and entry candles (downtrend)",
+            "prior 1D close 1884.56 pulled back up to EMA21 (1881.667570262053); current close 1880.21 reclaimed EMA21 (1881.5350638745936)",
+            "stop = 1.5x ATR14(1D) (51.322929591430125) from entry -> 1957.1943943871452; TP1 = 2R (1726.2412112257098)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4189,
+            "holdCandles": 4320,
+            "exit": 1912.46
+          },
+          "netDir": -0.4530925661811732,
+          "netSens": -0.46774652311596177
+        },
+        {
+          "closedThrough": "2026-09-18T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2445.34,
+          "stop": 2299.991112,
+          "tp1": 2736.037776,
+          "tp2": null,
+          "reason": [
+            "EMA21(1D) > EMA200(1D) on the pullback and entry candles (uptrend)",
+            "prior 1D close 2416.61 pulled back to/through EMA21 (2427.9622883240586); current close 2445.34 reclaimed EMA21 (2429.5420802945987)",
+            "stop = 1.5x ATR14(1D) (96.89925854152595) from entry -> 2299.991112187711; TP1 = 2R (2736.037775624578)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.3741,
+            "holdCandles": 4320,
+            "exit": 2645.06
+          },
+          "netDir": 1.3168986266345752,
+          "netSens": 1.3404521333144561
+        }
+      ]
+    }
+  }
+}

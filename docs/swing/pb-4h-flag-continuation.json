@@ -1,0 +1,279 @@
+{
+  "meta": {
+    "id": "pb-4h-flag-continuation",
+    "label": "4h flag continuation, with 1D trend",
+    "source": "docs/MASTER_PLAN_TRADING_MODEL.md M-1, M-5, M-5b, M-6",
+    "tf": "4h",
+    "holdMaxHours": 48,
+    "stopKind": "structure",
+    "notes": "M-1/M-6: 1D EMA21/EMA200 stack + slope sets the direction; the flag is only taken with that direction, never against it.\nM-5: the setup is a flag on the EMA21 (impulse then compression); this rule reuses lib/patternDetector.js on 4h candles instead of re-deriving the same pole/consolidation logic.\nM-5b: TP1 is the measured move (pole length projected from the breakout); stop is the flag invalidation level (opposite border), fired on the exact 4h close that first closes past the flag border."
+  },
+  "generatedAt": "2026-09-27T02:16:02.417Z",
+  "runtimeMs": 4428,
+  "combined": {
+    "stats": {
+      "n": 9,
+      "resolved": 9,
+      "winPct": 44.44,
+      "grossExpR": -0.0347,
+      "netExpR": -0.1232,
+      "netExpR_sens020": -0.1127,
+      "maxLosingStreak": 4,
+      "medianHoldHours": 9.68,
+      "medianStopPct": 3.311,
+      "timeouts": 4
+    },
+    "oos": {
+      "firstHalf": -0.7616,
+      "secondHalf": 0.3876
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 2,
+        "resolved": 2,
+        "winPct": 0,
+        "grossExpR": -0.5787,
+        "netExpR": -0.6949,
+        "netExpR_sens020": -0.7447,
+        "maxLosingStreak": 2,
+        "medianHoldHours": 27.07,
+        "medianStopPct": 1.2,
+        "timeouts": 1
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-01T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62477.9,
+          "stop": 63225.4,
+          "tp1": 59576.9,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagLow (breakoutLevel 62602.7)",
+            "TP1 = measured move from pole length 3025.8 (measuredRR 4.86)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 368,
+            "ambiguous": false
+          },
+          "netDir": -1.1170154648829431,
+          "netSens": -1.1671649498327759
+        },
+        {
+          "closedThrough": "2026-08-14T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62804.9,
+          "stop": 63567,
+          "tp1": 60482.7,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagLow (breakoutLevel 62862.7)",
+            "TP1 = measured move from pole length 2380 (measuredRR 3.38)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1575,
+            "holdCandles": 2880,
+            "exit": 62924.9
+          },
+          "netDir": -0.27287443904999364,
+          "netSens": -0.3223206272142767
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 4,
+        "resolved": 4,
+        "winPct": 50,
+        "grossExpR": -0.2233,
+        "netExpR": -0.2802,
+        "netExpR_sens020": -0.2664,
+        "maxLosingStreak": 2,
+        "medianHoldHours": 28.84,
+        "medianStopPct": 4.9,
+        "timeouts": 2
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-01T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 71.21,
+          "stop": 73.38,
+          "tp1": 70.26,
+          "tp2": null,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagLow (breakoutLevel 72.5)",
+            "TP1 = measured move from pole length 2.24 (measuredRR 2.55)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 535,
+            "ambiguous": false
+          },
+          "netDir": -1.0459419354838708,
+          "netSens": -1.0656313364055299
+        },
+        {
+          "closedThrough": "2026-09-06T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 105.97,
+          "stop": 101.09,
+          "tp1": 112.92,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagHigh (breakoutLevel 104.38)",
+            "TP1 = measured move from pole length 8.54 (measuredRR 2.6)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.5369,
+            "holdCandles": 2880,
+            "exit": 103.35
+          },
+          "netDir": -0.6107315573770493,
+          "netSens": -0.5803303278688525
+        },
+        {
+          "closedThrough": "2026-09-18T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.5,
+          "stop": 99.07,
+          "tp1": 107.81,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagHigh (breakoutLevel 101.95)",
+            "TP1 = measured move from pole length 5.86 (measuredRR 2.03)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.6096,
+            "holdCandles": 581,
+            "timeToTP1Candles": 581
+          },
+          "netDir": 0.5441672191528546,
+          "netSens": 0.5711101289134439
+        },
+        {
+          "closedThrough": "2026-09-21T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 116.76,
+          "stop": 107.38,
+          "tp1": 131.65,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagHigh (breakoutLevel 113.38)",
+            "TP1 = measured move from pole length 18.27 (measuredRR 3.05)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0341,
+            "holdCandles": 2880,
+            "exit": 117.08
+          },
+          "netDir": -0.00822238805970145,
+          "netSens": 0.00920447761194032
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 3,
+        "resolved": 3,
+        "winPct": 66.67,
+        "grossExpR": 0.5794,
+        "netExpR": 0.4674,
+        "netExpR_sens020": 0.5135,
+        "maxLosingStreak": 1,
+        "medianHoldHours": 7.82,
+        "medianStopPct": 3.311,
+        "timeouts": 1
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-30T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2503.44,
+          "stop": 2444.54,
+          "tp1": 2616.22,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagHigh (breakoutLevel 2483)",
+            "TP1 = measured move from pole length 133.22 (measuredRR 3.46)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 185,
+            "ambiguous": false
+          },
+          "netDir": -1.1445109677419354,
+          "netSens": -1.085006451612903
+        },
+        {
+          "closedThrough": "2026-09-18T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2505.82,
+          "stop": 2422.84,
+          "tp1": 2644.99,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagHigh (breakoutLevel 2496)",
+            "TP1 = measured move from pole length 148.99 (measuredRR 2.04)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.6772,
+            "holdCandles": 469,
+            "timeToTP1Candles": 469
+          },
+          "netDir": 1.5745272113762352,
+          "netSens": 1.6168042419860207
+        },
+        {
+          "closedThrough": "2026-09-21T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2665.34,
+          "stop": 2563.33,
+          "tp1": 2947.29,
+          "tp2": null,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h flag breakout close beyond flagHigh (breakoutLevel 2649.29)",
+            "TP1 = measured move from pole length 298 (measuredRR 3.47)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.061,
+            "holdCandles": 2880,
+            "exit": 2773.57
+          },
+          "netDir": 0.9721640427409078,
+          "netSens": 1.0087435545534753
+        }
+      ]
+    }
+  }
+}

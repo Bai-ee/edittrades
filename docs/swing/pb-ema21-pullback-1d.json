@@ -1,0 +1,826 @@
+{
+  "meta": {
+    "id": "pb-ema21-pullback-1d",
+    "label": "1D-trend EMA21 pullback (4h entry)",
+    "source": "docs/MASTER_PLAN_TRADING_MODEL.md M-1, M-6, M-6b, M-9",
+    "tf": "4h",
+    "holdMaxHours": 72,
+    "stopKind": "structure",
+    "notes": "M-1/M-6b: direction comes from the higher timeframe (1D EMA21/EMA200 stack + slope), entry is timed on the lower timeframe (4h close).\nM-5/M-6: the EMA21 pulls price back to it without being a target; entry is the first 4h close that reclaims EMA21(4h) right after price touched or closed through it.\nM-9: stop is the tighter of the pullback extreme or 1.5x ATR(4h) so a losing trade stays small; TP1 is 2R and TP2 reaches for the prior 1D swing, keeping reward ahead of the 3R-minimum spirit."
+  },
+  "generatedAt": "2026-09-27T02:16:11.280Z",
+  "runtimeMs": 4410,
+  "combined": {
+    "stats": {
+      "n": 34,
+      "resolved": 33,
+      "winPct": 24.24,
+      "grossExpR": -0.2488,
+      "netExpR": -0.4675,
+      "netExpR_sens020": -0.4375,
+      "maxLosingStreak": 6,
+      "medianHoldHours": 13.62,
+      "medianStopPct": 1.32,
+      "timeouts": 1
+    },
+    "oos": {
+      "firstHalf": -0.5448,
+      "secondHalf": -0.3948
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 7,
+        "resolved": 7,
+        "winPct": 14.29,
+        "grossExpR": -0.5714,
+        "netExpR": -0.7801,
+        "netExpR_sens020": -0.7443,
+        "maxLosingStreak": 5,
+        "medianHoldHours": 9.72,
+        "medianStopPct": 1.193,
+        "timeouts": 0
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-29T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63881.9,
+          "stop": 64643.8,
+          "tp1": 62358.1,
+          "tp2": 61765,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 64424.9 vs EMA21 64224.64, now 63881.9 vs 64193.48)",
+            "stop = min(pullback extreme 64643.8, 1.5x ATR4h 64980.02)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1191,
+            "ambiguous": false
+          },
+          "netDir": -1.1173837248982803,
+          "netSens": -1.167691035568972
+        },
+        {
+          "closedThrough": "2026-08-02T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62965.8,
+          "stop": 63554.4,
+          "tp1": 61788.6,
+          "tp2": 61765,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 63427.4 vs EMA21 63410.33, now 62965.8 vs 63369.92)",
+            "stop = min(pullback extreme 63554.4, 1.5x ATR4h 63663.83)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 583,
+            "ambiguous": false
+          },
+          "netDir": -1.1497657492354745,
+          "netSens": -1.213951070336392
+        },
+        {
+          "closedThrough": "2026-08-03T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 62793.4,
+          "stop": 63376.825,
+          "tp1": 61626.55,
+          "tp2": 61765,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 63500 vs EMA21 63358.1, now 62793.4 vs 63306.76)",
+            "stop = min(pullback extreme 63712.1, 1.5x ATR4h 63376.83)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 617,
+            "ambiguous": false
+          },
+          "netDir": -1.1506804816386007,
+          "netSens": -1.2152578309122868
+        },
+        {
+          "closedThrough": "2026-08-30T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78808.3,
+          "stop": 77905.310714,
+          "tp1": 80614.278571,
+          "tp2": 82436.6,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 78149.9 vs EMA21 78324.13, now 78808.3 vs 78368.15)",
+            "stop = max(pullback extreme 76853, 1.5x ATR4h 77905.31)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 444,
+            "ambiguous": false
+          },
+          "netDir": -1.2967346614617328,
+          "netSens": -1.1745498008598427
+        },
+        {
+          "closedThrough": "2026-08-31T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78294.4,
+          "stop": 77359.267857,
+          "tp1": 80164.664286,
+          "tp2": 82436.6,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 78192.5 vs EMA21 78281.51, now 78294.4 vs 78282.68)",
+            "stop = max(pullback extreme 77000, 1.5x ATR4h 77359.27)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1717,
+            "ambiguous": false
+          },
+          "netDir": -1.2846666773603435,
+          "netSens": -1.167450986682555
+        },
+        {
+          "closedThrough": "2026-09-03T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77917.5,
+          "stop": 76625.721429,
+          "tp1": 80501.057143,
+          "tp2": 81461,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 77626 vs EMA21 77753.39, now 77917.5 vs 77768.31)",
+            "stop = max(pullback extreme 76236.9, 1.5x ATR4h 76625.72)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 177,
+            "timeToTP1Candles": 177
+          },
+          "netDir": 1.794918799661596,
+          "netSens": 1.8793639998009388
+        },
+        {
+          "closedThrough": "2026-09-09T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 79262.5,
+          "stop": 78210.657143,
+          "tp1": 81366.185714,
+          "tp2": 82288.1,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 78631.5 vs EMA21 79057.4, now 79262.5 vs 79076.05)",
+            "stop = max(pullback extreme 77609.4, 1.5x ATR4h 78210.66)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 443,
+            "ambiguous": false
+          },
+          "netDir": -1.256209849380001,
+          "netSens": -1.1507116761058829
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 13,
+        "resolved": 13,
+        "winPct": 15.38,
+        "grossExpR": -0.4778,
+        "netExpR": -0.6564,
+        "netExpR_sens020": -0.6245,
+        "maxLosingStreak": 6,
+        "medianHoldHours": 15.67,
+        "medianStopPct": 1.691,
+        "timeouts": 1
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-28T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.13,
+          "stop": 75.5925,
+          "tp1": 71.205,
+          "tp2": 73.41,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 75.93 vs EMA21 75.58, now 74.13 vs 75.45)",
+            "stop = min(pullback extreme 76.16, 1.5x ATR4h 75.59)"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.212,
+            "holdCandles": 4320,
+            "exit": 74.44
+          },
+          "netDir": -0.282962051282051,
+          "netSens": -0.31337435897435856
+        },
+        {
+          "closedThrough": "2026-07-31T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.09,
+          "stop": 74.9,
+          "tp1": 72.47,
+          "tp2": 73.41,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 74.44 vs EMA21 74.14, now 74.09 vs 74.13)",
+            "stop = min(pullback extreme 74.9, 1.5x ATR4h 75.64)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 2214,
+            "timeToTP1Candles": 2214
+          },
+          "netDir": 1.8719432098765436,
+          "netSens": 1.8170617283950623
+        },
+        {
+          "closedThrough": "2026-08-02T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 72.93,
+          "stop": 73.58,
+          "tp1": 71.63,
+          "tp2": 63.72,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 73.38 vs EMA21 73.16, now 72.93 vs 73.14)",
+            "stop = min(pullback extreme 73.58, 1.5x ATR4h 74.08)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 364,
+            "ambiguous": false
+          },
+          "netDir": -1.157080000000002,
+          "netSens": -1.224400000000003
+        },
+        {
+          "closedThrough": "2026-08-03T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 72.82,
+          "stop": 73.981429,
+          "tp1": 70.497143,
+          "tp2": 63.72,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 73.54 vs EMA21 73.21, now 72.82 vs 73.17)",
+            "stop = min(pullback extreme 74.24, 1.5x ATR4h 73.98)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 854,
+            "ambiguous": false
+          },
+          "netDir": -1.0877781057810576,
+          "netSens": -1.1253972939729395
+        },
+        {
+          "closedThrough": "2026-08-06T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.42,
+          "stop": 74.661786,
+          "tp1": 70.936429,
+          "tp2": 70.54,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 73.97 vs EMA21 73.68, now 73.42 vs 73.66)",
+            "stop = min(pullback extreme 74.74, 1.5x ATR4h 74.66)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2876,
+            "ambiguous": false
+          },
+          "netDir": -1.0827743457003165,
+          "netSens": -1.1182490652861665
+        },
+        {
+          "closedThrough": "2026-08-06T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.39,
+          "stop": 74.26,
+          "tp1": 71.65,
+          "tp2": 70.54,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 73.8 vs EMA21 73.67, now 73.39 vs 73.64)",
+            "stop = min(pullback extreme 74.26, 1.5x ATR4h 74.63)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1554,
+            "ambiguous": false
+          },
+          "netDir": -1.118098850574712,
+          "netSens": -1.16871264367816
+        },
+        {
+          "closedThrough": "2026-09-01T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.63,
+          "stop": 100.885,
+          "tp1": 109.12,
+          "tp2": 110.61,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 103.04 vs EMA21 103.59, now 103.63 vs 103.59)",
+            "stop = max(pullback extreme 100.36, 1.5x ATR4h 100.89)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 757,
+            "ambiguous": false
+          },
+          "netDir": -1.1283577413479051,
+          "netSens": -1.0755045537340617
+        },
+        {
+          "closedThrough": "2026-09-03T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 105.13,
+          "stop": 102.061429,
+          "tp1": 111.267143,
+          "tp2": 110.61,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 100.76 vs EMA21 101.14, now 105.13 vs 101.5)",
+            "stop = max(pullback extreme 97.33, 1.5x ATR4h 102.06)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1231,
+            "ambiguous": false
+          },
+          "netDir": -1.1164848230912476,
+          "netSens": -1.068520484171322
+        },
+        {
+          "closedThrough": "2026-09-05T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.36,
+          "stop": 100.12,
+          "tp1": 106.84,
+          "tp2": 110.61,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 102.23 vs EMA21 102.25, now 102.36 vs 102.26)",
+            "stop = max(pullback extreme 100.12, 1.5x ATR4h 99.83)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 940,
+            "timeToTP1Candles": 940
+          },
+          "netDir": 1.8446321428571424,
+          "netSens": 1.9086071428571427
+        },
+        {
+          "closedThrough": "2026-09-07T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.36,
+          "stop": 102.98,
+          "tp1": 107.12,
+          "tp2": 110.61,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 103.25 vs EMA21 104.1, now 104.36 vs 104.12)",
+            "stop = max(pullback extreme 102.98, 1.5x ATR4h 101.53)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 442,
+            "ambiguous": false
+          },
+          "netDir": -1.257118840579711,
+          "netSens": -1.1512463768115948
+        },
+        {
+          "closedThrough": "2026-09-08T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.35,
+          "stop": 102.36,
+          "tp1": 108.33,
+          "tp2": 110.61,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 102.85 vs EMA21 103.83, now 104.35 vs 103.88)",
+            "stop = max(pullback extreme 102.36, 1.5x ATR4h 101.61)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1403,
+            "ambiguous": false
+          },
+          "netDir": -1.1782864321608044,
+          "netSens": -1.1048743718592968
+        },
+        {
+          "closedThrough": "2026-09-09T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.58,
+          "stop": 102.8,
+          "tp1": 108.14,
+          "tp2": 110.61,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 103.31 vs EMA21 103.73, now 104.58 vs 103.81)",
+            "stop = max(pullback extreme 102.8, 1.5x ATR4h 102.04)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 428,
+            "ambiguous": false
+          },
+          "netDir": -1.1997595505617977,
+          "netSens": -1.117505617977528
+        },
+        {
+          "closedThrough": "2026-09-13T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.75,
+          "stop": 101.21,
+          "tp1": 102.83,
+          "tp2": 107.33,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 101.26 vs EMA21 101.62, now 101.75 vs 101.63)",
+            "stop = max(pullback extreme 101.21, 1.5x ATR4h 99.34)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 414,
+            "ambiguous": false
+          },
+          "netDir": -1.6406481481481405,
+          "netSens": -1.3768518518518476
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 14,
+        "resolved": 13,
+        "winPct": 38.46,
+        "grossExpR": 0.1538,
+        "netExpR": -0.1104,
+        "netExpR_sens020": -0.0852,
+        "maxLosingStreak": 4,
+        "medianHoldHours": 13.62,
+        "medianStopPct": 1.37,
+        "timeouts": 0
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-01T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1576.25,
+          "stop": 1596.21,
+          "tp1": 1536.33,
+          "tp2": 1510,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 1592.15 vs EMA21 1584.08, now 1576.25 vs 1583.37)",
+            "stop = min(pullback extreme 1596.21, 1.5x ATR4h 1619.62)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 370,
+            "ambiguous": false
+          },
+          "netDir": -1.1105586172344688,
+          "netSens": -1.1579408817635268
+        },
+        {
+          "closedThrough": "2026-08-16T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1881.19,
+          "stop": 1884,
+          "tp1": 1875.57,
+          "tp2": 1852.43,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 1882.79 vs EMA21 1882.42, now 1881.19 vs 1882.31)",
+            "stop = min(pullback extreme 1884, 1.5x ATR4h 1896.47)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 100,
+            "timeToTP1Candles": 100
+          },
+          "netDir": 1.0627523131672416,
+          "netSens": 0.6610747330960594
+        },
+        {
+          "closedThrough": "2026-08-17T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1873.89,
+          "stop": 1884.587143,
+          "tp1": 1852.495714,
+          "tp2": 1852.43,
+          "reason": [
+            "1D trend bear (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 1883.92 vs EMA21 1881.89, now 1873.89 vs 1881.16)",
+            "stop = min(pullback extreme 1889.96, 1.5x ATR4h 1884.59)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 62,
+            "ambiguous": false
+          },
+          "netDir": -1.2452473557692318,
+          "netSens": -1.350353365384617
+        },
+        {
+          "closedThrough": "2026-08-30T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2480.85,
+          "stop": 2448.116786,
+          "tp1": 2546.316429,
+          "tp2": 2546.62,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2459.67 vs EMA21 2460.18, now 2480.85 vs 2462.06)",
+            "stop = max(pullback extreme 2406.16, 1.5x ATR4h 2448.12)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 444,
+            "ambiguous": false
+          },
+          "netDir": -1.257685967726096,
+          "netSens": -1.1515799810153506
+        },
+        {
+          "closedThrough": "2026-08-31T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2466.98,
+          "stop": 2422.113929,
+          "tp1": 2556.712143,
+          "tp2": 2565.3,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2445.64 vs EMA21 2455.2, now 2466.98 vs 2456.27)",
+            "stop = max(pullback extreme 2386.17, 1.5x ATR4h 2422.11)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1477,
+            "ambiguous": false
+          },
+          "netDir": -1.186950444577114,
+          "netSens": -1.1099708497512435
+        },
+        {
+          "closedThrough": "2026-09-03T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2517.04,
+          "stop": 2454.288571,
+          "tp1": 2642.542857,
+          "tp2": 2565.3,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2406.51 vs EMA21 2421.5, now 2517.04 vs 2430.19)",
+            "stop = max(pullback extreme 2355.48, 1.5x ATR4h 2454.29)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1232,
+            "ambiguous": false
+          },
+          "netDir": -1.13637834539908,
+          "netSens": -1.080222556117106
+        },
+        {
+          "closedThrough": "2026-09-05T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2460.1,
+          "stop": 2431.71,
+          "tp1": 2516.88,
+          "tp2": 2565.3,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2453.87 vs EMA21 2458.34, now 2460.1 vs 2458.5)",
+            "stop = max(pullback extreme 2431.71, 1.5x ATR4h 2409.5)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 817,
+            "timeToTP1Candles": 817
+          },
+          "netDir": 1.7053772455089808,
+          "netSens": 1.826692497358224
+        },
+        {
+          "closedThrough": "2026-09-07T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2495.7,
+          "stop": 2465.84,
+          "tp1": 2555.42,
+          "tp2": 2565.3,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2469.33 vs EMA21 2480.32, now 2495.7 vs 2481.72)",
+            "stop = max(pullback extreme 2465.84, 1.5x ATR4h 2451.64)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 623,
+            "ambiguous": false
+          },
+          "netDir": -1.2841721366376455,
+          "netSens": -1.1671600803750855
+        },
+        {
+          "closedThrough": "2026-09-08T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2498.26,
+          "stop": 2462.57,
+          "tp1": 2569.64,
+          "tp2": 2546.4,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2474.04 vs EMA21 2481.58, now 2498.26 vs 2483.1)",
+            "stop = max(pullback extreme 2462.57, 1.5x ATR4h 2450.76)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1674,
+            "ambiguous": false
+          },
+          "netDir": -1.2379961894087976,
+          "netSens": -1.1399977584757632
+        },
+        {
+          "closedThrough": "2026-09-09T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2484.92,
+          "stop": 2476,
+          "tp1": 2502.76,
+          "tp2": 2546.4,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2482.3 vs EMA21 2483.02, now 2484.92 vs 2483.2)",
+            "stop = max(pullback extreme 2476, 1.5x ATR4h 2438.57)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-09-11T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2559.01,
+          "stop": 2486.891071,
+          "tp1": 2703.247857,
+          "tp2": 2565.3,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2457.6 vs EMA21 2468.18, now 2559.01 vs 2476.43)",
+            "stop = max(pullback extreme 2404.95, 1.5x ATR4h 2486.89)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 2441,
+            "ambiguous": false
+          },
+          "netDir": -1.1206428627316982,
+          "netSens": -1.0709663898421753
+        },
+        {
+          "closedThrough": "2026-09-13T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2505.11,
+          "stop": 2461.69,
+          "tp1": 2591.95,
+          "tp2": 2546.4,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2490.32 vs EMA21 2502.03, now 2505.11 vs 2502.31)",
+            "stop = max(pullback extreme 2461.69, 1.5x ATR4h 2446.89)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 1339,
+            "timeToTP1Candles": 1339
+          },
+          "netDir": 1.8038375403040077,
+          "netSens": 1.8846103178258868
+        },
+        {
+          "closedThrough": "2026-09-14T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2511.82,
+          "stop": 2473.610714,
+          "tp1": 2588.238571,
+          "tp2": 2546.4,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2475.94 vs EMA21 2499.91, now 2511.82 vs 2501)",
+            "stop = max(pullback extreme 2469.81, 1.5x ATR4h 2473.61)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 979,
+            "timeToTP1Candles": 979
+          },
+          "netDir": 1.7764892004561341,
+          "netSens": 1.8685230590918436
+        },
+        {
+          "closedThrough": "2026-09-18T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2476.65,
+          "stop": 2435.47,
+          "tp1": 2559.01,
+          "tp2": 2664.81,
+          "reason": [
+            "1D trend bull (EMA21/EMA200 stack + 5d EMA21 slope)",
+            "4h close reclaimed EMA21(4h) after a pullback (prev close 2445.34 vs EMA21 2446.91, now 2476.65 vs 2449.62)",
+            "stop = max(pullback extreme 2435.47, 1.5x ATR4h 2423.25)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 588,
+            "timeToTP1Candles": 588
+          },
+          "netDir": 1.7955169985429835,
+          "netSens": 1.8797158814958725
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,1775 @@
+{
+  "meta": {
+    "id": "pb-channel-edge-4h",
+    "label": "4h channel edge (with-channel-trend only)",
+    "source": "docs/MASTER_PLAN_TRADING_MODEL.md M-3, M-4",
+    "tf": "4h",
+    "holdMaxHours": 24,
+    "stopKind": "atr",
+    "notes": "M-3: identify the channel price trades in and aim at its top (long side) or bottom (short side); this rule uses the 4h channel from lib/geometry.js swingPivots/fitDiagonal/channel.\nM-4: counter-sentiment fades need a breakout read this rule does not attempt, so it only takes the lower edge of a *rising* channel long, or the upper edge of a *falling* channel short - the fade-the-channel-slope case is left out entirely, not defaulted to a weaker signal.\nStop sits 0.5x ATR(4h) outside the channel edge (a clean break invalidates the channel read); TP1 is mid-channel, TP2 the far edge, both read directly off channel()."
+  },
+  "generatedAt": "2026-09-27T02:16:06.867Z",
+  "runtimeMs": 4449,
+  "combined": {
+    "stats": {
+      "n": 77,
+      "resolved": 77,
+      "winPct": 38.96,
+      "grossExpR": -0.0206,
+      "netExpR": -0.4796,
+      "netExpR_sens020": -0.3106,
+      "maxLosingStreak": 14,
+      "medianHoldHours": 24,
+      "medianStopPct": 3.259,
+      "timeouts": 52
+    },
+    "oos": {
+      "firstHalf": 0.0561,
+      "secondHalf": -1.0015
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 5,
+        "resolved": 5,
+        "winPct": 100,
+        "grossExpR": 0.8295,
+        "netExpR": 0.4152,
+        "netExpR_sens020": 0.5858,
+        "maxLosingStreak": 0,
+        "medianHoldHours": 24,
+        "medianStopPct": 0.843,
+        "timeouts": 5
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-25T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64025.8,
+          "stop": 63469.325,
+          "tp1": 65687.31,
+          "tp2": 67630.3,
+          "reason": [
+            "4h channel rising, positionPct 7.2 (at lower edge)",
+            "entry at channel edge close 64025.8; stop 0.5x ATR4h (549.9900) beyond the edge",
+            "TP1 = mid-channel 65687.31, TP2 = far edge 67630.3"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8194,
+            "holdCandles": 1440,
+            "exit": 64481.8
+          },
+          "netDir": 0.4282095242373913,
+          "netSens": 0.5892879554337596
+        },
+        {
+          "closedThrough": "2026-07-25T08:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 63965.1,
+          "stop": 63509.635,
+          "tp1": 65719.08,
+          "tp2": 67664.73,
+          "reason": [
+            "4h channel rising, positionPct 4.9 (at lower edge)",
+            "entry at channel edge close 63965.1; stop 0.5x ATR4h (527.5900) beyond the edge",
+            "TP1 = mid-channel 65719.08, TP2 = far edge 67664.73"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.7577,
+            "holdCandles": 1440,
+            "exit": 64310.2
+          },
+          "netDir": 0.28020702029793365,
+          "netSens": 0.47682177664584335
+        },
+        {
+          "closedThrough": "2026-07-25T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 63991.5,
+          "stop": 63547.275,
+          "tp1": 65750.85,
+          "tp2": 67699.16,
+          "reason": [
+            "4h channel rising, positionPct 4.8 (at lower edge)",
+            "entry at channel edge close 63991.5; stop 0.5x ATR4h (510.5300) beyond the edge",
+            "TP1 = mid-channel 65750.85, TP2 = far edge 67699.16"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.0348,
+            "holdCandles": 1440,
+            "exit": 64451.2
+          },
+          "netDir": 0.5450231977038646,
+          "netSens": 0.7466959986493321
+        },
+        {
+          "closedThrough": "2026-07-25T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64127.1,
+          "stop": 63586.505,
+          "tp1": 65782.62,
+          "tp2": 67733.59,
+          "reason": [
+            "4h channel rising, positionPct 7.6 (at lower edge)",
+            "entry at channel edge close 64127.1; stop 0.5x ATR4h (490.2900) beyond the edge",
+            "TP1 = mid-channel 65782.62, TP2 = far edge 67733.59"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.0942,
+            "holdCandles": 1440,
+            "exit": 64718.6
+          },
+          "netDir": 0.6908811753715769,
+          "netSens": 0.8569536325715158
+        },
+        {
+          "closedThrough": "2026-07-25T20:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64328.5,
+          "stop": 63621.855,
+          "tp1": 65814.385,
+          "tp2": 67768.02,
+          "reason": [
+            "4h channel rising, positionPct 12 (at lower edge)",
+            "entry at channel edge close 64328.5; stop 0.5x ATR4h (477.7900) beyond the edge",
+            "TP1 = mid-channel 65814.38500000001, TP2 = far edge 67768.02"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.4412,
+            "holdCandles": 1440,
+            "exit": 64640.3
+          },
+          "netDir": 0.13168546299768485,
+          "netSens": 0.25913262529275577
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 55,
+        "resolved": 55,
+        "winPct": 36.36,
+        "grossExpR": -0.0878,
+        "netExpR": -0.6609,
+        "netExpR_sens020": -0.4516,
+        "maxLosingStreak": 14,
+        "medianHoldHours": 24,
+        "medianStopPct": 3.567,
+        "timeouts": 34
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-06T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 81.51,
+          "stop": 79.76449,
+          "tp1": 84.238185,
+          "tp2": 88.02688,
+          "reason": [
+            "4h channel rising, positionPct 14 (at lower edge)",
+            "entry at channel edge close 81.51; stop 0.5x ATR4h (1.3700) beyond the edge",
+            "TP1 = mid-channel 84.238185, TP2 = far edge 88.02688"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 724,
+            "ambiguous": false
+          },
+          "netDir": -1.1587696432561247,
+          "netSens": -1.0933939077977204
+        },
+        {
+          "closedThrough": "2026-07-06T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 80.68,
+          "stop": 80.01932,
+          "tp1": 84.50112,
+          "tp2": 88.28292,
+          "reason": [
+            "4h channel rising, positionPct -0.5 (at lower edge)",
+            "entry at channel edge close 80.68; stop 0.5x ATR4h (1.4000) beyond the edge",
+            "TP1 = mid-channel 84.50112, TP2 = far edge 88.28292"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 346,
+            "ambiguous": false
+          },
+          "netDir": -1.4151964642489472,
+          "netSens": -1.2442332142640866
+        },
+        {
+          "closedThrough": "2026-07-06T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 80.73,
+          "stop": 80.30915,
+          "tp1": 84.764055,
+          "tp2": 88.53896,
+          "reason": [
+            "4h channel rising, positionPct -3.4 (at lower edge)",
+            "entry at channel edge close 80.73; stop 0.5x ATR4h (1.3600) beyond the edge",
+            "TP1 = mid-channel 84.764055, TP2 = far edge 88.53896"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 25,
+            "ambiguous": false
+          },
+          "netDir": -1.65220862540095,
+          "netSens": -1.383652132588794
+        },
+        {
+          "closedThrough": "2026-08-03T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.52,
+          "stop": 74.34526,
+          "tp1": 71.908275,
+          "tp2": 69.91129,
+          "reason": [
+            "4h channel falling, positionPct 90.4 (at upper edge)",
+            "entry at channel edge close 73.52; stop 0.5x ATR4h (0.8800) beyond the edge",
+            "TP1 = mid-channel 71.908275, TP2 = far edge 69.91129"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4605,
+            "holdCandles": 1440,
+            "exit": 73.9
+          },
+          "netDir": -0.5852219058236192,
+          "netSens": -0.6386741511765989
+        },
+        {
+          "closedThrough": "2026-08-03T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.96,
+          "stop": 74.26658,
+          "tp1": 71.836275,
+          "tp2": 69.85097,
+          "reason": [
+            "4h channel falling, positionPct 103.5 (at upper edge)",
+            "entry at channel edge close 73.96; stop 0.5x ATR4h (0.8900) beyond the edge",
+            "TP1 = mid-channel 71.836275, TP2 = far edge 69.85097"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1346,
+            "ambiguous": false
+          },
+          "netDir": -1.3377389262182826,
+          "netSens": -1.4824841803118325
+        },
+        {
+          "closedThrough": "2026-08-04T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.49,
+          "stop": 74.17789,
+          "tp1": 71.76427,
+          "tp2": 69.79065,
+          "reason": [
+            "4h channel falling, positionPct 93.7 (at upper edge)",
+            "entry at channel edge close 73.49; stop 0.5x ATR4h (0.8800) beyond the edge",
+            "TP1 = mid-channel 71.76427, TP2 = far edge 69.79065"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1101,
+            "ambiguous": false
+          },
+          "netDir": -1.1495675180624818,
+          "netSens": -1.2136678829464027
+        },
+        {
+          "closedThrough": "2026-08-04T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.63,
+          "stop": 74.09921,
+          "tp1": 71.692265,
+          "tp2": 69.73032,
+          "reason": [
+            "4h channel falling, positionPct 99.4 (at upper edge)",
+            "entry at channel edge close 73.63; stop 0.5x ATR4h (0.8900) beyond the edge",
+            "TP1 = mid-channel 71.692265, TP2 = far edge 69.73032"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 713,
+            "ambiguous": false
+          },
+          "netDir": -1.219692674921675,
+          "netSens": -1.3138466784595357
+        },
+        {
+          "closedThrough": "2026-08-05T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.9,
+          "stop": 74.67353,
+          "tp1": 71.715475,
+          "tp2": 69.18742,
+          "reason": [
+            "4h channel falling, positionPct 93.2 (at upper edge)",
+            "entry at channel edge close 73.9; stop 0.5x ATR4h (0.8600) beyond the edge",
+            "TP1 = mid-channel 71.715475, TP2 = far edge 69.18742"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 141,
+            "ambiguous": false
+          },
+          "netDir": -1.1337504686308209,
+          "netSens": -1.19107209804403
+        },
+        {
+          "closedThrough": "2026-08-05T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.41,
+          "stop": 74.61471,
+          "tp1": 71.655905,
+          "tp2": 69.1271,
+          "reason": [
+            "4h channel falling, positionPct 104.5 (at upper edge)",
+            "entry at channel edge close 74.41; stop 0.5x ATR4h (0.8600) beyond the edge",
+            "TP1 = mid-channel 71.65590499999999, TP2 = far edge 69.1271"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 8.1579,
+            "holdCandles": 1440,
+            "exit": 72.74
+          },
+          "netDir": 7.649014259195949,
+          "netSens": 7.430920370279928
+        },
+        {
+          "closedThrough": "2026-08-06T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.97,
+          "stop": 74.55088,
+          "tp1": 71.596325,
+          "tp2": 69.06677,
+          "reason": [
+            "4h channel falling, positionPct 96.9 (at upper edge)",
+            "entry at channel edge close 73.97; stop 0.5x ATR4h (0.8500) beyond the edge",
+            "TP1 = mid-channel 71.59632500000001, TP2 = far edge 69.06677"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 2.3068,
+            "holdCandles": 1440,
+            "exit": 72.63
+          },
+          "netDir": 2.1285222145709937,
+          "netSens": 2.0521174493871337
+        },
+        {
+          "closedThrough": "2026-08-06T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.42,
+          "stop": 74.49206,
+          "tp1": 71.536755,
+          "tp2": 69.00645,
+          "reason": [
+            "4h channel falling, positionPct 87.2 (at upper edge)",
+            "entry at channel edge close 73.42; stop 0.5x ATR4h (0.8500) beyond the edge",
+            "TP1 = mid-channel 71.536755, TP2 = far edge 69.00645"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8022,
+            "holdCandles": 1440,
+            "exit": 72.56
+          },
+          "netDir": 0.7063210380016038,
+          "netSens": 0.6652300542880054
+        },
+        {
+          "closedThrough": "2026-08-31T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.38,
+          "stop": 100.011,
+          "tp1": 110.61895,
+          "tp2": 120.1469,
+          "reason": [
+            "4h channel rising, positionPct 12 (at lower edge)",
+            "entry at channel edge close 103.38; stop 0.5x ATR4h (2.1600) beyond the edge",
+            "TP1 = mid-channel 110.61895, TP2 = far edge 120.1469"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.3324,
+            "holdCandles": 1440,
+            "exit": 102.26
+          },
+          "netDir": -0.43673125556544967,
+          "netSens": -0.3937713268032057
+        },
+        {
+          "closedThrough": "2026-08-31T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.79,
+          "stop": 100.2696,
+          "tp1": 110.9678,
+          "tp2": 120.601,
+          "reason": [
+            "4h channel rising, positionPct 7.6 (at lower edge)",
+            "entry at channel edge close 102.79; stop 0.5x ATR4h (2.1300) beyond the edge",
+            "TP1 = mid-channel 110.9678, TP2 = far edge 120.601"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.3095,
+            "holdCandles": 1440,
+            "exit": 102.01
+          },
+          "netDir": -0.4481629106491028,
+          "netSens": -0.391066418028884
+        },
+        {
+          "closedThrough": "2026-08-31T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.6,
+          "stop": 100.4983,
+          "tp1": 111.31675,
+          "tp2": 121.0552,
+          "reason": [
+            "4h channel rising, positionPct 10.4 (at lower edge)",
+            "entry at channel edge close 103.6; stop 0.5x ATR4h (2.1600) beyond the edge",
+            "TP1 = mid-channel 111.31675, TP2 = far edge 121.0552"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1315,
+            "ambiguous": false
+          },
+          "netDir": -1.113563529677274,
+          "netSens": -1.0668020762807493
+        },
+        {
+          "closedThrough": "2026-09-01T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.04,
+          "stop": 100.7719,
+          "tp1": 111.6656,
+          "tp2": 121.5093,
+          "reason": [
+            "4h channel rising, positionPct 6.2 (at lower edge)",
+            "entry at channel edge close 103.04; stop 0.5x ATR4h (2.1000) beyond the edge",
+            "TP1 = mid-channel 111.6656, TP2 = far edge 121.5093"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 997,
+            "ambiguous": false
+          },
+          "netDir": -1.154462325294299,
+          "netSens": -1.0908601913495877
+        },
+        {
+          "closedThrough": "2026-09-01T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.63,
+          "stop": 101.0406,
+          "tp1": 112.0145,
+          "tp2": 121.9634,
+          "reason": [
+            "4h channel rising, positionPct 7.9 (at lower edge)",
+            "entry at channel edge close 103.63; stop 0.5x ATR4h (2.0500) beyond the edge",
+            "TP1 = mid-channel 112.0145, TP2 = far edge 121.9634"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 668,
+            "ambiguous": false
+          },
+          "netDir": -1.136070904456631,
+          "netSens": -1.0800417085039007
+        },
+        {
+          "closedThrough": "2026-09-01T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.14,
+          "stop": 101.3042,
+          "tp1": 112.3634,
+          "tp2": 122.4176,
+          "reason": [
+            "4h channel rising, positionPct 4.1 (at lower edge)",
+            "entry at channel edge close 103.14; stop 0.5x ATR4h (2.0100) beyond the edge",
+            "TP1 = mid-channel 112.3634, TP2 = far edge 122.4176"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 426,
+            "ambiguous": false
+          },
+          "netDir": -1.1910208083669254,
+          "netSens": -1.112365181392309
+        },
+        {
+          "closedThrough": "2026-09-01T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.26,
+          "stop": 101.5679,
+          "tp1": 112.7123,
+          "tp2": 122.8717,
+          "reason": [
+            "4h channel rising, positionPct -1.4 (at lower edge)",
+            "entry at channel edge close 102.26; stop 0.5x ATR4h (1.9700) beyond the edge",
+            "TP1 = mid-channel 112.7123, TP2 = far edge 122.8717"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 37,
+            "ambiguous": false
+          },
+          "netDir": -1.502360930501365,
+          "netSens": -1.2955064297066854
+        },
+        {
+          "closedThrough": "2026-09-02T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 99.79,
+          "stop": 97.6106,
+          "tp1": 111.8615,
+          "tp2": 125.1424,
+          "reason": [
+            "4h channel rising, positionPct 4.6 (at lower edge)",
+            "entry at channel edge close 99.79; stop 0.5x ATR4h (1.9400) beyond the edge",
+            "TP1 = mid-channel 111.8615, TP2 = far edge 125.1424"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 169,
+            "ambiguous": false
+          },
+          "netDir": -1.1556786271450856,
+          "netSens": -1.091575663026521
+        },
+        {
+          "closedThrough": "2026-09-03T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 100.4,
+          "stop": 96.59556,
+          "tp1": 112.25728,
+          "tp2": 126.959,
+          "reason": [
+            "4h channel rising, positionPct 9.7 (at lower edge)",
+            "entry at channel edge close 100.4; stop 0.5x ATR4h (1.9200) beyond the edge",
+            "TP1 = mid-channel 112.25728000000001, TP2 = far edge 126.959"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.9331,
+            "holdCandles": 1440,
+            "exit": 103.95
+          },
+          "netDir": 0.843373259665023,
+          "netSens": 0.8803195645088371
+        },
+        {
+          "closedThrough": "2026-09-03T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 100.47,
+          "stop": 96.66574,
+          "tp1": 112.52192,
+          "tp2": 127.4131,
+          "reason": [
+            "4h channel rising, positionPct 9.5 (at lower edge)",
+            "entry at channel edge close 100.47; stop 0.5x ATR4h (1.9300) beyond the edge",
+            "TP1 = mid-channel 112.52192, TP2 = far edge 127.4131"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8438,
+            "holdCandles": 1440,
+            "exit": 103.68
+          },
+          "netDir": 0.7540064527661096,
+          "netSens": 0.7909802663330057
+        },
+        {
+          "closedThrough": "2026-09-03T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 100.35,
+          "stop": 96.75093,
+          "tp1": 112.786565,
+          "tp2": 127.8672,
+          "reason": [
+            "4h channel rising, positionPct 8.8 (at lower edge)",
+            "entry at channel edge close 100.35; stop 0.5x ATR4h (1.9100) beyond the edge",
+            "TP1 = mid-channel 112.786565, TP2 = far edge 127.8672"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.903,
+            "holdCandles": 1440,
+            "exit": 103.6
+          },
+          "netDir": 0.8082005101317841,
+          "netSens": 0.847235594195167
+        },
+        {
+          "closedThrough": "2026-09-03T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 100.76,
+          "stop": 96.85111,
+          "tp1": 113.051255,
+          "tp2": 128.3214,
+          "reason": [
+            "4h channel rising, positionPct 9.8 (at lower edge)",
+            "entry at channel edge close 100.76; stop 0.5x ATR4h (1.8600) beyond the edge",
+            "TP1 = mid-channel 113.051255, TP2 = far edge 128.3214"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.8519,
+            "holdCandles": 1440,
+            "exit": 104.09
+          },
+          "netDir": 0.7642577281530054,
+          "netSens": 0.8003457224429443
+        },
+        {
+          "closedThrough": "2026-09-04T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.46,
+          "stop": 97.26741,
+          "tp1": 114.903855,
+          "tp2": 131.5003,
+          "reason": [
+            "4h channel rising, positionPct 9.5 (at lower edge)",
+            "entry at channel edge close 101.46; stop 0.5x ATR4h (2.0800) beyond the edge",
+            "TP1 = mid-channel 114.90385500000001, TP2 = far edge 131.5003"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3625,
+            "holdCandles": 1440,
+            "exit": 102.98
+          },
+          "netDir": 0.280220549827195,
+          "netSens": 0.3141003234277618
+        },
+        {
+          "closedThrough": "2026-09-04T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.72,
+          "stop": 97.37759,
+          "tp1": 115.168545,
+          "tp2": 131.9545,
+          "reason": [
+            "4h channel rising, positionPct 9.9 (at lower edge)",
+            "entry at channel edge close 101.72; stop 0.5x ATR4h (2.0100) beyond the edge",
+            "TP1 = mid-channel 115.168545, TP2 = far edge 131.9545"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3915,
+            "holdCandles": 1440,
+            "exit": 103.42
+          },
+          "netDir": 0.31185574715423003,
+          "netSens": 0.3446504395024883
+        },
+        {
+          "closedThrough": "2026-09-05T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.94,
+          "stop": 97.50778,
+          "tp1": 115.43319,
+          "tp2": 132.4086,
+          "reason": [
+            "4h channel rising, positionPct 10.3 (at lower edge)",
+            "entry at channel edge close 101.94; stop 0.5x ATR4h (1.9000) beyond the edge",
+            "TP1 = mid-channel 115.43319, TP2 = far edge 132.4086"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.2775,
+            "holdCandles": 1440,
+            "exit": 103.17
+          },
+          "netDir": 0.19930081313653208,
+          "netSens": 0.2315004783156071
+        },
+        {
+          "closedThrough": "2026-09-05T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.9,
+          "stop": 97.63296,
+          "tp1": 115.69788,
+          "tp2": 132.8628,
+          "reason": [
+            "4h channel rising, positionPct 9.8 (at lower edge)",
+            "entry at channel edge close 101.9; stop 0.5x ATR4h (1.8000) beyond the edge",
+            "TP1 = mid-channel 115.69788, TP2 = far edge 132.8628"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.9538,
+            "holdCandles": 1440,
+            "exit": 105.97
+          },
+          "netDir": 0.8726055420150738,
+          "netSens": 0.906038554126514
+        },
+        {
+          "closedThrough": "2026-09-05T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.23,
+          "stop": 97.73815,
+          "tp1": 115.962525,
+          "tp2": 133.3169,
+          "reason": [
+            "4h channel rising, positionPct 10.4 (at lower edge)",
+            "entry at channel edge close 102.23; stop 0.5x ATR4h (1.7400) beyond the edge",
+            "TP1 = mid-channel 115.962525, TP2 = far edge 133.3169"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.6701,
+            "holdCandles": 1440,
+            "exit": 105.24
+          },
+          "netDir": 0.5927194107105093,
+          "netSens": 0.6245820063002996
+        },
+        {
+          "closedThrough": "2026-09-05T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.36,
+          "stop": 97.84833,
+          "tp1": 116.227165,
+          "tp2": 133.771,
+          "reason": [
+            "4h channel rising, positionPct 10.5 (at lower edge)",
+            "entry at channel edge close 102.36; stop 0.5x ATR4h (1.6700) beyond the edge",
+            "TP1 = mid-channel 116.22716499999999, TP2 = far edge 133.771"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.911,
+            "holdCandles": 1440,
+            "exit": 106.47
+          },
+          "netDir": 0.8338613794891914,
+          "netSens": 0.8656243408759949
+        },
+        {
+          "closedThrough": "2026-09-05T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.95,
+          "stop": 97.94352,
+          "tp1": 116.49186,
+          "tp2": 134.2252,
+          "reason": [
+            "4h channel rising, positionPct 11.8 (at lower edge)",
+            "entry at channel edge close 102.95; stop 0.5x ATR4h (1.6300) beyond the edge",
+            "TP1 = mid-channel 116.49186, TP2 = far edge 134.2252"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.5613,
+            "holdCandles": 1440,
+            "exit": 105.76
+          },
+          "netDir": 0.49138461034499287,
+          "netSens": 0.520173300202937
+        },
+        {
+          "closedThrough": "2026-09-05T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.42,
+          "stop": 98.0237,
+          "tp1": 116.7565,
+          "tp2": 134.6793,
+          "reason": [
+            "4h channel rising, positionPct 12.8 (at lower edge)",
+            "entry at channel edge close 103.42; stop 0.5x ATR4h (1.6200) beyond the edge",
+            "TP1 = mid-channel 116.7565, TP2 = far edge 134.6793"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3817,
+            "holdCandles": 1440,
+            "exit": 105.48
+          },
+          "netDir": 0.3165390563904899,
+          "netSens": 0.3433700331708764
+        },
+        {
+          "closedThrough": "2026-09-06T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.17,
+          "stop": 98.11889,
+          "tp1": 117.021145,
+          "tp2": 135.1334,
+          "reason": [
+            "4h channel rising, positionPct 11.8 (at lower edge)",
+            "entry at channel edge close 103.17; stop 0.5x ATR4h (1.5800) beyond the edge",
+            "TP1 = mid-channel 117.02114499999999, TP2 = far edge 135.1334"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.6672,
+            "holdCandles": 1440,
+            "exit": 106.54
+          },
+          "netDir": 0.5977542742090354,
+          "netSens": 0.6263495730641384
+        },
+        {
+          "closedThrough": "2026-09-07T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.94,
+          "stop": 98.52519,
+          "tp1": 118.873795,
+          "tp2": 138.3124,
+          "reason": [
+            "4h channel rising, positionPct 14.2 (at lower edge)",
+            "entry at channel edge close 104.94; stop 0.5x ATR4h (1.8200) beyond the edge",
+            "TP1 = mid-channel 118.873795, TP2 = far edge 138.3124"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2479,
+            "holdCandles": 1440,
+            "exit": 103.35
+          },
+          "netDir": -0.30352066530419464,
+          "netSens": -0.28061803841423216
+        },
+        {
+          "closedThrough": "2026-09-07T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.44,
+          "stop": 98.58537,
+          "tp1": 119.138485,
+          "tp2": 138.7666,
+          "reason": [
+            "4h channel rising, positionPct 12.6 (at lower edge)",
+            "entry at channel edge close 104.44; stop 0.5x ATR4h (1.8500) beyond the edge",
+            "TP1 = mid-channel 119.138485, TP2 = far edge 138.7666"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2562,
+            "holdCandles": 1440,
+            "exit": 102.94
+          },
+          "netDir": -0.31685216760068524,
+          "netSens": -0.2918777456474619
+        },
+        {
+          "closedThrough": "2026-09-07T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.92,
+          "stop": 98.70056,
+          "tp1": 119.40313,
+          "tp2": 139.2207,
+          "reason": [
+            "4h channel rising, positionPct 13.5 (at lower edge)",
+            "entry at channel edge close 104.92; stop 0.5x ATR4h (1.7700) beyond the edge",
+            "TP1 = mid-channel 119.40313, TP2 = far edge 139.2207"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.3328,
+            "holdCandles": 1440,
+            "exit": 102.85
+          },
+          "netDir": -0.3901569324569414,
+          "netSens": -0.36653937203349496
+        },
+        {
+          "closedThrough": "2026-09-07T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.25,
+          "stop": 98.73574,
+          "tp1": 119.66777,
+          "tp2": 139.6748,
+          "reason": [
+            "4h channel rising, positionPct 9 (at lower edge)",
+            "entry at channel edge close 103.25; stop 0.5x ATR4h (1.8500) beyond the edge",
+            "TP1 = mid-channel 119.66777, TP2 = far edge 139.6748"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.2437,
+            "holdCandles": 1440,
+            "exit": 104.35
+          },
+          "netDir": 0.16593531653028393,
+          "netSens": 0.19795606854722583
+        },
+        {
+          "closedThrough": "2026-09-07T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.36,
+          "stop": 98.83593,
+          "tp1": 119.932465,
+          "tp2": 140.129,
+          "reason": [
+            "4h channel rising, positionPct 11.4 (at lower edge)",
+            "entry at channel edge close 104.36; stop 0.5x ATR4h (1.8000) beyond the edge",
+            "TP1 = mid-channel 119.932465, TP2 = far edge 140.129"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2046,
+            "holdCandles": 1440,
+            "exit": 103.23
+          },
+          "netDir": -0.26883235042278597,
+          "netSens": -0.24238373554281528
+        },
+        {
+          "closedThrough": "2026-09-08T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.78,
+          "stop": 98.93111,
+          "tp1": 120.197105,
+          "tp2": 140.5831,
+          "reason": [
+            "4h channel rising, positionPct 9.7 (at lower edge)",
+            "entry at channel edge close 103.78; stop 0.5x ATR4h (1.7600) beyond the edge",
+            "TP1 = mid-channel 120.197105, TP2 = far edge 140.5831"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.0846,
+            "holdCandles": 1440,
+            "exit": 103.37
+          },
+          "netDir": -0.1573696441866077,
+          "netSens": -0.1274056730509457
+        },
+        {
+          "closedThrough": "2026-09-08T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.35,
+          "stop": 99.0063,
+          "tp1": 120.46175,
+          "tp2": 141.0372,
+          "reason": [
+            "4h channel rising, positionPct 8.4 (at lower edge)",
+            "entry at channel edge close 103.35; stop 0.5x ATR4h (1.7600) beyond the edge",
+            "TP1 = mid-channel 120.46175000000001, TP2 = far edge 141.0372"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.0737,
+            "holdCandles": 1440,
+            "exit": 103.67
+          },
+          "netDir": -0.007196470750742742,
+          "netSens": 0.02611384073485721
+        },
+        {
+          "closedThrough": "2026-09-08T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.94,
+          "stop": 99.10148,
+          "tp1": 120.72644,
+          "tp2": 141.4914,
+          "reason": [
+            "4h channel rising, positionPct 7.2 (at lower edge)",
+            "entry at channel edge close 102.94; stop 0.5x ATR4h (1.7200) beyond the edge",
+            "TP1 = mid-channel 120.72644, TP2 = far edge 141.4914"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.4272,
+            "holdCandles": 1440,
+            "exit": 104.58
+          },
+          "netDir": 0.33602006606713014,
+          "netSens": 0.37356474474537066
+        },
+        {
+          "closedThrough": "2026-09-08T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.85,
+          "stop": 99.1817,
+          "tp1": 120.9911,
+          "tp2": 141.9455,
+          "reason": [
+            "4h channel rising, positionPct 6.7 (at lower edge)",
+            "entry at channel edge close 102.85; stop 0.5x ATR4h (1.7100) beyond the edge",
+            "TP1 = mid-channel 120.9911, TP2 = far edge 141.9455"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.3762,
+            "holdCandles": 1440,
+            "exit": 104.23
+          },
+          "netDir": 0.28087246408418076,
+          "netSens": 0.32012497887304747
+        },
+        {
+          "closedThrough": "2026-09-08T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.35,
+          "stop": 99.2069,
+          "tp1": 121.2558,
+          "tp2": 142.3997,
+          "reason": [
+            "4h channel rising, positionPct 10 (at lower edge)",
+            "entry at channel edge close 104.35; stop 0.5x ATR4h (1.8100) beyond the edge",
+            "TP1 = mid-channel 121.2558, TP2 = far edge 142.3997"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2528,
+            "holdCandles": 1440,
+            "exit": 103.05
+          },
+          "netDir": -0.321783686881453,
+          "netSens": -0.2933786393420312
+        },
+        {
+          "closedThrough": "2026-09-08T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.23,
+          "stop": 99.282,
+          "tp1": 121.5204,
+          "tp2": 142.8538,
+          "reason": [
+            "4h channel rising, positionPct 7.1 (at lower edge)",
+            "entry at channel edge close 103.23; stop 0.5x ATR4h (1.8100) beyond the edge",
+            "TP1 = mid-channel 121.5204, TP2 = far edge 142.8538"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.2254,
+            "holdCandles": 1440,
+            "exit": 102.34
+          },
+          "netDir": -0.31430121580547093,
+          "netSens": -0.2776948328267476
+        },
+        {
+          "closedThrough": "2026-09-09T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.37,
+          "stop": 99.3822,
+          "tp1": 121.78505,
+          "tp2": 143.3079,
+          "reason": [
+            "4h channel rising, positionPct 7.2 (at lower edge)",
+            "entry at channel edge close 103.37; stop 0.5x ATR4h (1.7600) beyond the edge",
+            "TP1 = mid-channel 121.78505, TP2 = far edge 143.3079"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4589,
+            "holdCandles": 1440,
+            "exit": 101.54
+          },
+          "netDir": -0.5470333065850846,
+          "netSens": -0.510743121520638
+        },
+        {
+          "closedThrough": "2026-09-09T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.31,
+          "stop": 99.4874,
+          "tp1": 122.04975,
+          "tp2": 143.7621,
+          "reason": [
+            "4h channel rising, positionPct 6.8 (at lower edge)",
+            "entry at channel edge close 103.31; stop 0.5x ATR4h (1.7000) beyond the edge",
+            "TP1 = mid-channel 122.04975, TP2 = far edge 143.7621"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.395,
+            "holdCandles": 1440,
+            "exit": 101.8
+          },
+          "netDir": -0.4868887668079319,
+          "netSens": -0.4490522157693717
+        },
+        {
+          "closedThrough": "2026-09-09T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.58,
+          "stop": 99.5576,
+          "tp1": 122.3144,
+          "tp2": 144.2162,
+          "reason": [
+            "4h channel rising, positionPct 9.5 (at lower edge)",
+            "entry at channel edge close 104.58; stop 0.5x ATR4h (1.7100) beyond the edge",
+            "TP1 = mid-channel 122.31439999999999, TP2 = far edge 144.2162"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.6571,
+            "holdCandles": 1440,
+            "exit": 101.28
+          },
+          "netDir": -0.7278972284166931,
+          "netSens": -0.6987454284804078
+        },
+        {
+          "closedThrough": "2026-09-09T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 104.23,
+          "stop": 99.6178,
+          "tp1": 122.57905,
+          "tp2": 144.6703,
+          "reason": [
+            "4h channel rising, positionPct 8.5 (at lower edge)",
+            "entry at channel edge close 104.23; stop 0.5x ATR4h (1.7400) beyond the edge",
+            "TP1 = mid-channel 122.57905, TP2 = far edge 144.6703"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.7047,
+            "holdCandles": 1440,
+            "exit": 100.98
+          },
+          "netDir": -0.7815357833571829,
+          "netSens": -0.7498975196218722
+        },
+        {
+          "closedThrough": "2026-09-09T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.05,
+          "stop": 99.658,
+          "tp1": 122.84375,
+          "tp2": 145.1245,
+          "reason": [
+            "4h channel rising, positionPct 5.6 (at lower edge)",
+            "entry at channel edge close 103.05; stop 0.5x ATR4h (1.8100) beyond the edge",
+            "TP1 = mid-channel 122.84375, TP2 = far edge 145.1245"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 1239,
+            "ambiguous": false
+          },
+          "netDir": -1.1032930424528302,
+          "netSens": -1.0607606132075473
+        },
+        {
+          "closedThrough": "2026-09-09T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 102.34,
+          "stop": 99.7381,
+          "tp1": 123.10835,
+          "tp2": 145.5786,
+          "reason": [
+            "4h channel rising, positionPct 3.8 (at lower edge)",
+            "entry at channel edge close 102.34; stop 0.5x ATR4h (1.8000) beyond the edge",
+            "TP1 = mid-channel 123.10835, TP2 = far edge 145.5786"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 999,
+            "ambiguous": false
+          },
+          "netDir": -1.1337315039009948,
+          "netSens": -1.0786655905299969
+        },
+        {
+          "closedThrough": "2026-09-10T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.54,
+          "stop": 99.7883,
+          "tp1": 123.37305,
+          "tp2": 146.0328,
+          "reason": [
+            "4h channel rising, positionPct 1.8 (at lower edge)",
+            "entry at channel edge close 101.54; stop 0.5x ATR4h (1.8500) beyond the edge",
+            "TP1 = mid-channel 123.37305, TP2 = far edge 146.0328"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 759,
+            "ambiguous": false
+          },
+          "netDir": -1.197086259062625,
+          "netSens": -1.11593309356625
+        },
+        {
+          "closedThrough": "2026-09-10T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.8,
+          "stop": 99.8785,
+          "tp1": 123.6377,
+          "tp2": 146.4869,
+          "reason": [
+            "4h channel rising, positionPct 2.2 (at lower edge)",
+            "entry at channel edge close 101.8; stop 0.5x ATR4h (1.8200) beyond the edge",
+            "TP1 = mid-channel 123.6377, TP2 = far edge 146.4869"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 519,
+            "ambiguous": false
+          },
+          "netDir": -1.1801301066874843,
+          "netSens": -1.1059588862867555
+        },
+        {
+          "closedThrough": "2026-09-10T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.28,
+          "stop": 99.9687,
+          "tp1": 123.90235,
+          "tp2": 146.941,
+          "reason": [
+            "4h channel rising, positionPct 0.9 (at lower edge)",
+            "entry at channel edge close 101.28; stop 0.5x ATR4h (1.7900) beyond the edge",
+            "TP1 = mid-channel 123.90235, TP2 = far edge 146.941"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 279,
+            "ambiguous": false
+          },
+          "netDir": -1.2626035232212303,
+          "netSens": -1.1544726607183708
+        },
+        {
+          "closedThrough": "2026-09-10T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 100.98,
+          "stop": 99.5363,
+          "tp1": 123.89325,
+          "tp2": 147.3952,
+          "reason": [
+            "4h channel rising, positionPct 1.3 (at lower edge)",
+            "entry at channel edge close 100.98; stop 0.5x ATR4h (1.7100) beyond the edge",
+            "TP1 = mid-channel 123.89325, TP2 = far edge 147.3952"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 40,
+            "ambiguous": false
+          },
+          "netDir": -1.2378139502666747,
+          "netSens": -1.139890558980397
+        },
+        {
+          "closedThrough": "2026-09-10T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 99.7,
+          "stop": 99.575,
+          "tp1": 124.16465,
+          "tp2": 147.8493,
+          "reason": [
+            "4h channel rising, positionPct -1.6 (at lower edge)",
+            "entry at channel edge close 99.7; stop 0.5x ATR4h (1.8100) beyond the edge",
+            "TP1 = mid-channel 124.16465, TP2 = far edge 147.8493"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 4,
+            "ambiguous": false
+          },
+          "netDir": -3.71184,
+          "netSens": -2.5952
+        },
+        {
+          "closedThrough": "2026-09-10T20:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 99.64,
+          "stop": 99.6239,
+          "tp1": 124.41115,
+          "tp2": 148.3034,
+          "reason": [
+            "4h channel rising, positionPct -1.8 (at lower edge)",
+            "entry at channel edge close 99.64; stop 0.5x ATR4h (1.7900) beyond the edge",
+            "TP1 = mid-channel 124.41115, TP2 = far edge 148.3034"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 153,
+            "ambiguous": false
+          },
+          "netDir": -22.041987577647,
+          "netSens": -13.37763975155706
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 17,
+        "resolved": 17,
+        "winPct": 29.41,
+        "grossExpR": -0.0534,
+        "netExpR": -0.1561,
+        "netExpR_sens020": -0.1179,
+        "maxLosingStreak": 11,
+        "medianHoldHours": 24,
+        "medianStopPct": 3.267,
+        "timeouts": 13
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-08-31T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2445.64,
+          "stop": 2365.751,
+          "tp1": 2975.3345,
+          "tp2": 3567.413,
+          "reason": [
+            "4h channel rising, positionPct 5.3 (at lower edge)",
+            "entry at channel edge close 2445.64; stop 0.5x ATR4h (35.0100) beyond the edge",
+            "TP1 = mid-channel 2975.3345, TP2 = far edge 3567.413"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 0.1302,
+            "holdCandles": 1440,
+            "exit": 2456.04
+          },
+          "netDir": 0.026115883288062372,
+          "netSens": 0.06897404899297786
+        },
+        {
+          "closedThrough": "2026-08-31T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2466.98,
+          "stop": 2364.61,
+          "tp1": 2983.8035,
+          "tp2": 3585.322,
+          "reason": [
+            "4h channel rising, positionPct 7 (at lower edge)",
+            "entry at channel edge close 2466.98; stop 0.5x ATR4h (35.3500) beyond the edge",
+            "TP1 = mid-channel 2983.8035, TP2 = far edge 3585.322"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.1826,
+            "holdCandles": 1440,
+            "exit": 2448.29
+          },
+          "netDir": -0.2645354498388197,
+          "netSens": -0.23079732343459983
+        },
+        {
+          "closedThrough": "2026-08-31T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2481.67,
+          "stop": 2363.908,
+          "tp1": 2992.2715,
+          "tp2": 3603.23,
+          "reason": [
+            "4h channel rising, positionPct 8.2 (at lower edge)",
+            "entry at channel edge close 2481.67; stop 0.5x ATR4h (34.8100) beyond the edge",
+            "TP1 = mid-channel 2992.2715, TP2 = far edge 3603.23"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.5419,
+            "holdCandles": 1440,
+            "exit": 2417.85
+          },
+          "netDir": -0.6135502606953006,
+          "netSens": -0.5840472121737063
+        },
+        {
+          "closedThrough": "2026-09-01T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2467.12,
+          "stop": 2363.322,
+          "tp1": 3000.7405,
+          "tp2": 3621.139,
+          "reason": [
+            "4h channel rising, positionPct 7 (at lower edge)",
+            "entry at channel edge close 2467.12; stop 0.5x ATR4h (34.0400) beyond the edge",
+            "TP1 = mid-channel 3000.7405, TP2 = far edge 3621.139"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4804,
+            "holdCandles": 1440,
+            "exit": 2417.26
+          },
+          "netDir": -0.5612128094953661,
+          "netSens": -0.5279369467619801
+        },
+        {
+          "closedThrough": "2026-09-01T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2471.55,
+          "stop": 2357.025,
+          "tp1": 3006.429,
+          "tp2": 3639.048,
+          "reason": [
+            "4h channel rising, positionPct 7.7 (at lower edge)",
+            "entry at channel edge close 2471.55; stop 0.5x ATR4h (33.5700) beyond the edge",
+            "TP1 = mid-channel 3006.429, TP2 = far edge 3639.048"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.5101,
+            "holdCandles": 1440,
+            "exit": 2413.13
+          },
+          "netDir": -0.5834749836280287,
+          "netSens": -0.5532617550753111
+        },
+        {
+          "closedThrough": "2026-09-01T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2472.07,
+          "stop": 2355.814,
+          "tp1": 3014.5,
+          "tp2": 3656.956,
+          "reason": [
+            "4h channel rising, positionPct 7.8 (at lower edge)",
+            "entry at channel edge close 2472.07; stop 0.5x ATR4h (32.4600) beyond the edge",
+            "TP1 = mid-channel 3014.5, TP2 = far edge 3656.956"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.4769,
+            "holdCandles": 1440,
+            "exit": 2416.63
+          },
+          "netDir": -0.5491976706578583,
+          "netSens": -0.519428041563446
+        },
+        {
+          "closedThrough": "2026-09-01T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2458.3,
+          "stop": 2354.153,
+          "tp1": 3022.5715,
+          "tp2": 3674.865,
+          "reason": [
+            "4h channel rising, positionPct 6.7 (at lower edge)",
+            "entry at channel edge close 2458.3; stop 0.5x ATR4h (32.2500) beyond the edge",
+            "TP1 = mid-channel 3022.5715, TP2 = far edge 3674.865"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.7481,
+            "holdCandles": 1440,
+            "exit": 2380.39
+          },
+          "netDir": -0.8283540639672767,
+          "netSens": -0.7953082729219275
+        },
+        {
+          "closedThrough": "2026-09-01T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2448.29,
+          "stop": 2352.472,
+          "tp1": 3030.643,
+          "tp2": 3692.774,
+          "reason": [
+            "4h channel rising, positionPct 6 (at lower edge)",
+            "entry at channel edge close 2448.29; stop 0.5x ATR4h (32.0800) beyond the edge",
+            "TP1 = mid-channel 3030.643, TP2 = far edge 3692.774"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.6122,
+            "holdCandles": 1440,
+            "exit": 2389.63
+          },
+          "netDir": -0.6990749712997559,
+          "netSens": -0.6633029242939741
+        },
+        {
+          "closedThrough": "2026-09-01T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2417.85,
+          "stop": 2358.205,
+          "tp1": 3043.0835,
+          "tp2": 3710.682,
+          "reason": [
+            "4h channel rising, positionPct 3.2 (at lower edge)",
+            "entry at channel edge close 2417.85; stop 0.5x ATR4h (34.5600) beyond the edge",
+            "TP1 = mid-channel 3043.0834999999997, TP2 = far edge 3710.682"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 874,
+            "ambiguous": false
+          },
+          "netDir": -1.1378269762763016,
+          "netSens": -1.0810746919272363
+        },
+        {
+          "closedThrough": "2026-09-02T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2417.26,
+          "stop": 2339.354,
+          "tp1": 3042.4525,
+          "tp2": 3728.591,
+          "reason": [
+            "4h channel rising, positionPct 4.4 (at lower edge)",
+            "entry at channel edge close 2417.26; stop 0.5x ATR4h (33.9200) beyond the edge",
+            "TP1 = mid-channel 3042.4525, TP2 = far edge 3728.591"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": -0.3373,
+            "holdCandles": 1440,
+            "exit": 2390.98
+          },
+          "netDir": -0.44279487844325155,
+          "netSens": -0.39935581084897154
+        },
+        {
+          "closedThrough": "2026-09-02T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2413.13,
+          "stop": 2356.478,
+          "tp1": 3060.021,
+          "tp2": 3746.499,
+          "reason": [
+            "4h channel rising, positionPct 2.9 (at lower edge)",
+            "entry at channel edge close 2413.13; stop 0.5x ATR4h (34.1300) beyond the edge",
+            "TP1 = mid-channel 3060.0209999999997, TP2 = far edge 3746.499"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 411,
+            "ambiguous": false
+          },
+          "netDir": -1.1448252841912023,
+          "netSens": -1.0851913436418836
+        },
+        {
+          "closedThrough": "2026-09-02T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2416.63,
+          "stop": 2355.906,
+          "tp1": 3068.4895,
+          "tp2": 3764.408,
+          "reason": [
+            "4h channel rising, positionPct 3.2 (at lower edge)",
+            "entry at channel edge close 2416.63; stop 0.5x ATR4h (33.3300) beyond the edge",
+            "TP1 = mid-channel 3068.4894999999997, TP2 = far edge 3764.408"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 171,
+            "ambiguous": false
+          },
+          "netDir": -1.1353096304591261,
+          "netSens": -1.0795939002700743
+        },
+        {
+          "closedThrough": "2026-09-03T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2390.98,
+          "stop": 2334.166,
+          "tp1": 3093.767,
+          "tp2": 3836.043,
+          "reason": [
+            "4h channel rising, positionPct 2.7 (at lower edge)",
+            "entry at channel edge close 2390.98; stop 0.5x ATR4h (34.6500) beyond the edge",
+            "TP1 = mid-channel 3093.767, TP2 = far edge 3836.043"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 2.0247,
+            "holdCandles": 1440,
+            "exit": 2506.01
+          },
+          "netDir": 1.881613225613405,
+          "netSens": 1.940531309184356
+        },
+        {
+          "closedThrough": "2026-09-03T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2402.24,
+          "stop": 2332.652,
+          "tp1": 3102.0565,
+          "tp2": 3853.951,
+          "reason": [
+            "4h channel rising, positionPct 3.5 (at lower edge)",
+            "entry at channel edge close 2402.24; stop 0.5x ATR4h (35.0200) beyond the edge",
+            "TP1 = mid-channel 3102.0564999999997, TP2 = far edge 3853.951"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.477,
+            "holdCandles": 1440,
+            "exit": 2505.02
+          },
+          "netDir": 1.3596289590159227,
+          "netSens": 1.4079582111858369
+        },
+        {
+          "closedThrough": "2026-09-03T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2397.6,
+          "stop": 2331.242,
+          "tp1": 3110.346,
+          "tp2": 3871.86,
+          "reason": [
+            "4h channel rising, positionPct 3.2 (at lower edge)",
+            "entry at channel edge close 2397.6; stop 0.5x ATR4h (35.1800) beyond the edge",
+            "TP1 = mid-channel 3110.346, TP2 = far edge 3871.86"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.8769,
+            "holdCandles": 1440,
+            "exit": 2522.15
+          },
+          "netDir": 1.7540536212664641,
+          "netSens": 1.8046374242743906
+        },
+        {
+          "closedThrough": "2026-09-03T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2406.51,
+          "stop": 2327.47,
+          "tp1": 3117.1945,
+          "tp2": 3889.769,
+          "reason": [
+            "4h channel rising, positionPct 4 (at lower edge)",
+            "entry at channel edge close 2406.51; stop 0.5x ATR4h (34.3000) beyond the edge",
+            "TP1 = mid-channel 3117.1944999999996, TP2 = far edge 3889.769"
+          ],
+          "outcome": {
+            "status": "timeout",
+            "r": 1.4732,
+            "holdCandles": 1440,
+            "exit": 2522.95
+          },
+          "netDir": 1.3696810981781382,
+          "netSens": 1.4123065283400813
+        },
+        {
+          "closedThrough": "2026-09-04T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 2504.05,
+          "stop": 2545.699,
+          "tp1": 2433.9195,
+          "tp2": 2340.855,
+          "reason": [
+            "4h channel falling, positionPct 87.7 (at upper edge)",
+            "entry at channel edge close 2504.05; stop 0.5x ATR4h (37.4300) beyond the edge",
+            "TP1 = mid-channel 2433.9195, TP2 = far edge 2340.855"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 78,
+            "ambiguous": false
+          },
+          "netDir": -1.0841717688299841,
+          "netSens": -1.1202453840428346
+        }
+      ]
+    }
+  }
+}

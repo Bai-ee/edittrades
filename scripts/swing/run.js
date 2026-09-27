@@ -226,7 +226,7 @@ export function scoreSignal({ candles1m, fromMs, direction, entry, stop, target,
   const startIdx = Math.max(0, firstAtOrAfter(candles1m, fromMs) - 1);
   const endIdx = Math.min(candles1m.length, startIdx + fillWindowCandles + maxHoldCandles + 2);
   const slice = candles1m.slice(startIdx, endIdx);
-  return walkOutcome({
+  const out = walkOutcome({
     candles1m: slice,
     fromMs,
     direction,
@@ -237,22 +237,45 @@ export function scoreSignal({ candles1m, fromMs, direction, entry, stop, target,
     fillWindowCandles,
     maxHoldCandles
   });
+  // Swing scoring (orchestrator patch 2026-09-26): a trade still open when the hold limit
+  // is reached is CLOSED at that candle's close and scored mark-to-market (`timeout`),
+  // instead of being dropped from n/resolved as walkOutcome's `open` would. Fill index is
+  // re-derived exactly as walkOutcome does (first candle at/after fromMs whose range
+  // touches entry, within fillWindowCandles).
+  if (out.status !== 'open') return out;
+  let start = 0;
+  while (start < slice.length && slice[start].timestamp < fromMs) start++;
+  let fillIdx = -1;
+  for (let i = start; i < Math.min(slice.length, start + fillWindowCandles); i++) {
+    if (slice[i].low <= entry && slice[i].high >= entry) { fillIdx = i; break; }
+  }
+  if (fillIdx === -1) return out;
+  const lastIdx = Math.min(slice.length - 1, fillIdx + maxHoldCandles - 1);
+  const dataEnd = lastIdx < fillIdx + maxHoldCandles - 1; // hold window ran past the fixture
+  const exit = slice[lastIdx].close;
+  const risk = Math.abs(entry - stop);
+  const r = risk > 0 ? (direction === 'long' ? (exit - entry) : (entry - exit)) / risk : 0;
+  return { status: dataEnd ? 'data_end' : 'timeout', r: Math.round(r * 10000) / 10000, holdCandles: lastIdx - fillIdx + 1, exit };
 }
+const RESOLVED = new Set(['win', 'loss', 'timeout']);
+const isResolved = (r) => RESOLVED.has(r.outcome.status);
+const grossR = (r) => (r.outcome.status === 'loss' ? -1 : r.outcome.r);
 
 function longestLossStreak(rows) {
   let best = 0;
   let cur = 0;
   for (const r of rows) {
-    if (r.outcome.status === 'loss') { cur++; best = Math.max(best, cur); }
-    else if (r.outcome.status === 'win') cur = 0;
+    if (grossR(r) < 0) { cur++; best = Math.max(best, cur); }
+    else cur = 0;
   }
   return best;
 }
 
 export function statsFor(rows) {
-  const resolved = rows.filter((r) => r.outcome.status === 'win' || r.outcome.status === 'loss');
-  const wins = resolved.filter((r) => r.outcome.status === 'win');
-  const grossRs = resolved.map((r) => r.outcome.status === 'win' ? r.outcome.r : -1);
+  const resolved = rows.filter(isResolved);
+  const wins = resolved.filter((r) => grossR(r) > 0);
+  const grossRs = resolved.map(grossR);
+  const stopPcts = rows.map((r) => Math.abs(r.entry - r.stop) / r.entry * 100);
   const netDirRs = resolved.map((r) => r.netDir);
   const netSensRs = resolved.map((r) => r.netSens);
   const holds = resolved.map((r) => r.outcome.holdCandles);
@@ -265,7 +288,9 @@ export function statsFor(rows) {
     netExpR: avg(netDirRs),
     netExpR_sens020: avg(netSensRs),
     maxLosingStreak: longestLossStreak(resolved),
-    medianHoldHours: holds.length ? round(median(holds) / 60, 2) : null
+    medianHoldHours: holds.length ? round(median(holds) / 60, 2) : null,
+    medianStopPct: stopPcts.length ? round(median(stopPcts), 3) : null,
+    timeouts: resolved.filter((r) => r.outcome.status === 'timeout').length
   };
 }
 
@@ -317,18 +342,22 @@ export function runRuleOnSymbol(rule, symbol, historyByTf) {
     if (direction === 'short' && !(stop > entry)) continue;
 
     if (!Array.isArray(candles1m) || candles1m.length === 0) continue;
+    // Only closes the 1m fixture can score: skip signals before 1m coverage begins, and
+    // signals whose fill+hold window would run past its end (they would read as `open`).
+    const oneMinStart = candles1m[0].timestamp;
+    const oneMinEnd = candles1m[candles1m.length - 1].timestamp;
+    if (ctx.cutMs < oneMinStart) continue;
+    if (ctx.cutMs + (fillWindowCandles + maxHoldCandles) * 60000 > oneMinEnd) continue;
     const outcome = scoreSignal({
       candles1m, fromMs: ctx.cutMs, direction, entry, stop, target: tp1,
       fillWindowCandles, maxHoldCandles
     });
     if (outcome.status === 'invalid_levels') continue;
 
-    const netDir = outcome.status === 'win' || outcome.status === 'loss'
-      ? netR(entry, stop, outcome.status === 'win' ? outcome.r : -1, direction)
-      : null;
-    const netSens = outcome.status === 'win' || outcome.status === 'loss'
-      ? netR(entry, stop, outcome.status === 'win' ? outcome.r : -1, null)
-      : null;
+    const scored = RESOLVED.has(outcome.status);
+    const gr = outcome.status === 'loss' ? -1 : outcome.r;
+    const netDir = scored ? netR(entry, stop, gr, direction) : null;
+    const netSens = scored ? netR(entry, stop, gr, null) : null;
 
     rows.push({
       closedThrough: new Date(ctx.cutMs).toISOString(),
@@ -367,6 +396,8 @@ function tableRow(label, statsRow, oos, signalsPerWeek) {
     statsRow.netExpR_sens020 === null ? '-' : statsRow.netExpR_sens020,
     statsRow.maxLosingStreak,
     statsRow.medianHoldHours === null ? '-' : statsRow.medianHoldHours,
+    statsRow.medianStopPct === null ? '-' : `${statsRow.medianStopPct}%`,
+    statsRow.timeouts,
     signalsPerWeek === null ? '-' : round(signalsPerWeek, 2),
     oos.firstHalf === null ? '-' : oos.firstHalf,
     oos.secondHalf === null ? '-' : oos.secondHalf,
@@ -374,7 +405,7 @@ function tableRow(label, statsRow, oos, signalsPerWeek) {
   ];
 }
 
-const TABLE_HEADER = ['scope', 'n', 'resolved', 'win %', 'gross exp R', 'net exp R (dir-cost)', '0.20% sens', 'max losing streak', 'median hold h', 'signals/week', 'OOS 1st half net R', 'OOS 2nd half net R', 'pass/fail'];
+const TABLE_HEADER = ['scope', 'n', 'resolved', 'win %', 'gross exp R', 'net exp R (dir-cost)', '0.20% sens', 'max losing streak', 'median hold h', 'median stop %', 'timeouts', 'signals/week', 'OOS 1st half net R', 'OOS 2nd half net R', 'pass/fail'];
 
 function mdTable(rows) {
   const header = `| ${TABLE_HEADER.join(' | ')} |`;
@@ -396,9 +427,10 @@ function runRule(rule, symbols, historyByTf) {
     perSymbol[symbol] = rows;
     combinedRows = combinedRows.concat(rows);
     const s = statsFor(rows);
-    const resolved = rows.filter((r) => r.outcome.status === 'win' || r.outcome.status === 'loss');
+    const resolved = rows.filter(isResolved);
     const oos = splitHalves(resolved);
-    const weeks = weeksSpanned(historyByTf[symbol][rule.meta.tf], rule.meta.tf, firstEligibleIdx, lastIdx);
+    const c1 = historyByTf[symbol]['1m'];
+    const weeks = c1 && c1.length ? (c1[c1.length - 1].timestamp - c1[0].timestamp) / MS_WEEK : null;
     const perWeek = weeks && weeks > 0 ? s.n / weeks : null;
     tableRows.push(tableRow(symbol, s, oos, perWeek));
     allResolvedForOOS.push(...resolved);
@@ -409,10 +441,8 @@ function runRule(rule, symbols, historyByTf) {
   // Every symbol's tf array spans the same fixture calendar, so "combined" signals/week
   // reuses the first symbol's span with n summed across symbols.
   const anySymbol = symbols[0];
-  const spanCandles = historyByTf[anySymbol][rule.meta.tf];
-  const combinedSpanWeeks = spanCandles && spanCandles.length > MIN_COMPUTE_CANDLES
-    ? weeksSpanned(spanCandles, rule.meta.tf, MIN_COMPUTE_CANDLES - 1, spanCandles.length - 1)
-    : null;
+  const c1 = historyByTf[anySymbol]['1m'];
+  const combinedSpanWeeks = c1 && c1.length ? (c1[c1.length - 1].timestamp - c1[0].timestamp) / MS_WEEK : null;
   const combinedPerWeek = combinedSpanWeeks && combinedSpanWeeks > 0 ? combinedStats.n / combinedSpanWeeks : null;
   tableRows.push(tableRow('combined', combinedStats, combinedOos, combinedPerWeek));
 
@@ -499,7 +529,7 @@ async function main() {
     '',
     `Generated ${new Date().toISOString()} by \`scripts/swing/run.js\` (Agent S0-A harness), fixture \`${path.relative(REPO_ROOT, historyDir)}\`.`,
     '',
-    'Columns: n (signals generated) · resolved (walked to a win/loss) · win % · gross exp R · net exp R (0.34% long / 0.14% short direction cost) · 0.20% sensitivity net R · max losing streak (resolved trades) · median hold (hours) · signals/week · OOS first/second half net R (dir-cost) · pass/fail (net > 0 in both halves).',
+    'Columns: n (signals inside 1m coverage) · resolved (win/loss, or timeout = closed at the hold limit, mark-to-market) · win % · gross exp R · net exp R (0.34% long / 0.14% short direction cost) · 0.20% sensitivity net R · max losing streak (resolved trades) · median hold (hours) · signals/week · OOS first/second half net R (dir-cost) · pass/fail (net > 0 in both halves).',
     ''
   ];
   for (const { rule, tableRows, runtimeMs } of sections) {
