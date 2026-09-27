@@ -62,7 +62,8 @@
     "replay:breakout": "node scripts/replay-breakout-entry.js",
     "replay:early": "node scripts/replay-early-entry.js",
     "replay:rules": "node scripts/replay-rules.js",
-    "test:rules": "node test-replay-rules.js"
+    "test:rules": "node test-replay-rules.js",
+    "test:swing:playbook": "node test-swing-rules-playbook.js"
   },
   "keywords": [
     "trading",
