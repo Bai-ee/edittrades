@@ -1,0 +1,315 @@
+{
+  "capturedAt": "2026-09-27T03:06:50.213Z",
+  "provider": "binance (1m native; 5m/15m/1h/4h derived from 1m via services/marketData.js aggregateToBuckets) + kraken (1d, copied verbatim from deep60-2026-09-24)",
+  "symbols": [
+    "BTC",
+    "SOL",
+    "ETH"
+  ],
+  "timeframes": [
+    "1m",
+    "5m",
+    "15m",
+    "1h",
+    "4h",
+    "1d"
+  ],
+  "startRequested": "2024-10-01T00:00:00.000Z",
+  "files": {
+    "BTC_1m.json": {
+      "count": 1045626,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:06:00.000Z",
+      "calls": 1046,
+      "gapCount": 0,
+      "gapsSampled": []
+    },
+    "BTC_5m.json": {
+      "count": 209125,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:05:00.000Z",
+      "derivedFrom1m": true
+    },
+    "BTC_15m.json": {
+      "count": 69708,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "BTC_1h.json": {
+      "count": 17427,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "BTC_4h.json": {
+      "count": 4356,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T00:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "BTC_1d.json": {
+      "count": 719,
+      "from": "2024-10-05T00:00:00.000Z",
+      "closedThrough": "2026-09-24T00:00:00.000Z",
+      "source": "copied from test/fixtures/history/deep60-2026-09-24/BTC_1d.json (kraken)"
+    },
+    "SOL_1m.json": {
+      "count": 1045626,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:06:00.000Z",
+      "calls": 1046,
+      "gapCount": 0,
+      "gapsSampled": []
+    },
+    "SOL_5m.json": {
+      "count": 209125,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:05:00.000Z",
+      "derivedFrom1m": true
+    },
+    "SOL_15m.json": {
+      "count": 69708,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "SOL_1h.json": {
+      "count": 17427,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "SOL_4h.json": {
+      "count": 4356,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T00:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "SOL_1d.json": {
+      "count": 719,
+      "from": "2024-10-05T00:00:00.000Z",
+      "closedThrough": "2026-09-24T00:00:00.000Z",
+      "source": "copied from test/fixtures/history/deep60-2026-09-24/SOL_1d.json (kraken)"
+    },
+    "ETH_1m.json": {
+      "count": 1045626,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:06:00.000Z",
+      "calls": 1046,
+      "gapCount": 0,
+      "gapsSampled": []
+    },
+    "ETH_5m.json": {
+      "count": 209125,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:05:00.000Z",
+      "derivedFrom1m": true
+    },
+    "ETH_15m.json": {
+      "count": 69708,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "ETH_1h.json": {
+      "count": 17427,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T03:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "ETH_4h.json": {
+      "count": 4356,
+      "from": "2024-10-01T00:00:00.000Z",
+      "closedThrough": "2026-09-27T00:00:00.000Z",
+      "derivedFrom1m": true
+    },
+    "ETH_1d.json": {
+      "count": 719,
+      "from": "2024-10-05T00:00:00.000Z",
+      "closedThrough": "2026-09-24T00:00:00.000Z",
+      "source": "copied from test/fixtures/history/deep60-2026-09-24/ETH_1d.json (kraken)"
+    }
+  },
+  "validation": {
+    "overlapWindow": {
+      "from": "2026-07-01T02:34:00.000Z",
+      "to": "2026-09-24T14:32:00.000Z"
+    },
+    "bySymbol": {
+      "BTC": {
+        "1m": {
+          "overlapFrom": "2026-07-01T02:34:00.000Z",
+          "overlapTo": "2026-09-24T14:32:00.000Z",
+          "krakenCandleCount": 123119,
+          "binanceCandidatesInWindow": 123119,
+          "matchedTimestamps": 123119,
+          "medianAbsDiffPct": 0.070413,
+          "meanAbsDiffPct": 0.065172,
+          "maxAbsDiffPct": 0.488715,
+          "p95AbsDiffPct": 0.123368
+        },
+        "5m": {
+          "overlapFrom": "2026-07-01T02:35:00.000Z",
+          "overlapTo": "2026-09-24T14:25:00.000Z",
+          "krakenCandleCount": 24623,
+          "derivedCandidatesInWindow": 24623,
+          "matchedTimestamps": 24623,
+          "medianAbsDiffPct": 0.070786,
+          "meanAbsDiffPct": 0.065278,
+          "maxAbsDiffPct": 0.437044,
+          "p95AbsDiffPct": 0.123556
+        },
+        "15m": {
+          "overlapFrom": "2026-07-01T02:45:00.000Z",
+          "overlapTo": "2026-09-24T14:15:00.000Z",
+          "krakenCandleCount": 8207,
+          "derivedCandidatesInWindow": 8207,
+          "matchedTimestamps": 8207,
+          "medianAbsDiffPct": 0.070971,
+          "meanAbsDiffPct": 0.065293,
+          "maxAbsDiffPct": 0.255495,
+          "p95AbsDiffPct": 0.123902
+        },
+        "1h": {
+          "overlapFrom": "2026-07-01T03:00:00.000Z",
+          "overlapTo": "2026-09-24T13:00:00.000Z",
+          "krakenCandleCount": 2051,
+          "derivedCandidatesInWindow": 2051,
+          "matchedTimestamps": 2051,
+          "medianAbsDiffPct": 0.07153,
+          "meanAbsDiffPct": 0.065354,
+          "maxAbsDiffPct": 0.187149,
+          "p95AbsDiffPct": 0.1243
+        },
+        "4h": {
+          "overlapFrom": "2026-05-27T20:00:00.000Z",
+          "overlapTo": "2026-09-24T08:00:00.000Z",
+          "krakenCandleCount": 718,
+          "derivedCandidatesInWindow": 718,
+          "matchedTimestamps": 718,
+          "medianAbsDiffPct": 0.080683,
+          "meanAbsDiffPct": 0.078417,
+          "maxAbsDiffPct": 0.214342,
+          "p95AbsDiffPct": 0.151991
+        }
+      },
+      "SOL": {
+        "1m": {
+          "overlapFrom": "2026-07-01T04:35:00.000Z",
+          "overlapTo": "2026-09-24T14:32:00.000Z",
+          "krakenCandleCount": 122998,
+          "binanceCandidatesInWindow": 122998,
+          "matchedTimestamps": 122998,
+          "medianAbsDiffPct": 0.06672,
+          "meanAbsDiffPct": 0.065054,
+          "maxAbsDiffPct": 0.702811,
+          "p95AbsDiffPct": 0.12692
+        },
+        "5m": {
+          "overlapFrom": "2026-07-01T04:35:00.000Z",
+          "overlapTo": "2026-09-24T14:25:00.000Z",
+          "krakenCandleCount": 24599,
+          "derivedCandidatesInWindow": 24599,
+          "matchedTimestamps": 24599,
+          "medianAbsDiffPct": 0.066782,
+          "meanAbsDiffPct": 0.065132,
+          "maxAbsDiffPct": 0.356789,
+          "p95AbsDiffPct": 0.12475
+        },
+        "15m": {
+          "overlapFrom": "2026-07-01T04:45:00.000Z",
+          "overlapTo": "2026-09-24T14:15:00.000Z",
+          "krakenCandleCount": 8199,
+          "derivedCandidatesInWindow": 8199,
+          "matchedTimestamps": 8199,
+          "medianAbsDiffPct": 0.066756,
+          "meanAbsDiffPct": 0.064811,
+          "maxAbsDiffPct": 0.258503,
+          "p95AbsDiffPct": 0.123305
+        },
+        "1h": {
+          "overlapFrom": "2026-07-01T05:00:00.000Z",
+          "overlapTo": "2026-09-24T13:00:00.000Z",
+          "krakenCandleCount": 2049,
+          "derivedCandidatesInWindow": 2049,
+          "matchedTimestamps": 2049,
+          "medianAbsDiffPct": 0.067141,
+          "meanAbsDiffPct": 0.064988,
+          "maxAbsDiffPct": 0.204264,
+          "p95AbsDiffPct": 0.124087
+        },
+        "4h": {
+          "overlapFrom": "2026-05-27T20:00:00.000Z",
+          "overlapTo": "2026-09-24T08:00:00.000Z",
+          "krakenCandleCount": 718,
+          "derivedCandidatesInWindow": 718,
+          "matchedTimestamps": 718,
+          "medianAbsDiffPct": 0.079062,
+          "meanAbsDiffPct": 0.077952,
+          "maxAbsDiffPct": 0.218729,
+          "p95AbsDiffPct": 0.157939
+        }
+      },
+      "ETH": {
+        "1m": {
+          "overlapFrom": "2026-07-01T05:21:00.000Z",
+          "overlapTo": "2026-09-24T14:32:00.000Z",
+          "krakenCandleCount": 122952,
+          "binanceCandidatesInWindow": 122952,
+          "matchedTimestamps": 122952,
+          "medianAbsDiffPct": 0.071068,
+          "meanAbsDiffPct": 0.065824,
+          "maxAbsDiffPct": 0.456795,
+          "p95AbsDiffPct": 0.126296
+        },
+        "5m": {
+          "overlapFrom": "2026-07-01T05:25:00.000Z",
+          "overlapTo": "2026-09-24T14:25:00.000Z",
+          "krakenCandleCount": 24589,
+          "derivedCandidatesInWindow": 24589,
+          "matchedTimestamps": 24589,
+          "medianAbsDiffPct": 0.071508,
+          "meanAbsDiffPct": 0.065787,
+          "maxAbsDiffPct": 0.441431,
+          "p95AbsDiffPct": 0.125669
+        },
+        "15m": {
+          "overlapFrom": "2026-07-01T05:30:00.000Z",
+          "overlapTo": "2026-09-24T14:15:00.000Z",
+          "krakenCandleCount": 8196,
+          "derivedCandidatesInWindow": 8196,
+          "matchedTimestamps": 8196,
+          "medianAbsDiffPct": 0.070997,
+          "meanAbsDiffPct": 0.065452,
+          "maxAbsDiffPct": 0.202513,
+          "p95AbsDiffPct": 0.124159
+        },
+        "1h": {
+          "overlapFrom": "2026-07-01T06:00:00.000Z",
+          "overlapTo": "2026-09-24T13:00:00.000Z",
+          "krakenCandleCount": 2048,
+          "derivedCandidatesInWindow": 2048,
+          "matchedTimestamps": 2048,
+          "medianAbsDiffPct": 0.071772,
+          "meanAbsDiffPct": 0.065591,
+          "maxAbsDiffPct": 0.193697,
+          "p95AbsDiffPct": 0.124031
+        },
+        "4h": {
+          "overlapFrom": "2026-05-27T20:00:00.000Z",
+          "overlapTo": "2026-09-24T08:00:00.000Z",
+          "krakenCandleCount": 718,
+          "derivedCandidatesInWindow": 718,
+          "matchedTimestamps": 718,
+          "medianAbsDiffPct": 0.079383,
+          "meanAbsDiffPct": 0.07817,
+          "maxAbsDiffPct": 0.211213,
+          "p95AbsDiffPct": 0.155377
+        }
+      }
+    }
+  },
+  "runtimeMs": 1103685,
+  "fixNote2": "2026-09-27 (coordinator correction): 5m/15m/1h/4h were previously copied verbatim from deep60 (~85.5-day span only), which bounded every downstream replay (replay.js/replay-rules.js/swing/run.js eligibility gate) to that short window despite the 2-year 1m file. Replaced with 5m/15m/1h/4h DERIVED from the full 2-year 1m series via services/marketData.js aggregateToBuckets (UTC-aligned buckets, incomplete buckets dropped). 1d unchanged (already full-span, Kraken-native, copied from deep60)."
+}

@@ -73,7 +73,8 @@
     "study:exits": "node scripts/research/exits.js",
     "test:exits": "node test-exits-study.js",
     "study:variants": "node scripts/research/variants.js",
-    "test:variants": "node test-variants-study.js"
+    "test:variants": "node test-variants-study.js",
+    "research:capture-binance-1m": "node scripts/research/capture-binance-1m.js"
   },
   "keywords": [
     "trading",
