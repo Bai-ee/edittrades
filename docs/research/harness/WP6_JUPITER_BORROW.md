@@ -93,3 +93,17 @@ Applying the **measured current long-side rate (≈0.0013–0.0015%/h)** against
 - The practical implication: **borrow is not the binding constraint it was assumed to be** for most of the "borrow kills" group of slower Donchian/squeeze/momentum strategies on Jupiter perps. Fees (round-trip 0.14–0.20%) become the dominant, harder-to-avoid cost again for most of these.
 - This does not resurrect the `F2-tsmom` (daily time-series momentum, multi-week holds) or `F4-squeeze-4h-k3` strategies — their holding periods are long enough that even today's much-lower rate isn't the reason they fail, or (for `F4-squeeze-4h-k3`/`F2-tsmom-1d-L20-k2`) they need a rate below the curve's own floor.
 - Recommend: if any of the 19 reclassified strategies moves toward a paper-candidate decision, re-run `scripts/research/edge/breakeven.js` with the measured 0.0013–0.0015%/h (or a small safety margin, e.g. 0.003%/h to cover the historical 2024 "high-utilization" range) instead of the flat 0.02–0.024%/h, rather than trusting this manual re-classification.
+
+## Orchestrator verification (2026-09-27)
+
+Two independent checks of the long-side rate:
+
+| Custody | WP6 model %/h | Jupiter API `longBorrowRatePercent` (`perps-api.jup.ag/v1/pool-info`) | Realized on-chain accrual (Δ`cumulativeInterestRate`/Δ`lastUpdate`, 85–356 s window, 1e9 scale) |
+| --- | --- | --- | --- |
+| SOL | 0.00149 | 0.0015 | 0.00151 |
+| ETH | 0.00131 | 0.0013 | 0.00132 |
+| BTC | 0.00132 | 0.0013 | 0.00132 |
+| USDC (short side) | 0.00017 | 0.0006 (`shortBorrowRatePercent`) | 0.00065 |
+
+- The long side is confirmed three ways.
+- The short-side model under-reads by about 4×, so use the API or realized value (≈0.0006%/h). Shorts are still far below the old assumption.
