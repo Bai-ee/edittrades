@@ -83,10 +83,26 @@ Both windows are reported, clearly labelled.
 
 ## External implementation check
 
-TODO (orchestrator): compare this implementation against `0xrikt/crypto-skills` @
-`360c5e24d6ee689f21491771781dbd70ba2034e9` once that repo's SMA200 strategy semantics are
-available in this environment (signal timing, fill rule, warm-up handling, cost model) and
-note any divergence here.
+Reference: `0xrikt/crypto-skills` @ `360c5e24d6ee689f21491771781dbd70ba2034e9`, `crypto-backtest/src/backtest.py`.
+Used to check how our implementation behaves, not as evidence of an edge.
+
+| Aspect | External (crypto-backtest) | This study | Match |
+| --- | --- | --- | --- |
+| Signal | bar close vs rolling SMA including that bar (L256-258, L569-570) | same | yes |
+| Warm-up | SMA NaN for first N-1 rows | first N bars excluded | yes |
+| Fill | same-bar close ± 0.05% slippage (L660-750) | next-bar open | **no** (external is zero-latency, optimistic) |
+| Commission | per side on notional, default 0.1% (L714-735) | per side 0/0.10/0.15/0.17% | yes (S2 = its fee) |
+| Position | single position, no re-buy (L710) | single position | yes |
+| Equity | marked to market per bar | marked to market per bar | yes |
+| Sharpe | annualized with sqrt(365*6), hardcoded for any timeframe (L836-844, bug) | sqrt(6*365) for 4h | yes for 4h |
+| Data | ccxt, default `binance` in code but README says `okx`; unfinished last candle not dropped | Binance klines, unfinished candle dropped | discrepancies noted |
+
+Smoke test: Binance was geo-blocked (HTTP 451) from the run host, so it ran on KuCoin, which capped the data at 333 days (2023-09-28 to 2024-08-26).
+Result: +5.2% vs B&H +133.7%, 29 trades, 27.6% win. The window is too short to be evidence.
+
+Independent recompute: a separate Python loop over the same `var/edge/4h-long` data reproduced CAGR, maxDD, Sharpe and exposure within 0.5 pt for every symbol and window.
+It also found a bug: windowed runs counted entries from before the window.
+Fixed in `sma4h-trend.js`; the corrected common-window entries are BTC 190 and ETH 160.
 
 ## Datasets
 
@@ -168,11 +184,11 @@ here for durability.
 
 | scenario | net CAGR | gross CAGR | cost drag | B&H CAGR | Sharpe | maxDD | B&H maxDD | entries |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| S1 | 53.90% | 53.90% | 0.00% | 41.61% | 1.28 | 44.38% | 77.04% | 277 |
-| S2 | 44.54% | 53.90% | 9.36% | 41.61% | 1.13 | 45.48% | 77.04% | 277 |
-| S3 | 40.07% | 53.90% | 13.83% | 41.61% | 1.05 | 46.02% | 77.04% | 277 |
-| S4a | -13.01% | 53.90% | 66.91% | 41.61% | -0.15 | 86.78% | 77.04% | 277 |
-| S4b | -54.57% | 53.90% | 108.47% | 41.61% | -1.79 | 99.59% | 77.04% | 277 |
+| S1 | 53.90% | 53.90% | 0.00% | 41.61% | 1.28 | 44.38% | 77.04% | 190 |
+| S2 | 44.54% | 53.90% | 9.36% | 41.61% | 1.13 | 45.48% | 77.04% | 190 |
+| S3 | 40.07% | 53.90% | 13.83% | 41.61% | 1.05 | 46.02% | 77.04% | 190 |
+| S4a | -13.01% | 53.90% | 66.91% | 41.61% | -0.15 | 86.78% | 77.04% | 190 |
+| S4b | -54.57% | 53.90% | 108.47% | 41.61% | -1.79 | 99.59% | 77.04% | 190 |
 
 ### ETH — a_full_history
 
@@ -188,11 +204,11 @@ here for durability.
 
 | scenario | net CAGR | B&H CAGR | Sharpe | maxDD | B&H maxDD | entries |
 | --- | --- | --- | --- | --- | --- | --- |
-| S1 | 76.15% | 38.74% | 1.36 | 39.74% | 81.12% | 242 |
-| S2 | 67.08% | 38.74% | 1.25 | 42.96% | 81.12% | 242 |
-| S3 | 62.72% | 38.74% | 1.20 | 44.51% | 81.12% | 242 |
-| S4a | 3.45% | 38.74% | 0.32 | 83.35% | 81.12% | 242 |
-| S4b | -44.33% | 38.74% | -0.88 | 99.09% | 81.12% | 242 |
+| S1 | 76.15% | 38.74% | 1.36 | 39.74% | 81.12% | 160 |
+| S2 | 67.08% | 38.74% | 1.25 | 42.96% | 81.12% | 160 |
+| S3 | 62.72% | 38.74% | 1.20 | 44.51% | 81.12% | 160 |
+| S4a | 3.45% | 38.74% | 0.32 | 83.35% | 81.12% | 160 |
+| S4b | -44.33% | 38.74% | -0.88 | 99.09% | 81.12% | 160 |
 
 ### SOL — a_full_history (2020-08-11 -> now)
 
@@ -321,4 +337,29 @@ that turned out to be the better call on those specific days).
 
 ## Decision
 
-Decision: pending orchestrator review.
+**Decision: PAPER CANDIDATE, spot long/flat only. REJECT on perps.**
+
+Evidence (S3, 0.15%/side):
+- Causal: next-open fill, look-ahead tests pass, independent recompute agrees.
+- BTC: no excess return. CAGR 42% vs B&H 40% (full history), 40% vs 42% (common window). The benefit is drawdown: 46% vs 77% in the common window, but 78% vs 84% over full history because 2018 whipsaws hurt it.
+- ETH: CAGR 71% vs 28% (full), 63% vs 39% (common); drawdown roughly halved.
+- SOL: CAGR 102% vs 83%, but maxDD 87%.
+- Robustness: every N from 125 to 300 is positive on all three symbols. Longer N does better on BTC (fewer whipsaws). This is a plateau, not a magic number. Not adopted; it stays a sensitivity result.
+- Costs: ~61 sides a year, ~6-day average hold, 13% trade win rate; the gains come from a few long trends. Cost drag is about 14 pt of CAGR at 0.15%/side. Hourly perp borrow (static 0.01–0.024%/h scenarios) makes every symbol lose or nearly lose, so perps are rejected.
+- Overlap with the existing daily EMA20 spot filter: they agree on ~90% of days. On the ~5% of days only SMA4h is long, next-day B&H return was positive on all three symbols. Common window: BTC 40% vs 30% CAGR, ETH 63% vs 54%, SOL 102% vs 113%. Same trend-persistence mechanism, a different sampling of it; little new information.
+- Q11: the edge is long-horizon trend persistence, not SMA200 specifically.
+
+Not done (the edge-v1 harness does not exist yet): seeded random-entry controls, walk-forward folds, block-bootstrap CIs, 1m execution paths, calibrated costs.
+
+## Next bounded action
+
+Paper test only, after approval and in its own phase (engine rules are frozen until 2026-10-08, and tracker files have uncommitted work from another session):
+add `EXTERNAL_4H_SMA200_V1` as a paper-only arm beside the EMA20 spot filter in the tracker. Run it for 60 days.
+Pass criteria: live paper signals match a replay of the same closed bars exactly, and the arm is compared against EMA20 on the same dates.
+
+## Next external experiment
+
+Yes, Quattro (`EstebanSP23/crypto_systematic_research` @ `5df0c43`) next, in the same harness.
+Evaluate it deleveraged, as a single unit with no pyramid first.
+Its README says the daily EMA200 must be rising, but the code only checks close > EMA200; test the code's rule.
+Question: does requiring a 20-bar breakout cut the 13%-win whipsaw found here?

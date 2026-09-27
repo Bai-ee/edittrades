@@ -62,26 +62,26 @@ export function runSma4h(bars, opts = {}) {
     else barFactor = 1; // continuing flat
 
     const switched = currTarget !== inPos;
+    const inWindow = bars.t[j] >= fromMs && bars.t[j] < toMs; // counters and trades only count in-window switches
     const before = eq;
     eq *= barFactor;
     if (currTarget) eq *= 1 - borrowPerHour * 4; // borrow on the 4h this bar was held (entry+continuing bars only; see doc)
     if (switched) {
       eq *= 1 - costPerSide;
-      switches += 1;
+      if (inWindow) switches += 1;
       if (currTarget) {
-        entries += 1;
+        if (inWindow) entries += 1;
         tradeEntryIdx = j; tradeEntryEq = before;
       } else {
-        exits += 1;
+        if (inWindow) exits += 1;
         if (tradeEntryIdx != null) {
-          trades.push(makeTrade(bars, tradeEntryIdx, j, tradeEntryEq, eq));
+          if (inWindow) trades.push(makeTrade(bars, tradeEntryIdx, j, tradeEntryEq, eq));
           tradeEntryIdx = null; tradeEntryEq = null;
         }
       }
     }
     bh *= bhFactor;
 
-    const inWindow = bars.t[j] >= fromMs && bars.t[j] < toMs;
     if (inWindow) {
       if (windowStartEq == null) { windowStartEq = before; windowStartBh = bh / bhFactor; peak = before; bpeak = windowStartBh; lastHighIdx = j - 1; }
       totalBars += 1;
