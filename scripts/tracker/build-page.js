@@ -55,6 +55,7 @@ import { tile, zone, sub, jumpNav } from './bento.js';
 import { renderHowTo } from './how-to-page.js';
 import { renderRisk } from './risk-page.js';
 import { renderStrategies } from './strategies-page.js';
+import { renderSpot, readSpotData } from './spot-page.js';
 import { computeProfileCurves } from './profiles.js';
 
 export const PROVISIONAL = 'provisional; not evidence of an edge';
@@ -741,7 +742,7 @@ export function renderHtml(agg, data = {}) {
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
       ['#zone-wallet-strategies', 'Strategies'],
       ['#zone-calls', 'Calls'], ['#zone-alerts', 'Alerts'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
-      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="tracker-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="tracker-strategies-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"']
+      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="tracker-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="tracker-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="tracker-spot-trend-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"']
     ]);
 
   // Primary: hero. Net (fees + slippage, costs.js) shown beside gross (T5 S1).
@@ -1064,6 +1065,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const howToFile = path.join(outDir, 'how-to.html');
   const riskFile = path.join(outDir, 'risk.html');
   const strategiesFile = path.join(outDir, 'strategies.html');
+  const spotFile = path.join(outDir, 'spot.html');
   const journal = readJournal(dataDir);
   const journalOutcomes = readJsonl(journalOutcomesFile(dataDir));
   const outcomes = readJsonl(outcomesFile(dataDir));
@@ -1083,7 +1085,8 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   writeFileSync(howToFile, renderHowTo());
   writeFileSync(riskFile, renderRisk());
   writeFileSync(strategiesFile, renderStrategies(profileCurves, telegram && telegram.riskProfile));
-  return { agg, htmlFile, mdFile, howToFile, riskFile, strategiesFile };
+  writeFileSync(spotFile, renderSpot(readSpotData(dataDir)));
+  return { agg, htmlFile, mdFile, howToFile, riskFile, strategiesFile, spotFile };
 }
 
 function main() {

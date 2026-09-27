@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-27 — Spot trend filter P2: flip alerts + spot.html (tracker only)
+
+Plan: `docs/PLAN_SPOT_TREND_2026-09-27.md` (P2). Tracker only; paper only.
+
+- `scripts/tracker/alerts.js`: live spot-trend flips (`data/spot-trend/flips.jsonl`, `live: true`, recorded within 24 h) join the GOOD-call alert list the workflow turns into GitHub issues (emails the owner). One per symbol+day (`spot|SYM|date` in `data/alerts.jsonl`); history flips never alert.
+- `scripts/tracker/spot-page.js` (new) → `docs/spot.html`: today's state per coin (`id="spot-trend-state-row"`, tiles `spot-trend-state-btc|eth|sol`), paper equity vs buy & hold (`spot-trend-equity-panel`), last 20 flips (`spot-trend-flips-table`), backtest summary (`spot-trend-backtest-panel`). Tables scroll inside their tile on phones. `build-page.js` writes it and links it from the main nav (`tracker-spot-trend-link`).
+- `test-tracker.js` 140 → 142 (alert selection/format; page empty + live states with stable ids).
+
 ## 2026-09-27 — Spot trend filter P1: paper tracking in the tracker (not synced/deployed)
 
 Plan: `docs/PLAN_SPOT_TREND_2026-09-27.md` (P1). Evidence: `docs/EDGE_SEARCH_2026-09-27.md`. Tracker only: no engine, payload, MCP, Telegram, executor or Vercel change.

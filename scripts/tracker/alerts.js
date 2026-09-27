@@ -5,7 +5,8 @@
  * After collect, finds GOOD recommendation calls captured in the last ALERT_MAX_AGE_MIN
  * minutes (cron or served) that have not been alerted yet, appends them to
  * data/alerts.jsonl (one line per alert, keyed by symbol + candidate) and writes the new
- * ones to --file as JSON [{key, title, body}]. The track workflow opens one GitHub issue
+ * ones to --file as JSON [{key, title, body}]; live spot-trend flips (data/spot-trend/flips.jsonl,
+ * docs/PLAN_SPOT_TREND_2026-09-27.md P2) join the same list. The track workflow opens one GitHub issue
  * per alert; the issue @-mentions the repo owner, so GitHub emails them. No mail
  * service, no extra secret.
  *
@@ -28,6 +29,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, readJsonl, appendJsonl, readAllCalls, ensureDir } from './store.js';
 import { DEFAULT_URL } from './collect.js';
+import { spotDir } from './spot-trend.js';
 
 export const ALERT_MAX_AGE_MIN = 90;
 export const PAGE_URL = 'https://edittrades-tracker.vercel.app';
@@ -129,6 +131,53 @@ export async function saveChart({ symbol, timeframe, nowMs, chartsDir, url = DEF
   }
 }
 
+// ---------------------------------------------------------------- spot trend flips (docs/PLAN_SPOT_TREND_2026-09-27.md P2)
+
+/** Flips older than this (by recordedAt) never alert: a late daily signal still helps, a restored history does not. */
+export const SPOT_ALERT_MAX_AGE_H = 24;
+export const spotAlertKey = (flip) => `spot|${flip.symbol}|${flip.date}`;
+
+/** Live flips (after the spot tracker's start day) not yet alerted, oldest first. */
+export function findNewSpotFlips(flips, alertedKeys, nowMs) {
+  const since = nowMs - SPOT_ALERT_MAX_AGE_H * 3600_000;
+  const seen = new Set(alertedKeys);
+  const out = [];
+  for (const f of [...flips].sort((a, b) => String(a.date).localeCompare(String(b.date)))) {
+    if (!f || f.live !== true) continue;
+    const t = Date.parse(f.recordedAt);
+    if (!Number.isFinite(t) || t < since || t > nowMs + 60_000) continue;
+    const key = spotAlertKey(f);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, flip: f });
+  }
+  return out;
+}
+
+export function formatSpotAlert({ key, flip }, { mention = null, page = PAGE_URL } = {}) {
+  const into = flip.to === 'IN';
+  const w = isNum(flip.weight) ? `${Math.round(flip.weight * 100)}%` : '–';
+  const title = `SPOT ${flip.symbol} → ${into ? 'IN (hold the coin)' : 'OUT (hold USDC)'} · daily close ${fmt(flip.close)} vs EMA20 ${fmt(flip.ema20)}`;
+  const lines = [
+    `**${flip.symbol}: ${flip.from} → ${flip.to}** on the ${flip.date} UTC daily close.`,
+    '',
+    '| Daily close | EMA20 | Suggested weight (40% vol target) |',
+    '| --- | --- | --- |',
+    `| ${fmt(flip.close)} | ${fmt(flip.ema20)} | ${into ? w : '0%'} |`,
+    '',
+    into
+      ? 'Rule: hold the coin while the daily close stays above EMA20.'
+      : 'Rule: hold USDC until a daily close back above EMA20.',
+    '',
+    `Paper tracking only; no order is placed. Spot trend page: ${page}/spot.html`,
+    '',
+    '_Backtest evidence: docs/EDGE_SEARCH_2026-09-27.md in the engine repo. Not financial advice._'
+  ];
+  if (mention) lines.push('', `cc @${mention}`);
+  lines.push('', `<!-- alert-key: ${key} -->`);
+  return { key, title, body: lines.join('\n') };
+}
+
 export async function runAlerts(dataDir, { nowMs = Date.now(), mention = null, page = PAGE_URL, chart = null } = {}) {
   const alerted = readJsonl(alertsFile(dataDir)).map((a) => a.key);
   const fresh = findNewGood(readAllCalls(dataDir), alerted, nowMs);
@@ -144,6 +193,13 @@ export async function runAlerts(dataDir, { nowMs = Date.now(), mention = null, p
   if (fresh.length) {
     appendJsonl(alertsFile(dataDir), fresh.map(({ key, row }) => ({
       key, alertedAt: new Date(nowMs).toISOString(), symbol: row.symbol, capturedAt: row.capturedAt, source: row.source || 'cron'
+    })));
+  }
+  const spot = findNewSpotFlips(readJsonl(path.join(spotDir(dataDir), 'flips.jsonl')), alerted, nowMs);
+  for (const f of spot) alerts.push({ ...formatSpotAlert(f, { mention, page }), chartUrl: null });
+  if (spot.length) {
+    appendJsonl(alertsFile(dataDir), spot.map(({ key, flip }) => ({
+      key, alertedAt: new Date(nowMs).toISOString(), symbol: flip.symbol, capturedAt: flip.recordedAt, source: 'spot-trend'
     })));
   }
   return alerts;
@@ -174,7 +230,8 @@ async function main() {
   }
   const out = typeof opts.file === 'string' ? opts.file : 'alerts-new.json';
   writeFileSync(out, JSON.stringify(alerts));
-  console.log(`[tracker:alerts] ${alerts.length} new GOOD call(s), ${alerts.filter((a) => a.chartUrl).length} with chart -> ${out}`);
+  const spotCount = alerts.filter((a) => String(a.key).startsWith('spot|')).length;
+  console.log(`[tracker:alerts] ${alerts.length - spotCount} new GOOD call(s), ${spotCount} spot flip(s), ${alerts.filter((a) => a.chartUrl).length} with chart -> ${out}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

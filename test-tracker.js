@@ -69,6 +69,8 @@ import { scoreAlerts, scoreAlertsDataDir, alertLatencyMin } from './scripts/trac
 import { computeAlertAggregates } from './scripts/tracker/aggregate.js';
 import { alertsZoneTiles, NO_ALERT_LOG, NO_TRANSITIONS } from './scripts/tracker/build-page.js';
 import { emaSeries, dailyStates, flipsFrom, symbolReturns, dailyFromKraken, updateSpotTrend, spotDir } from './scripts/tracker/spot-trend.js';
+import { findNewSpotFlips, formatSpotAlert, spotAlertKey } from './scripts/tracker/alerts.js';
+import { renderSpot, readSpotData } from './scripts/tracker/spot-page.js';
 import { ema as researchEma } from './scripts/research/edge/lib.js';
 import { portfolioSeries as researchPortfolioSeries } from './scripts/research/edge/spot-portfolio.js';
 import {
@@ -2868,6 +2870,34 @@ async function run() {
       assertEqual(ledger.startDate, first.startDate, 'startDate persisted');
       assert(ledger.rows.every((r) => Number.isFinite(r.equity) && Number.isFinite(r.bh)), 'equity and buy & hold are numbers');
     }
+  });
+
+  await test('spot alerts: only live, recent, not-yet-alerted flips; one per symbol+day', () => {
+    const now = Date.parse('2026-10-02T00:20:00Z');
+    const flips = [
+      { date: '2026-09-15', symbol: 'SOL', from: 'IN', to: 'OUT', close: 96.8, ema20: 99.5, weight: 0, live: false, recordedAt: '2026-10-02T00:10:00Z' },
+      { date: '2026-10-01', symbol: 'BTC', from: 'IN', to: 'OUT', close: 80000, ema20: 81000, weight: 0, live: true, recordedAt: '2026-10-02T00:10:00Z' },
+      { date: '2026-09-29', symbol: 'ETH', from: 'OUT', to: 'IN', close: 4000, ema20: 3900, weight: 0.6, live: true, recordedAt: '2026-09-30T00:10:00Z' }
+    ];
+    const fresh = findNewSpotFlips(flips, [], now);
+    assertEqual(fresh.map((f) => f.key).join(','), 'spot|BTC|2026-10-01', 'history and >24h-old flips skipped');
+    assertEqual(findNewSpotFlips(flips, [spotAlertKey(flips[1])], now).length, 0, 'already alerted -> skipped');
+    const a = formatSpotAlert(fresh[0], { mention: 'owner' });
+    assert(a.title.startsWith('SPOT BTC → OUT (hold USDC)'), a.title);
+    assert(a.body.includes('Paper tracking only') && a.body.includes('cc @owner') && a.body.includes('<!-- alert-key: spot|BTC|2026-10-01 -->'), 'body: paper note, mention, key');
+  });
+
+  await test('spot page: renders empty state and live data with stable ids', () => {
+    const empty = renderSpot();
+    for (const id of ['spot-trend-state-row', 'spot-trend-equity-panel', 'spot-trend-flips-table', 'spot-trend-backtest-panel', 'spot-trend-state-btc']) assert(empty.includes(`id="${id}"`), `empty page has ${id}`);
+    assert(empty.includes('[NO DAILY CLOSE YET]') && empty.includes('[NO FLIPS YET]'), 'empty states shown');
+    const dir = tmp();
+    updateSpotTrend(dir, { BTC: spotDays.slice(0, 250) }, spotDays[250].t);
+    updateSpotTrend(dir, { BTC: spotDays.slice(0, 260) }, spotDays[260].t);
+    const html = renderSpot(readSpotData(dir));
+    assert(html.includes('id="spot-trend-equity-svg"') && html.includes('id="spot-trend-equity-filter"'), 'equity chart and numbers once the ledger has days');
+    assert(/id="spot-trend-state-btc-state">(IN · HOLD|OUT · USDC)</.test(html), 'BTC state rendered');
+    assert(html.includes('id="spot-trend-flip-row-0"'), 'flip rows rendered');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
