@@ -1,0 +1,2571 @@
+{
+  "meta": {
+    "id": "mr-zone-touch-1h",
+    "label": "Mean reversion: 1h/15m S-R zone touch, 4h/1D lean opposing",
+    "source": "docs/PROMPT_S1_EDGE_SEARCH.md Agent D",
+    "tf": "1h",
+    "holdMaxHours": 24,
+    "stopKind": "atr",
+    "notes": "Zone: a 1h close lands inside a horizontal support/resistance zone from lib/geometry.js (own-timeframe 1h zones, or the 15m zone map at the same close time when 1h has none) - zone side (support/resistance) sets the candidate reversion direction; a flipped (\"both\") zone is skipped, not guessed.\n4h/1D lean opposing: a documented re-derivation of lib/topDown.js buildWeeklyLean's own price-vs-EMA21 + EMA21-slope method, applied to 4h and 1D closes; a support touch needs a net-bullish 4h+1D lean (opposing further downside), a resistance touch a net-bearish one.\nStop 0.5x ATR(1h) beyond the far side of the touched zone; TP1 is the midpoint of the nearest opposing zone (zone mid-to-mid) or 2R when none exists; hold 24h."
+  },
+  "generatedAt": "2026-09-27T03:20:16.926Z",
+  "runtimeMs": 20088,
+  "combined": {
+    "stats": {
+      "n": 114,
+      "resolved": 108,
+      "winPct": 58.33,
+      "grossExpR": 0.4105,
+      "netExpR": -0.4727,
+      "netExpR_sens020": -0.1918,
+      "maxLosingStreak": 9,
+      "medianHoldHours": 1.3,
+      "medianStopPct": 0.39,
+      "timeouts": 0
+    },
+    "oos": {
+      "firstHalf": -0.3341,
+      "secondHalf": -0.6113
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 39,
+        "resolved": 39,
+        "winPct": 58.97,
+        "grossExpR": 0.6014,
+        "netExpR": -0.4432,
+        "netExpR_sens020": -0.1588,
+        "maxLosingStreak": 9,
+        "medianHoldHours": 1.15,
+        "medianStopPct": 0.349,
+        "timeouts": 0
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-12T07:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 63725,
+          "stop": 63512.52,
+          "tp1": 63928.85,
+          "tp2": null,
+          "reason": [
+            "1h close 63725 touched a support zone [63617.6, 63765.5] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (210.16) beyond the zone; TP1 = opposing zone mid (63928.85)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.9594,
+            "holdCandles": 69,
+            "timeToTP1Candles": 69
+          },
+          "netDir": -0.06029597138552667,
+          "netSens": 0.3595788403614548
+        },
+        {
+          "closedThrough": "2026-07-16T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64709.4,
+          "stop": 64552.47,
+          "tp1": 64863.25,
+          "tp2": null,
+          "reason": [
+            "1h close 64709.4 touched a support zone [64705.9, 64755.6] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (306.86) beyond the zone; TP1 = opposing zone mid (64863.25)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 27,
+            "ambiguous": false
+          },
+          "netDir": -2.401975148155226,
+          "netSens": -1.824691263620721
+        },
+        {
+          "closedThrough": "2026-07-18T19:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64474.7,
+          "stop": 64347.305,
+          "tp1": 64738.4,
+          "tp2": null,
+          "reason": [
+            "1h close 64474.7 touched a support zone [64433.3, 64491.9] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (171.99) beyond the zone; TP1 = opposing zone mid (64738.4)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.0699,
+            "holdCandles": 136,
+            "timeToTP1Candles": 136
+          },
+          "netDir": 0.34915758467753477,
+          "netSens": 1.0576985792220792
+        },
+        {
+          "closedThrough": "2026-07-19T01:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64729.2,
+          "stop": 64621.895,
+          "tp1": 64800.6,
+          "tp2": null,
+          "reason": [
+            "1h close 64729.2 touched a support zone [64705.9, 64755.6] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (168.01) beyond the zone; TP1 = opposing zone mid (64800.600000000006)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.6654,
+            "holdCandles": 67,
+            "timeToTP1Candles": 67
+          },
+          "netDir": -1.3855694795211249,
+          "netSens": -0.5410526350124263
+        },
+        {
+          "closedThrough": "2026-07-19T10:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64465.1,
+          "stop": 64355.79,
+          "tp1": 64577.7,
+          "tp2": null,
+          "reason": [
+            "1h close 64465.1 touched a support zone [64433.3, 64484.4] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (155.02) beyond the zone; TP1 = opposing zone mid (64577.7)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.0301,
+            "holdCandles": 37,
+            "timeToTP1Candles": 37
+          },
+          "netDir": -0.9750353032659835,
+          "netSens": -0.14939135486234334
+        },
+        {
+          "closedThrough": "2026-07-22T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 66164.8,
+          "stop": 65951.54,
+          "tp1": 66591.32,
+          "tp2": null,
+          "reason": [
+            "1h close 66164.8 touched a support zone [66086.6, 66175.8] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (270.12) beyond the zone; TP1 = 2R fallback (66591.31999999999)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 101,
+            "ambiguous": false
+          },
+          "netDir": -2.0548641095376796,
+          "netSens": -1.6205082997280469
+        },
+        {
+          "closedThrough": "2026-07-25T17:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64150,
+          "stop": 64235.62,
+          "tp1": 64058.3,
+          "tp2": null,
+          "reason": [
+            "1h close 64150 touched a resistance zone [64137.4, 64160] (2 touches)",
+            "4h lean bear, 1D lean neutral (net score -1) opposes the move -> short",
+            "stop 0.5x ATR1h (151.24) beyond the zone; TP1 = opposing zone mid (64058.3)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 36,
+            "ambiguous": false
+          },
+          "netDir": -2.0489371642139367,
+          "netSens": -2.4984816631627664
+        },
+        {
+          "closedThrough": "2026-08-11T09:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 64072.9,
+          "stop": 64180.41,
+          "tp1": 63887.95,
+          "tp2": null,
+          "reason": [
+            "1h close 64072.9 touched a resistance zone [64008.2, 64094.8] (3 touches)",
+            "4h lean bear, 1D lean neutral (net score -1) opposes the move -> short",
+            "stop 0.5x ATR1h (171.22) beyond the zone; TP1 = opposing zone mid (63887.95)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 45,
+            "ambiguous": false
+          },
+          "netDir": -1.8343601525439337,
+          "netSens": -2.1919430750627624
+        },
+        {
+          "closedThrough": "2026-08-16T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63075,
+          "stop": 63140.415,
+          "tp1": 62910.75,
+          "tp2": null,
+          "reason": [
+            "1h close 63075 touched a resistance zone [63060.6, 63111] (5 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (58.83) beyond the zone; TP1 = opposing zone mid (62910.75)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 14,
+            "ambiguous": false
+          },
+          "netDir": -2.3499197431781518,
+          "netSens": -2.928456775968789
+        },
+        {
+          "closedThrough": "2026-08-16T18:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63100.6,
+          "stop": 63149.705,
+          "tp1": 62922.6,
+          "tp2": null,
+          "reason": [
+            "1h close 63100.6 touched a resistance zone [63060.6, 63111] (5 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (77.41) beyond the zone; TP1 = opposing zone mid (62922.6)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 88,
+            "ambiguous": false
+          },
+          "netDir": -2.799019244476005,
+          "netSens": -3.570027492108579
+        },
+        {
+          "closedThrough": "2026-08-16T19:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 63077.6,
+          "stop": 63147.995,
+          "tp1": 62922.6,
+          "tp2": null,
+          "reason": [
+            "1h close 63077.6 touched a resistance zone [63060.6, 63111] (5 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (73.99) beyond the zone; TP1 = opposing zone mid (62922.6)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 28,
+            "ambiguous": false
+          },
+          "netDir": -2.2544731870160506,
+          "netSens": -2.7921045528800725
+        },
+        {
+          "closedThrough": "2026-08-18T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64803,
+          "stop": 64557.24,
+          "tp1": 64996.2,
+          "tp2": null,
+          "reason": [
+            "1h close 64803 touched a support zone [64674.2, 64878.2] (4 touches)",
+            "4h lean bull, 1D lean neutral (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (233.92) beyond the zone; TP1 = opposing zone mid (64996.2)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 242,
+            "ambiguous": false
+          },
+          "netDir": -1.8965258789062425,
+          "netSens": -1.5273681640624956
+        },
+        {
+          "closedThrough": "2026-08-18T17:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64794.5,
+          "stop": 64558.585,
+          "tp1": 64996.2,
+          "tp2": null,
+          "reason": [
+            "1h close 64794.5 touched a support zone [64674.2, 64878.2] (4 touches)",
+            "4h lean bull, 1D lean neutral (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (231.23) beyond the zone; TP1 = opposing zone mid (64996.2)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 185,
+            "ambiguous": false
+          },
+          "netDir": -1.9338164169298229,
+          "netSens": -1.549303774664602
+        },
+        {
+          "closedThrough": "2026-08-18T19:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 64734.1,
+          "stop": 64562.975,
+          "tp1": 64996.2,
+          "tp2": null,
+          "reason": [
+            "1h close 64734.1 touched a support zone [64674.2, 64878.2] (4 touches)",
+            "4h lean bull, 1D lean neutral (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (222.45) beyond the zone; TP1 = opposing zone mid (64996.2)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 65,
+            "ambiguous": false
+          },
+          "netDir": -2.28617057706355,
+          "netSens": -1.7565709276844412
+        },
+        {
+          "closedThrough": "2026-08-20T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 69137.7,
+          "stop": 68855.31,
+          "tp1": 69795.65,
+          "tp2": null,
+          "reason": [
+            "1h close 69137.7 touched a support zone [69137.7, 69237.9] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (564.78) beyond the zone; TP1 = opposing zone mid (69795.65)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.3299,
+            "holdCandles": 166,
+            "timeToTP1Candles": 166
+          },
+          "netDir": 1.497476118134493,
+          "netSens": 1.84023889302029
+        },
+        {
+          "closedThrough": "2026-08-22T10:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77041.3,
+          "stop": 76579.485,
+          "tp1": 77727.8,
+          "tp2": null,
+          "reason": [
+            "1h close 77041.3 touched a support zone [76986.8, 77165.3] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (814.63) beyond the zone; TP1 = opposing zone mid (77727.8)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 23,
+            "ambiguous": false
+          },
+          "netDir": -1.5671977306930236,
+          "netSens": -1.3336457239370727
+        },
+        {
+          "closedThrough": "2026-08-22T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77130.3,
+          "stop": 76600.595,
+          "tp1": 77346.4,
+          "tp2": null,
+          "reason": [
+            "1h close 77130.3 touched a support zone [76986.8, 77165.3] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (772.41) beyond the zone; TP1 = opposing zone mid (77346.4)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.408,
+            "holdCandles": 48,
+            "timeToTP1Candles": 48
+          },
+          "netDir": -0.0870737108390503,
+          "netSens": 0.11678017009467623
+        },
+        {
+          "closedThrough": "2026-08-22T22:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76850,
+          "stop": 76266.625,
+          "tp1": 78769,
+          "tp2": null,
+          "reason": [
+            "1h close 76850 touched a support zone [76533.1, 76873.7] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (532.95) beyond the zone; TP1 = opposing zone mid (78769)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 430,
+            "ambiguous": false
+          },
+          "netDir": -1.4478937218770087,
+          "netSens": -1.2634668952217698
+        },
+        {
+          "closedThrough": "2026-08-23T00:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77082.6,
+          "stop": 76823.735,
+          "tp1": 77354.05,
+          "tp2": null,
+          "reason": [
+            "1h close 77082.6 touched a support zone [77074.3, 77165.3] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (501.13) beyond the zone; TP1 = opposing zone mid (77354.04999999999)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.0486,
+            "holdCandles": 39,
+            "timeToTP1Candles": 39
+          },
+          "netDir": 0.0361771541150997,
+          "netSens": 0.4530571494794703
+        },
+        {
+          "closedThrough": "2026-08-23T02:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77186.9,
+          "stop": 76917.77,
+          "tp1": 77405.75,
+          "tp2": null,
+          "reason": [
+            "1h close 77186.9 touched a support zone [77153.2, 77239.5] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (470.86) beyond the zone; TP1 = opposing zone mid (77405.75)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 94,
+            "ambiguous": false
+          },
+          "netDir": -1.975125255452791,
+          "netSens": -1.573603091442818
+        },
+        {
+          "closedThrough": "2026-08-23T03:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77071.9,
+          "stop": 76761.61,
+          "tp1": 77405.75,
+          "tp2": null,
+          "reason": [
+            "1h close 77071.9 touched a support zone [76986.8, 77074.3] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (450.38) beyond the zone; TP1 = opposing zone mid (77405.75)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 69,
+            "ambiguous": false
+          },
+          "netDir": -1.8445146798156737,
+          "netSens": -1.4967733410680433
+        },
+        {
+          "closedThrough": "2026-08-23T05:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76581.8,
+          "stop": 76310.45,
+          "tp1": 77405.75,
+          "tp2": null,
+          "reason": [
+            "1h close 76581.8 touched a support zone [76533.1, 76615.1] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (445.3) beyond the zone; TP1 = opposing zone mid (77405.75)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 10,
+            "ambiguous": false
+          },
+          "netDir": -1.959565579509889,
+          "netSens": -1.56445034088817
+        },
+        {
+          "closedThrough": "2026-08-23T06:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76092.1,
+          "stop": 75769.085,
+          "tp1": 77382.2,
+          "tp2": null,
+          "reason": [
+            "1h close 76092.1 touched a support zone [76016.3, 76181.8] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (494.43) beyond the zone; TP1 = opposing zone mid (77382.2)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.9939,
+            "holdCandles": 434,
+            "timeToTP1Candles": 434
+          },
+          "netDir": 3.1929677213132504,
+          "netSens": 3.5227633654783825
+        },
+        {
+          "closedThrough": "2026-08-23T07:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76074.4,
+          "stop": 75770.54,
+          "tp1": 77382.2,
+          "tp2": null,
+          "reason": [
+            "1h close 76074.4 touched a support zone [76016.3, 76181.8] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (491.52) beyond the zone; TP1 = opposing zone mid (77382.2)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 4.304,
+            "holdCandles": 378,
+            "timeToTP1Candles": 378
+          },
+          "netDir": 3.4527758836305806,
+          "netSens": 3.8032799315474004
+        },
+        {
+          "closedThrough": "2026-08-23T09:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76480.5,
+          "stop": 76195.425,
+          "tp1": 77434.9,
+          "tp2": null,
+          "reason": [
+            "1h close 76480.5 touched a support zone [76446, 76615.1] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (501.15) beyond the zone; TP1 = opposing zone mid (77434.9)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.3479,
+            "holdCandles": 259,
+            "timeToTP1Candles": 259
+          },
+          "netDir": 2.43574109444882,
+          "netSens": 2.8113359379110707
+        },
+        {
+          "closedThrough": "2026-08-23T10:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76541.6,
+          "stop": 76294.91,
+          "tp1": 77382.2,
+          "tp2": null,
+          "reason": [
+            "1h close 76541.6 touched a support zone [76533.1, 76873.7] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (476.38) beyond the zone; TP1 = opposing zone mid (77382.2)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 3.4075,
+            "holdCandles": 198,
+            "timeToTP1Candles": 198
+          },
+          "netDir": 2.352566926101595,
+          "netSens": 2.7869511330009384
+        },
+        {
+          "closedThrough": "2026-08-23T11:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76783.6,
+          "stop": 76381.375,
+          "tp1": 77382.2,
+          "tp2": null,
+          "reason": [
+            "1h close 76783.6 touched a support zone [76615.1, 76873.7] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (467.45) beyond the zone; TP1 = opposing zone mid (77382.2)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.4882,
+            "holdCandles": 138,
+            "timeToTP1Candles": 138
+          },
+          "netDir": 0.8391497420598018,
+          "netSens": 1.1064057306234127
+        },
+        {
+          "closedThrough": "2026-08-23T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 77138.4,
+          "stop": 76793.99,
+          "tp1": 77434.9,
+          "tp2": null,
+          "reason": [
+            "1h close 77138.4 touched a support zone [77040.8, 77239.5] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (493.62) beyond the zone; TP1 = opposing zone mid (77434.9)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.8609,
+            "holdCandles": 53,
+            "timeToTP1Candles": 53
+          },
+          "netDir": 0.0993931912545849,
+          "netSens": 0.41295481838505
+        },
+        {
+          "closedThrough": "2026-08-24T02:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76924.2,
+          "stop": 76527.75,
+          "tp1": 77243.6,
+          "tp2": null,
+          "reason": [
+            "1h close 76924.2 touched a support zone [76763, 77004.3] (9 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (470.5) beyond the zone; TP1 = opposing zone mid (77243.6)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.8057,
+            "holdCandles": 13,
+            "timeToTP1Candles": 13
+          },
+          "netDir": 0.14598936814225782,
+          "netSens": 0.4176349224366222
+        },
+        {
+          "closedThrough": "2026-08-24T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76935.9,
+          "stop": 76517.215,
+          "tp1": 77420.05,
+          "tp2": null,
+          "reason": [
+            "1h close 76935.9 touched a support zone [76763, 76986.8] (9 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (491.57) beyond the zone; TP1 = opposing zone mid (77420.04999999999)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.1564,
+            "holdCandles": 136,
+            "timeToTP1Candles": 136
+          },
+          "netDir": 0.5316294445704972,
+          "netSens": 0.7888879085708808
+        },
+        {
+          "closedThrough": "2026-08-24T05:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 76895.2,
+          "stop": 76514.7,
+          "tp1": 77420.05,
+          "tp2": null,
+          "reason": [
+            "1h close 76895.2 touched a support zone [76763, 77004.3] (11 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (496.6) beyond the zone; TP1 = opposing zone mid (77420.04999999999)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.3794,
+            "holdCandles": 76,
+            "timeToTP1Candles": 76
+          },
+          "netDir": 0.6922944021024967,
+          "netSens": 0.9752202365308804
+        },
+        {
+          "closedThrough": "2026-08-26T19:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 78471,
+          "stop": 78181.57,
+          "tp1": 78735.4,
+          "tp2": null,
+          "reason": [
+            "1h close 78471 touched a support zone [78444.4, 78555] (2 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (525.66) beyond the zone; TP1 = opposing zone mid (78735.4)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.9135,
+            "holdCandles": 134,
+            "timeToTP1Candles": 134
+          },
+          "netDir": -0.008316674152620829,
+          "netSens": 0.3712548975572819
+        },
+        {
+          "closedThrough": "2026-08-27T19:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 80155.3,
+          "stop": 79870.235,
+          "tp1": 80834.25,
+          "tp2": null,
+          "reason": [
+            "1h close 80155.3 touched a support zone [80151.6, 80382.8] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (562.73) beyond the zone; TP1 = opposing zone mid (80834.25)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.3817,
+            "holdCandles": 370,
+            "timeToTP1Candles": 370
+          },
+          "netDir": 1.4256793731254354,
+          "netSens": 1.819334925367903
+        },
+        {
+          "closedThrough": "2026-09-05T12:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 79618.5,
+          "stop": 79444.345,
+          "tp1": 79728.25,
+          "tp2": null,
+          "reason": [
+            "1h close 79618.5 touched a support zone [79572.1, 79628.7] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (255.51) beyond the zone; TP1 = opposing zone mid (79728.25)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.6302,
+            "holdCandles": 42,
+            "timeToTP1Candles": 42
+          },
+          "netDir": -0.924179145014509,
+          "netSens": -0.2841406735379465
+        },
+        {
+          "closedThrough": "2026-09-07T09:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 79424.8,
+          "stop": 79252.345,
+          "tp1": 79590,
+          "tp2": null,
+          "reason": [
+            "1h close 79424.8 touched a support zone [79400, 79500] (3 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (295.31) beyond the zone; TP1 = opposing zone mid (79590)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.9579,
+            "holdCandles": 234,
+            "timeToTP1Candles": 234
+          },
+          "netDir": -0.6079828100083919,
+          "netSens": 0.03679246470094577
+        },
+        {
+          "closedThrough": "2026-09-11T09:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "short",
+          "entry": 77337.5,
+          "stop": 77565.63,
+          "tp1": 76997.6,
+          "tp2": null,
+          "reason": [
+            "1h close 77337.5 touched a resistance zone [77322.4, 77399.8] (4 touches)",
+            "4h lean bear, 1D lean neutral (net score -1) opposes the move -> short",
+            "stop 0.5x ATR1h (331.66) beyond the zone; TP1 = opposing zone mid (76997.6)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.4899,
+            "holdCandles": 36,
+            "timeToTP1Candles": 36
+          },
+          "netDir": 1.0152912243019427,
+          "netSens": 0.8118874632884897
+        },
+        {
+          "closedThrough": "2026-09-20T16:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 80878.6,
+          "stop": 80676.68,
+          "tp1": 81386.65,
+          "tp2": null,
+          "reason": [
+            "1h close 80878.6 touched a support zone [80823.7, 80900] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (294.04) beyond the zone; TP1 = opposing zone mid (81386.65)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.5161,
+            "holdCandles": 39,
+            "timeToTP1Candles": 39
+          },
+          "netDir": 1.1542376782885173,
+          "netSens": 1.715004516640304
+        },
+        {
+          "closedThrough": "2026-09-20T22:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 80925.5,
+          "stop": 80717.87,
+          "tp1": 81197.25,
+          "tp2": null,
+          "reason": [
+            "1h close 80925.5 touched a support zone [80878, 81011] (6 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (320.26) beyond the zone; TP1 = opposing zone mid (81197.25)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.3088,
+            "holdCandles": 13,
+            "timeToTP1Candles": 13
+          },
+          "netDir": -0.016377960795616486,
+          "netSens": 0.5292835524731668
+        },
+        {
+          "closedThrough": "2026-09-22T04:00:00.000Z",
+          "symbol": "BTC",
+          "direction": "long",
+          "entry": 85676.2,
+          "stop": 85305.02,
+          "tp1": 86102.05,
+          "tp2": null,
+          "reason": [
+            "1h close 85676.2 touched a support zone [85603.2, 85693.7] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (596.36) beyond the zone; TP1 = opposing zone mid (86102.05)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 79,
+            "ambiguous": false
+          },
+          "netDir": -1.7847919607737632,
+          "netSens": -1.4616423298669197
+        }
+      ]
+    },
+    "SOL": {
+      "stats": {
+        "n": 37,
+        "resolved": 37,
+        "winPct": 56.76,
+        "grossExpR": 0.2724,
+        "netExpR": -0.4801,
+        "netExpR_sens020": -0.2399,
+        "maxLosingStreak": 5,
+        "medianHoldHours": 1.43,
+        "medianStopPct": 0.426,
+        "timeouts": 0
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-15T19:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 77.51,
+          "stop": 77.105,
+          "tp1": 77.88,
+          "tp2": null,
+          "reason": [
+            "1h close 77.51 touched a support zone [77.42, 77.51] (2 touches)",
+            "4h lean bull, 1D lean neutral (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.63) beyond the zone; TP1 = opposing zone mid (77.88)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 21,
+            "ambiguous": false
+          },
+          "netDir": -1.6507012345678995,
+          "netSens": -1.3827654320987643
+        },
+        {
+          "closedThrough": "2026-07-20T06:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.83,
+          "stop": 75.435,
+          "tp1": 76.24,
+          "tp2": null,
+          "reason": [
+            "1h close 75.83 touched a support zone [75.71, 75.83] (2 touches)",
+            "4h lean bull, 1D lean neutral (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.55) beyond the zone; TP1 = opposing zone mid (76.24)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.038,
+            "holdCandles": 123,
+            "timeToTP1Candles": 123
+          },
+          "netDir": 0.385286075949384,
+          "netSens": 0.6540506329114024
+        },
+        {
+          "closedThrough": "2026-07-25T05:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.23,
+          "stop": 74.425,
+          "tp1": 73.685,
+          "tp2": null,
+          "reason": [
+            "1h close 74.23 touched a resistance zone [74.23, 74.25] (3 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (0.35) beyond the zone; TP1 = opposing zone mid (73.685)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.7949,
+            "holdCandles": 180,
+            "timeToTP1Candles": 180
+          },
+          "netDir": 2.2619666666666483,
+          "netSens": 2.03356666666664
+        },
+        {
+          "closedThrough": "2026-07-25T17:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.27,
+          "stop": 74.445,
+          "tp1": 73.82,
+          "tp2": null,
+          "reason": [
+            "1h close 74.27 touched a resistance zone [74.23, 74.3] (5 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (0.29) beyond the zone; TP1 = opposing zone mid (73.82)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 24,
+            "ambiguous": false
+          },
+          "netDir": -1.5941600000000096,
+          "netSens": -1.8488000000000138
+        },
+        {
+          "closedThrough": "2026-07-26T03:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.84,
+          "stop": 75.04,
+          "tp1": 74.63,
+          "tp2": null,
+          "reason": [
+            "1h close 74.84 touched a resistance zone [74.84, 74.9] (2 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (0.28) beyond the zone; TP1 = opposing zone mid (74.63)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 65,
+            "ambiguous": false
+          },
+          "netDir": -1.5238799999999926,
+          "netSens": -1.7483999999999895
+        },
+        {
+          "closedThrough": "2026-08-02T03:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.07,
+          "stop": 73.33,
+          "tp1": 72.645,
+          "tp2": null,
+          "reason": [
+            "1h close 73.07 touched a resistance zone [72.97, 73.13] (3 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (0.4) beyond the zone; TP1 = opposing zone mid (72.64500000000001)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 86,
+            "ambiguous": false
+          },
+          "netDir": -1.3934538461538384,
+          "netSens": -1.562076923076912
+        },
+        {
+          "closedThrough": "2026-08-02T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 73.13,
+          "stop": 73.32,
+          "tp1": 72.645,
+          "tp2": null,
+          "reason": [
+            "1h close 73.13 touched a resistance zone [72.97, 73.13] (3 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (0.38) beyond the zone; TP1 = opposing zone mid (72.64500000000001)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 23,
+            "ambiguous": false
+          },
+          "netDir": -1.538852631578954,
+          "netSens": -1.7697894736842197
+        },
+        {
+          "closedThrough": "2026-08-07T14:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "short",
+          "entry": 74.05,
+          "stop": 74.265,
+          "tp1": 73.655,
+          "tp2": null,
+          "reason": [
+            "1h close 74.05 touched a resistance zone [74.02, 74.08] (2 touches)",
+            "4h lean neutral, 1D lean bear (net score -1) opposes the move -> short",
+            "stop 0.5x ATR1h (0.37) beyond the zone; TP1 = opposing zone mid (73.655)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.8372,
+            "holdCandles": 12,
+            "timeToTP1Candles": 12
+          },
+          "netDir": 1.3550139534883798,
+          "netSens": 1.1483627906976852
+        },
+        {
+          "closedThrough": "2026-08-11T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.63,
+          "stop": 75.34,
+          "tp1": 76.21,
+          "tp2": null,
+          "reason": [
+            "1h close 75.63 touched a support zone [75.52, 75.69] (3 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.36) beyond the zone; TP1 = opposing zone mid (76.21000000000001)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 184,
+            "timeToTP1Candles": 184
+          },
+          "netDir": 1.1133034482758812,
+          "netSens": 1.4784137931034596
+        },
+        {
+          "closedThrough": "2026-08-12T15:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.41,
+          "stop": 75.115,
+          "tp1": 75.895,
+          "tp2": null,
+          "reason": [
+            "1h close 75.41 touched a support zone [75.33, 75.69] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.43) beyond the zone; TP1 = opposing zone mid (75.89500000000001)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.6441,
+            "holdCandles": 156,
+            "timeToTP1Candles": 156
+          },
+          "netDir": 0.7749677966101746,
+          "netSens": 1.132845762711867
+        },
+        {
+          "closedThrough": "2026-08-12T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.67,
+          "stop": 75.115,
+          "tp1": 75.895,
+          "tp2": null,
+          "reason": [
+            "1h close 75.67 touched a support zone [75.33, 75.69] (5 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.43) beyond the zone; TP1 = opposing zone mid (75.89500000000001)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.4054,
+            "holdCandles": 96,
+            "timeToTP1Candles": 96
+          },
+          "netDir": -0.05816396396395829,
+          "netSens": 0.13271531531531866
+        },
+        {
+          "closedThrough": "2026-08-12T17:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.63,
+          "stop": 75.12,
+          "tp1": 75.895,
+          "tp2": null,
+          "reason": [
+            "1h close 75.63 touched a support zone [75.33, 75.69] (5 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.42) beyond the zone; TP1 = opposing zone mid (75.89500000000001)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.5196,
+            "holdCandles": 36,
+            "timeToTP1Candles": 36
+          },
+          "netDir": 0.015399999999990976,
+          "netSens": 0.22301176470587702
+        },
+        {
+          "closedThrough": "2026-08-13T11:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.66,
+          "stop": 75.34,
+          "tp1": 76.055,
+          "tp2": null,
+          "reason": [
+            "1h close 75.66 touched a support zone [75.52, 75.69] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.36) beyond the zone; TP1 = opposing zone mid (76.055)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.2344,
+            "holdCandles": 121,
+            "timeToTP1Candles": 121
+          },
+          "netDir": 0.4305125000000186,
+          "netSens": 0.7615250000000109
+        },
+        {
+          "closedThrough": "2026-08-13T12:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.58,
+          "stop": 75.345,
+          "tp1": 76.055,
+          "tp2": null,
+          "reason": [
+            "1h close 75.58 touched a support zone [75.52, 75.69] (3 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.35) beyond the zone; TP1 = opposing zone mid (76.055)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.0213,
+            "holdCandles": 61,
+            "timeToTP1Candles": 61
+          },
+          "netDir": 0.927802127659572,
+          "netSens": 1.378065957446807
+        },
+        {
+          "closedThrough": "2026-08-14T07:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.47,
+          "stop": 75.255,
+          "tp1": 75.67,
+          "tp2": null,
+          "reason": [
+            "1h close 75.47 touched a support zone [75.42, 75.53] (7 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.33) beyond the zone; TP1 = opposing zone mid (75.67)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.9302,
+            "holdCandles": 95,
+            "timeToTP1Candles": 95
+          },
+          "netDir": -0.2632790697674229,
+          "netSens": 0.22815348837210425
+        },
+        {
+          "closedThrough": "2026-08-16T19:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 75.11,
+          "stop": 74.99,
+          "tp1": 75.2,
+          "tp2": null,
+          "reason": [
+            "1h close 75.11 touched a support zone [75.09, 75.13] (3 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.2) beyond the zone; TP1 = opposing zone mid (75.2)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.75,
+            "holdCandles": 14,
+            "timeToTP1Candles": 14
+          },
+          "netDir": -1.378116666666838,
+          "netSens": -0.5018333333334342
+        },
+        {
+          "closedThrough": "2026-08-19T02:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 76.74,
+          "stop": 76.54,
+          "tp1": 77.2,
+          "tp2": null,
+          "reason": [
+            "1h close 76.74 touched a support zone [76.72, 76.83] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.36) beyond the zone; TP1 = opposing zone mid (77.2)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.3,
+            "holdCandles": 397,
+            "timeToTP1Candles": 397
+          },
+          "netDir": 0.9954200000000184,
+          "netSens": 1.5326000000000106
+        },
+        {
+          "closedThrough": "2026-08-19T03:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 76.76,
+          "stop": 76.545,
+          "tp1": 77.2,
+          "tp2": null,
+          "reason": [
+            "1h close 76.76 touched a support zone [76.72, 76.83] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.35) beyond the zone; TP1 = opposing zone mid (77.2)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.0465,
+            "holdCandles": 337,
+            "timeToTP1Candles": 337
+          },
+          "netDir": 0.8326209302325773,
+          "netSens": 1.3324534883721042
+        },
+        {
+          "closedThrough": "2026-08-19T05:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 76.83,
+          "stop": 76.545,
+          "tp1": 77.16,
+          "tp2": null,
+          "reason": [
+            "1h close 76.83 touched a support zone [76.72, 76.83] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.35) beyond the zone; TP1 = opposing zone mid (77.16)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.1579,
+            "holdCandles": 211,
+            "timeToTP1Candles": 211
+          },
+          "netDir": 0.24133157894735757,
+          "netSens": 0.6187421052631514
+        },
+        {
+          "closedThrough": "2026-08-19T06:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 76.74,
+          "stop": 76.55,
+          "tp1": 77.05,
+          "tp2": null,
+          "reason": [
+            "1h close 76.74 touched a support zone [76.72, 76.83] (6 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.34) beyond the zone; TP1 = opposing zone mid (77.05)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.6316,
+            "holdCandles": 50,
+            "timeToTP1Candles": 50
+          },
+          "netDir": 0.2583578947368257,
+          "netSens": 0.8238105263157797
+        },
+        {
+          "closedThrough": "2026-08-20T01:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 84.92,
+          "stop": 84.41,
+          "tp1": 85.94,
+          "tp2": null,
+          "reason": [
+            "1h close 84.92 touched a support zone [84.92, 85] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (1.02) beyond the zone; TP1 = 2R fallback (85.94000000000001)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 121,
+            "ambiguous": false
+          },
+          "netDir": -1.5661333333333276,
+          "netSens": -1.333019607843134
+        },
+        {
+          "closedThrough": "2026-08-20T13:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 87.01,
+          "stop": 86.515,
+          "tp1": 87.86,
+          "tp2": null,
+          "reason": [
+            "1h close 87.01 touched a support zone [86.97, 87.02] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.91) beyond the zone; TP1 = opposing zone mid (87.86)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 31,
+            "ambiguous": false
+          },
+          "netDir": -1.5976444444444389,
+          "netSens": -1.3515555555555523
+        },
+        {
+          "closedThrough": "2026-08-22T16:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 93.04,
+          "stop": 91.91,
+          "tp1": 93.46,
+          "tp2": null,
+          "reason": [
+            "1h close 93.04 touched a support zone [92.86, 93.04] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (1.9) beyond the zone; TP1 = opposing zone mid (93.46000000000001)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.3717,
+            "holdCandles": 9,
+            "timeToTP1Candles": 9
+          },
+          "netDir": 0.09175663716814397,
+          "netSens": 0.20702743362831993
+        },
+        {
+          "closedThrough": "2026-08-23T04:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 93.7,
+          "stop": 92.645,
+          "tp1": 94.285,
+          "tp2": null,
+          "reason": [
+            "1h close 93.7 touched a support zone [93.47, 93.79] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (1.65) beyond the zone; TP1 = opposing zone mid (94.285)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 47,
+            "ambiguous": false
+          },
+          "netDir": -1.3019715639810407,
+          "netSens": -1.1776303317535532
+        },
+        {
+          "closedThrough": "2026-08-25T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 100.23,
+          "stop": 99.295,
+          "tp1": 102.87,
+          "tp2": null,
+          "reason": [
+            "1h close 100.23 touched a support zone [100.11, 100.84] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (1.63) beyond the zone; TP1 = opposing zone mid (102.87)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 114,
+            "ambiguous": false
+          },
+          "netDir": -1.3644727272727264,
+          "netSens": -1.2143957219251331
+        },
+        {
+          "closedThrough": "2026-08-25T09:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 100.34,
+          "stop": 99.305,
+          "tp1": 101.965,
+          "tp2": null,
+          "reason": [
+            "1h close 100.34 touched a support zone [100.11, 100.84] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (1.61) beyond the zone; TP1 = opposing zone mid (101.965)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 54,
+            "ambiguous": false
+          },
+          "netDir": -1.3296193236714942,
+          "netSens": -1.1938937198067612
+        },
+        {
+          "closedThrough": "2026-08-29T09:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.45,
+          "stop": 102.795,
+          "tp1": 103.75,
+          "tp2": null,
+          "reason": [
+            "1h close 103.45 touched a support zone [103.31, 103.48] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (1.03) beyond the zone; TP1 = opposing zone mid (103.75)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.458,
+            "holdCandles": 195,
+            "timeToTP1Candles": 195
+          },
+          "netDir": -0.0789923664122128,
+          "netSens": 0.14212213740458074
+        },
+        {
+          "closedThrough": "2026-08-29T10:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.31,
+          "stop": 102.82,
+          "tp1": 103.91,
+          "tp2": null,
+          "reason": [
+            "1h close 103.31 touched a support zone [103.31, 103.48] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.98) beyond the zone; TP1 = opposing zone mid (103.91)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.2245,
+            "holdCandles": 137,
+            "timeToTP1Candles": 137
+          },
+          "netDir": 0.5076551020408088,
+          "netSens": 0.8028265306122404
+        },
+        {
+          "closedThrough": "2026-08-29T11:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.45,
+          "stop": 102.835,
+          "tp1": 103.705,
+          "tp2": null,
+          "reason": [
+            "1h close 103.45 touched a support zone [103.31, 103.48] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.95) beyond the zone; TP1 = opposing zone mid (103.70500000000001)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.4146,
+            "holdCandles": 76,
+            "timeToTP1Candles": 76
+          },
+          "netDir": -0.15731869918699654,
+          "netSens": 0.07817723577235497
+        },
+        {
+          "closedThrough": "2026-09-04T08:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.6,
+          "stop": 103.155,
+          "tp1": 103.925,
+          "tp2": null,
+          "reason": [
+            "1h close 103.6 touched a support zone [103.58, 103.66] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.85) beyond the zone; TP1 = opposing zone mid (103.92500000000001)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.7303,
+            "holdCandles": 30,
+            "timeToTP1Candles": 30
+          },
+          "netDir": -0.06125056179776489,
+          "netSens": 0.2646820224719029
+        },
+        {
+          "closedThrough": "2026-09-04T17:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.82,
+          "stop": 101.25,
+          "tp1": 102.415,
+          "tp2": null,
+          "reason": [
+            "1h close 101.82 touched a support zone [101.79, 102.07] (3 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (1.08) beyond the zone; TP1 = opposing zone mid (102.415)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 43,
+            "ambiguous": false
+          },
+          "netDir": -1.6073473684210597,
+          "netSens": -1.3572631578947412
+        },
+        {
+          "closedThrough": "2026-09-06T01:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.3,
+          "stop": 102.86,
+          "tp1": 103.55,
+          "tp2": null,
+          "reason": [
+            "1h close 103.3 touched a support zone [103.15, 103.36] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.58) beyond the zone; TP1 = opposing zone mid (103.55)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.5682,
+            "holdCandles": 3,
+            "timeToTP1Candles": 3
+          },
+          "netDir": -0.23002727272727674,
+          "netSens": 0.09865454545454305
+        },
+        {
+          "closedThrough": "2026-09-09T17:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.37,
+          "stop": 102.8,
+          "tp1": 104.085,
+          "tp2": null,
+          "reason": [
+            "1h close 103.37 touched a support zone [103.25, 103.6] (2 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.9) beyond the zone; TP1 = opposing zone mid (104.08500000000001)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 161,
+            "ambiguous": false
+          },
+          "netDir": -1.6165929824561323,
+          "netSens": -1.3627017543859603
+        },
+        {
+          "closedThrough": "2026-09-09T18:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 103.51,
+          "stop": 102.81,
+          "tp1": 104.085,
+          "tp2": null,
+          "reason": [
+            "1h close 103.51 touched a support zone [103.25, 103.6] (2 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (0.88) beyond the zone; TP1 = opposing zone mid (104.08500000000001)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 100,
+            "ambiguous": false
+          },
+          "netDir": -1.502762857142855,
+          "netSens": -1.295742857142856
+        },
+        {
+          "closedThrough": "2026-09-13T00:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.75,
+          "stop": 101.46,
+          "tp1": 102.365,
+          "tp2": null,
+          "reason": [
+            "1h close 101.75 touched a support zone [101.7, 101.79] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.48) beyond the zone; TP1 = opposing zone mid (102.36500000000001)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 392,
+            "ambiguous": false
+          },
+          "netDir": -2.1929310344827915,
+          "netSens": -1.7017241379310537
+        },
+        {
+          "closedThrough": "2026-09-13T01:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 101.72,
+          "stop": 101.47,
+          "tp1": 102.365,
+          "tp2": null,
+          "reason": [
+            "1h close 101.72 touched a support zone [101.7, 101.79] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.46) beyond the zone; TP1 = opposing zone mid (102.36500000000001)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 328,
+            "ambiguous": false
+          },
+          "netDir": -2.3833919999999997,
+          "netSens": -1.81376
+        },
+        {
+          "closedThrough": "2026-09-19T18:00:00.000Z",
+          "symbol": "SOL",
+          "direction": "long",
+          "entry": 111.38,
+          "stop": 110.71,
+          "tp1": 112.175,
+          "tp2": null,
+          "reason": [
+            "1h close 111.38 touched a support zone [111.17, 111.43] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (0.92) beyond the zone; TP1 = opposing zone mid (112.175)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 16,
+            "ambiguous": false
+          },
+          "netDir": -1.5652119402985178,
+          "netSens": -1.3324776119403046
+        }
+      ]
+    },
+    "ETH": {
+      "stats": {
+        "n": 38,
+        "resolved": 32,
+        "winPct": 59.38,
+        "grossExpR": 0.3376,
+        "netExpR": -0.5001,
+        "netExpR_sens020": -0.1765,
+        "maxLosingStreak": 4,
+        "medianHoldHours": 1.42,
+        "medianStopPct": 0.41,
+        "timeouts": 0
+      },
+      "signals": [
+        {
+          "closedThrough": "2026-07-12T18:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1817.22,
+          "stop": 1812.46,
+          "tp1": 1827.21,
+          "tp2": null,
+          "reason": [
+            "1h close 1817.22 touched a support zone [1817, 1817.81] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (9.08) beyond the zone; TP1 = opposing zone mid (1827.21)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 206,
+            "ambiguous": false
+          },
+          "netDir": -2.298014285714288,
+          "netSens": -1.763537815126052
+        },
+        {
+          "closedThrough": "2026-07-15T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1868.75,
+          "stop": 1860.9,
+          "tp1": 1879.66,
+          "tp2": null,
+          "reason": [
+            "1h close 1868.75 touched a support zone [1867.54, 1872.55] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (13.28) beyond the zone; TP1 = opposing zone mid (1879.6599999999999)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-07-16T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1916.61,
+          "stop": 1908.61,
+          "tp1": 1927.665,
+          "tp2": null,
+          "reason": [
+            "1h close 1916.61 touched a support zone [1915.5, 1917.96] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (13.78) beyond the zone; TP1 = opposing zone mid (1927.665)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 79,
+            "ambiguous": false
+          },
+          "netDir": -1.8145592499999998,
+          "netSens": -1.4791525
+        },
+        {
+          "closedThrough": "2026-07-16T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1916.94,
+          "stop": 1908.835,
+          "tp1": 1926.755,
+          "tp2": null,
+          "reason": [
+            "1h close 1916.94 touched a support zone [1915.5, 1917.96] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (13.33) beyond the zone; TP1 = opposing zone mid (1926.755)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.211,
+            "holdCandles": 129,
+            "timeToTP1Candles": 129
+          },
+          "netDir": 0.40685490438001415,
+          "netSens": 0.7379734731647143
+        },
+        {
+          "closedThrough": "2026-07-16T05:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1916.51,
+          "stop": 1909.08,
+          "tp1": 1923.965,
+          "tp2": null,
+          "reason": [
+            "1h close 1916.51 touched a support zone [1915.5, 1917.96] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (12.84) beyond the zone; TP1 = opposing zone mid (1923.965)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.0034,
+            "holdCandles": 15,
+            "timeToTP1Candles": 15
+          },
+          "netDir": 0.12639676985195925,
+          "netSens": 0.4875157469717407
+        },
+        {
+          "closedThrough": "2026-07-16T13:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1870.98,
+          "stop": 1863.305,
+          "tp1": 1879.66,
+          "tp2": null,
+          "reason": [
+            "1h close 1870.98 touched a support zone [1870.13, 1874.33] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (13.65) beyond the zone; TP1 = opposing zone mid (1879.6599999999999)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.1309,
+            "holdCandles": 23,
+            "timeToTP1Candles": 23
+          },
+          "netDir": 0.30206195439738925,
+          "netSens": 0.6433482084690525
+        },
+        {
+          "closedThrough": "2026-07-16T18:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1867.37,
+          "stop": 1858.835,
+          "tp1": 1881.645,
+          "tp2": null,
+          "reason": [
+            "1h close 1867.37 touched a support zone [1866.13, 1873.95] (7 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (14.59) beyond the zone; TP1 = opposing zone mid (1881.645)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 321,
+            "ambiguous": false
+          },
+          "netDir": -1.7438849443468198,
+          "netSens": -1.437579379027541
+        },
+        {
+          "closedThrough": "2026-07-16T21:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1871.05,
+          "stop": 1861.005,
+          "tp1": 1879.275,
+          "tp2": null,
+          "reason": [
+            "1h close 1871.05 touched a support zone [1867.54, 1872.55] (6 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (13.07) beyond the zone; TP1 = opposing zone mid (1879.275)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.8188,
+            "holdCandles": 39,
+            "timeToTP1Candles": 39
+          },
+          "netDir": 0.18549288203086578,
+          "netSens": 0.44626640119462685
+        },
+        {
+          "closedThrough": "2026-07-17T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1863.33,
+          "stop": 1855.575,
+          "tp1": 1890.855,
+          "tp2": null,
+          "reason": [
+            "1h close 1863.33 touched a support zone [1861.97, 1866.13] (4 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (12.79) beyond the zone; TP1 = opposing zone mid (1890.855)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 32,
+            "ambiguous": false
+          },
+          "netDir": -1.8169338491296063,
+          "netSens": -1.4805493230174154
+        },
+        {
+          "closedThrough": "2026-07-17T01:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1864.09,
+          "stop": 1855.4,
+          "tp1": 1890.855,
+          "tp2": null,
+          "reason": [
+            "1h close 1864.09 touched a support zone [1861.97, 1866.13] (4 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (13.14) beyond the zone; TP1 = opposing zone mid (1890.855)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 45,
+            "ambiguous": false
+          },
+          "netDir": -1.7293332566168154,
+          "netSens": -1.4290195627157738
+        },
+        {
+          "closedThrough": "2026-07-19T18:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1866.21,
+          "stop": 1861.945,
+          "tp1": 1870.71,
+          "tp2": null,
+          "reason": [
+            "1h close 1866.21 touched a support zone [1866.13, 1867.54] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (8.37) beyond the zone; TP1 = opposing zone mid (1870.71)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-07-20T18:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1906.19,
+          "stop": 1894.535,
+          "tp1": 1929.5,
+          "tp2": null,
+          "reason": [
+            "1h close 1906.19 touched a support zone [1902.57, 1907] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (16.07) beyond the zone; TP1 = 2R fallback (1929.5000000000005)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 64,
+            "ambiguous": false
+          },
+          "netDir": -1.5560743028742934,
+          "netSens": -1.3271025311025255
+        },
+        {
+          "closedThrough": "2026-07-20T21:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1903.3,
+          "stop": 1894.785,
+          "tp1": 1920.33,
+          "tp2": null,
+          "reason": [
+            "1h close 1903.3 touched a support zone [1902.57, 1907] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (15.57) beyond the zone; TP1 = 2R fallback (1920.3300000000002)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 92,
+            "ambiguous": false
+          },
+          "netDir": -1.7599788608338138,
+          "netSens": -1.4470463887257727
+        },
+        {
+          "closedThrough": "2026-07-21T00:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1903.56,
+          "stop": 1895.57,
+          "tp1": 1919.54,
+          "tp2": null,
+          "reason": [
+            "1h close 1903.56 touched a support zone [1902.57, 1907] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (14) beyond the zone; TP1 = 2R fallback (1919.54)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 163,
+            "timeToTP1Candles": 163
+          },
+          "netDir": 1.1899744680851074,
+          "netSens": 1.5235143929912396
+        },
+        {
+          "closedThrough": "2026-07-21T02:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1906.16,
+          "stop": 1895.61,
+          "tp1": 1927.26,
+          "tp2": null,
+          "reason": [
+            "1h close 1906.16 touched a support zone [1902.57, 1907] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (13.92) beyond the zone; TP1 = 2R fallback (1927.2600000000004)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2,
+            "holdCandles": 106,
+            "timeToTP1Candles": 106
+          },
+          "netDir": 1.3856925118483518,
+          "netSens": 1.6386426540284422
+        },
+        {
+          "closedThrough": "2026-07-21T17:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1925.55,
+          "stop": 1914.16,
+          "tp1": 1929.915,
+          "tp2": null,
+          "reason": [
+            "1h close 1925.55 touched a support zone [1920.51, 1925.79] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (12.7) beyond the zone; TP1 = opposing zone mid (1929.915)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 62,
+            "ambiguous": false
+          },
+          "netDir": -1.5747910447761257,
+          "netSens": -1.338112379280074
+        },
+        {
+          "closedThrough": "2026-07-21T20:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1922.46,
+          "stop": 1914.53,
+          "tp1": 1929.915,
+          "tp2": null,
+          "reason": [
+            "1h close 1922.46 touched a support zone [1920.51, 1923.08] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (11.96) beyond the zone; TP1 = opposing zone mid (1929.915)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.9401,
+            "holdCandles": 237,
+            "timeToTP1Candles": 237
+          },
+          "netDir": 0.11584224464061199,
+          "netSens": 0.4552424968474188
+        },
+        {
+          "closedThrough": "2026-07-21T21:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1922.03,
+          "stop": 1914.785,
+          "tp1": 1929.915,
+          "tp2": null,
+          "reason": [
+            "1h close 1922.03 touched a support zone [1920.51, 1923.08] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (11.45) beyond the zone; TP1 = opposing zone mid (1929.915)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.0883,
+            "holdCandles": 177,
+            "timeToTP1Candles": 177
+          },
+          "netDir": 0.18631214630778492,
+          "netSens": 0.5577189095928147
+        },
+        {
+          "closedThrough": "2026-07-21T23:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1919.44,
+          "stop": 1913.655,
+          "tp1": 1925.605,
+          "tp2": null,
+          "reason": [
+            "1h close 1919.44 touched a support zone [1919.01, 1920.89] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (10.71) beyond the zone; TP1 = opposing zone mid (1925.605)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.0657,
+            "holdCandles": 35,
+            "timeToTP1Candles": 35
+          },
+          "netDir": -0.062406482281747166,
+          "netSens": 0.4021079515989723
+        },
+        {
+          "closedThrough": "2026-07-23T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1919.61,
+          "stop": 1912.905,
+          "tp1": 1924.8,
+          "tp2": null,
+          "reason": [
+            "1h close 1919.61 touched a support zone [1919.01, 1921.96] (6 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (12.21) beyond the zone; TP1 = opposing zone mid (1924.8)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.774,
+            "holdCandles": 91,
+            "timeToTP1Candles": 91
+          },
+          "netDir": -0.19940402684564795,
+          "netSens": 0.2014093959731481
+        },
+        {
+          "closedThrough": "2026-07-28T16:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1917.91,
+          "stop": 1907.92,
+          "tp1": 1927.26,
+          "tp2": null,
+          "reason": [
+            "1h close 1917.91 touched a support zone [1916.45, 1921.14] (2 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (17.06) beyond the zone; TP1 = opposing zone mid (1927.26)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 77,
+            "ambiguous": false
+          },
+          "netDir": -1.6527421421421415,
+          "netSens": -1.3839659659659658
+        },
+        {
+          "closedThrough": "2026-07-30T05:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1899.35,
+          "stop": 1890.795,
+          "tp1": 1907.465,
+          "tp2": null,
+          "reason": [
+            "1h close 1899.35 touched a support zone [1898.88, 1902.07] (4 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (16.17) beyond the zone; TP1 = opposing zone mid (1907.465)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.9486,
+            "holdCandles": 206,
+            "timeToTP1Candles": 206
+          },
+          "netDir": 0.19374436002336382,
+          "netSens": 0.5045672706019787
+        },
+        {
+          "closedThrough": "2026-08-06T02:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1904.85,
+          "stop": 1899.485,
+          "tp1": 1911.46,
+          "tp2": null,
+          "reason": [
+            "1h close 1904.85 touched a support zone [1904.7, 1905.49] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (10.43) beyond the zone; TP1 = opposing zone mid (1911.46)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 18,
+            "ambiguous": false
+          },
+          "netDir": -2.207174277726051,
+          "netSens": -1.7101025163094419
+        },
+        {
+          "closedThrough": "2026-08-06T10:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1905.43,
+          "stop": 1899.625,
+          "tp1": 1911.83,
+          "tp2": null,
+          "reason": [
+            "1h close 1905.43 touched a support zone [1904.7, 1907.56] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (10.15) beyond the zone; TP1 = opposing zone mid (1911.83)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-08-06T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1905.59,
+          "stop": 1899.715,
+          "tp1": 1911.83,
+          "tp2": null,
+          "reason": [
+            "1h close 1905.59 touched a support zone [1904.7, 1907.56] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (9.97) beyond the zone; TP1 = opposing zone mid (1911.83)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 13,
+            "ambiguous": false
+          },
+          "netDir": -2.1028095319149362,
+          "netSens": -1.6487114893617272
+        },
+        {
+          "closedThrough": "2026-08-09T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1912.42,
+          "stop": 1908.145,
+          "tp1": 1917.025,
+          "tp2": null,
+          "reason": [
+            "1h close 1912.42 touched a support zone [1910.07, 1913.3] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (3.85) beyond the zone; TP1 = opposing zone mid (1917.025)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.0772,
+            "holdCandles": 177,
+            "timeToTP1Candles": 177
+          },
+          "netDir": -0.4437890058479208,
+          "netSens": 0.1825005847953406
+        },
+        {
+          "closedThrough": "2026-08-09T05:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1911.33,
+          "stop": 1908.195,
+          "tp1": 1917.025,
+          "tp2": null,
+          "reason": [
+            "1h close 1911.33 touched a support zone [1910.07, 1913.3] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (3.75) beyond the zone; TP1 = opposing zone mid (1917.025)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-08-09T06:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 1912.43,
+          "stop": 1909.49,
+          "tp1": 1917.025,
+          "tp2": null,
+          "reason": [
+            "1h close 1912.43 touched a support zone [1911.29, 1914.15] (5 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (3.6) beyond the zone; TP1 = opposing zone mid (1917.025)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-08-13T22:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1886.76,
+          "stop": 1891.1,
+          "tp1": 1883.84,
+          "tp2": null,
+          "reason": [
+            "1h close 1886.76 touched a resistance zone [1885.5, 1886.8] (2 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (8.6) beyond the zone; TP1 = opposing zone mid (1883.8400000000001)"
+          ],
+          "outcome": {
+            "status": "not_filled"
+          },
+          "netDir": null,
+          "netSens": null
+        },
+        {
+          "closedThrough": "2026-08-15T06:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "short",
+          "entry": 1878.83,
+          "stop": 1882.065,
+          "tp1": 1874.28,
+          "tp2": null,
+          "reason": [
+            "1h close 1878.83 touched a resistance zone [1878.66, 1879.3] (3 touches)",
+            "4h lean bear, 1D lean bear (net score -2) opposes the move -> short",
+            "stop 0.5x ATR1h (5.53) beyond the zone; TP1 = opposing zone mid (1874.28)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.4065,
+            "holdCandles": 187,
+            "timeToTP1Candles": 187
+          },
+          "netDir": 0.5934051004637106,
+          "netSens": 0.24493585780530092
+        },
+        {
+          "closedThrough": "2026-08-27T03:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2494.58,
+          "stop": 2481.575,
+          "tp1": 2504.81,
+          "tp2": null,
+          "reason": [
+            "1h close 2494.58 touched a support zone [2491.34, 2495.2] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (19.53) beyond the zone; TP1 = opposing zone mid (2504.8100000000004)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 0.7866,
+            "holdCandles": 304,
+            "timeToTP1Candles": 304
+          },
+          "netDir": 0.1344222222222049,
+          "netSens": 0.4029660130718852
+        },
+        {
+          "closedThrough": "2026-08-27T04:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2491.84,
+          "stop": 2481.93,
+          "tp1": 2504.81,
+          "tp2": null,
+          "reason": [
+            "1h close 2491.84 touched a support zone [2491.34, 2495.2] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (18.82) beyond the zone; TP1 = opposing zone mid (2504.8100000000004)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.3088,
+            "holdCandles": 244,
+            "timeToTP1Candles": 244
+          },
+          "netDir": 0.4538801210897957,
+          "netSens": 0.8059059535822327
+        },
+        {
+          "closedThrough": "2026-09-03T23:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2496.96,
+          "stop": 2483.585,
+          "tp1": 2518.115,
+          "tp2": null,
+          "reason": [
+            "1h close 2496.96 touched a support zone [2494.32, 2500.94] (3 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (21.47) beyond the zone; TP1 = opposing zone mid (2518.115)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.5817,
+            "holdCandles": 327,
+            "timeToTP1Candles": 327
+          },
+          "netDir": 0.9469587663551403,
+          "netSens": 1.2083228037383178
+        },
+        {
+          "closedThrough": "2026-09-08T09:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2476.31,
+          "stop": 2466.46,
+          "tp1": 2486.17,
+          "tp2": null,
+          "reason": [
+            "1h close 2476.31 touched a support zone [2473.2, 2478.09] (7 touches)",
+            "4h lean neutral, 1D lean bull (net score 1) opposes the move -> long",
+            "stop 0.5x ATR1h (13.48) beyond the zone; TP1 = opposing zone mid (2486.17)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.001,
+            "holdCandles": 33,
+            "timeToTP1Candles": 33
+          },
+          "netDir": 0.14623309644669247,
+          "netSens": 0.4981959390862897
+        },
+        {
+          "closedThrough": "2026-09-20T02:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2618.61,
+          "stop": 2610.255,
+          "tp1": 2625.225,
+          "tp2": null,
+          "reason": [
+            "1h close 2618.61 touched a support zone [2617.51, 2622.23] (4 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (14.51) beyond the zone; TP1 = opposing zone mid (2625.2250000000004)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 34,
+            "ambiguous": false
+          },
+          "netDir": -2.06562226211849,
+          "netSens": -1.6268366247755823
+        },
+        {
+          "closedThrough": "2026-09-22T05:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2728.21,
+          "stop": 2713.285,
+          "tp1": 2766.305,
+          "tp2": null,
+          "reason": [
+            "1h close 2728.21 touched a support zone [2725.08, 2728.43] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (23.59) beyond the zone; TP1 = opposing zone mid (2766.3050000000003)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 2.5524,
+            "holdCandles": 1090,
+            "timeToTP1Candles": 1090
+          },
+          "netDir": 1.930898224455619,
+          "netSens": 2.186810720268011
+        },
+        {
+          "closedThrough": "2026-09-22T08:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2725.9,
+          "stop": 2714.125,
+          "tp1": 2738.93,
+          "tp2": null,
+          "reason": [
+            "1h close 2725.9 touched a support zone [2725.08, 2728.43] (2 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (21.91) beyond the zone; TP1 = opposing zone mid (2738.9300000000003)"
+          ],
+          "outcome": {
+            "status": "win",
+            "r": 1.1066,
+            "holdCandles": 39,
+            "timeToTP1Candles": 39
+          },
+          "netDir": 0.319503609341832,
+          "netSens": 0.6436021231422542
+        },
+        {
+          "closedThrough": "2026-09-23T12:00:00.000Z",
+          "symbol": "ETH",
+          "direction": "long",
+          "entry": 2727.4,
+          "stop": 2711.75,
+          "tp1": 2736.66,
+          "tp2": null,
+          "reason": [
+            "1h close 2727.4 touched a support zone [2721.52, 2729.58] (7 touches)",
+            "4h lean bull, 1D lean bull (net score 2) opposes the move -> long",
+            "stop 0.5x ATR1h (19.54) beyond the zone; TP1 = opposing zone mid (2736.66)"
+          ],
+          "outcome": {
+            "status": "loss",
+            "r": -1,
+            "holdCandles": 18,
+            "ambiguous": false
+          },
+          "netDir": -1.5925341853035109,
+          "netSens": -1.3485495207667713
+        }
+      ]
+    }
+  }
+}
