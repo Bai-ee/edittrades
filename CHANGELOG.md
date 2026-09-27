@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-27 — Tracker alerts: spot flips to Telegram, GitHub issue alerts removed
+
+Owner: "i dont need github alerts … telegram is fine". Tracker only.
+
+- `scripts/tracker/repo-template/.github/workflows/track.yml`: the "Open alert issues" step is removed (no GitHub issues or emails for anything). New step sends each new spot-trend flip to Telegram via the Bot API, using tracker repo secrets `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`; skipped (logged) while either is unset. GOOD calls still reach Telegram from the engine's own cron, unchanged.
+- `scripts/tracker/alerts.js`: spot alerts carry a plain-text `telegram` message. `spot-page.js` footnote updated. `test-tracker.js` asserts the message.
+
 ## 2026-09-27 — Spot trend filter P2: flip alerts + spot.html (tracker only)
 
 Plan: `docs/PLAN_SPOT_TREND_2026-09-27.md` (P2). Tracker only; paper only.

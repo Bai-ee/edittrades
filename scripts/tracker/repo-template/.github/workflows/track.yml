@@ -79,12 +79,16 @@ jobs:
             sleep $((i * 5))
           done
           exit 1
-      - name: Open alert issues (GitHub emails the owner); runs only after the push, so charts resolve
+      - name: Send spot-trend flips to Telegram (GOOD calls come from the engine's own Telegram cron)
         env:
-          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           [ -f "$RUNNER_TEMP/alerts.json" ] || exit 0
-          jq -c '.[]' "$RUNNER_TEMP/alerts.json" | while read -r a; do
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$(jq -r .title <<<"$a")" --body "$(jq -r .body <<<"$a")" \
-              || echo "issue create failed for $(jq -r .key <<<"$a")"
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then echo "Telegram secrets not set; skipping"; exit 0; fi
+          jq -c '.[] | select(.telegram != null)' "$RUNNER_TEMP/alerts.json" | while read -r a; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=$(jq -r .telegram <<<"$a")" \
+              --data-urlencode "disable_web_page_preview=true")
+            echo "telegram $(jq -r .key <<<"$a"): HTTP $code"
           done

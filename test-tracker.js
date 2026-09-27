@@ -2885,6 +2885,7 @@ async function run() {
     const a = formatSpotAlert(fresh[0], { mention: 'owner' });
     assert(a.title.startsWith('SPOT BTC → OUT (hold USDC)'), a.title);
     assert(a.body.includes('Paper tracking only') && a.body.includes('cc @owner') && a.body.includes('<!-- alert-key: spot|BTC|2026-10-01 -->'), 'body: paper note, mention, key');
+    assert(a.telegram.startsWith('SPOT BTC: IN → OUT (hold USDC)') && a.telegram.includes('Suggested weight 0%') && a.telegram.includes('/spot.html'), 'plain-text Telegram message');
   });
 
   await test('spot page: renders empty state and live data with stable ids', () => {

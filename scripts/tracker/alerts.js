@@ -6,9 +6,10 @@
  * minutes (cron or served) that have not been alerted yet, appends them to
  * data/alerts.jsonl (one line per alert, keyed by symbol + candidate) and writes the new
  * ones to --file as JSON [{key, title, body}]; live spot-trend flips (data/spot-trend/flips.jsonl,
- * docs/PLAN_SPOT_TREND_2026-09-27.md P2) join the same list. The track workflow opens one GitHub issue
- * per alert; the issue @-mentions the repo owner, so GitHub emails them. No mail
- * service, no extra secret.
+ * docs/PLAN_SPOT_TREND_2026-09-27.md P2) join the same list with a plain-text `telegram` field.
+ * The track workflow sends the spot flips to Telegram (secrets TELEGRAM_BOT_TOKEN +
+ * TELEGRAM_CHAT_ID; skipped when unset). GOOD calls reach Telegram from the engine's own
+ * cron, so the workflow no longer opens GitHub issues for anything (owner, 2026-09-27).
  *
  * The age guard stops a first run (or a restored history) from alerting on old calls.
  *
@@ -175,7 +176,15 @@ export function formatSpotAlert({ key, flip }, { mention = null, page = PAGE_URL
   ];
   if (mention) lines.push('', `cc @${mention}`);
   lines.push('', `<!-- alert-key: ${key} -->`);
-  return { key, title, body: lines.join('\n') };
+  // Plain-text Telegram message (sent by the track workflow's Telegram step; no parse mode).
+  const telegram = [
+    `SPOT ${flip.symbol}: ${flip.from} → ${flip.to} (${into ? 'hold the coin' : 'hold USDC'})`,
+    `${flip.date} UTC close ${fmt(flip.close)} vs EMA20 ${fmt(flip.ema20)}`,
+    into ? `Suggested weight ${w} (40% vol target)` : 'Suggested weight 0%',
+    'Paper only, no order placed.',
+    `${page}/spot.html`
+  ].join('\n');
+  return { key, title, body: lines.join('\n'), telegram };
 }
 
 export async function runAlerts(dataDir, { nowMs = Date.now(), mention = null, page = PAGE_URL, chart = null } = {}) {

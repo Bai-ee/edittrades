@@ -95,7 +95,7 @@ function flipsTile(flips) {
   const body = recent.length
     ? `<div class="spot-table-scroll" id="spot-trend-flips-scroll"><table class="spot-table" id="spot-trend-flips-table-el"><thead><tr><th>Day</th><th>Coin</th><th>Flip</th><th>Close</th><th>EMA20</th><th>Source</th></tr></thead><tbody>${rows}</tbody></table></div>`
     : '<p class="dim">[NO FLIPS YET]</p>';
-  return tile({ id: 'spot-trend-flips-table', title: 'Recent flips', lg: 12, body, foot: '"history" = before tracking started (no alert); "live" flips open an alert issue.' });
+  return tile({ id: 'spot-trend-flips-table', title: 'Recent flips', lg: 12, body, foot: '"history" = before tracking started (no alert); "live" flips send a Telegram alert.' });
 }
 
 function backtestTile() {
