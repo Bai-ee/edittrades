@@ -117,6 +117,14 @@ Key corrections to the proposal:
 
 ---
 
+## Reviewed and dropped (don't re-review without new evidence)
+
+| Date | Source | Claim | Why dropped |
+| --- | --- | --- | --- |
+| 2026-09-27 | X post, @0x_Punisher, “7 indicators” Polymarket bot thread (marked “Paid partnership”, Telegram funnel) | RSI + MACD + Stoch + EMA + OBV + VWAP + ATR filter stack gives bot edge on 5-min BTC Up/Down markets | No rules, no verifiable P&L, survivorship framing. The venue is binary contracts, not Jupiter perps. Already tested and failed after costs: RSI-extreme reversion (`MEANREV_STUDY_2026-09-26.md`, −0.52R), vol-squeeze, RSI(2) and Bollinger families (`EDGE_SEARCH_2026-09-27.md`, 0 of 76 net-positive). EMA, Stoch RSI, VWAP and ATR already exist. OBV is covered by the in-flight volume-context work. MACD is redundant with the tested momentum families. |
+
+---
+
 ## Open questions for the owner (answer when ready)
 
 1. Is the goal spot trend exposure (EMA20-style), perps trade frequency, or both? Card 1 only helps spot.
