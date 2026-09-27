@@ -68,7 +68,9 @@
     "test:conditions": "node test-conditions-study.js",
     "test:swing": "node test-swing-rules.js",
     "test:swing:playbook": "node test-swing-rules-playbook.js",
-    "test:swing:controls": "node test-swing-rules-controls.js"
+    "test:swing:controls": "node test-swing-rules-controls.js",
+    "study:variants": "node scripts/research/variants.js",
+    "test:variants": "node test-variants-study.js"
   },
   "keywords": [
     "trading",
