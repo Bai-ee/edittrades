@@ -99,11 +99,11 @@ const FIRST_FIVE_STOP_RANGE = '0.02–0.07%';
 const RULE_OF_THUMB_LONG_MIN_STOP = 3 * 0.34; // 1.02%
 const RULE_OF_THUMB_SHORT_MIN_STOP = 3 * 0.14; // 0.42%
 
-// ---------- net-floor shadow (T-13) ----------
-// Not merged into this checkout as of 2026-09-26 (docs/PROMPT_T13_AGENT_J.md assigns it to the
-// sibling net-floor worktree). Described here as "when it lands" per that prompt's own fallback
-// language, not as a feature already live.
-const NET_FLOOR_PENDING = true;
+// ---------- net floor (T-13 shadow -> T-15 LIVE, 2026-09-27) ----------
+// Live since configVersion 2026.09.27-1 (docs/OWNER_DECISIONS_2026-09-27.md, owner lifted
+// the rule freeze for exactly this change): every plan's stop is floored at
+// max(0.5 x ATR(15m), 3 x round-trip cost) before every other gate, and a plan is ready
+// only once net R:R also clears 1.0R. No longer a shadow comparator - see the tile below.
 
 // ---------- step by step ----------
 const STEPS = [
@@ -200,11 +200,9 @@ export function renderRisk() {
         foot: 'docs/PROMPT_T13_AGENT_J.md — owner finding, 2026-09-26.'
       }),
       tile({
-        id: 'risk-net-floor-tile', title: 'Net-floor shadow', tag: NET_FLOOR_PENDING ? 'When it lands' : 'NF', lg: 5,
-        body: NET_FLOOR_PENDING
-          ? `<p class="note" id="risk-net-floor-pending">A fee-aware "net floor" line — <span class="cmd-inline">net floor: READY</span> or <span class="cmd-inline">NOT YET</span> — is planned to run in shadow beside the live rules until the 2026-10-08 freeze ends, so plans can be judged net of fees without changing what's traded yet. Not merged into this build as of 2026-09-26.</p>`
-          : `<p class="note" id="risk-net-floor-live">Runs in shadow beside the live rules, never traded.</p>`,
-        foot: 'docs/PROMPT_T13_AGENT_J.md (T-13).'
+        id: 'risk-net-floor-tile', title: 'Net floor', tag: 'Live since 2026-09-27', lg: 5,
+        body: `<p class="note" id="risk-net-floor-live">Every plan's stop is floored at max(0.5 x ATR(15m), 3 x round-trip cost) before any other gate, and a plan is ready only once net R:R also clears 1.0R — the same rule that used to run as a shadow comparator (<span class="cmd-inline">net floor: READY</span> / <span class="cmd-inline">NOT YET</span>) is now what actually trades. The Telegram card's stop line shows it when the floor widened the stop: <span class="cmd-inline">stop: 0.55% (floored from 0.12%) · net 1.4R</span>.</p>`,
+        foot: 'docs/OWNER_DECISIONS_2026-09-27.md (T-15).'
       })
     ]
   });

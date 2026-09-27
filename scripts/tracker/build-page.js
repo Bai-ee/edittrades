@@ -672,10 +672,11 @@ export function alertsFact(tg, nowMs) {
     + `<dd class="fact-sub" id="system-alerts-sub">${esc(tg && tg.lastAlert ? `${time(tg.lastAlert.at)} · ${cronText}` : cronText)}</dd></div>`;
 }
 
-// ---------- Net floor shadow (T-13, owner 2026-09-26; shadow mode until the freeze ends 2026-10-08, never traded) ----------
+// ---------- Net floor (T-13 owner 2026-09-26, shadow; T-15 owner 2026-09-27, LIVE since
+// configVersion 2026.09.27-1 - docs/OWNER_DECISIONS_2026-09-27.md) ----------
 
 export const NO_NF_SHADOW = '[NO LIVE READY CALLS TO COMPARE YET]';
-export const NF_SHADOW_NOTE = 'Shadow mode: the same live ready calls, scored twice - Live with the plan\'s own stop, NF with the stop floored at max(0.5 x ATR(15m), 3 x round-trip cost: 0.34 % long / 0.14 % short), TP1 unchanged, taken only when gross >= 2.5R and net >= 1.0R. Net R charges the direction cost once per trade. Calls before the engine published flagTradePlan.shadow.NF are backfilled here (ATR from stored 15m candles, filled at the live ready close) - an approximation. Never traded; never feeds any gate, class or alert.';
+export const NF_SHADOW_NOTE = 'NF (live since 2026-09-27): the same live ready calls, scored twice - Live with the plan\'s own stop, NF with the stop floored at max(0.5 x ATR(15m), 3 x round-trip cost: 0.34 % long / 0.14 % short), TP1 unchanged, taken only when gross >= 2.5R and net >= 1.0R. Net R charges the direction cost once per trade. Before 2026-09-27 (config 2026.09.24-5 and earlier) NF was a shadow comparator only, never traded; since config 2026.09.27-1 the floor is baked into the live plan itself, so Live IS the NF stop and the two columns converge going forward - historical divergence predates the cutover. Rows the engine could not source an NF verdict for are backfilled here (ATR from stored 15m candles, filled at the live ready close) - an approximation.';
 export const EMPTY_NF_SHADOW_SUMMARY = { generatedAt: null, n: 0, spanDays: 0, engineRows: 0, backfillRows: 0, live: null, nf: null };
 
 function nfLegCells(label, l) {
@@ -689,7 +690,7 @@ export const NF_SHADOW_HEADERS = ['Rule', 'Calls', 'Calls / day', 'Fills', 'Win 
 function nfShadowBody(summary, rows) {
   if (!summary.n) return `<p class="empty" id="nf-shadow-empty">${esc(NO_NF_SHADOW)}</p>`;
   const table1 = table('nf-shadow-summary-table', NF_SHADOW_HEADERS,
-    [nfLegCells('Live (gross 2.5, own stop)', summary.live), nfLegCells('NF (net floor, shadow)', summary.nf)], NO_NF_SHADOW, 1);
+    [nfLegCells('Live (own stop)', summary.live), nfLegCells('NF (live since 2026-09-27)', summary.nf)], NO_NF_SHADOW, 1);
   const list = [...rows].sort((a, b) => Date.parse(b.readyAt || 0) - Date.parse(a.readyAt || 0)).slice(0, 20)
     .map((r) => [time(r.readyAt), r.symbol, r.timeframe || dash, r.direction,
       `${num(r.live && r.live.stopPct, 3)} % / ${num(r.nf && r.nf.floorPct, 3)} %`,
@@ -772,8 +773,9 @@ export function renderHtml(agg, data = {}) {
   // 3R shadow, former live rule (T6 completion plan "D-variant revised"): gross minRR 3.0, computed by the engine itself. Shadow mode only.
   const v3ShadowSection = section('v3-shadow-section', '3R shadow (former live rule) · gross minRR 3.0 (not traded)', v3ShadowBody(v3ShadowSum, v3ShadowRows), { sm: 2, lg: 12, foot: V3_SHADOW_NOTE });
 
-  // Net floor shadow (T-13): the live ready calls re-scored with a fee-aware stop floor, side by side. Shadow mode only.
-  const nfShadowSection = section('nf-shadow-section', 'Net floor shadow (NF) · live vs fee-aware stop (not traded)', nfShadowBody(nfShadowSum, nfShadowRows), { sm: 2, lg: 12, foot: NF_SHADOW_NOTE });
+  // Net floor (T-13 shadow; T-15 LIVE since 2026-09-27): the live ready calls re-scored
+  // with the fee-aware stop floor, side by side - the two columns converge post-cutover.
+  const nfShadowSection = section('nf-shadow-section', 'Net floor · NF (live since 2026-09-27)', nfShadowBody(nfShadowSum, nfShadowRows), { sm: 2, lg: 12, foot: NF_SHADOW_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -855,7 +857,7 @@ export function renderHtml(agg, data = {}) {
     + `<div class="stat-row"><dt>Then</dt><dd>ONE CALIBRATION PASS WITH YOU</dd></div>`
     + `<div class="stat-row" id="testing-phase-frozen-row"><dt>Thresholds</dt><dd>FROZEN UNTIL ${esc(FROZEN_UNTIL)}</dd></div>`
     + `</dl>`
-    + `<p class="mono-note" id="testing-phase-frozen">LIVE RULES: GROSS MINRR 2.5, NET GATE OFF (NET R SHOWN), 3R AS SHADOW. NO TUNING UNTIL ${esc(FROZEN_UNTIL)}. CONFIG BOUNDARY MARKED AT EACH CONFIGVERSION CHANGE; STATS SPLIT BEFORE / AFTER. ALL LABELS PROVISIONAL.</p>`
+    + `<p class="mono-note" id="testing-phase-frozen">LIVE RULES: GROSS MINRR 2.5, NET FLOOR LIVE (STOP FLOORED AT MAX(0.5x ATR15M, 3x COST), NET ≥ 1.0R SINCE 2026-09-27), 3R AS SHADOW. NO TUNING UNTIL ${esc(FROZEN_UNTIL)} (NET FLOOR + AUTO-TRAIL EXEMPTED 2026-09-27). CONFIG BOUNDARY MARKED AT EACH CONFIGVERSION CHANGE; STATS SPLIT BEFORE / AFTER. ALL LABELS PROVISIONAL.</p>`
     + configBoundaryNote(agg.configBoundary);
 
   // Activity, last 24 h.
@@ -1044,7 +1046,7 @@ export function renderReport(agg, data = {}) {
   out.push(mdTable(['Day', 'Calls', 'GOOD', 'WATCH', 'BAD', 'Ready', 'Fills', 'TP1', 'Stop', 'Exp.'],
     agg.byDay.map((d) => [d.day, d.recCalls, d.good, d.watch, d.bad, d.ready, d.fills, d.wins, d.losses, rVal(d.expectancy)])));
   const nfs = data.nfShadowSummary && typeof data.nfShadowSummary === 'object' && data.nfShadowSummary.n ? data.nfShadowSummary : null;
-  out.push(`\n## Net floor shadow (NF, not traded)\n\n_${PROVISIONAL}_\n`);
+  out.push(`\n## Net floor · NF (live since 2026-09-27)\n\n_${PROVISIONAL}_\n`);
   const plainCell = (v) => (v && typeof v === 'object' ? v.v : v);
   out.push(nfs
     ? `${mdTable(NF_SHADOW_HEADERS, [nfLegCells('Live', nfs.live), nfLegCells('NF', nfs.nf)].map((r) => r.map(plainCell)))}\nn=${nfs.n} over ${num(nfs.spanDays, 2)} d (engine ${nfs.engineRows}, backfill ${nfs.backfillRows}). ${NF_SHADOW_NOTE}\n`

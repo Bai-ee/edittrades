@@ -158,6 +158,7 @@ const DATA_BLOCK = [
 const RULES = [
   ['Gross R:R floor', '≥ 2.5R to TP1, gross (price only)', '2026-09-24', 'D-variant revised (09-24); gross, not net: decision 1 (09-23)'],
   ['Net R gate', 'Off. Net R is shown on every plan; net_rr_low warning when net < 1R', '2026-09-24', 'D-variant revised (09-24)'],
+  ['Net floor stop', 'Live. Stop floored at max(0.5x ATR15m, 3x round-trip cost) before every gate; ready needs net ≥ 1.0R too. Card shows "stop: X% (floored from Y%) · net ZR" when it widened the stop.', '2026-09-27', 'T-15, owner lifted the freeze for this change (docs/OWNER_DECISIONS_2026-09-27.md)'],
   ['3R rule', 'Runs as a shadow comparator on the tracker (gross 3.0), never traded', '2026-09-24', 'D-variant revised (09-24)'],
   ['Ready', 'Breakout close, then one retest close that holds; the retest must not wick through the stop', '2026-09-23', 'Decision 2 (09-23); wick rule: T6 plan A3 (09-24)'],
   ['Room check', 'Candidate\'s own geometry timeframe only (15m for 1m-5m flags); the TP1 cap still reads every timeframe', '2026-09-24', 'Decisions 4a (09-23), 4b (09-24)'],

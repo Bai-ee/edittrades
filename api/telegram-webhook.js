@@ -66,7 +66,7 @@ import {
   formatResultCard, formatConfirmFail, formatOpenPhaseCard, formatEmergencyCloseCard, normalizeChainPositions, formatChainPositions, chainPositionsKeyboardRows, formatManageTicket, formatManageResult,
   formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket,
   parseRiskArgs, applyRiskPrefsChange, formatRiskStatus,
-  keepNetFloor, netFloorOf, netFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, msgHeader, CHART_GRID_TIMEFRAMES,
+  stopFloorOf, stopFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, msgHeader, CHART_GRID_TIMEFRAMES,
   PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
@@ -339,9 +339,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   };
   /**
    * T-13 trade chart: one photo of `symbol` `timeframe` (last TRADE_CHART_CANDLES closed
-   * candles) with entry / stop / TP lines, risk and reward bands and the NF shadow stop,
-   * captioned `head` + the approach block + the net floor line (just `head` when that
-   * would pass 1,000 chars). Levels: the live plan / SETUP of `candidateId` when the build
+   * candles) with entry / stop / TP lines and risk and reward bands (T-15: the stop is
+   * already the net-floored one - the plan carries no separate floor stop to overlay any
+   * more), captioned `head` + the approach block + the stop-floor line (just `head` when
+   * that would pass 1,000 chars). Levels: the live plan / SETUP of `candidateId` when the build
    * still has it, else `fallback` ({direction, entry, stop, tp1}). Never throws and never
    * blocks the reply it follows; a failure is logged as reason=trade_chart_<Error>.
    */
@@ -353,12 +354,12 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       const sym = p && p.symbols ? p.symbols[symbol] : null;
       const live = candidateId ? tradeLevelsOf(sym, candidateId) : null;
       const levels = live || fallback;
-      const overlay = tradeOverlayFor(levels, candidateId ? netFloorOf(sym, candidateId) : null);
+      const overlay = tradeOverlayFor(levels);
       if (!overlay) return false;
       if (!win && windows) win = windows.get(`${symbol}|${timeframe}`) || null;
       const chart = await render(p, { symbol, timeframe, tradeOverlay: overlay }, win ? { window: win } : undefined);
       const clarity = sym && sym.flagRecommendation && sym.flagRecommendation.clarity && sym.flagRecommendation.clarity.candidateId === candidateId ? sym.flagRecommendation.clarity : null;
-      const nfLine = candidateId ? netFloorLine(netFloorOf(sym, candidateId)) : '';
+      const nfLine = candidateId ? stopFloorLine(stopFloorOf(sym, candidateId)) : '';
       const caption = fitCaption([head, [approachBlock(levels, clarity), nfLine].filter(Boolean).join('\n')]) || head;
       const sent = await bot.sendPhoto(chatId, chart.png, caption);
       return Boolean(sent && sent.ok);
@@ -947,7 +948,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       }
     } else if (cmd === 'plan' || cmd === 'thesis') {
       const full = await build();
-      const payload = keepNetFloor(filterPayload(full, { compact: true }), full); // T-13: NF line on the Plan card
+      const payload = filterPayload(full, { compact: true }); // T-15: the stop floor line reads flagTradePlan's own fields now, no grafting needed
       const state = hasStore ? await readState() : null;
       const v = resolveRef(parsed.ref, payload, state);
       if (!v) await reply(EXPIRED_REPLY);

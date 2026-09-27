@@ -61,7 +61,7 @@ import { alertLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 import {
   withOpenButton, openEligible, candidateLevels, liveView, focusRelated, LIVE_POSITIONS_CACHE_MS,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
-  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, keepNetFloor, fitCaption, CHART_GRID_TIMEFRAMES
+  TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES
 } from '../lib/telegram.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
@@ -190,8 +190,10 @@ export async function handleTelegramCron(req, res, deps = {}) {
   } catch (err) {
     payload = { dataStatus: 'unavailable', closedThrough: null, symbols: {}, warnings: [`build failed: ${err && err.name ? err.name : 'Error'}`] };
   }
-  // The compact view the alerts read, plus the NF net floor shadow (T-13) for the cards.
-  const compact = keepNetFloor(filterPayload(payload, { compact: true }), payload);
+  // The compact view the alerts read. T-15: the net floor is baked into flagTradePlan
+  // itself (stop/stopSource/structureStop), so it survives filterPayload's compact mode
+  // unassisted - no more grafting a separate shadow.NF onto this view.
+  const compact = filterPayload(payload, { compact: true });
   const nowMs = now();
 
   const bot = createBotClient({ token: env.TELEGRAM_BOT_TOKEN, fetchImpl });
