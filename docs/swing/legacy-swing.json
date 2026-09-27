@@ -1,0 +1,74 @@
+{
+  "meta": {
+    "id": "legacy-swing",
+    "label": "Legacy SWING (services/strategy.js)",
+    "source": "services/strategy.js evaluateAllStrategies -> evaluateSwingSetup (spec §1)",
+    "tf": "4h",
+    "holdMaxHours": 72,
+    "stopKind": "structure",
+    "notes": [
+      "Calls the real evaluator (evaluateAllStrategies) with marketData/dflowData nulled - both only adjust confidence/volume gates, guarded by truthy checks in services/strategy.js, so null is a safe no-op.",
+      "Production never supplies a 3D timeframe (services/scalpContext.js requests 1m/3m/5m/15m/1h/4h/1d only), so SWING is dead code live regardless of market conditions; this rule synthesizes 3D from 1D with the codebase's own (unused) bucketing (services/marketData.js aggregate3DayCandles) over the full available 1D history, so bucket edges stay stable across the replay instead of rolling with a fixed-window fetch.",
+      "entry/stop/tp1/tp2 collapse the evaluator's entryZone {min,max} to its midpoint since the rule interface takes a single entry price, not a zone."
+    ]
+  },
+  "generatedAt": "2026-09-27T02:05:28.463Z",
+  "runtimeMs": 7746,
+  "combined": {
+    "stats": {
+      "n": 0,
+      "resolved": 0,
+      "winPct": null,
+      "grossExpR": null,
+      "netExpR": null,
+      "netExpR_sens020": null,
+      "maxLosingStreak": 0,
+      "medianHoldHours": null
+    },
+    "oos": {
+      "firstHalf": null,
+      "secondHalf": null
+    }
+  },
+  "perSymbol": {
+    "BTC": {
+      "stats": {
+        "n": 0,
+        "resolved": 0,
+        "winPct": null,
+        "grossExpR": null,
+        "netExpR": null,
+        "netExpR_sens020": null,
+        "maxLosingStreak": 0,
+        "medianHoldHours": null
+      },
+      "signals": []
+    },
+    "SOL": {
+      "stats": {
+        "n": 0,
+        "resolved": 0,
+        "winPct": null,
+        "grossExpR": null,
+        "netExpR": null,
+        "netExpR_sens020": null,
+        "maxLosingStreak": 0,
+        "medianHoldHours": null
+      },
+      "signals": []
+    },
+    "ETH": {
+      "stats": {
+        "n": 0,
+        "resolved": 0,
+        "winPct": null,
+        "grossExpR": null,
+        "netExpR": null,
+        "netExpR_sens020": null,
+        "maxLosingStreak": 0,
+        "medianHoldHours": null
+      },
+      "signals": []
+    }
+  }
+}
