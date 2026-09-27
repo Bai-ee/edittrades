@@ -64,7 +64,8 @@
     "replay:rules": "node scripts/replay-rules.js",
     "test:rules": "node test-replay-rules.js",
     "swing:study": "node scripts/swing/run.js",
-    "test:swing": "node test-swing-rules.js"
+    "test:swing": "node test-swing-rules.js",
+    "test:swing:playbook": "node test-swing-rules-playbook.js"
   },
   "keywords": [
     "trading",
