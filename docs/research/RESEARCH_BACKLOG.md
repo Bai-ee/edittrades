@@ -238,6 +238,23 @@ Read:
 
 ---
 
+## Card 8 — Master-plan build results (WP1–WP11, 2026-09-27)
+
+- **Summary (read first):** [EDGE_EVIDENCE_SUMMARY_2026-09-27.md](./EDGE_EVIDENCE_SUMMARY_2026-09-27.md). Plan: [MASTER_PLAN_EDGE_HARNESS_2026-09-27.md](./MASTER_PLAN_EDGE_HARNESS_2026-09-27.md). Reports: [harness/](./harness/).
+- **Status:** all 11 WPs merged into `edge-external-4h-sma200`. `npm run test:research` passes (22 files) and the deploy gate passes. Not pushed.
+- **Items now DONE:** Card 1.6/1.7 (WP7), 2.1/2.2 (WP8), 3.1–3.8, 3.10–3.15 (WP1–4, WP10, WP11), 4.1/4.2/4.3/4.4 (WP7, WP3, WP10), 5.1/5.2 (WP9), 6.1/6.2/6.3 (WP6, WP5, WP4), 7.1/7.2 (WP7, WP1).
+- **Still deferred (freeze / owner go):**
+  - 1.3 paper arm in the tracker;
+  - 5.3 MACD/OBV in the engine (now **not recommended**: MACD rejected);
+  - R13 code SHA in the recorder;
+  - the engine fixes listed in the summary §6.
+- **Leads:**
+  - **SLOW_SMA840_4H_V1** (spot, beats weekly DCA everywhere);
+  - **`re-flag-retest-1h`** (perps, beats matched controls after real costs).
+- **Withdrawn:** Card 6's “borrow kills slow perps edges”. Real Jupiter borrow is ≈ 0.0015%/h.
+
+---
+
 ## Reviewed and dropped (don't re-review without new evidence)
 
 | Date | Source | Claim | Why dropped |
