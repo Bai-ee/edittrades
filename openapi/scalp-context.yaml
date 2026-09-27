@@ -913,7 +913,25 @@ components:
           description: The candidate's breakoutLevel, read as a retest trigger - never the live market price.
           type: [number, "null"]
         stop:
-          description: The candidate's invalidation, unmoved. Never tightened to pass the R:R or stop-distance check.
+          description: >-
+            The candidate's invalidation, floored (T-15, schema 1.28.0): widened to
+            max(0.5 x ATR(15m), 3 x round-trip cost) when the candidate's own stop is
+            tighter than that floor (see stopSource/structureStop below). Never
+            tightened to pass the R:R or stop-distance check.
+          type: [number, "null"]
+        stopSource:
+          description: >-
+            Schema 1.28.0 (T-15). 'structure' when this stop is the candidate's own
+            invalidation unchanged (already at or beyond the floor), 'floor' when it was
+            widened to the floor. Null only when entry/stop/target are invalid (no plan
+            could be attempted).
+          type: [string, "null"]
+          enum: [structure, floor, null]
+        structureStop:
+          description: >-
+            Schema 1.28.0 (T-15). The candidate's own invalidation before flooring -
+            equal to stop when stopSource is 'structure', narrower than stop (closer to
+            entry) when stopSource is 'floor'.
           type: [number, "null"]
         tp1:
           description: measuredTarget, capped to the nearest horizontal zone edge ahead of entry if one exists short of it.
@@ -963,9 +981,9 @@ components:
             revised 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md - research only,
             never the live plan, never traded). Keyed by variant id; currently only v3
             (flagPlan.minRR overridden to 3.0, the former live rule, kept as a
-            comparator now that the live rule is 2.5 with the net gate off - every
-            other config value including flagPlan.minNetRR unchanged from the live
-            default). Each value has the same
+            comparator now that the live rule is 2.5 - every other config value,
+            including the T-15 net floor below, stays the live default, so v3 is
+            re-attempted under the SAME floored-stop rule). Each value has the same
             candidateId/planId/timeframe/direction/status/reasonCode/entryType/
             entryCondition/entry/stop/tp1/tp2/grossRR/netRR/costR/stopDistancePct shape
             as this object, computed with the same ATR and retest-hold rule as the live
@@ -973,13 +991,9 @@ components:
             (status, reasonCode, or candidateId) differs from the live plan above;
             absent when it agrees, and absent from the default response even when
             present internally - visible only with include=model.
-            T-13 (2026-09-26): NF (net floor) is always present when a plan is -
-            the live plan's own candidate re-attempted with its stop floored at
-            max(0.5 x ATR(15m), 3 x round-trip cost: 0.34 % long / 0.14 % short of
-            entry), TP1 unchanged, gross >= 2.5 and net >= 1.0. Compact shape
-            candidateId/status/reasonCode/ready/stop/tp1/grossRR/netRR/stopPct/
-            floorPct (ready = clears the net floor gates; status 'ready' only once the
-            retest held). Shadow only until the rule freeze ends 2026-10-08.
+            T-13's `NF` net-floor shadow entry is gone as of schema 1.28.0 (T-15,
+            docs/OWNER_DECISIONS_2026-09-27.md) - the net floor it modeled is now the
+            live rule (stop/stopSource/structureStop above), not a shadow comparator.
           type: object
           additionalProperties: true
       required:
@@ -993,6 +1007,8 @@ components:
         - entryCondition
         - entry
         - stop
+        - stopSource
+        - structureStop
         - tp1
         - tp2
         - grossRR
@@ -1404,16 +1420,22 @@ components:
         entryCondition:
           description: The exact trigger sentence, same format as FlagTradePlan.entryCondition; quote verbatim, never paraphrase.
           type: string
-        shadowNF:
+        stopFloor:
           description: >-
-            T-13 net floor shadow for this SETUP's candidate (see FlagTradePlan.shadow
-            NF): ready = it would clear the net floor (stop floored at max(0.5 x
-            ATR(15m), 3 x round-trip cost), gross >= 2.5, net >= 1.0) once triggered;
-            netRR at the floored stop. Research only - never gates class or the SETUP.
+            Schema 1.28.0 (T-15, additive rename of the T-13 shadow's setup.shadowNF -
+            docs/OWNER_DECISIONS_2026-09-27.md, owner lifted the freeze for exactly this
+            change). The net floor is now LIVE, baked into every plan attempt
+            (flagPlan.stopFloor: stop floored at max(0.5 x ATR(15m), 3 x round-trip
+            cost) before every gate) before it can reach conditional/ready - so this
+            SETUP has already cleared it by construction. `applied` mirrors whether the
+            floor actually widened this SETUP's own stop (stopSource === 'floor');
+            `stopPct`/`netRR` are this SETUP's own published fields, unchanged.
           type: object
           properties:
-            ready:
+            applied:
               type: boolean
+            stopPct:
+              type: [number, "null"]
             netRR:
               type: [number, "null"]
       required:

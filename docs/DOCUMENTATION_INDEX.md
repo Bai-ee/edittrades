@@ -1,6 +1,6 @@
 # Documentation Index
 
-**Last updated:** 2026-09-24
+**Last updated:** 2026-09-27
 **Branch:** `upgrade-signal-engine`
 **Current product:** EditTrades scalp context — closed-candle BTC/SOL/ETH context, legacy strategy engine, and 21/200 flag recommendation, served to ChatGPT via REST Action (`GET /api/scalp-context`) and MCP (`POST /api/mcp`). Payload schema 1.8.0 live on Vercel; schema 1.21.0 local, not yet deployed (T6 phase 1, net gate - Vercel daily deploy cap hit, retry pending).
 
@@ -28,6 +28,8 @@ Docs are in two tiers. **Current** docs are maintained with the code. **Legacy**
 - **[COST_GATE_STUDY_2026-09-26.md](./COST_GATE_STUDY_2026-09-26.md)** — research only: min-stop / cost-to-risk gates over L0, L1b, V6 (85 days); only V6 with stop ≥ 0.8% passes the split (n=45, longs only); 2026-09-27 addendum re-scores longs at a leverage-aware Jupiter cost.
 - **[RISK_SIZING_STUDY_2026-09-26.md](./RISK_SIZING_STUDY_2026-09-26.md)** — research only: `scripts/research/risk-sim.js` drawdown/streak simulator (risk %, daily cap, pause, kill switch); sizing cannot fix negative edge, 0.5% per trade keeps p95 DD near 15%.
 - **[PLAN_RISK_GUARDRAILS_2026-09-27.md](./PLAN_RISK_GUARDRAILS_2026-09-27.md)** — plan only: G1 execution policy (steady 0.5%, peak-drawdown kill switch), G2 engine min stop 0.1% after the freeze (branch risk-guardrails-g2); G3 dropped (2-year re-run: shorts not a loser, long edge did not repeat).
+- **[OWNER_DECISIONS_2026-09-27.md](./OWNER_DECISIONS_2026-09-27.md)** — T-15 (worktree `nf-live`, not yet deployed, schema 1.28.0 / configVersion 2026.09.27-1): the rule freeze lifted for exactly this change - the T-13 net floor (`flagPlan.stopFloor`) goes live in `lib/flagTradePlan.js`, plus a new PIN-less, tighten-only executor write `trailStops` for an automatic +1R trailing stop.
+- **[PLAN_TELEGRAM_EXECUTION.md](./PLAN_TELEGRAM_EXECUTION.md)** — T-3, place and manage Jupiter perp trades from Telegram (live since 2026-09-26): executor contract, gates/caps/kill switch, risk policy (T-8), wallet strategy profiles (T-9 v2), automatic +1R trailing stop (T-15).
 - **[GAP_CHECK_2026-09-26.md](./GAP_CHECK_2026-09-26.md)** — why the tracker counted ~1.3 GOOD/day while replay shows ~10: 10-minute capture cadence vs 2–5 minute GOOD windows; led to T-12 (1-minute alert-log scoring).
 - **[CODEBASE_AUDIT_2026-09-26.md](./CODEBASE_AUDIT_2026-09-26.md)** — T-14 tidy-up audit: legacy API/services/lib, orphan tests, plan status, stale branches, deletions made, next-step list.
 - **PROMPT_T*_AGENT_*.md / PROMPT_WRAPUP_MANAGER.md** — dispatch prompts for the agent phases T-3 D/F, T-7, T-8, T-9 v2, T-10–T-14 and the wrap-up manager; historical record of what each phase was asked to build.
