@@ -835,6 +835,18 @@ async function run() {
     eq(a.envKillStill, true, 'env kill still on');
     has((await ex.preflight(intent(), ctx)).reasons, 'kill_switch', 'still killed by env');
   });
+  await test('checkPin (T-15, /exec trail off): no side effects either way - owner + PIN, wrong-PIN still counts, kill still blocks it', async () => {
+    const { ex } = setup();
+    eq((await ex.checkPin(PIN, ctx)).ok, true, 'correct PIN, owner');
+    has((await ex.checkPin('0000', ctx)).reasons, 'pin_wrong', 'wrong PIN');
+    has((await ex.checkPin(PIN, { userId: 5 })).reasons, 'not_owner', 'stranger');
+    const k = setup({ env: baseEnv({ EXECUTION_KILL: 'true' }) });
+    has((await k.ex.checkPin(PIN, ctx)).reasons, 'kill_switch', 'kill blocks it too, correct PIN or not');
+    // Three wrong PINs through checkPin alone still trip the shared wrong-PIN auto-kill.
+    const w = setup();
+    await w.ex.checkPin('0000', ctx); await w.ex.checkPin('0000', ctx); await w.ex.checkPin('0000', ctx);
+    has((await w.ex.checkPin(PIN, ctx)).reasons, 'kill_switch', 'auto-killed after 3 wrong PINs, even the right PIN now refuses');
+  });
   await test('status: mode, kill, caps, daily loss, open count, capabilities; no PIN', async () => {
     const { ex, jupiter } = setup();
     jupiter.positions = [openPos];

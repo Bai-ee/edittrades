@@ -895,7 +895,7 @@ async function run() {
   });
 
   await test('prefs persist in state: normalize, apply, parseState keeps off, diffAlerts carries prefs', () => {
-    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'garbage -> defaults');
+    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'garbage -> defaults');
     assertEqual(normalizePrefs({ focus: 'off' }).focus, 'off', 'focus off is kept');
     assertEqual(normalizePrefs({ focus: 'bogus' }).focus, 'auto', 'unknown focus -> auto');
     const off = parseState(applyPrefsChange(null, { quiet: null }));
@@ -903,7 +903,7 @@ async function run() {
     const lv = parseState(applyPrefsChange(JSON.stringify({ ...emptyState(), symbols: { BTC: { goodIds: ['k'] } } }), { level: 'watch' }));
     assertEqual(`${lv.prefs.level}|${lv.symbols.BTC.goodIds[0]}`, 'watch|k', 'level saved, alert memory kept');
     const d = diffAlerts(withPrefs('good', null), payload(), T0);
-    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'diff keeps prefs');
+    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'diff keeps prefs');
     assert(formatAlertPrefs(d.state.prefs).includes('Alert level: <b>good</b>') && formatAlertPrefs(d.state.prefs).includes('Quiet hours: off'), 'prefs text');
   });
 
@@ -915,7 +915,7 @@ async function run() {
     assert(set.tg.calls[0].text.startsWith('Saved.') && set.tg.calls[0].text.includes('<b>watch</b>'), set.tg.calls[0].text);
     await hook({ text: '/alerts quiet 22-06', blob });
     let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
-    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'persisted');
+    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'persisted');
     const q = await hook({ text: '/alerts quiet', blob });
     assertEqual(q.tg.calls[0].text, 'Quiet hours: 22:00–06:00 America/Chicago, every day (alerts arrive silently)', 'quiet show');
     await hook({ text: '/alerts quiet off', blob });
@@ -1206,7 +1206,7 @@ async function run() {
     const blob = fakeBlob();
     await tap({ data: 'alerts:watch', blob });
     await tap({ data: 'alerts:quiet:off', blob });
-    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","risk":{}}', 'level + off');
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'level + off');
     const on = await tap({ data: 'alerts:quiet:on', blob });
     assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.quiet), '{"start":1,"end":5}', 'on = default');
     assert(on.tg.calls[1].replyMarkup.inline_keyboard, 'alerts buttons again');
@@ -1292,7 +1292,7 @@ async function run() {
     const v1 = toV1(first);
     const m = migrateState(JSON.stringify(v1));
     assertEqual(`${m.fromVersion}|${m.migrated}|${m.reset}|${m.state.stateVersion}`, `1|true|false|${STATE_VERSION}`, 'migration flags');
-    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', risk: {} }), 'default prefs');
+    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', trail: 'on', risk: {} }), 'default prefs');
     assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
     const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
     const fromV1 = diffAlerts(m.state, next, T0 + MIN);
@@ -2149,6 +2149,7 @@ async function run() {
       },
       async kill(ctx, reason) { calls.push(['kill', ctx, reason]); return killOk ? { ok: true, reasons: [] } : { ok: false, reasons: ['kill_write_failed'] }; },
       async arm(pin, ctx) { calls.push(['arm', pin]); return pin === PIN ? { ok: true, reasons: [], envKillStill: false } : { ok: false, reasons: ['pin_wrong'] }; },
+      async checkPin(pin, ctx) { calls.push(['checkPin', pin]); return pin === PIN ? { ok: true, reasons: [] } : { ok: false, reasons: ['pin_wrong'] }; },
       async cancelTicket(nonce, ctx) { calls.push(['cancelTicket', nonce, ctx]); const had = orders.delete(nonce); return had ? { ok: true, reasons: [] } : { ok: false, reasons: ['nonce_unknown'] }; }
     };
     if (withPrepare) {
@@ -2406,6 +2407,23 @@ async function run() {
     assert(lastText(r3).includes('⚠ none'), lastText(r3));
   });
 
+  await test('/positions (T-15): a "trail: on · SL X (was Y)" line only once this position has actually been auto-trailed, and never when the owner turned it off', async () => {
+    const withStops = { ...chainPos, stop: 84390, tp: 85146 };
+    const blob = fakeBlob();
+    blob.files.set(TELEGRAM_STATE_PATH, { text: JSON.stringify({ trail: { [POS_ID]: { best: 85000, lastStop: 84390, prevStop: 84200, updatedAt: '2026-09-24T14:00:00.000Z' } } }), etag: '"e1"' });
+    const r = await xhook({ text: '/positions', executor: mockExecutor({ positions: [withStops] }), blob });
+    assert(lastText(r).includes('trail: on · SL 84,390.00 (was 84,200.00)'), lastText(r));
+    // No trail history yet for this position: no line, rest of the card unaffected.
+    const other = { ...chainPos, positionId: 'PosNoTrail1111111111111111111111111111111', stop: 84390, tp: 85146 };
+    const r2 = await xhook({ text: '/positions', executor: mockExecutor({ positions: [other] }), blob });
+    assert(!lastText(r2).includes('trail:'), lastText(r2));
+    // The owner turned trailing off: the line never shows even with history on file.
+    const blobOff = fakeBlob();
+    blobOff.files.set(TELEGRAM_STATE_PATH, { text: JSON.stringify({ prefs: { trail: 'off' }, trail: { [POS_ID]: { best: 85000, lastStop: 84390, prevStop: 84200, updatedAt: '2026-09-24T14:00:00.000Z' } } }), etag: '"e1"' });
+    const r3 = await xhook({ text: '/positions', executor: mockExecutor({ positions: [withStops] }), blob: blobOff });
+    assert(!lastText(r3).includes('trail:'), lastText(r3));
+  });
+
   await test('/confirm: wrong PIN -> ❌ PIN (auto-kill message on the 3rd), deleted, never echoed; malformed -> usage; Cancel consumes the ticket via cancelTicket, never confirms', async () => {
     const ex = mockExecutor();
     const blob = fakeBlob();
@@ -2498,6 +2516,28 @@ async function run() {
     assert(lastText(aw).startsWith('❌ <b>PIN</b>'), lastText(aw));
     const m = await xhook({ text: '/mode', executor: ex });
     assert(lastText(m).includes('DRY RUN') && lastText(m).includes('env-only'), lastText(m));
+  });
+
+  await test('/exec trail on|off (T-15): default row reads "on (1R)"; on needs no PIN, off does, wrong PIN refuses and never persists, the PIN never stays in the chat', async () => {
+    const ex = mockExecutor();
+    const base = lastText(await xhook({ text: '/exec', executor: ex })).replace(/ {2,}/g, ' ');
+    assert(base.includes('trailing on (1R)'), base);
+    const blob = fakeBlob();
+    const usage = await xhook({ text: '/exec trail', executor: ex, blob });
+    assert(lastText(usage).startsWith('Usage: /exec trail on|off'), lastText(usage));
+    const wrong = await xhook({ text: `/exec trail off 0000`, executor: ex, blob, messageId: 55 });
+    assert(lastText(wrong).startsWith('Wrong PIN') && wrong.tg.calls.some((c) => c.method === 'deleteMessage' && c.messageId === 55), lastText(wrong));
+    assert(!blob.files.get(TELEGRAM_STATE_PATH), 'wrong PIN: nothing persisted yet');
+    const off = await xhook({ text: `/exec trail off ${PIN}`, executor: ex, blob, messageId: 56 });
+    assert(lastText(off).includes('Auto-trail: <b>OFF</b>') && off.tg.calls.some((c) => c.method === 'deleteMessage' && c.messageId === 56), lastText(off));
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.trail, 'off', 'persisted off');
+    const afterOff = lastText(await xhook({ text: '/exec', executor: ex, blob })).replace(/ {2,}/g, ' ');
+    assert(afterOff.includes('trailing off'), afterOff);
+    const on = await xhook({ text: '/exec trail on', executor: ex, blob });
+    assert(lastText(on).includes('Auto-trail: <b>ON</b>') && !on.tg.calls.some((c) => c.method === 'deleteMessage'), 'turning on needs no PIN, nothing to delete');
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.trail, 'on', 'persisted on');
+    const execOff = await xhook({ text: '/exec trail off', env: ENV }); // execution disabled entirely
+    assertEqual(lastText(execOff), 'Execution off', lastText(execOff));
   });
 
   await test('/risk (T-8): show renders the policy + snapshot; set/reset writes state.prefs.risk, bounded via riskPrefBound', async () => {
@@ -2846,6 +2886,71 @@ async function run() {
     await cron({ env: XENV, blob, build, executor: failEx, nowMs: T0 + 2 * LIVE_POSITIONS_CACHE_MS + 5000 });
     const st2 = migrateState(blob.files.get(TELEGRAM_STATE_PATH).text).state;
     assertEqual(st2.livePositions.symbols.join(), 'SOL', 'failed read keeps the last known symbols');
+  });
+
+  console.log('\nautomatic trailing stop after +1R (T-15)');
+
+  const XENV_LIVE = { ...XENV, EXECUTION_MODE: 'live' };
+  const trailLongPos = { positionId: 'PosTrailCronL', market: 'BTCUSDT', symbol: 'BTC', direction: 'long', sizeUsd: 100, collateralUsd: 20, leverage: 5, entryPrice: 100, stop: 95, markPrice: 106, liquidationPrice: 50 };
+  const markPayload = (sym, price) => payload({ [sym]: { ...watchSym(), price, mark: { status: 'ok', price } } });
+
+  await test('cron: trailing stop arms at +1R and trails to bestPrice - 1R (long + short mirror); persists state.trail with prevStop', async () => {
+    const calls = [];
+    const ex = { ...mockExecutor({ positions: [trailLongPos] }), trailStops: async (positionId, newStop) => { calls.push([positionId, newStop]); return { ok: true, mode: 'live', before: 95, after: newStop, reasons: [] }; } };
+    const blob = fakeBlob();
+    await cron({ env: XENV_LIVE, blob, build: async () => markPayload('BTC', 106), executor: ex, nowMs: T0 });
+    assertEqual(calls.length, 1, 'one trail call');
+    assertEqual(calls[0][0], 'PosTrailCronL', 'positionId');
+    assertEqual(calls[0][1], 101, 'newStop = best(106) - R(100-95=5)');
+    const st = migrateState(blob.files.get(TELEGRAM_STATE_PATH).text).state;
+    assert(st.trail && st.trail.PosTrailCronL && st.trail.PosTrailCronL.lastStop === 101 && st.trail.PosTrailCronL.prevStop === 95, JSON.stringify(st.trail));
+
+    // Mirrored short: entry 100, stop 105 (R=5), mark 94 -> unrealizedR=(100-94)/5=1.2, best=min(*,94)=94, newStop=94+5=99 (tightens toward price, below 105).
+    const shortPos = { positionId: 'PosTrailCronS', market: 'ETHUSDT', symbol: 'ETH', direction: 'short', sizeUsd: 100, collateralUsd: 20, leverage: 5, entryPrice: 100, stop: 105, markPrice: 94, liquidationPrice: 150 };
+    const calls2 = [];
+    const ex2 = { ...mockExecutor({ positions: [shortPos] }), trailStops: async (positionId, newStop) => { calls2.push([positionId, newStop]); return { ok: true, reasons: [] }; } };
+    await cron({ env: XENV_LIVE, blob: fakeBlob(), build: async () => markPayload('ETH', 94), executor: ex2, nowMs: T0 });
+    assertEqual(calls2.length, 1, 'short: one trail call');
+    assertEqual(calls2[0][1], 99, 'short newStop = best(94) + R(5)');
+  });
+
+  await test('cron: trailing never runs unless TRADE_EXECUTION_ENABLED=true AND EXECUTION_MODE=live, and never when the owner turned it off (prefs.trail=off)', async () => {
+    let called = false;
+    const notCalled = () => ({ ...mockExecutor({ positions: [trailLongPos] }), trailStops: async () => { called = true; return { ok: true, reasons: [] }; } });
+
+    called = false;
+    await cron({ env: XENV, blob: fakeBlob(), build: async () => markPayload('BTC', 106), executor: notCalled(), nowMs: T0 }); // TRADE_EXECUTION_ENABLED true, but EXECUTION_MODE not 'live'
+    assertEqual(called, false, 'dry mode (no EXECUTION_MODE=live): trailStops never called');
+
+    called = false;
+    await cron({ env: ENV, blob: fakeBlob(), build: async () => markPayload('BTC', 106), executor: notCalled(), nowMs: T0 }); // execution off entirely
+    assertEqual(called, false, 'execution off: trailStops never called');
+
+    called = false;
+    const blobOff = fakeBlob();
+    blobOff.files.set(TELEGRAM_STATE_PATH, { text: JSON.stringify({ prefs: { trail: 'off' } }), etag: '"e1"' });
+    await cron({ env: XENV_LIVE, blob: blobOff, build: async () => markPayload('BTC', 106), executor: notCalled(), nowMs: T0 });
+    assertEqual(called, false, 'prefs.trail off: trailStops never called even in live mode');
+  });
+
+  await test('cron: a trailing-stop failure alerts once per position per hour, never spam; a routine refusal (kill switch) never alerts', async () => {
+    const blob = fakeBlob();
+    let failCalls = 0;
+    const failEx = { ...mockExecutor({ positions: [trailLongPos] }), trailStops: async () => { failCalls++; return { ok: false, mode: 'live', reasons: ['trail_failed'] }; } };
+    const buildFn = async () => markPayload('BTC', 106);
+    const alertText = (r) => r.tg.calls.filter((c) => c.method === 'sendMessage').map((c) => c.text).find((t) => /Auto-trail failed/.test(t));
+
+    const r1 = await cron({ env: XENV_LIVE, blob, build: buildFn, executor: failEx, nowMs: T0 });
+    assert(alertText(r1), 'first failure alerts');
+    const r2 = await cron({ env: XENV_LIVE, blob, build: buildFn, executor: failEx, nowMs: T0 + 5 * 60_000 });
+    assert(!alertText(r2), 'second failure within the hour: no repeat alert');
+    const r3 = await cron({ env: XENV_LIVE, blob, build: buildFn, executor: failEx, nowMs: T0 + 61 * 60_000 });
+    assert(alertText(r3), 'past an hour: alerts again');
+    assertEqual(failCalls, 3, 'trailStops was attempted every tick regardless of the alert throttle');
+
+    const killEx = { ...mockExecutor({ positions: [trailLongPos] }), trailStops: async () => ({ ok: false, mode: 'live', reasons: ['kill_switch'] }) };
+    const rk = await cron({ env: XENV_LIVE, blob: fakeBlob(), build: buildFn, executor: killEx, nowMs: T0 });
+    assert(!alertText(rk), 'kill_switch is routine: no alert');
   });
 
   await test('position closed: one unfiltered resume line; focus lifts so a new alert on the previously-muted symbol flows normally', async () => {

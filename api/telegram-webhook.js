@@ -56,6 +56,7 @@ import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
   migrateState, parseHealth, errText, TELEGRAM_HEALTH_PATH, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, formatFocusState, fmtQuiet,
+  TRAIL_MODES,
   parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot,
   collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS,
   resolveRef, formatPlanCard, formatThesisCard, tradeKeyboard, swapTrackButton, candidateSnapshot, trackEntry, applyTrackChange, formatTrackingList,
@@ -649,11 +650,38 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         else await manageTicket(action, p, st ? { stop: st.stop, tp: st.tp } : {});
       }
     } else if (cmd === 'exec') {
-      const status = await safeStatus();
-      if (!status) await execSend('Execution status could not be read; try again in a minute.', null, { event: 'status_failed' });
-      else {
-        const tgState = hasStore ? await readState() : null;
-        await execSend(formatExecStatus(status, env, tgState), null, { event: 'status', mode: execMode(status) });
+      const sub = Array.isArray(parsed.args) ? parsed.args[0] : null;
+      if (sub === 'trail') {
+        // T-15: /exec trail on|off toggles state.prefs.trail (default on) - the ONLY
+        // /exec sub-command, since it is a Telegram preference (whether the cron may call
+        // trailStops at all), not an executor write itself. Turning it OFF needs the
+        // execution PIN so a stranger with the bot open cannot quietly disable safety
+        // tightening; turning it back ON does not.
+        const mode = parsed.args[1];
+        if (parsed.args.length > 2) await deleteOwn(); // a PIN must not stay in the chat
+        let pinOk = mode === 'on';
+        if (!pinOk && mode === 'off' && typeof ex.checkPin === 'function') {
+          const pr = await ex.checkPin(parsed.args[2], ctx());
+          pinOk = Boolean(pr && pr.ok);
+        }
+        if (!TRAIL_MODES.includes(mode)) {
+          await execSend('Usage: /exec trail on|off (PIN required to turn off).', null, { event: 'trail_usage' });
+        } else if (!pinOk) {
+          await execSend('Wrong PIN.', null, { event: 'trail_pin_wrong' });
+        } else if (!hasStore) {
+          await execSend('Preference store unavailable.', null, { event: 'trail_failed' });
+        } else {
+          let saved = true;
+          try { await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => applyPrefsChange(text, { trail: mode })); } catch (err) { saved = false; log('exec', ` reason=trail_pref_write_${errName(err)}`); }
+          await execSend(saved ? `Auto-trail: <b>${mode.toUpperCase()}</b>.` : 'Could not save; try again in a minute.', null, { event: saved ? 'trail_set' : 'trail_failed' });
+        }
+      } else {
+        const status = await safeStatus();
+        if (!status) await execSend('Execution status could not be read; try again in a minute.', null, { event: 'status_failed' });
+        else {
+          const tgState = hasStore ? await readState() : null;
+          await execSend(formatExecStatus(status, env, tgState), null, { event: 'status', mode: execMode(status) });
+        }
       }
     } else if (cmd === 'mode') {
       const status = await safeStatus();
@@ -1010,11 +1038,12 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           await reply(formatPositions(opens, payload, now()), positionsKeyboard(opens) || menuKeyboard());
         } else {
           // Live chain read first (manage buttons), then journal opens the chain does not already show.
-          const [chain, status] = await Promise.all([chainPositions(), safeStatus()]);
+          const [chain, status, tgState] = await Promise.all([chainPositions(), safeStatus(), readState()]);
           const onChain = new Set((chain || []).map((p) => `${p.symbol}|${p.direction}`));
           opens = opens.filter((o) => !(o.source === 'execution' && onChain.has(`${o.symbol}|${o.direction}`)));
           const payload = opens.length ? filterPayload(await build(), { compact: true }) : null;
-          const chainText = chain ? formatChainPositions(chain, { mode: execMode(status) }) : '⛓ <b>ON CHAIN</b>\nChain read unavailable; try again in a minute.';
+          const trailInfo = tgState ? { pref: tgState.prefs && tgState.prefs.trail, byPosition: tgState.trail } : null;
+          const chainText = chain ? formatChainPositions(chain, { mode: execMode(status), trail: trailInfo }) : '⛓ <b>ON CHAIN</b>\nChain read unavailable; try again in a minute.';
           const text = `${chainText}\n${RULE}\n<b>JOURNAL</b>\n${formatPositions(opens, payload, now())}`;
           const rows = [...chainPositionsKeyboardRows(chain || []), ...((positionsKeyboard(opens) || {}).inline_keyboard || [])];
           await execSend(text, rows.length ? { inline_keyboard: rows } : null, { event: 'positions', mode: execMode(status) });
