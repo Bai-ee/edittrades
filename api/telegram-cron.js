@@ -72,7 +72,7 @@ import {
   withOpenButton, openEligible, candidateLevels, liveView, focusRelated, LIVE_POSITIONS_CACHE_MS,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES,
-  livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, shortRef, tradeKeyboard
+  livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, shortRef, tradeKeyboard, applyTrackedStopUpdates
 } from '../lib/telegram.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
@@ -89,6 +89,18 @@ import {
   retestOpenRecords, retestPositionHashes, positionIdHash, formatRetest1hAlert, formatRetest1hExitAlert
 } from '../lib/retest1hLive.js';
 import { SLOW_TREND_KIND, fetchClosedDailyCandles, evaluateSlowTrendRegime, formatSlowTrendAlert } from '../lib/slowTrendSpot.js';
+// Live HTF-anchored entry (T-20, owner-approved "ships live-capable" 2026-09-27; see
+// lib/htfEntryLive.js header). Same isolation note as the retest1h import above: no
+// lib/execution import anywhere in this file. htfPositionHashes/htfOpenRecords are for the
+// EXIT-alert relevance check and "max one open HTF trade per symbol" - the auto-trail
+// itself is NOT exempted for HTF (unlike T-15b's retest-1h skip), so applyTrailingStops
+// needs no HTF-specific branch at all.
+import {
+  HTF_DIRECTION_KIND, HTF_ENTRY_KIND, HTF_EXIT_KIND, HTF_SYMBOLS, HTF_HOLD_MAX_HOURS, HTF_COOLDOWN_MS,
+  latestClosedHtfCandle, evaluateHtfDirectionFull, previewHtfDirection, evaluateHtfTriggerFull,
+  htfOpenRecords, formatHtfDirectionAlert, formatHtfEntryAlert, formatHtfExitAlert,
+  directionChartRequest, entryChartRequest, htfCandidateId
+} from '../lib/htfEntryLive.js';
 
 /**
  * Record one cron outcome in telegram/health.json and send the FAILING / RECOVERED
@@ -281,6 +293,137 @@ async function evaluateSlowTrend({ deps, nowMs, log, prevState }) {
 }
 
 /**
+ * Live T-20 HTF-anchored entry (docs/PROMPT_T20_HTF_ENTRY.md, owner-approved "ships
+ * live-capable" 2026-09-27). Direction (4h+1D EMA21/EMA200 stack) is recomputed only on a
+ * NEWLY closed 1h candle per symbol (the same cheap-check-then-full-fetch cadence
+ * evaluateRetest1h uses); a DIRECTION card fires once per regime change TO a new active
+ * direction (long/short) - losing direction back to none is a silent state update, no
+ * card (the addendum's own example only covers gaining a regime). The 1m/3m/5m trigger is
+ * checked every tick while a direction is on file, gated by "max one open HTF trade per
+ * symbol" (an existing open HTF journal position blocks a new trigger) and the 4h cooldown
+ * per (symbol, regime `since`). EXIT alerts (structure: the newest 1h close beyond the
+ * plan's own structureStop in the wrong direction; time: the 72h hold cap) fire for any
+ * plan the owner took (an open HTF journal record) or explicitly tracked - `took` on the
+ * card follows the addendum's "a trade the owner did NOT take" rule. Every card is a photo
+ * (`alert.chart`, the SAME generic render -> sendPhoto pipeline every other alert kind
+ * uses) with a WHAT-TO-DO caption as its text (no separate approach block, so
+ * `fitCaption([alert.text])` always fits and the photo carries the caption alone).
+ * @returns {Promise<{htf: Object|null, alerts: Array}>}
+ */
+async function evaluateHtfEntry({ env, deps, nowMs, log, prevState, openHtfTrades, trackedList }) {
+  const alerts = [];
+  const next = {
+    direction: { ...prevState.direction },
+    lastEvaluated1hClose: { ...prevState.lastEvaluated1hClose },
+    lastTriggerAt: { ...prevState.lastTriggerAt },
+    plans: { ...prevState.plans }
+  };
+  let changed = false;
+  const fetchOpts = { fetchCandles: deps.fetchMarketCandles, nowMs };
+  const openBySymbol = new Map(openHtfTrades.map((o) => [o.symbol, o]));
+  const trackedByCandidateId = new Map((Array.isArray(trackedList) ? trackedList : []).filter((t) => t && t.candidateId).map((t) => [t.candidateId, t]));
+
+  for (const symbol of HTF_SYMBOLS) {
+    let latest1h;
+    try { latest1h = await latestClosedHtfCandle(symbol, fetchOpts); } catch (err) { log('htf', ` reason=candle_read_${err && err.name ? err.name : 'Error'} symbol=${symbol}`); continue; }
+    if (!latest1h || !Number.isFinite(latest1h.closeTime)) continue;
+    const closedIso = new Date(latest1h.closeTime).toISOString();
+    const isNewClose = closedIso !== next.lastEvaluated1hClose[symbol];
+
+    if (isNewClose) {
+      let newDirection = null;
+      try { newDirection = (await evaluateHtfDirectionFull(symbol, fetchOpts)).direction; } catch (err) { log('htf', ` reason=direction_${err && err.name ? err.name : 'Error'} symbol=${symbol}`); }
+      const prevDir = next.direction[symbol];
+      if (newDirection && (!prevDir || prevDir.direction !== newDirection)) {
+        let preview = null;
+        try { preview = await previewHtfDirection(symbol, newDirection, fetchOpts); } catch (err) { log('htf', ` reason=preview_${err && err.name ? err.name : 'Error'} symbol=${symbol}`); }
+        if (preview) {
+          alerts.push({
+            kind: HTF_DIRECTION_KIND, symbol,
+            text: formatHtfDirectionAlert({ symbol, direction: newDirection, since: closedIso, structureStop: preview.structureStop, stopPct: preview.stopPct, tp1: preview.tp1, grossRR: preview.grossRR }),
+            chart: directionChartRequest(symbol, newDirection, preview),
+            replyMarkup: { inline_keyboard: [[{ text: 'Track', callback_data: `track:${shortRef(htfCandidateId(symbol, '1h', newDirection, closedIso))}` }, { text: 'Chart', callback_data: `chart:${symbol}:1h` }]] }
+          });
+        }
+        next.direction[symbol] = { direction: newDirection, since: closedIso, structureStop: preview ? preview.structureStop : null, tp1: preview ? preview.tp1 : null, stopPct: preview ? preview.stopPct : null };
+        changed = true;
+      } else if (!newDirection && prevDir) {
+        next.direction[symbol] = null;
+        changed = true;
+      }
+      next.lastEvaluated1hClose[symbol] = closedIso;
+      changed = true;
+    }
+
+    // EXIT check: only for a plan the owner took (open HTF journal position) or explicitly
+    // tracked (state.tracked, `took` may be true/false/null there) - never for a plan
+    // nobody ever interacted with (no card to send in that case anyway).
+    const openTrade = openBySymbol.get(symbol);
+    for (const [ref, plan] of Object.entries(next.plans)) {
+      if (plan.symbol !== symbol) continue;
+      const tracked = trackedByCandidateId.get(plan.candidateId);
+      const took = (openTrade && openTrade.engineRef && openTrade.engineRef.candidateId === plan.candidateId) ? true : (tracked ? tracked.took : null);
+      if (took !== true && took !== false) continue; // no interaction on file yet - nothing to alert about
+      const updatedExit = { ...plan.exitAlerted };
+      let firedKind = null;
+      if (isNewClose && !plan.exitAlerted.structure) {
+        const beyond = plan.direction === 'long' ? latest1h.close < plan.structureStop : latest1h.close > plan.structureStop;
+        if (beyond) { firedKind = 'structure'; updatedExit.structure = true; }
+      }
+      if (!firedKind && !plan.exitAlerted.time) {
+        const ageMs = nowMs - Date.parse(plan.createdAt);
+        if (Number.isFinite(ageMs) && ageMs >= HTF_HOLD_MAX_HOURS * 3600000) { firedKind = 'time'; updatedExit.time = true; }
+      }
+      if (firedKind) {
+        alerts.push({
+          kind: HTF_EXIT_KIND, symbol, candidateId: plan.candidateId,
+          text: formatHtfExitAlert({ symbol, direction: plan.direction, kind: firedKind, structureStop: plan.structureStop, took }),
+          trackLevels: { timeframe: plan.timeframe, direction: plan.direction, entry: plan.entry, stop: plan.stop, tp1: plan.tp1 }
+        });
+        next.plans[ref] = { ...plan, exitAlerted: updatedExit };
+        changed = true;
+      }
+    }
+
+    // Trigger: every tick, while a direction is on file, gated by "max one open HTF trade
+    // per symbol" and the 4h cooldown per (symbol, regime since).
+    const dirState = next.direction[symbol];
+    if (dirState && dirState.direction && !openBySymbol.has(symbol)) {
+      const lastTrig = next.lastTriggerAt[symbol];
+      const cooldownOk = !lastTrig || lastTrig.since !== dirState.since || (nowMs - Date.parse(lastTrig.at)) >= HTF_COOLDOWN_MS;
+      if (cooldownOk) {
+        let full = null;
+        try { full = await evaluateHtfTriggerFull(symbol, dirState.direction, fetchOpts); } catch (err) { log('htf', ` reason=trigger_${err && err.name ? err.name : 'Error'} symbol=${symbol}`); }
+        if (full && full.trigger && full.plan && full.plan.status === 'ready') {
+          const { trigger, plan } = full;
+          const closeIso = Number.isFinite(trigger.closeTime) ? new Date(trigger.closeTime).toISOString() : new Date(nowMs).toISOString();
+          const candidateId = htfCandidateId(symbol, trigger.tf, dirState.direction, closeIso);
+          const newRef = shortRef(candidateId);
+          if (!next.plans[newRef]) {
+            alerts.push({
+              kind: HTF_ENTRY_KIND, symbol, candidateId,
+              text: formatHtfEntryAlert({ symbol, direction: dirState.direction, tf: trigger.tf, entry: trigger.entry, stop: plan.stop, structureStop: plan.structureStop, stopPct: plan.stopPct, tp1: plan.tp1, grossRR: plan.grossRR, netRR: plan.netRR }),
+              chart: entryChartRequest(symbol, { direction: dirState.direction, entry: trigger.entry, stop: plan.stop, tp1: plan.tp1, tp2: plan.tp2, grossRR: plan.grossRR, netRR: plan.netRR }),
+              replyMarkup: withOpenButton(tradeKeyboard(symbol, '1h', candidateId), candidateId, true),
+              trackLevels: { timeframe: trigger.tf, direction: dirState.direction, entry: trigger.entry, stop: plan.stop, tp1: plan.tp1 }
+            });
+            next.plans[newRef] = {
+              ref: newRef, candidateId, symbol, direction: dirState.direction, entry: trigger.entry, stop: plan.stop, structureStop: plan.structureStop,
+              tp1: plan.tp1, tp2: plan.tp2 || null, grossRR: plan.grossRR, netRR: plan.netRR, stopPct: plan.stopPct, timeframe: trigger.tf,
+              signalCloseIso: closeIso, createdAt: new Date(nowMs).toISOString(), exitAlerted: { structure: false, time: false }, took: null
+            };
+            next.lastTriggerAt[symbol] = { since: dirState.since, at: new Date(nowMs).toISOString() };
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  return { htf: changed ? next : null, alerts };
+}
+
+/**
  * Refusal reasons that are routine (kill switch on, execution off, cooldown, a race with
  * the cron's own tightening check) and never worth waking the owner for - anything else
  * (trail_failed, trail_current_stop_unknown, stop_wrong_side, stop_beyond_liquidation,
@@ -312,27 +455,33 @@ const TRAIL_ROUTINE_REASONS = new Set(['trail_cooldown', 'kill_switch', 'kill_st
  *   state.trail exactly as it was).
  */
 async function applyTrailingStops({ get, env, deps, payload, nowMs, log, retestHashes = new Set() }) {
-  if (env.TRADE_EXECUTION_ENABLED !== 'true' || env.EXECUTION_MODE !== 'live') return { trail: null, alerts: [] };
+  if (env.TRADE_EXECUTION_ENABLED !== 'true' || env.EXECUTION_MODE !== 'live') return { trail: null, alerts: [], trackedStopUpdates: [] };
   let prevState;
   try {
     const peek = await readBlob(get, TELEGRAM_STATE_PATH);
     prevState = migrateState(peek ? peek.text : null).state;
   } catch { prevState = migrateState(null).state; }
   const pref = prevState.prefs && prevState.prefs.trail;
-  if (pref === 'off') return { trail: null, alerts: [] };
+  if (pref === 'off') return { trail: null, alerts: [], trackedStopUpdates: [] };
   const previous = prevState.trail || {};
 
   let ex = null;
   try { ex = await resolveExecutor(env, deps); } catch { ex = null; }
-  if (!ex || typeof ex.trailStops !== 'function') return { trail: null, alerts: [] };
+  if (!ex || typeof ex.trailStops !== 'function') return { trail: null, alerts: [], trackedStopUpdates: [] };
 
   let r;
-  try { r = await ex.listPositions(); } catch (err) { log('trail', ` reason=trail_positions_${err && err.name ? err.name : 'Error'}`); return { trail: null, alerts: [] }; }
-  if (!r || r.ok === false) { log('trail', ` reason=trail_positions_unavailable`); return { trail: null, alerts: [] }; }
+  try { r = await ex.listPositions(); } catch (err) { log('trail', ` reason=trail_positions_${err && err.name ? err.name : 'Error'}`); return { trail: null, alerts: [], trackedStopUpdates: [] }; }
+  if (!r || r.ok === false) { log('trail', ` reason=trail_positions_unavailable`); return { trail: null, alerts: [], trackedStopUpdates: [] }; }
 
   const nowIso = new Date(nowMs).toISOString();
   const nextTrail = {};
   const alerts = [];
+  // T-16 handback fix ("a T-15 auto-trailed stop writes back into the tracked entry"): one
+  // entry per position whose stop was just genuinely moved this tick, for the caller
+  // (handleTelegramCron's state transaction) to apply onto state.tracked via
+  // applyTrackedStopUpdates (lib/telegram.js) - joined there by (symbol, direction, entry
+  // within tolerance), since a tracked entry has no positionId.
+  const trackedStopUpdates = [];
   const syms = payload && payload.symbols ? payload.symbols : {};
 
   for (const p of Array.isArray(r.positions) ? r.positions : []) {
@@ -372,6 +521,7 @@ async function applyTrailingStops({ get, env, deps, payload, nowMs, log, retestH
             nextEntry.lastStop = newStop;
             nextEntry.updatedAt = nowIso;
             nextEntry.lastAlertAt = null; // a fresh success clears any prior failure throttle
+            trackedStopUpdates.push({ symbol: p.symbol, direction: p.direction, entry, stop: newStop });
           } else {
             const reason = result && Array.isArray(result.reasons) && result.reasons[0];
             const routine = reason && TRAIL_ROUTINE_REASONS.has(reason);
@@ -389,7 +539,7 @@ async function applyTrailingStops({ get, env, deps, payload, nowMs, log, retestH
     }
     nextTrail[p.positionId] = nextEntry;
   }
-  return { trail: nextTrail, alerts };
+  return { trail: nextTrail, alerts, trackedStopUpdates };
 }
 
 function safeCompare(a, b) {
@@ -494,6 +644,11 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const trailResult = await applyTrailingStops({ get, env, deps, payload, nowMs, log, retestHashes: retestPositionHashes(openRetestTrades) });
   const retest1hResult = await evaluateRetest1h({ env, deps, nowMs, log, prevState: retestPrevState.retest1h, openRetestTrades });
   const slowTrendResult = await evaluateSlowTrend({ deps, nowMs, log, prevState: retestPrevState.slowTrend });
+  // T-20: reuses the SAME pre-fetched journal records as retest1h above (one journal read
+  // per cron tick, not two). htf's own +1R auto-trail is not exempted (unlike retest1h),
+  // so it needs no `retestHashes`-style set passed into applyTrailingStops.
+  const openHtfTrades = htfOpenRecords(openPositions(retestJournalRecords));
+  const htfResult = await evaluateHtfEntry({ env, deps, nowMs, log, prevState: retestPrevState.htf, openHtfTrades, trackedList: retestPrevState.tracked });
 
   let alerts = [];
   let transitions = [];
@@ -539,7 +694,20 @@ export async function handleTelegramCron(req, res, deps = {}) {
         slowTrendChanged = JSON.stringify(m.state.slowTrend) !== JSON.stringify(slowTrendResult.slowTrend);
         diff.state.slowTrend = slowTrendResult.slowTrend;
       }
-      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
+      let htfChanged = false;
+      if (htfResult.htf) {
+        htfChanged = JSON.stringify(m.state.htf) !== JSON.stringify(htfResult.htf);
+        diff.state.htf = htfResult.htf;
+      }
+      // T-16 handback fix: apply any T-15 auto-trail stop update onto the FRESH (just-read)
+      // state.tracked here, inside the transaction, not against the stale pre-transaction
+      // peek - the owner could have tracked/untracked/taken something in between.
+      let trackedTrailChanged = false;
+      if (trailResult.trackedStopUpdates && trailResult.trackedStopUpdates.length) {
+        const { tracked: nextTracked, changed: tc } = applyTrackedStopUpdates(diff.state.tracked, trailResult.trackedStopUpdates);
+        if (tc) { diff.state.tracked = nextTracked; trackedTrailChanged = true; }
+      }
+      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
   } catch (err) {
@@ -556,7 +724,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   // Live retest-1h + slow-trend spot alerts (computed before the state transaction above):
   // merged into the normal alert pipeline so they get the same focus-mode filtering, Open
   // button attachment (retest-1h only) and send/log treatment as every other alert kind.
-  alerts = alerts.concat(retest1hResult.alerts, slowTrendResult.alerts);
+  alerts = alerts.concat(retest1hResult.alerts, slowTrendResult.alerts, htfResult.alerts);
 
   // T-15 trail failure alerts (throttled to once per position per hour, computed inside
   // applyTrailingStops): sent regardless of whether the state write above succeeded, since
