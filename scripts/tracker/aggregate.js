@@ -43,9 +43,9 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions, goodCallOutcomesFile } from './store.js';
+import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions, goodCallOutcomesFile, retestCallOutcomesFile } from './store.js';
 import { round, median, isFiniteNumber } from './walk-outcome.js';
-import { costR } from './costs.js';
+import { costR, netR } from './costs.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 export const CAPTURE_GAP_MINUTES = 20;
@@ -168,6 +168,122 @@ export function classCheck(outcomes, sinceMs = null, goodCallOutcomes = []) {
     rows.push(row);
   }
   return { since: since ? new Date(sinceMs).toISOString() : null, rows };
+}
+
+// ---------------------------------------------------------------- RETEST_1H class (T-18)
+//
+// docs/RETEST_ENTRY_STUDY_2026-09-27.md / docs/OWNER_DECISIONS_2026-09-27.md: the retest-1h
+// rule ships info-only/paper. Promotion rule: >= 30 live signals, mean net R > 0 with the
+// bootstrap 90% lower bound of that mean > 0, and max drawdown within the active profile's
+// daily/weekly limits (checked against scripts/tracker/profileConfig.js elsewhere, not
+// here - this module only reports the drawdown number). Median is reported, never gating -
+// a low-win-rate/fat-tail rule has a negative typical trade by design (the same reason
+// docs/VARIANTS_STUDY_2026-09-26.md adopted median-not-mean for OOS verdicts elsewhere, but
+// the owner's OWN promotion rule for this specific class is mean + bootstrap, not median).
+
+/**
+ * mulberry32 seeded PRNG - the same generator scripts/research/harness/stats-lib.js
+ * makeRng() and this repo's own swing-rule fixtures already use, duplicated here (not
+ * imported) so the tracker's own math stays dependency-free of the research tree - same
+ * convention as costs.js / walk-outcome.js being their own small vendored modules.
+ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function rng() {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export const RETEST_BOOTSTRAP_SEED = 20260927; // T-18 ship date; fixed so the bound is reproducible run to run
+export const RETEST_BOOTSTRAP_RESAMPLES = 1000;
+
+/**
+ * One-sided 90% bootstrap lower bound of the mean of `values`: `resamples` samples of size
+ * n drawn WITH replacement (seeded mulberry32 - deterministic, same seed always produces
+ * the same bound), each resample's own mean computed, then the 10th percentile of that
+ * distribution of means is the lower bound (owner promotion rule: "mean net R > 0 with the
+ * bootstrap 90% lower bound > 0"). Null with fewer than 2 values - nothing to resample a
+ * distribution from.
+ * @param {Array<number>} values
+ * @param {{resamples?:number, seed?:number}} [opts]
+ * @returns {number|null}
+ */
+export function bootstrapMeanLowerBound90(values, { resamples = RETEST_BOOTSTRAP_RESAMPLES, seed = RETEST_BOOTSTRAP_SEED } = {}) {
+  const arr = (values || []).filter(isFiniteNumber);
+  const n = arr.length;
+  if (n < 2) return null;
+  const rng = mulberry32(seed);
+  const means = new Array(resamples);
+  for (let i = 0; i < resamples; i++) {
+    let sum = 0;
+    for (let j = 0; j < n; j++) sum += arr[Math.floor(rng() * n)];
+    means[i] = sum / n;
+  }
+  means.sort((a, b) => a - b);
+  const idx = Math.min(means.length - 1, Math.max(0, Math.floor(0.10 * means.length)));
+  return round(means[idx], 4);
+}
+
+/**
+ * Max drawdown, in R, of the cumulative-R equity curve over `rSeries` taken IN THE ORDER
+ * given (caller sorts chronologically first) - the largest peak-to-trough drop of the
+ * running sum. 0 with no finite values.
+ * @param {Array<number>} rSeries
+ * @returns {number}
+ */
+export function maxDrawdownR(rSeries) {
+  let peak = 0;
+  let cum = 0;
+  let maxDD = 0;
+  for (const r of rSeries || []) {
+    if (!isFiniteNumber(r)) continue;
+    cum += r;
+    if (cum > peak) peak = cum;
+    const dd = peak - cum;
+    if (dd > maxDD) maxDD = dd;
+  }
+  return round(maxDD, 4);
+}
+
+/**
+ * RETEST_1H class stats for the promotion rule above, over `rows` (score.js
+ * scoreRetestCalls output - any order in, sorted chronologically here). `calls` is every
+ * fired signal; `towardThirty` is the resolved (tp1/stop) count the promotion rule's "30
+ * live signals" actually counts a mean/median/bootstrap over (an open/pending/expired call
+ * has no realized R to average).
+ * @param {Array<Object>} rows - score.js scoreRetestCalls output
+ * @returns {Object}
+ */
+export function retestStats(rows) {
+  const all = Array.isArray(rows) ? rows : [];
+  const decided = all.filter(isDecided).sort((a, b) => Date.parse(a.resolvedAt || a.calledAt) - Date.parse(b.resolvedAt || b.calledAt));
+  const wins = decided.filter((r) => r.outcome === 'tp1');
+  const grossRs = decided.map((r) => (r.outcome === 'stop' ? -1 : r.r)).filter(isFiniteNumber);
+  const netRs = decided.map((r) => {
+    const gross = r.outcome === 'stop' ? -1 : r.r;
+    return isFiniteNumber(gross) ? netR(r.entry, r.stop, gross, r.direction) : null;
+  }).filter(isFiniteNumber);
+  const avg = (arr) => (arr.length ? round(arr.reduce((a, b) => a + b, 0) / arr.length) : null);
+  return {
+    calls: all.length,
+    resolved: decided.length,
+    wins: wins.length,
+    losses: decided.length - wins.length,
+    winRate: decided.length ? round(wins.length / decided.length) : null,
+    grossRMean: avg(grossRs),
+    grossRMedian: median(grossRs),
+    netRMean: avg(netRs),
+    netRMedian: median(netRs),
+    netRBootstrapLowerBound90: bootstrapMeanLowerBound90(netRs),
+    maxDrawdownR: maxDrawdownR(netRs),
+    towardThirty: decided.length,
+    promotionTarget: 30,
+    // Median is reported above, never gating - see the module-header note.
+    promoted: decided.length >= 30 && isFiniteNumber(avg(netRs)) && avg(netRs) > 0 && isFiniteNumber(bootstrapMeanLowerBound90(netRs)) && bootstrapMeanLowerBound90(netRs) > 0
+  };
 }
 
 function reasonCounts(rows) {
@@ -450,6 +566,7 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
     classCheck: classCheck(outcomes, opts.phaseStartMs, goodCallOutcomes),
     alerts: computeAlertAggregates(opts.alertOutcomes || [], opts.transitions || [], nowMs),
     goodCallLogSince,
+    retest1h: retestStats(opts.retestCallOutcomes || []),
     phase: isFiniteNumber(opts.phaseStartMs)
       ? {
           startedAt: new Date(opts.phaseStartMs).toISOString(),
@@ -461,7 +578,10 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
 
 export function aggregateDataDir(dataDir, nowMs = Date.now(), opts = {}) {
   const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs,
-    { alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), goodCallOutcomes: readJsonl(goodCallOutcomesFile(dataDir)), ...opts });
+    {
+      alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), goodCallOutcomes: readJsonl(goodCallOutcomesFile(dataDir)),
+      retestCallOutcomes: readJsonl(retestCallOutcomesFile(dataDir)), ...opts
+    });
   writeJson(aggregatesFile(dataDir), agg);
   return agg;
 }

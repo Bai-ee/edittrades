@@ -705,6 +705,30 @@ function nfShadowBody(summary, rows) {
       table('nf-shadow-list-table', ['Ready at', 'Symbol', 'TF', 'Dir', 'Stop / floor', 'Live', 'Live net R', 'NF', 'Source'], list, NO_NF_SHADOW));
 }
 
+// ---------- RETEST 1H · paper (T-18, docs/RETEST_ENTRY_STUDY_2026-09-27.md /
+// docs/OWNER_DECISIONS_2026-09-27.md) ----------
+
+export const NO_RETEST1H = '[NO RETEST 1H SIGNALS YET]';
+export const RETEST1H_NOTE = 'RETEST 1H ships info-only (Track + Plan/Thesis, no Open button): the rule fails out-of-sample on both halves of the 2-year study and matches the random-direction control (docs/RETEST_ENTRY_STUDY_2026-09-27.md). Promotion rule (docs/OWNER_DECISIONS_2026-09-27.md): ≥ 30 resolved live signals, mean net R > 0 with the bootstrap 90 % lower bound (1,000 seeded resamples) also > 0, and max drawdown within the active profile’s daily/weekly limits. Median is reported below but is not the gate.';
+
+export const RETEST1H_HEADERS = ['Calls', 'Resolved', 'Wins', 'Losses', 'Win rate', 'Gross R mean', 'Gross R median', 'Net R mean', 'Net R median', 'Net R 90% LB', 'Max DD (R)'];
+
+function retest1hBody(stats) {
+  if (!stats || !stats.calls) return `<p class="empty" id="retest1h-empty">${esc(NO_RETEST1H)}</p>`;
+  const row = [
+    stats.calls, stats.resolved, stats.wins, stats.losses, pct(stats.winRate),
+    { v: rVal(stats.grossRMean), cls: rStatus(stats.grossRMean) }, { v: rVal(stats.grossRMedian), cls: rStatus(stats.grossRMedian) },
+    { v: rVal(stats.netRMean), cls: rStatus(stats.netRMean) }, { v: rVal(stats.netRMedian), cls: rStatus(stats.netRMedian) },
+    { v: rVal(stats.netRBootstrapLowerBound90), cls: rStatus(stats.netRBootstrapLowerBound90) },
+    num(stats.maxDrawdownR, 2)
+  ];
+  const table1 = table('retest1h-summary-table', RETEST1H_HEADERS, [row], NO_RETEST1H, 1);
+  const status = stats.promoted
+    ? 'promoted — ≥ 30 resolved signals, mean net R and its 90 % lower bound both positive'
+    : `paper — ${stats.towardThirty} / ${stats.promotionTarget} resolved signals toward the promotion rule`;
+  return table1 + `<p class="note" id="retest1h-status-note">${esc(status)}</p>`;
+}
+
 export function renderHtml(agg, data = {}) {
   const t = agg.tiles;
   const nowMs = Date.parse(agg.generatedAt);
@@ -777,6 +801,10 @@ export function renderHtml(agg, data = {}) {
   // Net floor (T-13 shadow; T-15 LIVE since 2026-09-27): the live ready calls re-scored
   // with the fee-aware stop floor, side by side - the two columns converge post-cutover.
   const nfShadowSection = section('nf-shadow-section', 'Net floor · NF (live since 2026-09-27)', nfShadowBody(nfShadowSum, nfShadowRows), { sm: 2, lg: 12, foot: NF_SHADOW_NOTE });
+
+  // RETEST 1H (T-18): next to Live/NF above and Aggressive on strategies.html - a third,
+  // separate signal class, paper until its own promotion rule clears.
+  const retest1hSection = section('retest1h-section', 'RETEST 1H · paper', retest1hBody(agg.retest1h), { sm: 2, lg: 12, foot: RETEST1H_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -932,7 +960,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, nfShadowSection, ...instruments]
+      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, nfShadowSection, retest1hSection, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -1052,6 +1080,11 @@ export function renderReport(agg, data = {}) {
   out.push(nfs
     ? `${mdTable(NF_SHADOW_HEADERS, [nfLegCells('Live', nfs.live), nfLegCells('NF', nfs.nf)].map((r) => r.map(plainCell)))}\nn=${nfs.n} over ${num(nfs.spanDays, 2)} d (engine ${nfs.engineRows}, backfill ${nfs.backfillRows}). ${NF_SHADOW_NOTE}\n`
     : `${NO_NF_SHADOW}\n`);
+  const r1h = agg.retest1h && agg.retest1h.calls ? agg.retest1h : null;
+  out.push(`\n## RETEST 1H · paper\n\n_${PROVISIONAL}_\n`);
+  out.push(r1h
+    ? `${mdTable(RETEST1H_HEADERS, [[r1h.calls, r1h.resolved, r1h.wins, r1h.losses, pct(r1h.winRate), rVal(r1h.grossRMean), rVal(r1h.grossRMedian), rVal(r1h.netRMean), rVal(r1h.netRMedian), rVal(r1h.netRBootstrapLowerBound90), num(r1h.maxDrawdownR, 2)]])}\n${r1h.towardThirty} / ${r1h.promotionTarget} toward the promotion rule. ${RETEST1H_NOTE}\n`
+    : `${NO_RETEST1H}\n`);
   const c = agg.captures;
   out.push(`\n## Data health\n\n_${PROVISIONAL}_\n\nCaptures ${c.captures}, gaps ${c.gaps}, DATA_UNAVAILABLE ${c.dataUnavailable}, mark drift |bps| median ${num(c.markDriftBps.medianAbs)} / max ${num(c.markDriftBps.maxAbs)}, missing 1m candles ${c.missing1mCandles}.\n`);
   return out.join('\n');

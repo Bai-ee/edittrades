@@ -74,10 +74,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, readJournal, journalOutcomesFile,
-  readTelegramAlerts, readTransitions, alertOutcomesFile, goodCallOutcomesFile
+  readTelegramAlerts, readTransitions, alertOutcomesFile, goodCallOutcomesFile, retestCallOutcomesFile
 } from './store.js';
 import { walkOutcome, isFiniteNumber, FILL_WINDOW_CANDLES } from './walk-outcome.js';
-import { goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines } from './collect.js';
+import { goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines, retestCallsFromAlertLines, retestExitTimesFromAlertLines } from './collect.js';
 
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 const MINUTE = 60_000;
@@ -690,6 +690,80 @@ export function scoreGoodCallsDataDir(dataDir, nowMs = Date.now()) {
   return rows;
 }
 
+// ---------------------------------------------------------------- RETEST_1H calls from the 1-minute alert log (T-18)
+
+export const retestCallId = (c) => `retest1h|${c.symbol}|${c.candidateId}`;
+
+/**
+ * Walk each RETEST_1H call (collect.js retestCallsFromAlertLines) from its own calledAt,
+ * prefilled exactly like a merged GOOD call (scoreGoodCalls above): the retest-1h signal
+ * fires ON the retest candle's own close (lib/retest1hRule.js), so the signal's `entry` IS
+ * that close - already "filled" the moment the alert goes out, same immediate-fill
+ * convention scoreGoodCalls uses for a ready flag plan. `exitedAtByKey`
+ * (collect.js retestExitTimesFromAlertLines) is carried through for display only - it does
+ * NOT change the walked outcome; the walk always answers "what would this trade's own
+ * levels have done", same as every other call kind here (the research rule's own structure-
+ * exit/7-day-cap mechanics are a separate, parallel info-only alert, not reproduced in this
+ * live 24h tp1/stop/expired walk). Idempotent: a call whose outcome is already final keeps
+ * that outcome.
+ * @param {Array<Object>} calls - collect.js retestCallsFromAlertLines output
+ * @param {Object<string, Array<Object>>} candlesBySymbol - 1m candles, ascending
+ * @param {Map<string,string>} [exitedAtByKey=new Map()] - collect.js retestExitTimesFromAlertLines output
+ * @param {Array<Object>} [previous=[]] - existing retest-call-outcomes.jsonl rows
+ * @param {number} [nowMs=Date.now()]
+ * @returns {Array<Object>}
+ */
+export function scoreRetestCalls(calls, candlesBySymbol, exitedAtByKey = new Map(), previous = [], nowMs = Date.now()) {
+  const prevById = new Map((previous || []).map((r) => [r.callId, r]));
+  const nowIso = new Date(nowMs).toISOString();
+  const rows = [];
+  for (const call of calls || []) {
+    if (!call || !call.symbol || !call.candidateId) continue;
+    const callId = retestCallId(call);
+    const prev = prevById.get(callId);
+    const key = `${call.symbol}|${call.candidateId}`;
+    const exitedAt = exitedAtByKey instanceof Map ? (exitedAtByKey.get(key) ?? null) : null;
+    const candles = candlesBySymbol[call.symbol] || [];
+    const hasLevels = isFiniteNumber(call.entry) && isFiniteNumber(call.stop) && isFiniteNumber(call.tp1);
+    let result;
+    if (prev && FINAL_OUTCOMES.has(prev.outcome)) {
+      result = { outcome: prev.outcome, r: prev.r, filledAt: prev.filledAt, resolvedAt: prev.resolvedAt, minutesToResolution: prev.minutesToResolution };
+    } else if (!hasLevels) {
+      result = { outcome: 'no_levels', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null };
+    } else {
+      result = walkCall(call, candles, nowMs, true);
+    }
+    const row = {
+      callId, kind: 'retest1h', symbol: call.symbol, candidateId: call.candidateId, calledAt: call.calledAt,
+      timeframe: call.timeframe ?? null, direction: call.direction ?? null,
+      entry: call.entry ?? null, stop: call.stop ?? null, tp1: call.tp1 ?? null,
+      levelSource: 'alert', class: 'RETEST_1H',
+      sources: ['alert-1m'],
+      exitedAt,
+      ...result,
+      mode: hasLevels ? 'ready_prefilled' : 'not_walked',
+      rUnits: 'gross_R_before_fees_slippage'
+    };
+    row.scoredAt = prev && stableJson(prev) === stableJson(row) ? prev.scoredAt : nowIso;
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Score the Telegram RETEST_1H alert log and write retest-call-outcomes.jsonl. No capture
+ * fallback (unlike scoreGoodCallsDataDir) - lib/retest1hLive.js has no
+ * flagRecommendation/flagTradePlan equivalent for the 10-minute poll to have ever seen.
+ */
+export function scoreRetestCallsDataDir(dataDir, nowMs = Date.now()) {
+  const alertRows = readTelegramAlerts(dataDir);
+  const calls = retestCallsFromAlertLines(alertRows);
+  const exitedAtByKey = retestExitTimesFromAlertLines(alertRows);
+  const rows = scoreRetestCalls(calls, readCandles(dataDir, '1m'), exitedAtByKey, readJsonl(retestCallOutcomesFile(dataDir)), nowMs);
+  writeJsonl(retestCallOutcomesFile(dataDir), rows);
+  return rows;
+}
+
 /** Score the journal in `dataDir` against its 1m candles and engine outcomes; write journal-outcomes.jsonl. */
 export function scoreJournalDataDir(dataDir, nowMs = Date.now()) {
   const rows = scoreJournal(readJournal(dataDir), readCandles(dataDir, '1m'), readJsonl(outcomesFile(dataDir)),
@@ -721,6 +795,8 @@ function main() {
   console.log(`[tracker:score] ${alerts.length} sent alert(s) -> ${alertOutcomesFile(opts.data)}`);
   const goodCalls = scoreGoodCallsDataDir(opts.data, nowMs);
   console.log(`[tracker:score] ${goodCalls.length} GOOD call(s) (1-min log) -> ${goodCallOutcomesFile(opts.data)}`);
+  const retestCalls = scoreRetestCallsDataDir(opts.data, nowMs);
+  console.log(`[tracker:score] ${retestCalls.length} RETEST_1H call(s) (1-min log) -> ${retestCallOutcomesFile(opts.data)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

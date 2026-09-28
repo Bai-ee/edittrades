@@ -74,10 +74,12 @@ import { renderSpot, readSpotData } from './scripts/tracker/spot-page.js';
 import { ema as researchEma } from './scripts/research/edge/lib.js';
 import { portfolioSeries as researchPortfolioSeries } from './scripts/research/edge/spot-portfolio.js';
 import {
-  goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines
+  goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines,
+  retestCallsFromAlertLines, retestExitTimesFromAlertLines
 } from './scripts/tracker/collect.js';
-import { scoreGoodCalls, scoreGoodCallsDataDir, goodCallId } from './scripts/tracker/score.js';
-import { goodCallOutcomesFile } from './scripts/tracker/store.js';
+import { scoreGoodCalls, scoreGoodCallsDataDir, goodCallId, scoreRetestCalls, scoreRetestCallsDataDir, retestCallId } from './scripts/tracker/score.js';
+import { goodCallOutcomesFile, retestCallOutcomesFile } from './scripts/tracker/store.js';
+import { retestStats, bootstrapMeanLowerBound90, maxDrawdownR } from './scripts/tracker/aggregate.js';
 
 let passed = 0;
 let failed = 0;
@@ -2813,6 +2815,182 @@ async function run() {
     assert(html.includes('Calls (1-min log)') && html.includes('Of which captured') && html.includes('Median GOOD window (min)'), 'new columns rendered');
     const md = readFileSync(mdFile, 'utf8');
     assert(md.includes('1-minute alert log since 2026-09-25'), 'report.md carries the same note');
+  });
+
+  console.log('\nRETEST_1H calls from the 1-minute alert log (T-18)\n');
+
+  const rLine = (id, sentAt, over = {}) => ({
+    id, sentAt, kind: 'RETEST_1H', event: null, symbol: 'BTC', timeframe: '1h', direction: 'long', candidateId: 'retest1h_BTC_2026-09-27T15:00:00.000Z',
+    signature: null, verdict: null, etaMin: null, breakout: null, invalidation: null, entry: 100, stop: 99, tp1: 103,
+    grossRR: null, netRR: null, roomR: null, closedThrough: sentAt, silent: false, level: null, tracked: false, delivered: true, text: 'RETEST 1H BTC', ...over
+  });
+  const rExitLine = (id, sentAt, candidateId, over = {}) => ({
+    id, sentAt, kind: 'RETEST_1H_EXIT', event: null, symbol: 'BTC', timeframe: '1h', direction: 'long', candidateId,
+    signature: null, verdict: null, etaMin: null, breakout: null, invalidation: null, entry: 100, stop: 99, tp1: 103,
+    grossRR: null, netRR: null, roomR: null, closedThrough: sentAt, silent: false, level: null, tracked: false, delivered: true, text: 'EXIT SIGNAL RETEST 1H BTC', ...over
+  });
+  const slowLine = (id, sentAt, symbol = 'BTC') => ({
+    id, sentAt, kind: 'SLOW_TREND', event: null, symbol, timeframe: null, direction: null, candidateId: null,
+    signature: null, verdict: null, etaMin: null, breakout: null, invalidation: null, entry: null, stop: null, tp1: null,
+    grossRR: null, netRR: null, roomR: null, closedThrough: sentAt, silent: false, level: null, tracked: false, delivered: true, text: `${symbol} SLOW TREND`
+  });
+
+  await test('collect.js: retestCallsFromAlertLines - first RETEST_1H line per symbol+candidateId, levels from trackLevels-fed fields; SLOW_TREND lines never match', () => {
+    const CID = 'retest1h_BTC_2026-09-27T15:00:00.000Z';
+    const alerts = [
+      rLine('r1', at('14:03'), { candidateId: CID }),
+      rLine('r2', at('14:04'), { candidateId: CID, entry: 999 }), // repeat send - ignored, first sighting is the call
+      slowLine('s1', at('14:05')), // logged, never a RETEST_1H call
+      rLine('r3', at('14:10'), { candidateId: 'retest1h_ETH_2026-09-27T15:00:00.000Z', symbol: 'ETH', direction: 'short', entry: 50, stop: 51, tp1: 47, timeframe: '1h' })
+    ];
+    const calls = retestCallsFromAlertLines(alerts);
+    assertEqual(calls.length, 2, 'one per symbol+candidateId, SLOW_TREND excluded, first RETEST_1H line only');
+    const btc = calls.find((c) => c.symbol === 'BTC');
+    assertEqual(btc.calledAt, at('14:03'), 'first RETEST_1H line is the call');
+    assertEqual(btc.entry, 100, 'levels come from the first line, not the repeat');
+    assertEqual(btc.candidateId, CID);
+    const eth = calls.find((c) => c.symbol === 'ETH');
+    assertEqual(eth.direction, 'short');
+    assertEqual(eth.entry, 50);
+    assertEqual(retestCallsFromAlertLines([]).length, 0, 'empty in -> empty out, never throws');
+    assertEqual(retestCallsFromAlertLines(null).length, 0, 'null in -> empty out, never throws');
+  });
+
+  await test('collect.js: retestExitTimesFromAlertLines - a RETEST_1H_EXIT line always carries its own candidateId (no per-symbol open-candidate walk needed, unlike GOOD_ENDED)', () => {
+    const CID = 'retest1h_BTC_2026-09-27T15:00:00.000Z';
+    const alerts = [rLine('r1', at('14:03'), { candidateId: CID }), rExitLine('x1', at('14:06'), CID)];
+    const exited = retestExitTimesFromAlertLines(alerts);
+    assertEqual(exited.size, 1);
+    assertEqual(exited.get(`BTC|${CID}`), at('14:06'));
+    // Earliest exit line wins on a repeat.
+    const withRepeat = retestExitTimesFromAlertLines([...alerts, rExitLine('x2', at('14:07'), CID)]);
+    assertEqual(withRepeat.get(`BTC|${CID}`), at('14:06'), 'earliest exit line wins');
+  });
+
+  await test('score.js: scoreRetestCalls walks a RETEST_1H call prefilled from its own calledAt (tp1/stop), class RETEST_1H, carries exitedAt; no_levels when the alert line had none', () => {
+    const calledAt = at('14:03');
+    const cs = candles(Date.parse(calledAt), 3, (i) => (i < 2 ? { h: 100.2, l: 99.8 } : { h: 103.5, l: 100 })); // TP1 (103) touched on candle 2
+    const call = { symbol: 'BTC', candidateId: 'retest1h_BTC_X', calledAt, direction: 'long', entry: 100, stop: 99, tp1: 103 };
+    const exitedAt = new Map([['BTC|retest1h_BTC_X', at('16:00')]]);
+    const rows = scoreRetestCalls([call], { BTC: cs }, exitedAt, [], Date.parse(calledAt) + 10 * MIN);
+    assertEqual(rows.length, 1);
+    const row = rows[0];
+    assertEqual(row.callId, retestCallId(call), 'callId shape retest1h|symbol|candidateId');
+    assertEqual(row.outcome, 'tp1', 'walked to tp1');
+    assertEqual(row.r, 3, 'gross R = |tp1-entry|/|entry-stop|');
+    assertEqual(row.filledAt, calledAt, 'prefilled at calledAt - the retest signal fires ON the fill candle');
+    assertEqual(row.class, 'RETEST_1H');
+    assertEqual(row.kind, 'retest1h');
+    assertEqual(row.exitedAt, at('16:00'), 'carries the info-only exit alert time, does not change the walked outcome');
+
+    const noLevels = scoreRetestCalls(
+      [{ symbol: 'ETH', candidateId: 'retest1h_ETH_X', calledAt, direction: 'short', entry: null, stop: null, tp1: null }],
+      {}, new Map(), [], Date.parse(calledAt) + 10 * MIN
+    );
+    assertEqual(noLevels[0].outcome, 'no_levels');
+    assertEqual(noLevels[0].exitedAt, null, 'no exit line for this key');
+  });
+
+  await test('score.js: scoreRetestCallsDataDir - no capture fallback (unlike GOOD), idempotent once resolved, written to retest-call-outcomes.jsonl', () => {
+    const dir = tmp();
+    const CID = 'retest1h_BTC_X';
+    const calledAt = at('14:07');
+    appendTelegramAlerts(dir, [rLine('r1', calledAt, { candidateId: CID })]);
+    const cs = candles(Date.parse(calledAt), 2, () => ({ h: 100.2, l: 98.5 })); // stop (99) hit on the fill candle
+    appendCandles(dir, '1m', toStoreCandles('BTC', cs));
+    const first = scoreRetestCallsDataDir(dir, Date.parse(calledAt) + 5 * MIN);
+    assertEqual(first.length, 1);
+    assertEqual(first[0].outcome, 'stop', 'walked to stop');
+    assertEqual(JSON.stringify(first[0].sources), '["alert-1m"]', 'the only source - no capture equivalent for retest-1h');
+    const scoredAt1 = first[0].scoredAt;
+    const second = scoreRetestCallsDataDir(dir, Date.parse(calledAt) + 60 * MIN);
+    assertEqual(second[0].scoredAt, scoredAt1, 'idempotent - final row kept byte-for-byte on rerun');
+    assertEqual(readJsonl(retestCallOutcomesFile(dir)).length, 1, 'written to retest-call-outcomes.jsonl');
+  });
+
+  await test('SLOW_TREND crosses are logged in the same alert-log store but never scored as RETEST_1H trades', () => {
+    const dir = tmp();
+    appendTelegramAlerts(dir, [rLine('r1', at('14:03')), slowLine('s1', at('14:05')), slowLine('s2', at('15:05'), 'ETH')]);
+    const stored = readTelegramAlerts(dir);
+    assertEqual(stored.filter((r) => r.kind === 'SLOW_TREND').length, 2, 'SLOW_TREND lines are stored (logged)');
+    const rows = scoreRetestCallsDataDir(dir, Date.parse(at('14:03')) + MIN);
+    assertEqual(rows.length, 1, 'only the RETEST_1H line becomes a scored call');
+    assert(rows.every((r) => r.class === 'RETEST_1H'), 'SLOW_TREND never enters RETEST_1H class scoring');
+  });
+
+  await test('aggregate.js: bootstrapMeanLowerBound90 - deterministic (same seed -> same bound), the bound sits at or below the sample mean, null under 2 values', () => {
+    const values = [1, -1, 2, -1, 1.5, -1, 3, -1, 0.5, -1];
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const b1 = bootstrapMeanLowerBound90(values);
+    const b2 = bootstrapMeanLowerBound90(values);
+    assertEqual(b1, b2, 'same input + default seed -> byte-identical bound every run');
+    assert(b1 <= mean + 1e-9, `lower bound (${b1}) should sit at or below the sample mean (${mean})`);
+    const differentSeed = bootstrapMeanLowerBound90(values, { seed: 1 });
+    assert(typeof differentSeed === 'number', 'a different seed still returns a finite number');
+    assertEqual(bootstrapMeanLowerBound90([1]), null, 'fewer than 2 values -> null');
+    assertEqual(bootstrapMeanLowerBound90([]), null);
+    assertEqual(bootstrapMeanLowerBound90(null), null, 'never throws on garbage');
+  });
+
+  await test('aggregate.js: maxDrawdownR - largest peak-to-trough drop of the cumulative R curve, in R, taken in the order given', () => {
+    // Cumulative: 2, 1, 0, 3, 2 -> peak 2 (i0), trough 0 (i2) => DD 2; new peak 3 (i3), trough 2 (i4) => DD 1. Max = 2.
+    assertEqual(maxDrawdownR([2, -1, -1, 3, -1]), 2);
+    assertEqual(maxDrawdownR([]), 0, 'empty -> 0');
+    assertEqual(maxDrawdownR([1, 1, 1]), 0, 'monotonically up -> no drawdown');
+    assertEqual(maxDrawdownR([-1, -1, -1]), 3, 'monotonically down from a zero-start peak: drawdown grows with every loss, ends at 3');
+  });
+
+  await test('aggregate.js: retestStats - calls/wins/losses/winRate, gross+net R mean AND median, bootstrap lower bound, max drawdown, towardThirty (resolved count)', () => {
+    const mk = (outcome, r, entry = 100, stop = 99, direction = 'long', calledAt = at('14:00')) => ({ outcome, r, entry, stop, direction, calledAt, resolvedAt: calledAt });
+    const rows = [
+      mk('tp1', 3), mk('stop', null), mk('tp1', 2), mk('stop', null), mk('open', null) // 4 decided (2 wins, 2 losses), 1 still open
+    ];
+    const s = retestStats(rows);
+    assertEqual(s.calls, 5, 'every fired signal, including the still-open one');
+    assertEqual(s.resolved, 4, 'tp1/stop only');
+    assertEqual(s.wins, 2);
+    assertEqual(s.losses, 2);
+    assertEqual(s.winRate, 0.5);
+    assertEqual(s.towardThirty, 4, 'the count the promotion rule\'s mean/median/bootstrap is actually computed over');
+    assertEqual(s.promotionTarget, 30);
+    assert(typeof s.grossRMean === 'number' && typeof s.grossRMedian === 'number', 'gross R mean and median both reported');
+    assert(typeof s.netRMean === 'number' && typeof s.netRMedian === 'number', 'net R mean and median both reported (net < gross - costs charged)');
+    assert(s.netRMean < s.grossRMean, 'net R is charged a cost, so it sits below gross R');
+    assert(typeof s.netRBootstrapLowerBound90 === 'number' && s.netRBootstrapLowerBound90 <= s.netRMean + 1e-9, 'bootstrap LB at/below the net R mean');
+    assert(typeof s.maxDrawdownR === 'number' && s.maxDrawdownR >= 0, 'max drawdown reported, non-negative');
+    assertEqual(s.promoted, false, 'fewer than 30 resolved signals -> not promoted regardless of the numbers');
+    assertEqual(JSON.stringify(retestStats([])), JSON.stringify({
+      calls: 0, resolved: 0, wins: 0, losses: 0, winRate: null, grossRMean: null, grossRMedian: null, netRMean: null, netRMedian: null,
+      netRBootstrapLowerBound90: null, maxDrawdownR: 0, towardThirty: 0, promotionTarget: 30, promoted: false
+    }), 'empty input renders every field, never throws');
+  });
+
+  await test('aggregate.js: computeAggregates wires opts.retestCallOutcomes into agg.retest1h', () => {
+    const rows = [{ outcome: 'tp1', r: 3, entry: 100, stop: 99, direction: 'long', calledAt: iso(T0), resolvedAt: iso(T0) }];
+    const agg = computeAggregates([], [], {}, T0 + MIN, { retestCallOutcomes: rows });
+    assertEqual(agg.retest1h.calls, 1);
+    assertEqual(agg.retest1h.resolved, 1);
+    const empty = computeAggregates([], [], {}, T0 + MIN, {});
+    assertEqual(empty.retest1h.calls, 0, 'omitted opts.retestCallOutcomes -> empty stats, never throws');
+  });
+
+  await test('page + report: RETEST 1H tile (next to Net floor) and report section; empty state from an empty data dir', () => {
+    const empty = tmp();
+    const e = readFileSync(buildPage(path.join(empty, 'data'), path.join(empty, 'docs'), T0).htmlFile, 'utf8');
+    assert(e.includes('id="retest1h-section"') && e.includes('id="retest1h-empty"'), 'empty tile');
+    assert(e.indexOf('id="nf-shadow-section"') < e.indexOf('id="retest1h-section"'), 'placed right after Net floor (Live/NF)');
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    writeJsonl(retestCallOutcomesFile(dataDir), [
+      { callId: 'retest1h|BTC|c1', kind: 'retest1h', symbol: 'BTC', candidateId: 'c1', calledAt: iso(T0), timeframe: '1h', direction: 'long', entry: 100, stop: 99, tp1: 103, class: 'RETEST_1H', outcome: 'tp1', r: 3, resolvedAt: iso(T0 + 5 * MIN) },
+      { callId: 'retest1h|ETH|c2', kind: 'retest1h', symbol: 'ETH', candidateId: 'c2', calledAt: iso(T0 + MIN), timeframe: '1h', direction: 'short', entry: 50, stop: 51, tp1: 47, class: 'RETEST_1H', outcome: 'stop', r: null, resolvedAt: iso(T0 + 2 * MIN) }
+    ]);
+    const { htmlFile, mdFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="retest1h-summary-table"') && html.includes('id="retest1h-status-note"'), 'summary table + status note rendered');
+    assert(html.includes('paper') && html.includes('2 / 30'), 'still-paper status names the count toward the promotion rule');
+    const md = readFileSync(mdFile, 'utf8');
+    assert(md.includes('## RETEST 1H · paper') && md.includes('2 / 30 toward the promotion rule'), md.slice(md.indexOf('## RETEST 1H')));
   });
 
   console.log('\nSpot trend filter (docs/PLAN_SPOT_TREND_2026-09-27.md P1)');

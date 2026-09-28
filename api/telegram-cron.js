@@ -193,13 +193,18 @@ async function evaluateRetest1h({ env, deps, nowMs, log, prevState, openRetestTr
     if (openPlan && openPlan.holdRule) {
       const streak = nextInsideStreak(latest.close, openPlan.holdRule, openPlan.insideStreak);
       const updated = { ...openPlan, insideStreak: streak, lastCheckedCloseIso: closedIso, exitAlerted: { ...openPlan.exitAlerted } };
+      // trackLevels (lib/telegramLog.js alertLogLine): a retest candidateId is never in the
+      // live flag payload, so candidateSnapshot resolves nothing for it - without this, the
+      // tracker's RETEST_1H class scoring would see every retest alert log line with null
+      // entry/stop/tp1. Same convention as a TRACK alert's own trackLevels (lib/telegram.js).
+      const exitTrackLevels = { timeframe: openPlan.timeframe, direction: openPlan.direction, entry: openPlan.entry, stop: openPlan.stop, tp1: openPlan.tp1 };
       if (streak >= openPlan.holdRule.n && !openPlan.exitAlerted.structure) {
-        alerts.push({ kind: RETEST1H_EXIT_KIND, symbol, candidateId: openPlan.candidateId, text: formatRetest1hExitAlert({ symbol, direction: openPlan.direction, reason: `${openPlan.holdRule.n} closed 1h candles back inside the pre-breakout flag range` }) });
+        alerts.push({ kind: RETEST1H_EXIT_KIND, symbol, candidateId: openPlan.candidateId, text: formatRetest1hExitAlert({ symbol, direction: openPlan.direction, reason: `${openPlan.holdRule.n} closed 1h candles back inside the pre-breakout flag range` }), trackLevels: exitTrackLevels });
         updated.exitAlerted.structure = true;
       }
       const ageMs = nowMs - Date.parse(openPlan.createdAt);
       if (Number.isFinite(ageMs) && ageMs >= RETEST1H_HOLD_MAX_HOURS * 3600000 && !openPlan.exitAlerted.cap) {
-        alerts.push({ kind: RETEST1H_EXIT_KIND, symbol, candidateId: openPlan.candidateId, text: formatRetest1hExitAlert({ symbol, direction: openPlan.direction, reason: '7-day hard hold cap reached' }) });
+        alerts.push({ kind: RETEST1H_EXIT_KIND, symbol, candidateId: openPlan.candidateId, text: formatRetest1hExitAlert({ symbol, direction: openPlan.direction, reason: '7-day hard hold cap reached' }), trackLevels: exitTrackLevels });
         updated.exitAlerted.cap = true;
       }
       next.plans[ref] = updated;
@@ -219,7 +224,14 @@ async function evaluateRetest1h({ env, deps, nowMs, log, prevState, openRetestTr
         // trade buttons every other alert kind carries), never an Open button. resolveRef /
         // findButtonSnapshot (lib/telegram.js) resolve this ref through state.retest1h.plans,
         // so Plan, Thesis, Track and Took it all work without a separate button-memory entry.
-        alerts.push({ kind: RETEST1H_KIND, symbol, candidateId, text: formatRetest1hAlert({ symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1 }), replyMarkup: tradeKeyboard(symbol, '1h', candidateId) });
+        alerts.push({
+          kind: RETEST1H_KIND, symbol, candidateId, text: formatRetest1hAlert({ symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1 }),
+          replyMarkup: tradeKeyboard(symbol, '1h', candidateId),
+          // trackLevels: see the exit-alert comment above - the tracker's RETEST_1H class
+          // scoring (scripts/tracker/collect.js retestCallsFromAlertLines) reads these back
+          // off the stored alert log line.
+          trackLevels: { timeframe: '1h', direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1 }
+        });
         next.plans[newRef] = {
           ref: newRef, candidateId, symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1, timeframe: '1h',
           signalCloseIso: closedIso, createdAt: new Date(nowMs).toISOString(),
