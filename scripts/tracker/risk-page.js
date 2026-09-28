@@ -21,7 +21,7 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g
 // ---------- layer 1: the venue (Jupiter perps) ----------
 // config/engine.json risk block: maxLeverage 100, feeBps 5, slippageBps 5,
 // costBpsByDirection {long:34, short:14}, liquidationBufferPct 0.05, maintenanceMarginPct 0.3.
-const VENUE_FACTS = [
+export const VENUE_FACTS = [
   ['Max leverage the venue allows', '100x', 'config/engine.json risk.maxLeverage'],
   ['Round-trip cost, long', '0.34%', 'config/engine.json risk.costBpsByDirection.long (34 bps)'],
   ['Round-trip cost, short', '0.14%', 'config/engine.json risk.costBpsByDirection.short (14 bps)'],
@@ -37,7 +37,7 @@ const VENUE_FACTS = [
 // policy (T-8, G1) were live to size against real wallet equity instead. Env var names +
 // the drift cap default: lib/execution/gates.js CAP_ENV, entry-drift default from
 // docs/PLAN_TELEGRAM_EXECUTION.md review fix #2 ("default 15" bps).
-const ENV_CAPS = [
+export const ENV_CAPS = [
   ['EXECUTION_MAX_SIZE_USD', '$150', 'largest position (notional) any single order can open'],
   ['EXECUTION_MAX_LEVERAGE', '100x', 'matches the venue\'s own max — the liquidation-safety math (lib/riskEngine.js) and the wallet-aware risk policy below are the real limits on most trades now'],
   ['EXECUTION_MAX_LOSS_USD_PER_TRADE', '$5', 'refuses an order whose loss at the stop would exceed this'],
@@ -48,7 +48,7 @@ const ENV_CAPS = [
 
 // ---------- layer 3: the wallet-aware risk policy ----------
 // lib/execution/riskPolicy.js RISK_DEFAULTS + RISK_PCT_PER_TRADE_MAX.
-const WALLET_POLICY = [
+export const WALLET_POLICY = [
   ['RISK_PCT_PER_TRADE', '0.5%', '% of your wallet equity risked at the stop, per trade'],
   ['RISK_MAX_EXPOSURE_PCT', '25%', 'all open positions\' notional, combined, as a % of equity'],
   ['RISK_MAX_PER_SYMBOL_PCT', '15%', 'one symbol\'s notional as a % of equity'],
@@ -121,7 +121,7 @@ const STEPS = [
 ];
 
 // ---------- growing size safely ----------
-const GROWING_SIZE = [
+export const GROWING_SIZE = [
   'There is no automatic step-up. The env caps ($150 / 100x / $5 / $25 / 1 today) only change when someone edits them in Vercel — that\'s a deliberate choke point, not a bug.',
   'docs/PLAN_TELEGRAM_EXECUTION.md\'s own go-live plan (phase E) was the precedent that got here: go live with tiny caps only after ≥ 3 clean dry-run orders (done 2026-09-26), then raise by owner decision only, never automatically — which is how the caps above replaced the original $20 / 2x / $2 live-test ceiling.',
   'Keep loss-per-trade in the 0.5–1% of equity range even once caps are raised — RISK_PCT_PER_TRADE defaults to 0.5% and can be tightened with /risk pct, never loosened past 2% (RISK_PCT_PER_TRADE_MAX).',
@@ -156,7 +156,7 @@ export function renderRisk() {
     + jumpNav('risk-jump-nav', [
       ['#risk-intro-section', 'Overview'], ['#risk-layers-section', 'Layers'], ['#risk-example-section', 'Sizing example'], ['#risk-net-r-section', 'Net R'],
       ['#risk-steps-section', 'Step by step'], ['#risk-growing-section', 'Growing size'], ['#risk-tracker-section', 'Tracker numbers'],
-      ['how-to.html', '← How to use', 'class="nav-link" id="risk-nav-howto-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="risk-nav-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="risk-nav-spot-trend-link"'], ['index.html', 'Call tracker →', 'class="nav-link" id="risk-nav-tracker-link"']
+      ['how-to.html', '← How to use', 'class="nav-link" id="risk-nav-howto-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="risk-nav-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="risk-nav-spot-trend-link"'], ['index.html', 'Call tracker →', 'class="nav-link" id="risk-nav-tracker-link"'], ['product.html', 'What EditTrades is →', 'class="nav-link" id="risk-nav-product-link"']
     ]);
 
   const intro = zone({

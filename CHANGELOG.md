@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-27 — T-19: product page (product.html) — what EditTrades is, every strategy, capabilities, limits, goals, stack, revenue plan
+
+Site-only (no engine, no deploy). `docs/PROMPT_T19_PRODUCT_CONTENT.md`; drafted by a Sonnet writer agent, finished and released by the orchestrator thread.
+
+- New `scripts/tracker/product-page.js` → `product.html`: eight sections (What it is · Strategies · Capabilities · Limitations · Goals · Tracking how-tos · Tech stack · Product and revenue plan). Static copy, no scripts, same bento system as `how-to.html`. Every performance number carries its sample size and a GitHub blob link to the study or decision it comes from. Strategy cards: Flag engine 21/200 (LIVE), HTF-anchored entries (IN BUILD, T-20), RETEST 1H (paper), Spot EMA20 (paper), Aggressive profile (virtual), legacy SWING/TREND_4H, research-backlog candidates. Limitations state plainly: no proven perps edge, frequency ~0.35 GOOD calls/day vs the owner's 5–10/day goal, fees vs stop distance, small samples, single owner/wallet, trail not yet drawn on the tracking chart, GPT instructions at 1.27 vs schema 1.28.
+- Content arrays in `how-to-page.js` (`TG_COMMANDS`, `TG_EXEC`, `CLASSES`, `STUDIES`, …) and `risk-page.js` (`VENUE_FACTS`, `ENV_CAPS`, `WALLET_POLICY`) are now exported and reused, so command lists and caps have one source of truth.
+- Nav: every page (`index`, `how-to`, `risk`, `strategies`, `spot`, `changelog`) links to `product.html`; home hero gets a "What EditTrades is" action; `how-to.html` gets a "New here? Learn more" pointer. `build-page.js` writes and returns `productFile`.
+- `docs/ARCHITECTURE_MAP.json`: `product-page` entry (111 files covered).
+- Tests: `test-tracker.js` 155 (+2: section/citation/no-secret render check, nav parity across all pages); `test:archmap` 10 green; `git diff --check` clean.
+
 ## 2026-09-27 — T-18: retest-1h ships paper (info-only), flag alerts stay tradable, slow-trend spot alert, RETEST_1H tracker class
 
 Worktree `live-retest1h` built the live retest-1h alert, then `d284a5b` disabled the flag engine's own `Open` button and gave retest-1h one instead — neither call was supported by evidence at the time. `docs/PROMPT_T18_LIVE_RELEASE_MODIFIED.md` (owner decision 2026-09-27, `docs/OWNER_DECISIONS_2026-09-27.md` "T-18") ships the branch MODIFIED: flag alerts keep `Open`, retest-1h ships info-only/paper instead. Evidence: `docs/RETEST_ENTRY_STUDY_2026-09-27.md` (retest-1h: net mean +0.27R from a fat tail, net median −0.84R on 101 trades over ~2 years, fails out-of-sample on both halves, matches the seeded random-direction control — not a repeatable edge) and `docs/VARIANTS_STUDY_2026-09-26.md` (NF-live + the +1R trailing stop is the flag engine's own live, evidence-backed rule and is unaffected by this change).

@@ -81,7 +81,8 @@ export function homeHero(agg) {
     + `<h1 class="home-hero-title" id="home-hero-title">${titleSpans(HOME_HERO_TITLES[0])}</h1>${titleData()}`
     + `<div class="home-hero-copy" id="home-hero-copy"><p class="home-hero-lede" id="home-hero-lede">${esc(HOME_HERO_LEDE)}</p>`
     + `<div class="home-hero-actions" id="home-hero-actions"><a class="home-hero-action is-primary" id="home-hero-calls-link" href="#zone-calls">See every call</a>`
-    + `<a class="home-hero-action" id="home-hero-howto-link" href="how-to.html">How to use it</a></div></div></div>`;
+    + `<a class="home-hero-action" id="home-hero-howto-link" href="how-to.html">How to use it</a>`
+    + `<a class="home-hero-action" id="home-hero-product-link" href="product.html">What EditTrades is</a></div></div></div>`;
 
   const card = `<article class="home-hero-card" id="home-hero-result-card" data-section="home-hero-result-card">`
     + `<header class="home-hero-card-head" id="home-hero-card-head"><span class="label">Net R · per scored GOOD call</span><span class="home-hero-tag" id="home-hero-net-tag">Net of fees</span></header>`

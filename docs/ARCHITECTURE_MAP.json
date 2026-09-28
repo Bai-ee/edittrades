@@ -1407,6 +1407,20 @@
           "schemaSince": "1.28.0"
         },
         {
+          "path": "scripts/tracker/product-page.js",
+          "name": "product-page",
+          "role": "Builds the static product-overview page (product.html): what EditTrades is, every strategy's measured record, capabilities, honest limitations, goals, tracking how-tos, the tech stack and the revenue plan.",
+          "publishes": [
+            "product.html"
+          ],
+          "consumes": [],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": "1.28.0"
+        },
+        {
           "path": "scripts/tracker/bento.js",
           "name": "bento",
           "role": "The shared tile and section building blocks of every tracker page.",

@@ -134,7 +134,7 @@ export function renderStrategies(data = null, liveProfileKey = null) {
     + `<a class="nav-link" id="strategies-back-link" href="index.html">← Call tracker</a></header>`
     + jumpNav('strategies-jump-nav', [
       ['#strategies-profiles-section', 'Profiles'], ['#strategies-live-section', 'Live'], ['#strategies-curves-section', 'Curves'], ['#strategies-evaluation-section', 'Evaluation'],
-      ['index.html', '← Tracker', 'class="nav-link" id="strategies-nav-back-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="strategies-nav-risk-link"'], ['how-to.html#howto-telegram-section', 'How to use →', 'class="nav-link" id="strategies-nav-how-to-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="strategies-nav-spot-trend-link"']
+      ['index.html', '← Tracker', 'class="nav-link" id="strategies-nav-back-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="strategies-nav-risk-link"'], ['how-to.html#howto-telegram-section', 'How to use →', 'class="nav-link" id="strategies-nav-how-to-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="strategies-nav-spot-trend-link"'], ['product.html', 'What EditTrades is →', 'class="nav-link" id="strategies-nav-product-link"']
     ]);
 
   const profiles = zone({

@@ -80,6 +80,7 @@ import {
 import { scoreGoodCalls, scoreGoodCallsDataDir, goodCallId, scoreRetestCalls, scoreRetestCallsDataDir, retestCallId } from './scripts/tracker/score.js';
 import { goodCallOutcomesFile, retestCallOutcomesFile } from './scripts/tracker/store.js';
 import { retestStats, bootstrapMeanLowerBound90, maxDrawdownR } from './scripts/tracker/aggregate.js';
+import { renderProduct } from './scripts/tracker/product-page.js';
 
 let passed = 0;
 let failed = 0;
@@ -3117,6 +3118,48 @@ async function run() {
     assert(html.includes('id="spot-trend-equity-svg"') && html.includes('id="spot-trend-equity-filter"'), 'equity chart and numbers once the ledger has days');
     assert(/id="spot-trend-state-btc-state">(IN · HOLD|OUT · USDC)</.test(html), 'BTC state rendered');
     assert(html.includes('id="spot-trend-flip-row-0"'), 'flip rows rendered');
+  });
+
+  await test('product page: renders every required section, no secrets, no scripts, both themes', () => {
+    const html = renderProduct();
+    assert(html.includes('<!doctype html>') && html.includes('id="product-page-title"'), 'page shell');
+    for (const id of [
+      'product-what-section', 'product-strategies-section', 'product-capabilities-section', 'product-limitations-section',
+      'product-goals-section', 'product-howto-section', 'product-stack-section', 'product-revenue-section'
+    ]) {
+      assert(html.includes(`id="${id}"`), `missing #${id}`);
+      assert(html.includes(`href="#${id}"`), `jump nav missing a link to #${id}`);
+    }
+    // Every performance number on this page must trace to a source: spot-check a few load-bearing
+    // figures and their GitHub blob citations (Bai-ee/snapshot_tradingview @ upgrade-signal-engine).
+    for (const fact of ['+0.47R gross', '−2.37R net', '523.14', '61.11%', '2,994', '1,041', '1,008', '945', '0.34%', '0.14%']) {
+      assert(html.includes(fact), `product page states: ${fact}`);
+    }
+    assert(html.includes('github.com/Bai-ee/snapshot_tradingview/blob/upgrade-signal-engine/'), 'cites GitHub blob sources');
+    assert(!/<script/i.test(html), 'no scripts');
+    assert(!/SCALP_CONTEXT_API_KEY|Bearer |SOLANA_PRIVATE_KEY|EXECUTION_PIN=|RPC_URL/i.test(html), 'no secrets or key material');
+    assert(html.includes('prefers-color-scheme: dark') && html.includes('prefers-color-scheme: light'), 'both schemes');
+  });
+
+  await test('product page: nav parity — every other page links to product.html, product.html links back', () => {
+    const dir = tmp();
+    const out = path.join(dir, 'site');
+    const { htmlFile, howToFile, riskFile, strategiesFile, spotFile, productFile } = buildPage(path.join(dir, 'data'), out, T0);
+    assertEqual(productFile, path.join(out, 'product.html'), 'buildPage reports the product file path');
+    const index = readFileSync(htmlFile, 'utf8');
+    const howTo = readFileSync(howToFile, 'utf8');
+    const risk = readFileSync(riskFile, 'utf8');
+    const strategies = readFileSync(strategiesFile, 'utf8');
+    const spot = readFileSync(spotFile, 'utf8');
+    const product = readFileSync(productFile, 'utf8');
+    assert(/<a[^>]*href="product\.html"[^>]*id="tracker-product-link"/.test(index), 'index links to product');
+    assert(/<a[^>]*id="home-hero-product-link"[^>]*href="product\.html"/.test(index), 'home hero links to product');
+    assert(/<a[^>]*href="product\.html"[^>]*id="howto-nav-product-link"/.test(howTo), 'how-to nav links to product');
+    assert(howTo.includes('id="howto-product-pointer"') && howTo.includes('href="product.html"'), 'how-to has a top-of-page Learn more pointer to product.html');
+    assert(/<a[^>]*href="product\.html"[^>]*id="risk-nav-product-link"/.test(risk), 'risk links to product');
+    assert(/<a[^>]*href="product\.html"[^>]*id="strategies-nav-product-link"/.test(strategies), 'strategies links to product');
+    assert(/<a[^>]*href="product\.html"[^>]*id="spot-trend-nav-product-link"/.test(spot), 'spot links to product');
+    assert(product.includes('href="index.html"') && product.includes('href="how-to.html"') && product.includes('href="risk.html"') && product.includes('href="strategies.html"') && product.includes('href="spot.html"'), 'product links back to every other page');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

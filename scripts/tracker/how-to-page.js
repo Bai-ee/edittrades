@@ -15,7 +15,7 @@ import { esc, tile, zone, jumpNav } from './bento.js';
 
 // ---------- daily routine (phone-first) ----------
 
-const ROUTINE = [
+export const ROUTINE = [
   ['Alert arrives', 'Telegram pings on a GOOD, a SETUP or a BREAKOUT, with entry, stop, TP1 and gross / net R. During quiet hours (01-05 Chicago) it arrives silently; nothing is dropped.'],
   ['Tap Plan', 'Entry, stop, TP1 / TP2, gross and net R, suggested leverage, size and loss at stop, mark vs Kraken, and the readiness call. Anything that is not a trade says so: NOT A TRADE UNDER YOUR RULES, with the reason.'],
   ['Tap Thesis', 'Supports, against, unknowns and what changes the call, in plain words, plus the one thing that would make it GO IN.'],
@@ -30,7 +30,7 @@ const ROUTINE = [
 const TG_MENU = [['Signals', 'Flags', 'Market'], ['Why BTC', 'Why ETH', 'Why SOL'], ['Charts', 'Wallet', 'Positions', 'Exec'], ['Journal', 'Status', 'Alerts', 'Tracking']];
 
 // [command, what it does]
-const TG_COMMANDS = [
+export const TG_COMMANDS = [
   ['/signals', 'BTC / ETH / SOL call now: GO IN / HOLD / DON\'T plus SETUP lines, with buttons per symbol.'],
   ['/why SYM', 'Supports, against, unknowns and what changes, for one symbol.'],
   ['/flags [SYM]', 'Every flag candidate and its state, then chart albums of every live flag (up to 9 images).'],
@@ -47,13 +47,13 @@ const TG_COMMANDS = [
 ];
 
 // [level, what you get]
-const TG_LEVELS = [
+export const TG_LEVELS = [
   ['good', 'Only', 'New GOOD and GOOD ended.'],
   ['setup', 'Default', 'Adds new SETUPs (the best conditional plan awaiting its retest or breakout).'],
   ['watch', 'Loudest', 'Adds a one-line alert for each new forming or triggering flag (15-min cooldown per symbol).']
 ];
 
-const TG_ALWAYS = [
+export const TG_ALWAYS = [
   'BREAKOUT alerts send at every level, once per flag, the first time it confirms.',
   'WATCH, TRIGGERING and BREAKOUT follow /alerts tf (default 3m and 5m). Tracking a flag turns on 1m alerts for that symbol and direction only, labeled "1m ENTRY · for your tracked …"; GOOD, SETUP, tracked and health alerts are never filtered.',
   'A tracked flag alerts on every change at any level: forming → triggering → confirmed, SETUP, GET IN NOW (with the Plan card), void, and TP1 or stop once the plan is ready or you took it.',
@@ -63,7 +63,7 @@ const TG_ALWAYS = [
 ];
 
 // [step or command, chip, what it does] - execution (T-3), off unless TRADE_EXECUTION_ENABLED=true
-const TG_EXEC = [
+export const TG_EXEC = [
   ['Mode: LIVE', 'Since 2026-09-26', 'Execution mode is set in Vercel (env only; /mode shows it) and has been LIVE since 2026-09-26 — a confirmed order signs and sends for real, sized on the active wallet strategy profile (see strategies.html). A dry run (mode = dry) does everything except sign and send: same checks, same ticket, same PIN, journaled as a note.'],
   ['Open @ plan', 'Ready plans only', 'On a GOOD alert or Plan card when the call is GET IN NOW. Builds the order from the engine plan: entry, stop, TP1; size and leverage = the engine suggestion, capped by your caps.'],
   ['Open (early)', 'SETUP / BREAKOUT with levels', 'Available once a SETUP or BREAKOUT already has entry, stop and TP1 but isn\'t ready yet — same checks and ticket as Open @ plan; you\'re choosing to go in ahead of the trigger, not waiting for it.'],
@@ -96,7 +96,7 @@ const CLARITY_CONTEXT = [
   ['Other side:', '', 'What the mirror-direction case looks like, when there is one.']
 ];
 
-const TG_BUTTONS = [
+export const TG_BUTTONS = [
   ['Plan', 'Levels + size', 'Entry, stop, TP1 / TP2, R gross and net, max and suggested leverage, collateral, size, loss at stop, mark vs Kraken, expected length (n/a unless measured) and the call. Engine fields only.'],
   ['Thesis', 'Why, plainly', 'Supports / against / unknown / what changes the call, the counter-trend note, and what would make it GO IN.'],
   ['Chart', 'See it', 'The confirmation chart at the flag\'s timeframe.'],
@@ -109,7 +109,7 @@ const TG_BUTTONS = [
 // ---------- ChatGPT ----------
 
 // [command, what you get, chip, phone span, desktop span]
-const GPT_COMMANDS = [
+export const GPT_COMMANDS = [
   ['signals', 'BTC, ETH and SOL, longs and shorts. The strongest actionable asset gets the full call: thesis, GO IN / HOLD / DON\'T, entry, stop, targets, size. Others get one NO TRADE line with the trigger to watch, plus a SETUP line when one exists. "trades" gives the same answer.', 'Start here', 2, 6],
   ['flags', 'Every flag candidate per asset on 1m / 3m / 5m, both directions, every state including failed and expired, with the qualifier\'s decision and reasons.', 'Full list', 2, 6],
   ['forming', 'Flags still building, both directions: Confirmation price, Thesis Eliminated price, when to check back. No entries or sizing.', 'Watchlist', 2, 4],
@@ -122,7 +122,7 @@ const GPT_COMMANDS = [
   ['track', 'With a screenshot or a described setup you are not in. Five lines: TRACK YES/NO, entry condition, window, thesis null, expected trade time.', 'Screenshot', 2, 12]
 ];
 
-const GPT_WILL = [
+export const GPT_WILL = [
   'Pull a fresh snapshot (getScalpContext) before every analysis and quote the engine\'s numbers exactly.',
   'Treat the engine plan as the trade authority: ready = eligible for GO IN, conditional = wait, rejected = DON\'T with the reason code.',
   'Size against your wallet and show wallet risk, $ loss at the stop and leverage under the max.',
@@ -130,7 +130,7 @@ const GPT_WILL = [
   'Say "thin after fees" when a plan carries the net_rr_low warning (net R under 1R).'
 ];
 
-const GPT_WONT = [
+export const GPT_WONT = [
   'Invent a level. Entry, stop, TP1 and R:R come from the engine; the plan math is not the GPT\'s to redo.',
   'Call GO IN under 65%, widen a scalp stop past 3%, or lower any threshold on request. NO TRADE is a valid answer.',
   'Reuse prices from earlier in the chat, or claim a trade was executed. Nothing here executes.',
@@ -138,7 +138,7 @@ const GPT_WONT = [
 ];
 
 // Reading the classes.
-const CLASSES = [
+export const CLASSES = [
   ['GOOD', 'Act-eligible', 'A ready plan (breakout close, then a retest close that held) and no hard block. The only class that can carry GO IN.'],
   ['SETUP', 'Wait', 'The best conditional plan at ≥ 2.5R gross, awaiting its retest or breakout. Includes confirmed flags rejected only for chasing: the trigger is a retest that holds. Never GO IN until it becomes GOOD.'],
   ['WATCH', 'Not yet', 'The best candidate so far, with the concrete change that would upgrade it (e.g. a close above a price, a measured move that clears 2.5R).'],
@@ -146,7 +146,7 @@ const CLASSES = [
   ['DATA_UNAVAILABLE', 'Don\'t trust', 'The snapshot is missing or stale. Ask again; never act on it.']
 ];
 
-const DATA_BLOCK = [
+export const DATA_BLOCK = [
   ['Generated At', 'Snapshot time', 'Should be minutes old. If not, ask again.'],
   ['Closed Through', 'Last closed candle', 'The engine reads closed candles only, so it can trail the live price by one candle.'],
   ['Wallet Updated At', 'Account read', 'Unavailable is not a zero balance.'],
@@ -157,7 +157,7 @@ const DATA_BLOCK = [
 // ---------- rules in force ----------
 
 // [rule, value, since, source]
-const RULES = [
+export const RULES = [
   ['Gross R:R floor', '≥ 2.5R to TP1, gross (price only)', '2026-09-24', 'D-variant revised (09-24); gross, not net: decision 1 (09-23)'],
   ['Net R gate', 'Off. Net R is shown on every plan; net_rr_low warning when net < 1R', '2026-09-24', 'D-variant revised (09-24)'],
   ['Net floor stop', 'Live. Stop floored at max(0.5x ATR15m, 3x round-trip cost) before every gate; ready needs net ≥ 1.0R too. Card shows "stop: X% (floored from Y%) · net ZR" when it widened the stop.', '2026-09-27', 'T-15, owner lifted the freeze for this change (docs/OWNER_DECISIONS_2026-09-27.md)'],
@@ -174,7 +174,7 @@ const RULES = [
 
 // ---------- tracker tiles ----------
 
-const TRACKER_TILES = [
+export const TRACKER_TILES = [
   ['Status', 'Is it running?', 'LIVE / DELAYED / STALLED from the last capture. Captures every 10 min; the page rebuilds every 30. The Alerts fact shows the last Telegram alert and the alerts cron\'s heartbeat.'],
   ['Testing timeline', 'How far along?', 'Day of 14 and plans scored toward 30. Thresholds stay frozen; the config-boundary line splits stats before and after the 2026-09-24 rule change.'],
   ['Expectancy', 'Is it paying?', 'Gross R per scored call over 7 days, with net R under it. Scored = a ready plan that reached TP1 or its stop on later candles.'],
@@ -191,7 +191,7 @@ const TRACKER_TILES = [
 
 // ---------- journal ----------
 
-const JOURNAL = [
+export const JOURNAL = [
   ['From Telegram', 'Took it / Skipped buttons, or /log text. Records carry source "telegram".'],
   ['From ChatGPT', 'log text through the postJournal Action; journal reads back through getJournal.'],
   ['Kinds', 'open, close, adjust, skip, note. Unknown wording is a note; your text is always kept verbatim.'],
@@ -201,7 +201,7 @@ const JOURNAL = [
 
 // ---------- honest limits ----------
 
-const LIMITS = [
+export const LIMITS = [
   'GOOD calls never auto-execute. You tap Open (or Open early) and confirm with your PIN every time — nothing trades on its own.',
   'Execution stays capped while live-testing: $150 size, 100x leverage, $5 loss/trade, $25/day, 1 open position — raised only by owner decision, never automatically. Full breakdown: Risk & sizing →.',
   'The engine\'s own analysis still can\'t see your open positions — give it entry, size, leverage and liquidation when you ask about one. Telegram\'s /positions is separate: a live on-chain read from the execution stack, isolated from what the GPT and MCP see.',
@@ -218,10 +218,10 @@ const AFTER_WINDOW = [
 
 // ---------- research so far ----------
 
-const STUDIES_REPO = 'https://github.com/Bai-ee/snapshot_tradingview/blob/upgrade-signal-engine/docs/';
+export const STUDIES_REPO = 'https://github.com/Bai-ee/snapshot_tradingview/blob/upgrade-signal-engine/docs/';
 
 // [doc filename, one-sentence conclusion]
-const STUDIES = [
+export const STUDIES = [
   ['FREQUENCY_STUDY_2026-09-26.md', 'All relaxed-rule variants tested to reach ~10 GOOD/day are net-negative; retest-hold off is the only route to 10/day, and the worst performer.'],
   ['GAP_CHECK_2026-09-26.md', 'The tracker\'s ~1.3 GOOD/day vs replay\'s ~5/day gap is 10-minute capture cadence missing narrow 2-5 minute GOOD windows, not a scoring bug — led to 1-minute alert-log scoring (T-12).'],
   ['COST_GATE_STUDY_2026-09-26.md', 'Only one cell (min stop ≥ 0.8%, longs only, n=45) passes a strict out-of-sample split on the 85-day fixture.'],
@@ -250,8 +250,9 @@ export function renderHowTo() {
       ['#howto-what-section', 'What'], ['#howto-routine-section', 'Routine'], ['#howto-telegram-section', 'Telegram'],
       ['#howto-chatgpt-section', 'ChatGPT'], ['#howto-rules-section', 'Rules'], ['#howto-studies-section', 'Research'], ['#howto-tracker-section', 'Tracker'],
       ['#howto-journal-section', 'Journal'], ['#howto-limits-section', 'Limits'],
-      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="howto-nav-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="howto-nav-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="howto-nav-spot-trend-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"']
-    ]);
+      ['index.html', '← Tracker', 'class="nav-link" id="howto-nav-back-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="howto-nav-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="howto-nav-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="howto-nav-spot-trend-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="howto-nav-system-map-link"'], ['product.html', 'What EditTrades is →', 'class="nav-link" id="howto-nav-product-link"']
+    ])
+    + `<p class="note" id="howto-product-pointer">New here? <a class="nav-link" href="product.html">Learn more about what EditTrades is →</a></p>`;
 
   const what = zone({
     id: 'howto-what-section', title: 'What this is',
