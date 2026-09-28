@@ -1077,6 +1077,24 @@
           "schemaSince": "1.18.0"
         },
         {
+          "path": "scripts/tracker/epochs.js",
+          "name": "epochs",
+          "role": "Derives each strategy's own start-counting-from date for the scoreboard, falling back to a documented constant when no data derives one.",
+          "publishes": [
+            "deriveEpochs"
+          ],
+          "consumes": [
+            "data/calls",
+            "data/telegram-alerts",
+            "data/spot-trend/meta.json"
+          ],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-28",
+          "schemaSince": null
+        },
+        {
           "path": "scripts/tracker/costs.js",
           "name": "costs",
           "role": "Applies fees and slippage (long 0.34%, short 0.14%) to turn gross R into net R.",

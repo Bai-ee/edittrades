@@ -74,6 +74,13 @@ footer.edge-strip{border-top:1px solid var(--border);margin-top:var(--zone-gap);
 .sub[open] summary::after{content:"\\2212"}
 .sub[open]>:not(summary){margin-bottom:var(--sp-4)}
 
+/* T-21 archive: collapsed by default, same zone/bento chrome as the rest of the page */
+#archive-section{border-top:1px solid var(--border);padding-top:var(--sp-4)}
+#archive-section>summary{display:flex;align-items:center;gap:var(--sp-3);min-height:44px;cursor:pointer;list-style:none;margin-bottom:var(--sp-4)}
+#archive-section>summary::-webkit-details-marker{display:none}
+#archive-section>summary::after{content:"+";font-family:var(--mono);color:var(--text-secondary)}
+#archive-section[open]>summary::after{content:"\\2212"}
+
 /* system status */
 .status-hero{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2) var(--sp-3)}
 .status-dot{position:relative;width:12px;height:12px;border-radius:50%;background:currentColor;flex:0 0 auto}

@@ -177,6 +177,7 @@ export const RULES = [
 
 export const TRACKER_TILES = [
   ['Status', 'Is it running?', 'LIVE / DELAYED / STALLED from the last capture. Captures every 10 min; the page rebuilds every 30. The Alerts fact shows the last Telegram alert and the alerts cron\'s heartbeat.'],
+  ['Strategy scoreboard', 'Which strategy is doing what?', 'One card per strategy (flag, HTF, RETEST 1H, spot, live wallet), each counted from the date IT went live, not from when the tracker started capturing. Everything from before that date is kept, not deleted - it moves into the collapsed "Archive" section at the bottom of the page.'],
   ['Testing timeline', 'How far along?', 'Day of 14 and plans scored toward 30. Thresholds stay frozen; the config-boundary line splits stats before and after the 2026-09-24 rule change.'],
   ['Expectancy', 'Is it paying?', 'Gross R per scored call over 7 days, with net R under it. Scored = a ready plan that reached TP1 or its stop on later candles.'],
   ['Class check', 'Did the filter work?', 'WATCH and BAD scored as if taken. If they beat GOOD, the filter is not earning its keep. Counterfactual only. GOOD calls come from the engine\'s 1-minute Telegram alert log, not just the 10-minute captures - a GOOD window can last under a minute.'],

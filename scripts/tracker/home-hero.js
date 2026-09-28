@@ -61,15 +61,31 @@ function stat(id, label, value) {
   return `<div class="home-hero-stat" id="${id}"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`;
 }
 
-/** @param {Object} agg - computeAggregates() output */
+/**
+ * T-21 (docs/PROMPT_T21_STRATEGY_SCOREBOARD.md): once aggregate.js has a flag epoch
+ * (`agg.scoreboard.flag`, only set when build-page.js calls aggregateDataDir - direct
+ * computeAggregates() callers with no `opts.epochs` never get one), the hero switches from
+ * the all-time blended totals to the flag strategy's own since-epoch numbers and the
+ * "Tracking since" stat becomes the epoch label. No `agg.scoreboard` -> the pre-T-21
+ * all-time figure, unchanged.
+ * @param {Object} agg - computeAggregates() output
+ */
 export function homeHero(agg) {
+  const flagCard = agg.scoreboard && agg.scoreboard.flag ? agg.scoreboard.flag : null;
   const tr = agg.totals.tradable;
-  const scored = tr.wins + tr.losses;
-  const net = scored > 0 && isNum(tr.netExpectancy) ? tr.netExpectancy : null;
-  const gross = scored > 0 && isNum(tr.expectancy) ? tr.expectancy : null;
-  const goodCalls = agg.byDay.reduce((n, d) => n + d.good, 0);
+  const legacyScored = tr.wins + tr.losses;
+  const scored = flagCard ? flagCard.resolved : legacyScored;
+  const net = flagCard
+    ? (flagCard.resolved > 0 && isNum(flagCard.netRMean) ? flagCard.netRMean : null)
+    : (legacyScored > 0 && isNum(tr.netExpectancy) ? tr.netExpectancy : null);
+  const gross = flagCard
+    ? (flagCard.resolved > 0 && isNum(flagCard.grossRMean) ? flagCard.grossRMean : null)
+    : (legacyScored > 0 && isNum(tr.expectancy) ? tr.expectancy : null);
+  const winRate = flagCard ? flagCard.winRate : tr.winRate;
+  const goodCalls = flagCard ? flagCard.calls : agg.byDay.reduce((n, d) => n + d.good, 0);
   const candles = Object.values(agg.captures.candles1m).reduce((n, v) => n + v, 0);
-  const since = agg.byDay.length ? agg.byDay[agg.byDay.length - 1].day : null;
+  const sinceLabel = flagCard ? 'Since' : 'Tracking since';
+  const sinceValue = flagCard ? `${String(flagCard.epochIso).slice(0, 10)} (net floor)` : (agg.byDay.length ? agg.byDay[agg.byDay.length - 1].day : null);
 
   const figure = net === null
     ? `<div class="home-hero-figure hero-empty" id="home-hero-net-r">0.00<span class="home-hero-unit">R</span></div>`
@@ -91,9 +107,9 @@ export function homeHero(agg) {
     + stat('home-hero-stat-signals', 'Signals logged', count(agg.totals.recCalls))
     + stat('home-hero-stat-good', 'GOOD calls', count(goodCalls))
     + stat('home-hero-stat-scored', 'Scored', count(scored))
-    + stat('home-hero-stat-win-rate', 'Win rate', scored > 0 && isNum(tr.winRate) ? `${Math.round(tr.winRate * 1000) / 10}%` : dash)
+    + stat('home-hero-stat-win-rate', 'Win rate', scored > 0 && isNum(winRate) ? `${Math.round(winRate * 1000) / 10}%` : dash)
     + stat('home-hero-stat-candles', '1m candles', count(candles))
-    + stat('home-hero-stat-since', 'Tracking since', since || dash)
+    + stat('home-hero-stat-since', sinceLabel, sinceValue || dash)
     + `</dl><p class="home-hero-note" id="home-hero-note">${esc(HOME_HERO_NOTE)}</p></article>`;
 
   return `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${card}</div>`;

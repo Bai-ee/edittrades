@@ -84,6 +84,11 @@ import {
 import { goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile } from './scripts/tracker/store.js';
 import { retestStats, bootstrapMeanLowerBound90, maxDrawdownR, htfStats } from './scripts/tracker/aggregate.js';
 import { renderProduct } from './scripts/tracker/product-page.js';
+import {
+  deriveEpochs, deriveEpochsFrom, firstCaptureAtVersion, firstAlertOfKind,
+  FLAG_CONFIG_VERSION, HTF_CONFIG_VERSION, FLAG_EPOCH_FALLBACK, HTF_EPOCH_FALLBACK, SPOT_EPOCH_FALLBACK, WALLET_EPOCH_ISO
+} from './scripts/tracker/epochs.js';
+import { epochStats, spotScoreboardStats, walletScoreboardStats, computeScoreboard } from './scripts/tracker/aggregate.js';
 
 let passed = 0;
 let failed = 0;
@@ -3162,6 +3167,170 @@ async function run() {
     assert(html.includes('live') && html.includes('2 resolved signal'), 'live status names the resolved count');
     const md = readFileSync(mdFile, 'utf8');
     assert(md.includes('## HTF ENTRY · live') && md.includes('2 resolved signal(s) scored so far'), md.slice(md.indexOf('## HTF ENTRY')));
+  });
+
+  console.log('\nT-21 strategy scoreboard + archive (docs/PROMPT_T21_STRATEGY_SCOREBOARD.md)\n');
+
+  await test('epochs.js: deriveEpochsFrom - flag/htf from the first matching capture row (earliest wins), retest1h from its own first RETEST_1H alert line, spot from meta.json startDate; falls back to documented constants when nothing derives', () => {
+    const captureRows = [
+      { configVersion: '2026.09.24-5', closedThrough: iso(T0) },
+      { configVersion: FLAG_CONFIG_VERSION, closedThrough: iso(T0 + 10 * MIN) },
+      { configVersion: FLAG_CONFIG_VERSION, closedThrough: iso(T0 + 20 * MIN) }, // later dupe - first must win
+      { configVersion: HTF_CONFIG_VERSION, closedThrough: iso(T0 + 30 * MIN) }
+    ];
+    const alertRows = [
+      { kind: 'GOOD', sentAt: iso(T0 + 5 * MIN) },
+      { kind: 'RETEST_1H', sentAt: iso(T0 + 16 * MIN) }, // later dupe - first must win
+      { kind: 'RETEST_1H', sentAt: iso(T0 + 15 * MIN) }
+    ];
+    assertEqual(firstCaptureAtVersion(captureRows, FLAG_CONFIG_VERSION), iso(T0 + 10 * MIN), 'firstCaptureAtVersion picks the earliest match');
+    assertEqual(firstAlertOfKind(alertRows, 'RETEST_1H'), iso(T0 + 16 * MIN), 'firstAlertOfKind picks the first match in the given (already-ascending) order, not the earliest timestamp');
+
+    const epochs = deriveEpochsFrom({
+      captureRows,
+      alertRows: [...alertRows].sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt)),
+      spotMeta: { startDate: '2026-09-19' }
+    });
+    assertEqual(epochs.flag.epochIso, iso(T0 + 10 * MIN));
+    assertEqual(epochs.flag.source, 'capture');
+    assertEqual(epochs.htf.epochIso, iso(T0 + 30 * MIN));
+    assertEqual(epochs.htf.source, 'capture');
+    assertEqual(epochs.retest1h.epochIso, iso(T0 + 15 * MIN));
+    assertEqual(epochs.retest1h.source, 'alert');
+    assertEqual(epochs.spot.epochIso, '2026-09-19T00:00:00.000Z', 'spot epoch normalized from a bare date to a full ISO instant');
+    assertEqual(epochs.spot.source, 'meta');
+    assertEqual(epochs.wallet.epochIso, WALLET_EPOCH_ISO, 'wallet epoch is the fixed constant, never derived');
+    assertEqual(epochs.wallet.source, 'constant');
+
+    const empty = deriveEpochsFrom({});
+    assertEqual(empty.flag.epochIso, FLAG_EPOCH_FALLBACK, 'flag falls back to its documented constant with no data');
+    assertEqual(empty.flag.source, 'constant');
+    assertEqual(empty.htf.epochIso, HTF_EPOCH_FALLBACK, 'htf falls back to its own documented constant');
+    assertEqual(empty.htf.source, 'constant');
+    assertEqual(empty.retest1h.epochIso, empty.flag.epochIso, '"else same as flag": retest1h with no RETEST_1H line falls back to the flag epoch, not a second constant');
+    assertEqual(empty.retest1h.source, 'constant');
+    assertEqual(empty.spot.epochIso, SPOT_EPOCH_FALLBACK, 'spot falls back to its documented constant with no meta.json');
+    assertEqual(empty.spot.source, 'constant');
+  });
+
+  await test('epochs.js: deriveEpochs(dataDir) reads data/calls, data/telegram-alerts and data/spot-trend/meta.json', () => {
+    const dir = tmp();
+    appendCalls(dir, [{ ...captureRow('BTC', T0, null, rec('WATCH')), configVersion: FLAG_CONFIG_VERSION }]);
+    appendTelegramAlerts(dir, [rLine('r1', iso(T0 + MIN))]);
+    writeJson(path.join(dir, 'spot-trend', 'meta.json'), { startDate: '2026-09-20' });
+    const epochs = deriveEpochs(dir);
+    assertEqual(epochs.flag.epochIso, iso(T0), 'flag epoch from the stored capture row');
+    assertEqual(epochs.flag.source, 'capture');
+    assertEqual(epochs.retest1h.epochIso, iso(T0 + MIN), 'retest1h epoch from the stored alert log');
+    assertEqual(epochs.retest1h.source, 'alert');
+    assertEqual(epochs.spot.epochIso, '2026-09-20T00:00:00.000Z', 'spot epoch from the stored meta.json');
+    assertEqual(epochs.htf.source, 'constant', 'no HTF_CONFIG_VERSION capture row stored -> falls back');
+  });
+
+  await test('aggregate.js: epochStats/spotScoreboardStats/walletScoreboardStats - per-strategy stats exclude pre-epoch rows; empty/unresolved epoch renders the same empty shape as retestStats([])', () => {
+    const rows = [
+      { calledAt: iso(T0 - MIN), outcome: 'tp1', r: 5, entry: 100, stop: 99, direction: 'long', resolvedAt: iso(T0) }, // pre-epoch - excluded
+      { calledAt: iso(T0 + MIN), outcome: 'tp1', r: 3, entry: 100, stop: 99, direction: 'long', resolvedAt: iso(T0 + 2 * MIN) },
+      { calledAt: iso(T0 + 5 * MIN), outcome: 'stop', r: null, entry: 100, stop: 99, direction: 'long', resolvedAt: iso(T0 + 6 * MIN) }
+    ];
+    const s = epochStats(rows, iso(T0), T0 + 2 * 24 * 60 * MIN);
+    assertEqual(s.calls, 2, 'only the two rows at/after the epoch');
+    assertEqual(s.resolved, 2);
+    assertEqual(s.wins, 1);
+    assertEqual(s.losses, 1);
+    assertEqual(s.epochIso, iso(T0));
+    assertEqual(s.daysLive, 2, 'daysLive is nowMs minus the epoch, in days');
+    assertEqual(JSON.stringify(epochStats([], null, T0)), JSON.stringify({ ...retestStats([]), epochIso: null, daysLive: null }), 'no epoch -> the same empty shape retestStats([]) has, plus null epoch fields');
+
+    const spotEmpty = spotScoreboardStats(null, [], iso(T0), T0);
+    assertEqual(spotEmpty.calls, 0, 'no ledger -> zero, never throws');
+    const spot = spotScoreboardStats({ startDate: '2026-09-19', rows: [{ date: '2026-09-19', equity: 0.99, bh: 1.02 }] },
+      [{ date: '2026-09-18', live: true }, { date: '2026-09-20', live: true }, { date: '2026-09-20', live: false }], iso(T0), T0 + 24 * 60 * MIN);
+    assertEqual(spot.calls, 1, 'one ledger row');
+    assertEqual(spot.equityPct, -0.01, 'equity - 1, rounded');
+    assertEqual(spot.bhPct, 0.02);
+    assertEqual(spot.flips, 1, 'only the live flip at/after the epoch counts (the earlier live one and the non-live one do not)');
+
+    const walletRows = [
+      { t: iso(T0 - MIN), totalUsd: 500 },
+      { t: iso(T0), totalUsd: 505 },
+      { t: iso(T0 + MIN), totalUsd: 510 }
+    ];
+    const journalRows = [
+      { kind: 'close', source: 'execution', receivedAt: iso(T0 - MIN), resultUsd: -5 }, // pre-epoch - excluded
+      { kind: 'close', source: 'execution', receivedAt: iso(T0 + MIN), resultUsd: 8 },
+      { kind: 'note', source: 'execution', receivedAt: iso(T0 + MIN), resultUsd: 999 } // not a close - excluded
+    ];
+    const wallet = walletScoreboardStats(walletRows, journalRows, iso(T0), T0 + 2 * MIN);
+    assertEqual(wallet.equityStartUsd, 505, 'first wallet sample at/after the epoch');
+    assertEqual(wallet.equityNowUsd, 510, 'latest wallet sample overall');
+    assertEqual(wallet.trades, 1, 'only the post-epoch execution close counts');
+    assertEqual(wallet.realizedNetUsd, 8);
+    assertEqual(wallet.killArmState, null, 'not present in synced tracker data - never guessed');
+  });
+
+  await test('aggregate.js: computeAggregates - opts.epochs filters the 7d/30d windows\' goodCallOutcomes to the flag epoch and adds epochs/scoreboard/archive; omitted opts.epochs is byte-for-byte the pre-T-21 behavior (epochs/scoreboard/archive all null)', () => {
+    const epochs = deriveEpochsFrom({ captureRows: [{ configVersion: FLAG_CONFIG_VERSION, closedThrough: iso(T0) }], alertRows: [], spotMeta: null });
+    const goodRows = [
+      { symbol: 'BTC', candidateId: 'pre', calledAt: iso(T0 - 10 * MIN), outcome: 'stop', r: null, entry: 100, stop: 99, direction: 'long', resolvedAt: iso(T0 - 5 * MIN) },
+      { symbol: 'ETH', candidateId: 'post', calledAt: iso(T0 + 10 * MIN), outcome: 'tp1', r: 3, entry: 50, stop: 49, direction: 'long', resolvedAt: iso(T0 + 12 * MIN) }
+    ];
+    const withEpochs = computeAggregates([], [], {}, T0 + 60 * MIN, { goodCallOutcomes: goodRows, epochs });
+    assertEqual(withEpochs.windows['7d'].tradable.calls, 1, 'live 7d window excludes the pre-epoch GOOD call');
+    assertEqual(withEpochs.windows['30d'].tradable.calls, 1, 'live 30d window excludes it too');
+    assertEqual(withEpochs.scoreboard.flag.calls, 1, 'scoreboard flag card also excludes the pre-epoch row');
+    assertEqual(withEpochs.epochs, epochs);
+    assertEqual(withEpochs.archive.windows['7d'].tradable.calls, 2, 'archive keeps the OLD unfiltered window - both rows');
+    assertEqual(withEpochs.archive.preEpochGoodCalls.length, 1, 'exactly the one pre-epoch GOOD call is archived');
+    assertEqual(withEpochs.archive.preEpochGoodCalls[0].candidateId, 'pre');
+
+    const withoutEpochs = computeAggregates([], [], {}, T0 + 60 * MIN, { goodCallOutcomes: goodRows });
+    assertEqual(withoutEpochs.windows['7d'].tradable.calls, 2, 'no opts.epochs -> unfiltered, exactly the pre-T-21 shape');
+    assertEqual(withoutEpochs.epochs, null);
+    assertEqual(withoutEpochs.scoreboard, null);
+    assertEqual(withoutEpochs.archive, null);
+  });
+
+  await test('page + report (T-21): scoreboard zone sits after Status/before Performance with stable ids and the uniform empty state; home hero reads the epoch-filtered flag numbers; archive holds the pre-epoch GOOD calls and the old unfiltered 7d/30d windows; report.md mirrors the scoreboard table', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    const epochAt = iso(T0 + 10 * MIN);
+    appendCalls(dataDir, [{ ...captureRow('BTC', T0 + 10 * MIN, null, rec('WATCH')), configVersion: FLAG_CONFIG_VERSION }]);
+    writeJsonl(goodCallOutcomesFile(dataDir), [
+      {
+        callId: 'good|BTC|pre', kind: 'good', symbol: 'BTC', candidateId: 'pre', calledAt: iso(T0 - 10 * MIN), timeframe: '1m', direction: 'long',
+        entry: 100, stop: 99, tp1: 103, class: 'GOOD', sources: ['capture'], outcome: 'stop', r: null, filledAt: iso(T0 - 10 * MIN), resolvedAt: iso(T0 - 5 * MIN), minutesToResolution: 5
+      },
+      {
+        callId: 'good|ETH|post', kind: 'good', symbol: 'ETH', candidateId: 'post', calledAt: iso(T0 + 20 * MIN), timeframe: '1m', direction: 'long',
+        entry: 50, stop: 49, tp1: 53, class: 'GOOD', sources: ['alert-1m'], outcome: 'tp1', r: 3, filledAt: iso(T0 + 20 * MIN), resolvedAt: iso(T0 + 25 * MIN), minutesToResolution: 5
+      }
+    ]);
+    const { htmlFile, mdFile, agg } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    assertEqual(agg.epochs.flag.epochIso, epochAt, 'flag epoch derived from the stored capture row');
+    assertEqual(agg.scoreboard.flag.calls, 1, 'only the post-epoch GOOD call counted on the scoreboard');
+    assertEqual(agg.archive.preEpochGoodCalls.length, 1, 'the pre-epoch GOOD call is archived, not dropped');
+
+    const html = readFileSync(htmlFile, 'utf8');
+    for (const key of ['flag', 'htf', 'retest1h', 'spot', 'wallet']) assert(html.includes(`id="scoreboard-${key}-tile"`), `missing scoreboard-${key}-tile`);
+    assert(html.indexOf('id="zone-system"') < html.indexOf('id="zone-scoreboard"') && html.indexOf('id="zone-scoreboard"') < html.indexOf('id="zone-performance"'), 'scoreboard sits after Status, before Performance');
+    assert(html.includes(`id="scoreboard-htf-tile-empty">[NO SIGNALS SINCE`), 'htf card (no data at all) shows the uniform empty-state bracket, never a blank');
+    assert(html.includes(`id="scoreboard-retest1h-tile-empty">[NO SIGNALS SINCE`), 'retest1h card (no alert log) shows the same uniform empty state');
+    assert(html.includes(`id="scoreboard-flag-tile-signals"><dt>Signals</dt><dd>1</dd>`), 'flag card shows exactly the one post-epoch signal');
+
+    assert(html.includes(`id="home-hero-stat-good"><dt>GOOD calls</dt><dd>1</dd>`), 'home hero "GOOD calls" now reads the epoch-filtered flag card, not the all-time (2-call) total');
+    assert(html.includes(`id="home-hero-stat-since"><dt>Since</dt><dd>${epochAt.slice(0, 10)} (net floor)</dd>`), 'home hero "since" stat is the epoch label, not the last-seen day');
+
+    assert(html.includes('id="archive-section"'), 'archive section present, collapsed at the bottom');
+    assert(html.includes('id="archive-pre-epoch-good-table"'), 'pre-epoch GOOD calls table present in the archive');
+    assert(html.includes('1 pre-epoch GOOD call(s) total'), 'archive note counts the one pre-epoch GOOD call');
+    assert(html.includes('id="archive-window-7d-tile"') && html.includes('id="archive-window-30d-tile"'), 'the old (unfiltered) 7d/30d windows are archived, unchanged');
+    assert(html.indexOf('id="zone-reference"') < html.indexOf('id="archive-section"'), 'archive sits at the very bottom of the page');
+
+    const md = readFileSync(mdFile, 'utf8');
+    assert(md.includes('## Strategy scoreboard · each from its own start'), 'report.md mirrors the scoreboard zone');
+    assert(md.includes('### Flag engine · net floor · LIVE · TRADABLE'), 'flag card mirrored in report.md');
+    assert(md.includes('| Signals | Resolved | Wins | Win % | Net R mean | Net R median | Net R 90% LB | Max DD (R) | Toward 30 |'), 'scoreboard table header mirrored');
   });
 
   console.log('\nSpot trend filter (docs/PLAN_SPOT_TREND_2026-09-27.md P1)');

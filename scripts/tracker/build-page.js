@@ -757,6 +757,181 @@ function htf1mBody(stats) {
   return table1 + `<p class="note" id="htf1m-status-note">live — ${stats.towardThirty} resolved signal(s) scored so far</p>`;
 }
 
+// ---------- Strategy scoreboard (T-21, docs/PROMPT_T21_STRATEGY_SCOREBOARD.md, owner
+// decision 2026-09-28) ----------
+//
+// One card per strategy, each counted from its own epoch (scripts/tracker/epochs.js) - the
+// moment that strategy went live in its current form, not from when the tracker started
+// capturing. `agg.scoreboard`/`agg.epochs` are only set when the page is built through
+// aggregateDataDir (buildPage); a bare computeAggregates() call (most existing tests) never
+// sets them, so this whole zone renders nothing (`agg.scoreboard` falsy) rather than guess.
+
+const pctSigned = (v) => (isNum(v) ? `${v > 0 ? '+' : v < 0 ? MINUS : ''}${(Math.abs(v) * 100).toFixed(2)}%` : dash);
+const usd = (v) => (isNum(v) ? `$${v.toFixed(2)}` : dash);
+const statRow = (id, label, value) => `<div class="stat-row" id="${id}"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`;
+const noSignalsSince = (epochIso) => `[NO SIGNALS SINCE ${String(epochIso || '').slice(0, 10)}]`;
+
+const SCOREBOARD_ORDER = ['flag', 'htf', 'retest1h', 'spot', 'wallet'];
+const SCOREBOARD_META = {
+  flag: { status: 'LIVE · TRADABLE', exits: 'TP1 or stop from the flag plan’s own levels, stop floored at the net floor (max(0.5x ATR15m, 3x round-trip cost)), capped at 3% from entry.' },
+  htf: { status: 'LIVE · TRADABLE', exits: 'TP1 or stop from the 1h swing (NF-floored, 3% scalp-capped); target from the last 1h impulse projected from that swing.' },
+  retest1h: { status: 'PAPER', exits: 'A RETEST_1H_EXIT alert closes it on a structure break, else a 7-day hold cap.' },
+  spot: { status: 'PAPER', exits: 'Flips the coin to USDC when its daily close drops back below EMA20.' },
+  wallet: { status: 'WALLET', exits: 'Daily/weekly drawdown kill switch; Steady profile caps $150 size / 100x / $5 per trade / $25 per day / 1 open position.' }
+};
+
+/** Signal-class card body (flag/htf/retest1h): the shared R-based column set. */
+function scoreboardSignalBody(id, card) {
+  return `<dl class="stat-rows" id="${id}-facts">`
+    + statRow(`${id}-signals`, 'Signals', String(card.calls))
+    + statRow(`${id}-resolved`, 'Resolved', String(card.resolved))
+    + statRow(`${id}-wins`, 'Wins', String(card.wins))
+    + statRow(`${id}-win-rate`, 'Win %', pct(card.winRate))
+    + statRow(`${id}-net-r-mean`, 'Net R mean', rVal(card.netRMean))
+    + statRow(`${id}-net-r-median`, 'Net R median', rVal(card.netRMedian))
+    + statRow(`${id}-net-r-lb90`, 'Net R 90% LB', rVal(card.netRBootstrapLowerBound90))
+    + statRow(`${id}-max-dd`, 'Max DD (R)', num(card.maxDrawdownR, 2))
+    + statRow(`${id}-toward-30`, 'Toward 30', `${card.towardThirty} / ${card.promotionTarget}`)
+    + `</dl>`;
+}
+
+/** Spot card body: paper equity vs buy & hold and flips, instead of the R columns. */
+function scoreboardSpotBody(id, card) {
+  return `<dl class="stat-rows" id="${id}-facts">`
+    + statRow(`${id}-equity`, 'Paper equity', pctSigned(card.equityPct))
+    + statRow(`${id}-bh`, 'Buy & hold', pctSigned(card.bhPct))
+    + statRow(`${id}-flips`, 'Live flips', String(card.flips))
+    + statRow(`${id}-days-tracked`, 'Days tracked', String(card.daysTracked))
+    + `</dl>`;
+}
+
+/** Wallet card body: equity now vs start, trades, realized net, kill/arm state. */
+function scoreboardWalletBody(id, card) {
+  return `<dl class="stat-rows" id="${id}-facts">`
+    + statRow(`${id}-equity-now`, 'Equity now', usd(card.equityNowUsd))
+    + statRow(`${id}-equity-start`, 'Equity at start', usd(card.equityStartUsd))
+    + statRow(`${id}-trades`, 'Trades', String(card.trades))
+    + statRow(`${id}-realized-net`, 'Realized net', card.realizedNetUsd === null ? dash : usd(card.realizedNetUsd))
+    // Not present in the tracker's synced data (data/wallet.jsonl, data/journal/) - that
+    // state lives in the live execution service, out of scope for scripts/tracker/*.
+    + statRow(`${id}-kill-arm`, 'Kill / arm state', card.killArmState || `${dash} (not synced here)`)
+    + `</dl>`;
+}
+
+function scoreboardCardEmpty(key, card) {
+  if (key === 'spot') return !card || !card.calls;
+  if (key === 'wallet') return !card || !card.calls;
+  return !card || !card.calls;
+}
+
+/** One scoreboard tile. Empty state is uniform across every card: never a blank. */
+function scoreboardTile(key, card) {
+  const id = `scoreboard-${key}-tile`;
+  const meta = SCOREBOARD_META[key];
+  const epochIso = card && card.epochIso;
+  const epochDate = String(epochIso || '').slice(0, 10) || dash;
+  const daysLive = card && isNum(card.daysLive) ? num(card.daysLive, 1) : dash;
+  const empty = scoreboardCardEmpty(key, card);
+  const facts = empty
+    ? `<p class="empty" id="${id}-empty">${esc(noSignalsSince(epochIso))}</p>`
+    : key === 'spot' ? scoreboardSpotBody(id, card)
+      : key === 'wallet' ? scoreboardWalletBody(id, card)
+        : scoreboardSignalBody(id, card);
+  const body = `<p class="mono-note" id="${id}-status">${esc(meta.status)} · DAYS LIVE ${esc(daysLive)} · SINCE ${esc(epochDate)}</p>${facts}`;
+  // section(), not a bare tile(): every <section> on this page carries the PROVISIONAL tag
+  // (build-page.js's own "one provisional tag per section" invariant, checked in tests).
+  return section(id, (card && card.label) || key, body, { sm: 2, lg: 4, foot: meta.exits });
+}
+
+/** Strategy scoreboard zone: one tile per strategy, every one from its own epoch. Renders nothing (empty string) without `agg.scoreboard`. */
+function scoreboardZone(agg) {
+  if (!agg.scoreboard) return '';
+  return zone({
+    id: 'zone-scoreboard', title: 'Strategy scoreboard', sub: 'each from its own start',
+    tiles: SCOREBOARD_ORDER.map((key) => scoreboardTile(key, agg.scoreboard[key]))
+  });
+}
+
+/** report.md mirror of the scoreboard zone - same cards, same epochs, markdown table per card. */
+function scoreboardReport(agg) {
+  if (!agg.scoreboard) return '';
+  const out = [`\n## Strategy scoreboard · each from its own start\n\n_${PROVISIONAL}_\n`];
+  for (const key of SCOREBOARD_ORDER) {
+    const card = agg.scoreboard[key];
+    const meta = SCOREBOARD_META[key];
+    const epochDate = String((card && card.epochIso) || '').slice(0, 10) || dash;
+    out.push(`\n### ${(card && card.label) || key} · ${meta.status}\n\nSince ${epochDate} (days live ${card && isNum(card.daysLive) ? num(card.daysLive, 1) : dash}).\n`);
+    if (scoreboardCardEmpty(key, card)) {
+      out.push(`${noSignalsSince(card && card.epochIso)}\n`);
+    } else if (key === 'spot') {
+      out.push(mdTable(['Paper equity', 'Buy & hold', 'Live flips', 'Days tracked'],
+        [[pctSigned(card.equityPct), pctSigned(card.bhPct), card.flips, card.daysTracked]]));
+    } else if (key === 'wallet') {
+      out.push(mdTable(['Equity now', 'Equity at start', 'Trades', 'Realized net', 'Kill/arm'],
+        [[usd(card.equityNowUsd), usd(card.equityStartUsd), card.trades, card.realizedNetUsd === null ? dash : usd(card.realizedNetUsd), card.killArmState || dash]]));
+    } else {
+      out.push(mdTable(['Signals', 'Resolved', 'Wins', 'Win %', 'Net R mean', 'Net R median', 'Net R 90% LB', 'Max DD (R)', 'Toward 30'],
+        [[card.calls, card.resolved, card.wins, pct(card.winRate), rVal(card.netRMean), rVal(card.netRMedian), rVal(card.netRBootstrapLowerBound90), num(card.maxDrawdownR, 2), `${card.towardThirty} / ${card.promotionTarget}`]]));
+    }
+    out.push(`${meta.exits}\n`);
+  }
+  return out.join('\n');
+}
+
+// ---------- Archive (T-21): everything captured before a strategy's epoch stays on the
+// site, collapsed at the bottom - nothing removed from data/. ----------
+
+/** Legacy window body (byClass/byReason/bySymbol/byTimeframe/byPlanStatus), same shape windowBody uses, for a given window object rather than always reading agg.windows[k]. */
+function archiveWindowBody(prefix, win) {
+  return `<p class="mono-note" id="${prefix}-reason-counts">CHASE ${win.reasonCounts.chase} · RR_BELOW_MIN ${win.reasonCounts.rr_below_min} · ROOM ${win.reasonCounts.room}</p>`
+    + `<div id="${prefix}-subs">`
+    + sub(`${prefix}-by-class-sub`, 'By class (recommendation calls)', statTable(`${prefix}-by-class-table`, win.byClass, 'Class'), true)
+    + sub(`${prefix}-by-reason-sub`, 'By reason code', statTable(`${prefix}-by-reason-table`, win.byReason, 'Reason'))
+    + sub(`${prefix}-by-symbol-sub`, 'Ready plans by symbol', statTable(`${prefix}-by-symbol-table`, win.bySymbol, 'Symbol'))
+    + sub(`${prefix}-by-timeframe-sub`, 'Ready plans by timeframe', statTable(`${prefix}-by-timeframe-table`, win.byTimeframe, 'Timeframe'))
+    + sub(`${prefix}-by-plan-status-sub`, 'Plans by status', statTable(`${prefix}-by-plan-status-table`, win.byPlanStatus, 'Plan status'))
+    + `</div>`;
+}
+
+export const NO_ARCHIVE_GOOD = '[NO PRE-EPOCH GOOD CALLS]';
+const ARCHIVE_GOOD_MAX_ROWS = 50;
+
+/** Archive section: old blended totals, config-boundary note, pre-epoch GOOD calls, old (unfiltered) 7d/30d windows - collapsed, unchanged from how they rendered before T-21. */
+function archiveSection(agg) {
+  if (!agg.archive || !agg.epochs) return '';
+  const totals = agg.totals.tradable;
+  const totalsBody = `<dl class="stat-rows" id="archive-totals-facts">`
+    + statRow('archive-totals-rec-calls', 'Rec calls (all-time)', String(agg.totals.recCalls))
+    + statRow('archive-totals-ready-plans', 'Ready plans (all-time)', String(totals.calls))
+    + statRow('archive-totals-fills', 'Fills', String(totals.fills))
+    + statRow('archive-totals-wins-losses', 'Wins / losses', `${totals.wins} / ${totals.losses}`)
+    + statRow('archive-totals-win-rate', 'Win rate', pct(totals.winRate))
+    + statRow('archive-totals-expectancy', 'Expectancy (gross R)', rVal(totals.expectancy))
+    + statRow('archive-totals-net-expectancy', 'Net expectancy', rVal(totals.netExpectancy))
+    + `</dl>`;
+  const totalsTile = tile({ id: 'archive-totals-tile', as: 'div', title: 'Old blended totals · all-time, pre-T-21', lg: 6, body: totalsBody });
+
+  const cbNote = agg.configBoundary ? configBoundaryNote(agg.configBoundary) : `<p class="empty" id="archive-config-boundary-empty">[NO CONFIG BOUNDARY YET]</p>`;
+  const configBoundaryTile = tile({ id: 'archive-config-boundary-tile', as: 'div', title: 'Config boundary', lg: 6, body: cbNote });
+
+  const preEpoch = agg.archive.preEpochGoodCalls || [];
+  const preEpochRows = preEpoch.slice(0, ARCHIVE_GOOD_MAX_ROWS).map((r) => [
+    time(r.calledAt), r.symbol, r.direction || dash, levels(r),
+    { v: r.outcome, cls: outcomeStatus(r.outcome) }, { v: rVal(r.outcome === 'stop' ? -1 : r.r), cls: rStatus(r.outcome === 'stop' ? -1 : r.r) }
+  ]);
+  const preEpochTable = table('archive-pre-epoch-good-table', ['Called', 'Symbol', 'Dir', 'Entry / stop / TP1', 'Outcome', 'R'], preEpochRows, NO_ARCHIVE_GOOD, 1);
+  const preEpochNote = `<p class="note" id="archive-pre-epoch-good-note">${preEpoch.length} pre-epoch GOOD call(s) total`
+    + `${preEpoch.length > ARCHIVE_GOOD_MAX_ROWS ? ` (most recent ${ARCHIVE_GOOD_MAX_ROWS} shown)` : ''}, from data/good-call-outcomes.jsonl before the flag epoch (${esc(String(agg.epochs.flag.epochIso).slice(0, 10))}).</p>`;
+  const preEpochTile = tile({ id: 'archive-pre-epoch-good-tile', as: 'div', title: 'Pre-epoch GOOD calls', lg: 12, body: preEpochTable + preEpochNote });
+
+  const w7Tile = tile({ id: 'archive-window-7d-tile', as: 'div', title: 'Old last 7 days · unfiltered', lg: 12, body: archiveWindowBody('archive-window-7d', agg.archive.windows['7d']) });
+  const w30Tile = tile({ id: 'archive-window-30d-tile', as: 'div', title: 'Old last 30 days · unfiltered', lg: 12, body: archiveWindowBody('archive-window-30d', agg.archive.windows['30d']) });
+
+  return `<details class="zone" id="archive-section" data-section="archive-section">`
+    + `<summary class="zone-head" id="archive-section-summary"><span class="zone-title">Archive · before the strategy epochs</span></summary>`
+    + `<div class="bento" id="archive-grid">${totalsTile}${configBoundaryTile}${preEpochTile}${w7Tile}${w30Tile}</div></details>`;
+}
+
 export function renderHtml(agg, data = {}) {
   const t = agg.tiles;
   const nowMs = Date.parse(agg.generatedAt);
@@ -786,6 +961,9 @@ export function renderHtml(agg, data = {}) {
   const scored7 = t7.wins + t7.losses;
   const c = agg.captures;
   const phase = phaseProgress(agg);
+  // T-21: once the flag epoch is known, the 7d/30d windows above are already epoch-filtered
+  // (aggregate.js computeAggregates) - this note is the visible label for that.
+  const flagEpochNote = agg.epochs && agg.epochs.flag ? ` · since ${String(agg.epochs.flag.epochIso).slice(0, 10)} (net floor)` : '';
 
   // Top edge, homepage hero (home-hero.js), then the sticky jump nav.
   const topStrip = `<header class="edge-strip" id="tracker-top-edge-strip"><span id="tracker-page-title">EDITTRADES / CALL TRACKER</span>`
@@ -990,8 +1168,9 @@ export function renderHtml(agg, data = {}) {
         tile({ id: 'activity-24h-section', title: 'Activity · last 24 h', as: 'div', sm: 2, lg: 5, body: activityBody })
       ]
     }),
+    scoreboardZone(agg),
     zone({
-      id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
+      id: 'zone-performance', title: 'Performance', sub: `Last 7 days · gross R, before fees${flagEpochNote}`,
       tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, nfShadowSection, retest1hSection, htf1mSection, ...instruments]
     }),
     zone({
@@ -1025,7 +1204,7 @@ export function renderHtml(agg, data = {}) {
       tiles: alertsZoneTiles(agg.alerts || computeAlertAggregates([], [], nowMs))
     }),
     zone({
-      id: 'zone-breakdown', title: 'Breakdown', sub: 'By class, reason, symbol, timeframe',
+      id: 'zone-breakdown', title: 'Breakdown', sub: `By class, reason, symbol, timeframe${flagEpochNote}`,
       tiles: [
         section('window-7d-section', 'Last 7 days', windowBody('7d')),
         section('window-30d-section', 'Last 30 days', windowBody('30d'))
@@ -1039,6 +1218,8 @@ export function renderHtml(agg, data = {}) {
       ]
     })
   ].join('\n');
+
+  const archive = archiveSection(agg);
 
   return `<!doctype html>
 <html lang="en">
@@ -1056,6 +1237,7 @@ ${PAGE_CSS}${HOME_HERO_CSS}${CHART_CSS}
 <main id="tracker-page-main">
 ${topStrip}
 ${body}
+${archive}
 ${bottomStrip}
 </main>
 <script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows, setup: setupRows })}</script>
@@ -1085,6 +1267,7 @@ export function renderReport(agg, data = {}) {
   const phase = phaseProgress(agg);
   const out = [];
   out.push(`# EditTrades call tracker report\n\nGenerated ${time(agg.generatedAt)}. R is gross, before fees and slippage. ${EDGE_NOTE}\n`);
+  out.push(scoreboardReport(agg));
   out.push(`## Testing phase\n\n_${PROVISIONAL}_\n`);
   out.push(`- Status: ${phase.status}\n- Phase: ${PHASE_NAME}, start ${PHASE_START}, ends ${phase.endDate}\n- Thresholds frozen until ${FROZEN_UNTIL}\n- Target: ${PHASE_DAYS} days / >= ${PHASE_TARGET_PLANS} scored plans\n- Progress: day ${phase.elapsed} / ${PHASE_DAYS}, plans scored ${isNum(phase.scored) ? phase.scored : dash} / ${PHASE_TARGET_PLANS}\n- Frozen during the window: no threshold tuning\n`);
   out.push(`## Summary\n\n_${PROVISIONAL}_\n`);

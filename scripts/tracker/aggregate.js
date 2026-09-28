@@ -43,9 +43,14 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions, goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile } from './store.js';
+import {
+  parseArgs, readAllCalls, readCandles, readJsonl, readJson, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions,
+  goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile, readWallet, readJournal, readTelegramAlerts
+} from './store.js';
 import { round, median, isFiniteNumber } from './walk-outcome.js';
 import { costR, netR } from './costs.js';
+import { deriveEpochsFrom } from './epochs.js';
+import { spotDir } from './spot-trend.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 export const CAPTURE_GAP_MINUTES = 20;
@@ -330,6 +335,107 @@ export function htfStats(rows) {
   };
 }
 
+// ---------------------------------------------------------------- strategy scoreboard (T-21,
+// docs/PROMPT_T21_STRATEGY_SCOREBOARD.md) - each strategy counted from its own epoch
+// (scripts/tracker/epochs.js), never from when the tracker started capturing.
+
+/**
+ * A strategy's own stats since its own epoch: reuses retestStats' mean/median/bootstrap/
+ * max-drawdown math over `rows` filtered to `calledAt >= epochIso`. `daysLive` is null when
+ * `epochIso` does not parse (should not happen - epochs.js always returns a fallback ISO).
+ * @param {Array<Object>} rows
+ * @param {string|null} epochIso
+ * @param {number} nowMs
+ */
+export function epochStats(rows, epochIso, nowMs) {
+  const epochMs = Date.parse(epochIso);
+  if (!Number.isFinite(epochMs)) return { ...retestStats([]), epochIso: epochIso || null, daysLive: null };
+  const filtered = (rows || []).filter((r) => r && r.calledAt && Date.parse(r.calledAt) >= epochMs);
+  return { ...retestStats(filtered), epochIso, daysLive: round(Math.max(0, (nowMs - epochMs) / DAY), 1) };
+}
+
+/**
+ * Spot scoreboard card (paper equity vs buy & hold, live flips since the epoch) instead of
+ * the R-based columns the signal classes use - spot-trend.js already starts its own ledger
+ * at its own start date (spotDir/meta.json), so `ledger.rows` needs no further filtering;
+ * `flips` counts only rows marked `live` (spot-trend.js: after meta.startDate) at/after the
+ * epoch, matching how spot.html already distinguishes "live" from "history" flips.
+ * @param {{startDate:string, rows:Array<{date:string,equity:number,bh:number}>}|null} ledger
+ * @param {Array<Object>} flips - spot-trend.js flips.jsonl rows
+ * @param {string|null} epochIso
+ * @param {number} nowMs
+ */
+export function spotScoreboardStats(ledger, flips, epochIso, nowMs) {
+  const rows = ledger && Array.isArray(ledger.rows) ? ledger.rows : [];
+  const last = rows.length ? rows[rows.length - 1] : null;
+  const epochMs = Date.parse(epochIso);
+  const liveFlips = (flips || []).filter((f) => f && f.live && Number.isFinite(Date.parse(f.date))
+    && (!Number.isFinite(epochMs) || Date.parse(f.date) >= epochMs)).length;
+  return {
+    calls: rows.length,
+    daysTracked: rows.length,
+    equityPct: last && isFiniteNumber(last.equity) ? round(last.equity - 1) : null,
+    bhPct: last && isFiniteNumber(last.bh) ? round(last.bh - 1) : null,
+    flips: liveFlips,
+    epochIso,
+    daysLive: Number.isFinite(epochMs) ? round(Math.max(0, (nowMs - epochMs) / DAY), 1) : null
+  };
+}
+
+/**
+ * Live-wallet scoreboard card: equity now vs at the evaluation start, execution-journal
+ * trades and realized net closed since then. `killArmState` is null - the tracker's synced
+ * data (data/wallet.jsonl, data/journal/) carries no kill-switch/arm flag today (that state
+ * lives in the live execution service, out of scope for scripts/tracker/*); the page renders
+ * a dash with a note rather than guessing.
+ * @param {Array<Object>} walletRows - store.js readWallet(dataDir) rows
+ * @param {Array<Object>} journalRows - store.js readJournal(dataDir) rows
+ * @param {string|null} epochIso
+ * @param {number} nowMs
+ */
+export function walletScoreboardStats(walletRows, journalRows, epochIso, nowMs) {
+  const epochMs = Date.parse(epochIso);
+  const wallet = (walletRows || []).filter((r) => r && r.t).sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  const since = Number.isFinite(epochMs) ? wallet.filter((r) => Date.parse(r.t) >= epochMs) : wallet;
+  const startRow = since.length ? since[0] : null;
+  const nowRow = wallet.length ? wallet[wallet.length - 1] : null;
+  const execCloses = (journalRows || []).filter((r) => r && r.kind === 'close' && r.source === 'execution'
+    && Number.isFinite(Date.parse(r.receivedAt)) && (!Number.isFinite(epochMs) || Date.parse(r.receivedAt) >= epochMs));
+  const realizedNet = execCloses.reduce((s, r) => s + (isFiniteNumber(r.resultUsd) ? r.resultUsd : 0), 0);
+  return {
+    calls: since.length,
+    equityNowUsd: nowRow && isFiniteNumber(nowRow.totalUsd) ? nowRow.totalUsd : null,
+    equityStartUsd: startRow && isFiniteNumber(startRow.totalUsd) ? startRow.totalUsd : null,
+    trades: execCloses.length,
+    realizedNetUsd: execCloses.length ? round(realizedNet, 2) : null,
+    killArmState: null,
+    epochIso,
+    daysLive: Number.isFinite(epochMs) ? round(Math.max(0, (nowMs - epochMs) / DAY), 1) : null
+  };
+}
+
+/**
+ * Every scoreboard card, keyed the same as `epochs` (scripts/tracker/epochs.js
+ * deriveEpochs). Each card spreads its epoch fields (label, epochIso, source) plus its own
+ * stats - the page and report.md both read this one object.
+ * @param {Object} epochs - deriveEpochs/deriveEpochsFrom output
+ * @param {Object} [data]
+ * @param {number} [nowMs=Date.now()]
+ */
+export function computeScoreboard(epochs, data = {}, nowMs = Date.now()) {
+  const {
+    goodCallOutcomes = [], retestCallOutcomes = [], htfCallOutcomes = [],
+    spotLedger = null, spotFlips = [], wallet = [], journal = []
+  } = data;
+  return {
+    flag: { key: 'flag', ...epochs.flag, ...epochStats(goodCallOutcomes, epochs.flag.epochIso, nowMs) },
+    htf: { key: 'htf', ...epochs.htf, ...epochStats(htfCallOutcomes, epochs.htf.epochIso, nowMs) },
+    retest1h: { key: 'retest1h', ...epochs.retest1h, ...epochStats(retestCallOutcomes, epochs.retest1h.epochIso, nowMs) },
+    spot: { key: 'spot', ...epochs.spot, ...spotScoreboardStats(spotLedger, spotFlips, epochs.spot.epochIso, nowMs) },
+    wallet: { key: 'wallet', ...epochs.wallet, ...walletScoreboardStats(wallet, journal, epochs.wallet.epochIso, nowMs) }
+  };
+}
+
 function reasonCounts(rows) {
   const has = (r, s) => typeof r.reasonCode === 'string' && r.reasonCode.includes(s);
   const planOrRec = rows.filter((r) => isRec(r) || r.kind === 'plan');
@@ -506,19 +612,31 @@ export function computeAlertAggregates(alertOutcomes = [], transitions = [], now
  * @param {Array<Object>} captureRows
  * @param {Object<string, Array<Object>>} candles1mBySymbol
  * @param {number} [nowMs=Date.now()]
- * @param {{phaseStartMs?: number, goodCallOutcomes?: Array<Object>}} [opts] phaseStartMs adds
- *   `phase` (ready-plan stats called since then); goodCallOutcomes (T-12, score.js
- *   scoreGoodCalls) feeds the 30-plan target, the headline 7d tiles and the class-check GOOD
- *   row from the 1-minute alert log merged with captures - empty/omitted falls back to the
- *   capture-only ready-plan rows exactly as before.
+ * @param {{phaseStartMs?: number, goodCallOutcomes?: Array<Object>, epochs?: Object}} [opts]
+ *   phaseStartMs adds `phase` (ready-plan stats called since then); goodCallOutcomes (T-12,
+ *   score.js scoreGoodCalls) feeds the 30-plan target, the headline 7d tiles and the
+ *   class-check GOOD row from the 1-minute alert log merged with captures - empty/omitted
+ *   falls back to the capture-only ready-plan rows exactly as before. `epochs` (T-21,
+ *   scripts/tracker/epochs.js deriveEpochs) is new and optional: when given, the 7d/30d
+ *   windows' `tradable`/`bySymbol`/`byTimeframe` (and everything downstream of them - the
+ *   Performance hero, its instruments) drop any goodCallOutcomes row before the flag epoch,
+ *   `epochs`/`scoreboard` are added to the result, and `archive` carries the SAME windows
+ *   computed the old (unfiltered) way plus the pre-epoch GOOD calls, so nothing already
+ *   captured is lost from the page. Omitted `epochs` -> byte-for-byte the pre-T-21 behavior
+ *   (epochs/scoreboard/archive all null).
  */
 export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {}, nowMs = Date.now(), opts = {}) {
   const today = new Date(nowMs).toISOString().slice(0, 10);
   const recs = outcomes.filter(isRec);
   const tradable = outcomes.filter(isTradable);
   const goodCallOutcomes = opts.goodCallOutcomes || [];
-  const w7 = windowBlock(outcomes, nowMs - 7 * DAY, goodCallOutcomes);
-  const w30 = windowBlock(outcomes, nowMs - 30 * DAY, goodCallOutcomes);
+  const epochs = opts.epochs || null;
+  const flagEpochMs = epochs && epochs.flag ? Date.parse(epochs.flag.epochIso) : NaN;
+  const epochGoodCallOutcomes = Number.isFinite(flagEpochMs)
+    ? goodCallOutcomes.filter((r) => r && Number.isFinite(Date.parse(r.calledAt)) && Date.parse(r.calledAt) >= flagEpochMs)
+    : goodCallOutcomes;
+  const w7 = windowBlock(outcomes, nowMs - 7 * DAY, epochGoodCallOutcomes);
+  const w30 = windowBlock(outcomes, nowMs - 30 * DAY, epochGoodCallOutcomes);
   const goodCallLogSince = (() => {
     const days = goodCallOutcomes
       .filter((r) => r && Array.isArray(r.sources) && r.sources.includes('alert-1m') && r.calledAt)
@@ -617,15 +735,40 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
           startedAt: new Date(opts.phaseStartMs).toISOString(),
           tradable: statsFor((goodCallOutcomes.length ? goodCallOutcomes : tradable).filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs))
         }
+      : null,
+    // T-21 (docs/PROMPT_T21_STRATEGY_SCOREBOARD.md): null unless `opts.epochs` is given.
+    epochs,
+    scoreboard: epochs
+      ? computeScoreboard(epochs, {
+          goodCallOutcomes, retestCallOutcomes: opts.retestCallOutcomes || [], htfCallOutcomes: opts.htfCallOutcomes || [],
+          spotLedger: opts.spotLedger || null, spotFlips: opts.spotFlips || [], wallet: opts.wallet || [], journal: opts.journal || []
+        }, nowMs)
+      : null,
+    archive: Number.isFinite(flagEpochMs)
+      ? {
+          windows: { '7d': windowBlock(outcomes, nowMs - 7 * DAY, goodCallOutcomes), '30d': windowBlock(outcomes, nowMs - 30 * DAY, goodCallOutcomes) },
+          preEpochGoodCalls: goodCallOutcomes
+            .filter((r) => r && r.calledAt && Date.parse(r.calledAt) < flagEpochMs)
+            .sort((a, b) => Date.parse(b.calledAt) - Date.parse(a.calledAt))
+        }
       : null
   };
 }
 
 export function aggregateDataDir(dataDir, nowMs = Date.now(), opts = {}) {
-  const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs,
+  const captureRows = readAllCalls(dataDir);
+  const epochs = opts.epochs || deriveEpochsFrom({
+    captureRows,
+    alertRows: readTelegramAlerts(dataDir),
+    spotMeta: readJson(path.join(spotDir(dataDir), 'meta.json'), null)
+  });
+  const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), captureRows, readCandles(dataDir, '1m'), nowMs,
     {
       alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), goodCallOutcomes: readJsonl(goodCallOutcomesFile(dataDir)),
-      retestCallOutcomes: readJsonl(retestCallOutcomesFile(dataDir)), htfCallOutcomes: readJsonl(htfCallOutcomesFile(dataDir)), ...opts
+      retestCallOutcomes: readJsonl(retestCallOutcomesFile(dataDir)), htfCallOutcomes: readJsonl(htfCallOutcomesFile(dataDir)),
+      epochs, spotLedger: readJson(path.join(spotDir(dataDir), 'ledger.json'), null), spotFlips: readJsonl(path.join(spotDir(dataDir), 'flips.jsonl')),
+      wallet: readWallet(dataDir), journal: readJournal(dataDir),
+      ...opts
     });
   writeJson(aggregatesFile(dataDir), agg);
   return agg;
@@ -635,6 +778,8 @@ function main() {
   const opts = parseArgs();
   const nowMs = typeof opts.now === 'string' ? Date.parse(opts.now) : Date.now();
   const agg = aggregateDataDir(opts.data, nowMs);
+  const fallbacks = Object.entries(agg.epochs || {}).filter(([, e]) => e.source === 'constant').map(([k]) => k);
+  if (fallbacks.length) console.log(`[tracker:aggregate] epoch fallback used for: ${fallbacks.join(', ')}`);
   console.log(`[tracker:aggregate] ${agg.totals.outcomes} outcome row(s), ${agg.captures.captures} capture row(s) -> ${aggregatesFile(opts.data)}`);
 }
 

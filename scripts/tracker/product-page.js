@@ -313,7 +313,8 @@ const CALL_SCORING = [
   ['Fill window', '', 'A call has 15 candles (~15 minutes) from its close to fill; if it never triggers in that window it scores not_filled.'],
   ['Resolution window', '', 'Once filled, a call has 24 hours to hit TP1 or its stop; still open after that scores expired.'],
   ['Net R', '', 'Gross R (price only) minus the round-trip cost for that call’s direction (0.34% long / 0.14% short). Shown wherever a call is scored.'],
-  ['"Scored"', '', 'A ready plan that actually reached TP1 or its stop on the candles that followed — the only calls counted into win rate and expectancy.']
+  ['"Scored"', '', 'A ready plan that actually reached TP1 or its stop on the candles that followed — the only calls counted into win rate and expectancy.'],
+  ['Strategy epochs & archive', '', 'Each card on index.html’s scoreboard counts from the date its own strategy went live in its current form (the flag engine from the net-floor deploy, HTF entries from their own deploy, spot and the live wallet from their own start), not from when the tracker began capturing. Nothing is deleted — everything from before those dates stays on the page in the collapsed "Archive" section at the bottom.']
 ];
 
 const CURVE_CONSTRUCTION = [
