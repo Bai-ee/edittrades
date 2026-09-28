@@ -20,3 +20,20 @@ Worktree off `origin/upgrade-signal-engine` (`../snapshot_tradingview-htf`, bran
 
 ## Hard rules
 No change under `lib/execution/` beyond the trail write-back hook (and none to gates, caps, PIN, kill). Stage by name; commit per deliverable; do not push; do not deploy. Handback: commits, test counts, the payload bytes, the replay table, and the exact card texts.
+
+## Addendum (owner, 2026-09-27): every signal comes with a picture and a "what to do" caption
+Each HTF card (DIRECTION, ENTRY, EXIT · structure, EXIT · time) is sent as a photo: the T-16 trade chart (entry/stop/TP1/NF line, EMAs, RSI panel; for DIRECTION draw the 1h swing stop and 1h target as the planned levels with no entry marker) with a caption that tells the owner what to do, in this fixed shape (≤ 1000 chars, plain words):
+```
+🧭 DIRECTION · SOL ▲ LONG (4h+1D stacks agree since 09-27 14:00z)
+WHAT TO DO: nothing yet. Longs only on SOL until this flips. Stop would be the 1h swing low 118.90 (1.6 %), target 125.40 (3.4R). Tap Track to get the entry when a 1m/5m flag fires.
+```
+```
+⚡ ENTRY · SOL ▲ LONG · 5m flag @ 121.05
+Stop 118.90 (1h swing, 1.6 %) · TP1 125.40 · 2.9R gross / 2.5R net · tier A · risk $5.20 (1 %)
+WHAT TO DO: tap Open @ plan, reply /confirm <id> <PIN>. Expect hours, not minutes. The bot trails the stop after +1R. Stand down if the 1h closes below 118.90 first.
+```
+```
+🚪 EXIT · SOL LONG · structure
+1h closed below the swing that held the stop (118.90). WHAT TO DO: close now with Close on /positions (or let the on-chain stop take it). Log it; the tracker scores the exit at this close.
+```
+Time exits say "72 h reached; close or move the stop to breakeven with SL→BE". Cards for a trade the owner did NOT take say "WHAT TO DO: nothing; you did not take this one" (the bot knows from the journal / tracked entry `took`). Add a test per card that the caption starts with the right header and contains "WHAT TO DO".
