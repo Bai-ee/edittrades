@@ -367,6 +367,19 @@ async function run() {
     assertEqual(tradeLegendText(tspec.trade), 'R 1:2.9 gross · 1:0.9 net', 'legend');
   });
 
+  await test('T-20 hideEntryMarker: normalizeTradeOverlay carries the flag; overlays() skips only the entry level, stop/TP1/bands unchanged', () => {
+    const n = normalizeTradeOverlay({ direction: 'long', entry: 101, stop: 100.2, tp1: 103.3, hideEntryMarker: true });
+    assertEqual(n.hideEntryMarker, true);
+    assertEqual(normalizeTradeOverlay({ direction: 'long', entry: 101, stop: 100.2, tp1: 103.3 }).hideEntryMarker, false, 'absent -> false, existing callers unaffected');
+    const hiddenSpec = buildChartSpec(synthetic, { symbol: 'BTC', timeframe: '1h', tradeOverlay: { direction: 'long', entry: 101, stop: 100.2, tp1: 103.3, hideEntryMarker: true } }, series);
+    const { bands: hb, levels: hl } = chartOverlays(hiddenSpec);
+    assert(!hl.some((l) => l.label === 'entry'), 'no entry level line when hideEntryMarker is set');
+    assert(hl.some((l) => l.label === 'stop') && hl.some((l) => l.label === 'TP1'), 'stop/TP1 still drawn');
+    assert(hb.find((b) => b.trade === 'risk') && hb.find((b) => b.trade === 'reward'), 'risk/reward bands still drawn');
+    const { levels: shownLevels } = chartOverlays(tspec);
+    assert(shownLevels.some((l) => l.label === 'entry'), 'sanity: the normal (non-hidden) trade chart still draws entry');
+  });
+
   await test('trade pixels: bands on their rows, stop and TP1 lines in colour, NF stop dashed, levels forced into range', () => {
     const x = gapX(tlayout, 5);
     assertEqual(pixelHex(tbmp, x, tlayout.yOf(100.6)), CHART_COLORS.riskBand, 'risk band between entry and stop');
