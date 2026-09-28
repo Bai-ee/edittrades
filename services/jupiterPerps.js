@@ -113,6 +113,10 @@ const TRADED = Object.freeze(['BTC', 'ETH', 'SOL']);
 const isPosNum = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const n6 = (v) => Number(v) / USD_DECIMALS;
 const r2 = (v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null);
+// Hourly borrow rate (see resolveBorrowRate below, live-borrow WP6): simple APR<->hourly
+// convention, no leap adjustment -- same convention used by the WP6 research script this
+// model was verified against (docs/research/harness/WP6_JUPITER_BORROW.md, snapshot_tradingview-edge-sma200).
+const HOURS_PER_YEAR = 24 * 365;
 
 /** Default max slippage for market requests: 1% (100 bps). */
 export const DEFAULT_MAX_SLIPPAGE_BPS = 100;
@@ -419,6 +423,132 @@ function estimateLiquidationPrice(entryPrice, leverage, direction, maintenanceMa
   return r2(direction === 'long' ? entryPrice * (1 - liqDist) : entryPrice * (1 + liqDist));
 }
 
+// ------------------------------------------------------------ borrow rate (live-borrow WP6)
+//
+// FundingRateState.hourlyFundingDbps (the field getPerpQuote used to read for its borrow-rate
+// field) is dead: it reads 0 on every mainnet custody as of 2026-09-27, because Jupiter moved
+// the real cost onto Custody.jumpRateState, a two-slope ("jump rate") utilization curve that
+// developers.jup.ag does not document. Verified live 2026-09-27 three ways (decoded
+// jumpRateState+utilization, perps-api.jup.ag/v1/pool-info, realized on-chain
+// cumulativeInterestRate accrual): the curve matches the live long-side API rate within ~2%
+// for SOL/ETH/BTC, but under-reads the stable-custody short-side rate by ~4x. See
+// docs/research/harness/WP6_JUPITER_BORROW.md (snapshot_tradingview-edge-sma200) for the full
+// method and numbers.
+
+/**
+ * Two-slope "jump rate" utilization curve (Compound-style): linear from minRate at 0%
+ * utilization to targetRate at targetUtilization, then a steeper linear leg from targetRate
+ * to maxRate as utilization runs from targetUtilization to 100%. All rate args and the
+ * return value are APR percent (e.g. 35 = 35%/year), `utilizationPct` is 0-100. Pure.
+ */
+export function jumpRateAprPctAt(utilizationPct, jumpRate) {
+  const { minRateAprPct, maxRateAprPct, targetRateAprPct, targetUtilizationPct } = jumpRate;
+  if (!(targetUtilizationPct > 0) || !(targetUtilizationPct < 100)) return targetRateAprPct;
+  if (utilizationPct <= targetUtilizationPct) {
+    return minRateAprPct + ((targetRateAprPct - minRateAprPct) * utilizationPct) / targetUtilizationPct;
+  }
+  const over = (utilizationPct - targetUtilizationPct) / (100 - targetUtilizationPct);
+  return targetRateAprPct + (maxRateAprPct - targetRateAprPct) * over;
+}
+
+/**
+ * On-chain jump-rate borrow estimate for one decoded custody account: reads
+ * `jumpRateState.{minRateBps,maxRateBps,targetRateBps,targetUtilizationRate}` (APR bps /
+ * 1e9-scale utilization fraction -- undocumented, inferred and verified against the live API,
+ * see WP6 doc) and `assets.{owned,locked}` for current utilization. Returns
+ * `{aprPct, hourlyFraction, utilizationPct}` with every field `null` when the custody has no
+ * jumpRateState/assets, or when jumpRateState is all-zero (not configured on this custody --
+ * reporting a 0% rate from an unconfigured curve would repeat the original bug). Pure.
+ */
+export function onchainBorrowRateFromCustody(custodyData) {
+  const c = custodyData || {};
+  const jrs = c.jumpRateState;
+  const assets = c.assets;
+  const unavailable = { aprPct: null, hourlyFraction: null, utilizationPct: null, reason: null };
+  if (!jrs || !assets) return { ...unavailable, reason: 'missing_jump_rate_state_or_assets' };
+  const minRateAprPct = Number(jrs.minRateBps) / 100;
+  const maxRateAprPct = Number(jrs.maxRateBps) / 100;
+  const targetRateAprPct = Number(jrs.targetRateBps) / 100;
+  const targetUtilizationPct = Number(jrs.targetUtilizationRate) / 1e7;
+  if (minRateAprPct === 0 && maxRateAprPct === 0 && targetRateAprPct === 0 && targetUtilizationPct === 0) {
+    return { ...unavailable, reason: 'jump_rate_state_not_configured' };
+  }
+  const owned = Number(assets.owned);
+  const locked = Number(assets.locked);
+  const utilizationPct = owned > 0 ? (locked / owned) * 100 : 0;
+  const aprPct = jumpRateAprPctAt(utilizationPct, { minRateAprPct, maxRateAprPct, targetRateAprPct, targetUtilizationPct });
+  const hourlyFraction = aprPct / 100 / HOURS_PER_YEAR;
+  return { aprPct, hourlyFraction, utilizationPct, reason: null };
+}
+
+/** Legacy `fundingRateState.hourlyFundingDbps` as an hourly fraction, or `null` if absent/0 (dead on every custody today; kept as a last-resort fallback only). */
+function legacyHourlyFundingDbps(custodyData) {
+  const frs = custodyData && custodyData.fundingRateState;
+  if (!frs) return null;
+  const raw = Number(frs.hourlyFundingDbps);
+  if (!Number.isFinite(raw) || raw === 0) return null;
+  return raw / 1_000_000;
+}
+
+const BORROW_RATE_API_URL = 'https://perps-api.jup.ag/v1/pool-info';
+const BORROW_RATE_API_TIMEOUT_MS = 1200;
+
+/** perps-api.jup.ag pool-info `shortBorrowRatePercent` (percent/hour) for `symbol`'s market, or `null` on any failure/timeout/malformed response. Never throws. */
+async function fetchShortBorrowRatePercent(symbol, { fetchImpl = globalThis.fetch, timeoutMs = BORROW_RATE_API_TIMEOUT_MS } = {}) {
+  const mint = PERP_MINTS[symbol];
+  if (!mint || typeof fetchImpl !== 'function') return null;
+  try {
+    const res = await fetchImpl(`${BORROW_RATE_API_URL}?mint=${mint}`, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res || !res.ok) return null;
+    const body = await res.json();
+    const pct = Number(body && body.shortBorrowRatePercent);
+    return Number.isFinite(pct) ? pct : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hourly borrow rate for the custody a position is actually collateralized against: the
+ * traded asset's own custody for a long, the stable custody (USDC/USDT) for a short (per
+ * `resolveTradeCustodies`'s `collateralCustody`).
+ *
+ * Long: the on-chain jump-rate curve (`onchainBorrowRateFromCustody`) matches
+ * perps-api.jup.ag pool-info's `longBorrowRatePercent` within ~2% (verified live 2026-09-27,
+ * SOL/ETH/BTC) -- source `'onchain'`, no external call needed.
+ *
+ * Short: the same curve under-reads pool-info's `shortBorrowRatePercent` by ~4x (verified
+ * same date) -- the stable-custody rate isn't fully captured by minRate/maxRate/target alone.
+ * Shorts therefore prefer a short-timeout read of the live API (source `'api'`) and fall back
+ * to the on-chain model on API failure/timeout (source `'model'`, flagged via `reason` since
+ * it's known to under-read).
+ *
+ * The legacy `fundingRateState.hourlyFundingDbps` scalar (reads 0 on every custody today) is
+ * only used as a last-resort fallback below both of the above. An unavailable read is reported
+ * as `{hourlyFraction: null, source: 'unavailable', reason}` -- never coerced to 0.
+ * @returns {Promise<{hourlyFraction:number|null, aprPct:number|null, source:'onchain'|'api'|'model'|'unavailable', reason:string|null}>}
+ */
+export async function resolveBorrowRate({ direction, symbol, collateralCustodyData, fetchImpl, timeoutMs, skipApi = false } = {}) {
+  const onchain = onchainBorrowRateFromCustody(collateralCustodyData);
+  const legacy = legacyHourlyFundingDbps(collateralCustodyData);
+
+  if (direction === 'long') {
+    if (onchain.hourlyFraction !== null) return { hourlyFraction: onchain.hourlyFraction, aprPct: onchain.aprPct, source: 'onchain', reason: null };
+    if (legacy !== null) return { hourlyFraction: legacy, aprPct: legacy * 100 * HOURS_PER_YEAR, source: 'onchain', reason: 'legacy_hourly_funding_dbps' };
+    return { hourlyFraction: null, aprPct: null, source: 'unavailable', reason: onchain.reason || 'no_borrow_rate_data_on_custody' };
+  }
+
+  if (!skipApi) {
+    const apiPct = await fetchShortBorrowRatePercent(symbol, { fetchImpl, timeoutMs });
+    if (apiPct !== null) return { hourlyFraction: apiPct / 100, aprPct: apiPct * HOURS_PER_YEAR, source: 'api', reason: null };
+  }
+  if (onchain.hourlyFraction !== null) {
+    return { hourlyFraction: onchain.hourlyFraction, aprPct: onchain.aprPct, source: 'model', reason: 'perps_api_unavailable_onchain_curve_underreads_short_side' };
+  }
+  if (legacy !== null) return { hourlyFraction: legacy, aprPct: legacy * 100 * HOURS_PER_YEAR, source: 'model', reason: 'perps_api_unavailable_legacy_field' };
+  return { hourlyFraction: null, aprPct: null, source: 'unavailable', reason: 'perps_api_and_onchain_model_both_unavailable' };
+}
+
 /**
  * Get a real perpetual quote: fees (open/close bps) and price impact from the on-chain
  * custody account, and an estimated liquidation price when a mark price is supplied.
@@ -438,7 +568,7 @@ export async function getPerpQuote(market, direction, size, leverage = 1, opts =
   const symbol = symbolFromMarket(market);
   if (!symbol) throw new Error(`Unsupported market: ${market}`);
 
-  const { custody, custodyAddress, collateralCustodyAddress } = await resolveTradeCustodies(rpcClient, symbol, direction, opts);
+  const { custody, custodyAddress, collateralCustodyAddress, collateralCustody } = await resolveTradeCustodies(rpcClient, symbol, direction, opts);
   const c = custody.data;
   const openFeeBps = Number(c.increasePositionBps);
   const closeFeeBps = Number(c.decreasePositionBps);
@@ -448,8 +578,18 @@ export async function getPerpQuote(market, direction, size, leverage = 1, opts =
   // best-effort estimate, not a placeholder constant.
   const priceImpactBps = buf ? Math.min(Number(buf.maxFeeBps), (size * Number(buf.feeFactor)) / 1e10) : 0;
   const estimatedFees = r2((size * openFeeBps) / 10_000 + (size * priceImpactBps) / 10_000);
-  // FundingRateState.hourlyFundingDbps is deci-bps (1 dbps = 1e-5 as a fraction).
-  const fundingRatePerHour = c.fundingRateState ? Number(c.fundingRateState.hourlyFundingDbps) / 1_000_000 : null;
+  // Borrow rate off the collateral custody (the asset actually being borrowed against): the
+  // traded asset's own custody for a long, the stable custody (USDC/USDT) for a short. See
+  // resolveBorrowRate for source preference (onchain|api|model) and WP6 doc for verification.
+  const borrow = await resolveBorrowRate({
+    direction,
+    symbol,
+    collateralCustodyData: collateralCustody.data,
+    fetchImpl: opts.borrowRateFetchImpl,
+    timeoutMs: opts.borrowRateTimeoutMs,
+    skipApi: opts.skipBorrowRateApi,
+  });
+  const fundingRatePerHour = borrow.hourlyFraction;
   const markPrice = isPosNum(opts.markPrice) ? opts.markPrice : null;
   const liquidationPrice = markPrice ? estimateLiquidationPrice(markPrice, leverage, direction, opts.maintenanceMarginPct ?? 0.3) : null;
 
@@ -464,7 +604,11 @@ export async function getPerpQuote(market, direction, size, leverage = 1, opts =
     closeFeeBps,
     priceImpactBps: r2(priceImpactBps),
     fundingRatePerHour,
-    fundingRate: fundingRatePerHour, // legacy alias
+    fundingRate: fundingRatePerHour, // legacy alias (both now real, not always 0 -- see resolveBorrowRate)
+    borrowRatePerHour: fundingRatePerHour,
+    borrowRateAprPct: borrow.aprPct,
+    borrowRateSource: borrow.source, // 'onchain' | 'api' | 'model' | 'unavailable'
+    borrowRateReason: borrow.reason, // populated when source is 'model' or 'unavailable'
     markPrice,
     expectedFillPrice: markPrice,
     liquidationPrice,

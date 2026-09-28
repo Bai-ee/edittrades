@@ -34,6 +34,9 @@ import {
   openPerpPosition,
   closePerpPosition,
   getPerpQuote,
+  jumpRateAprPctAt,
+  onchainBorrowRateFromCustody,
+  resolveBorrowRate,
   checkCustodyCapacity,
   getPerpMarkets,
   slippagePriceUsd6,
@@ -102,7 +105,7 @@ const FAKE_BLOCKHASH = bs58.encode(Buffer.alloc(32, 7));
 const { CREATE_INCREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR, CREATE_DECREASE_POSITION_REQUEST2_DISCRIMINATOR, CREATE_DECREASE_POSITION_MARKET_REQUEST_DISCRIMINATOR } = jupPerpsClient;
 const hasDiscriminator = (ix, disc) => ix.data && ix.data.length >= 8 && Buffer.from(ix.data.slice(0, 8)).equals(Buffer.from(disc));
 const optionValue = (opt) => (opt && opt.__option === 'Some' ? opt.value : null);
-function encCustody({ mint, decimals = 6, isStable = false, maxPositionSizeUsd = 5_000_000_000_000n, owned = 10_000_000_000_000n, locked = 0n, guaranteedUsd = 1_000_000_000_000n, maxGlobalLongSizes = 0n, maxGlobalShortSizes = 0n, globalShortSizes = 0n }) {
+function encCustody({ mint, decimals = 6, isStable = false, maxPositionSizeUsd = 5_000_000_000_000n, owned = 10_000_000_000_000n, locked = 0n, guaranteedUsd = 1_000_000_000_000n, maxGlobalLongSizes = 0n, maxGlobalShortSizes = 0n, globalShortSizes = 0n, jumpRateState = { minRateBps: 0n, maxRateBps: 0n, targetRateBps: 0n, targetUtilizationRate: 0n }, hourlyFundingDbps = 100n }) {
   return jupPerpsClient.getCustodyEncoder().encode({
     pool: POOL, mint, tokenAccount: mint, decimals, isStable,
     oracle: { oracleAccount: ORACLE_PLACEHOLDER, oracleType: 2, maxPriceError: 0n, maxPriceAgeSec: 600 },
@@ -110,13 +113,25 @@ function encCustody({ mint, decimals = 6, isStable = false, maxPositionSizeUsd =
     permissions: { allowSwap: true, allowAddLiquidity: true, allowRemoveLiquidity: true, allowIncreasePosition: true, allowDecreasePosition: true, allowCollateralWithdrawal: true, allowLiquidatePosition: true },
     targetRatioBps: 0n,
     assets: { feesReserves: 0n, owned, locked, guaranteedUsd, globalShortSizes, globalShortAveragePrices: 0n },
-    fundingRateState: { cumulativeInterestRate: 0n, lastUpdate: 0n, hourlyFundingDbps: 100n },
+    fundingRateState: { cumulativeInterestRate: 0n, lastUpdate: 0n, hourlyFundingDbps },
     bump: 255, tokenAccountBump: 255, increasePositionBps: 10n, decreasePositionBps: 10n, maxPositionSizeUsd,
     dovesOracle: ORACLE_PLACEHOLDER,
-    jumpRateState: { minRateBps: 0n, maxRateBps: 0n, targetRateBps: 0n, targetUtilizationRate: 0n },
+    jumpRateState,
     dovesAgOracle: ORACLE_PLACEHOLDER,
     priceImpactBuffer: { openInterest: new Array(60).fill(0n), lastUpdated: 0n, feeFactor: 0n, exponent: 0, deltaImbalanceThresholdDecimal: 0n, maxFeeBps: 100n },
   });
+}
+
+// live-borrow WP6: a configured jumpRateState mirroring live SOL params (docs/research/harness/
+// WP6_JUPITER_BORROW.md) -- 10% min / 35% target @ 80% util / 150% max -- plus a stable-side
+// curve (0% min / 8.5% target @ 90% util / 15% max) mirroring live USDC. Both undocumented on
+// developers.jup.ag; field names/scale per services/jupiterPerps.js (read-only reference).
+const SOL_JUMP_RATE = { minRateBps: 1000n, maxRateBps: 15000n, targetRateBps: 3500n, targetUtilizationRate: 800_000_000n };
+const USDC_JUMP_RATE = { minRateBps: 0n, maxRateBps: 1500n, targetRateBps: 850n, targetUtilizationRate: 900_000_000n };
+/** Custody with a configured curve + given utilization, decoded back through the real IDL decoder (fixture-based decode, not a hand-built object). */
+function decodedCustodyWithCurve({ mint, decimals, isStable = false, jumpRateState, owned, locked, hourlyFundingDbps = 0n }) {
+  const bytes = encCustody({ mint, decimals, isStable, owned, locked, jumpRateState, hourlyFundingDbps });
+  return jupPerpsClient.getCustodyDecoder().decode(bytes);
 }
 
 const CUSTODY_BYTES = {
@@ -711,7 +726,9 @@ async function main() {
 
     const withMark = await getPerpQuote('BTCUSDT', 'long', 1000, 5, { connection: rpc, markPrice: 90000 });
     eq(withMark.liquidationPrice, 72270, 'liq = 90000 * (1 - (1/5 - 0.003))');
-    const short = await getPerpQuote('BTCUSDT', 'short', 1000, 5, { connection: rpc, markPrice: 90000 });
+    // skipBorrowRateApi: this fixture doesn't care about the borrow rate and must not hit
+    // the live perps-api.jup.ag network from a test (see the dedicated borrow-rate suite below).
+    const short = await getPerpQuote('BTCUSDT', 'short', 1000, 5, { connection: rpc, markPrice: 90000, skipBorrowRateApi: true });
     eq(short.liquidationPrice, 107730, 'short liq = 90000 * (1 + (1/5 - 0.003))');
   });
 
@@ -755,6 +772,136 @@ async function main() {
     eq(Object.keys(markets).sort().join(','), 'BTCUSDT,ETHUSDT,SOLUSDT', 'all three markets resolved');
     eq(markets.BTCUSDT.custodyAddress, C.BTC, 'BTC custody by mint');
     eq(markets.BTCUSDT.tokenMint, PERP_MINTS.BTC, 'BTC mint');
+  });
+
+  console.log('\nborrow rate: jumpRateState+utilization model, source preference, never 0 for unavailable (live-borrow WP6)');
+
+  await test('jumpRateAprPctAt: linear below target, linear (steeper) above target, flat at the degenerate 0/100 target', () => {
+    const curve = { minRateAprPct: 10, maxRateAprPct: 150, targetRateAprPct: 35, targetUtilizationPct: 80 };
+    eq(jumpRateAprPctAt(0, curve), 10, 'utilization=0 -> minRate');
+    eq(jumpRateAprPctAt(80, curve), 35, 'utilization=target -> targetRate');
+    eq(jumpRateAprPctAt(12, curve), 13.75, 'below target: 10 + (35-10)*12/80');
+    eq(jumpRateAprPctAt(100, curve), 150, 'utilization=100 -> maxRate');
+    eq(jumpRateAprPctAt(90, curve), 92.5, 'above target: 35 + (150-35)*10/20');
+    eq(jumpRateAprPctAt(50, { minRateAprPct: 1, maxRateAprPct: 2, targetRateAprPct: 9, targetUtilizationPct: 0 }), 9, 'degenerate targetUtilizationPct=0 -> flat targetRate');
+  });
+
+  await test('onchainBorrowRateFromCustody: fixture-decoded custody with a configured curve -> aprPct/hourlyFraction/utilizationPct match the jump-rate formula', () => {
+    // 1e12 owned / 1.2e11 locked = 12% utilization, mirrors live SOL params (WP6 doc).
+    const sol = decodedCustodyWithCurve({ mint: PERP_MINTS.SOL, decimals: 9, jumpRateState: SOL_JUMP_RATE, owned: 1_000_000_000_000n, locked: 120_000_000_000n });
+    const r = onchainBorrowRateFromCustody(sol);
+    eq(r.utilizationPct, 12, 'utilization = locked/owned');
+    eq(r.aprPct, 13.75, 'aprPct = 10 + (35-10)*12/80 (below target)');
+    assert(Math.abs(r.hourlyFraction - 13.75 / 100 / (24 * 365)) < 1e-12, 'hourlyFraction = aprPct/100/hoursPerYear');
+    eq(r.reason, null, 'no reason when the curve is configured');
+  });
+
+  await test('onchainBorrowRateFromCustody: an all-zero (unconfigured) jumpRateState reports unavailable, never a fabricated 0% rate', () => {
+    const zeroCurve = decodedCustodyWithCurve({ mint: PERP_MINTS.BTC, decimals: 8, jumpRateState: { minRateBps: 0n, maxRateBps: 0n, targetRateBps: 0n, targetUtilizationRate: 0n }, owned: 1_000_000n, locked: 100_000n });
+    const r = onchainBorrowRateFromCustody(zeroCurve);
+    eq(r.aprPct, null, 'aprPct null, not 0');
+    eq(r.hourlyFraction, null, 'hourlyFraction null, not 0');
+    eq(r.reason, 'jump_rate_state_not_configured', 'reason explains why');
+  });
+
+  await test('onchainBorrowRateFromCustody: missing jumpRateState/assets reports unavailable with a distinct reason', () => {
+    eq(onchainBorrowRateFromCustody(null).reason, 'missing_jump_rate_state_or_assets', 'null custody');
+    eq(onchainBorrowRateFromCustody({ jumpRateState: null, assets: {} }).reason, 'missing_jump_rate_state_or_assets', 'no jumpRateState');
+    eq(onchainBorrowRateFromCustody({ jumpRateState: {}, assets: null }).reason, 'missing_jump_rate_state_or_assets', 'no assets');
+  });
+
+  await test('resolveBorrowRate: long with a configured curve -> source onchain, matches the jump-rate model', async () => {
+    const sol = decodedCustodyWithCurve({ mint: PERP_MINTS.SOL, decimals: 9, jumpRateState: SOL_JUMP_RATE, owned: 1_000_000_000_000n, locked: 120_000_000_000n });
+    const r = await resolveBorrowRate({ direction: 'long', symbol: 'SOL', collateralCustodyData: sol, skipApi: true });
+    eq(r.source, 'onchain', 'onchain source for a configured long curve');
+    eq(r.reason, null, 'no reason');
+    assert(r.hourlyFraction > 0, 'positive hourly fraction, not 0');
+    eq(r.aprPct, 13.75, 'aprPct matches the model');
+  });
+
+  await test('resolveBorrowRate: long with no curve but a nonzero legacy hourlyFundingDbps -> falls back to it (source onchain, flagged)', async () => {
+    const legacyOnly = decodedCustodyWithCurve({ mint: PERP_MINTS.BTC, decimals: 8, jumpRateState: { minRateBps: 0n, maxRateBps: 0n, targetRateBps: 0n, targetUtilizationRate: 0n }, owned: 1_000_000n, locked: 100_000n, hourlyFundingDbps: 500n });
+    const r = await resolveBorrowRate({ direction: 'long', symbol: 'BTC', collateralCustodyData: legacyOnly, skipApi: true });
+    eq(r.source, 'onchain', 'legacy field is still an on-chain source');
+    eq(r.reason, 'legacy_hourly_funding_dbps', 'flagged as the legacy fallback');
+    eq(r.hourlyFraction, 500 / 1_000_000, 'legacy conversion: hourlyFundingDbps / 1e6');
+  });
+
+  await test('resolveBorrowRate: long with nothing available -> unavailable with a reason, hourlyFraction null (never 0)', async () => {
+    const nothing = decodedCustodyWithCurve({ mint: PERP_MINTS.ETH, decimals: 8, jumpRateState: { minRateBps: 0n, maxRateBps: 0n, targetRateBps: 0n, targetUtilizationRate: 0n }, owned: 1_000_000n, locked: 100_000n, hourlyFundingDbps: 0n });
+    const r = await resolveBorrowRate({ direction: 'long', symbol: 'ETH', collateralCustodyData: nothing, skipApi: true });
+    eq(r.source, 'unavailable', 'unavailable, not silently 0');
+    eq(r.hourlyFraction, null, 'null, never 0');
+    eq(r.reason, 'jump_rate_state_not_configured', 'reason carried through from the model');
+  });
+
+  await test('resolveBorrowRate: short prefers a live API read (mocked here, no network) over the on-chain curve', async () => {
+    const usdc = decodedCustodyWithCurve({ mint: PERP_MINTS.USDC, decimals: 6, isStable: true, jumpRateState: USDC_JUMP_RATE, owned: 1_000_000_000_000n, locked: 160_000_000_000n });
+    let calledUrl = null;
+    const mockFetch = async (url) => { calledUrl = url; return { ok: true, json: async () => ({ shortBorrowRatePercent: '0.0006' }) }; };
+    const r = await resolveBorrowRate({ direction: 'short', symbol: 'SOL', collateralCustodyData: usdc, fetchImpl: mockFetch });
+    eq(r.source, 'api', 'api preferred for shorts');
+    eq(r.reason, null, 'no reason on a clean api read');
+    eq(r.hourlyFraction, 0.0006 / 100, 'hourlyFraction = apiPercent / 100');
+    assert(typeof calledUrl === 'string' && calledUrl.includes(PERP_MINTS.SOL), 'queried perps-api by the traded asset mint');
+  });
+
+  await test('resolveBorrowRate: short falls back to the on-chain model (flagged) when the API throws, times out, or returns malformed data -- never silently 0', async () => {
+    const usdc = decodedCustodyWithCurve({ mint: PERP_MINTS.USDC, decimals: 6, isStable: true, jumpRateState: USDC_JUMP_RATE, owned: 1_000_000_000_000n, locked: 160_000_000_000n });
+    for (const badFetch of [
+      async () => { throw new Error('network down'); },
+      async () => ({ ok: false, json: async () => ({}) }),
+      async () => ({ ok: true, json: async () => ({ shortBorrowRatePercent: 'not-a-number' }) }),
+    ]) {
+      const r = await resolveBorrowRate({ direction: 'short', symbol: 'SOL', collateralCustodyData: usdc, fetchImpl: badFetch });
+      eq(r.source, 'model', 'falls back to the on-chain model');
+      eq(r.reason, 'perps_api_unavailable_onchain_curve_underreads_short_side', 'flagged: the curve is known to under-read shorts');
+      assert(r.hourlyFraction > 0, 'a real positive fallback rate, not 0');
+    }
+  });
+
+  await test('resolveBorrowRate: short with skipApi never calls fetchImpl and goes straight to the model', async () => {
+    const usdc = decodedCustodyWithCurve({ mint: PERP_MINTS.USDC, decimals: 6, isStable: true, jumpRateState: USDC_JUMP_RATE, owned: 1_000_000_000_000n, locked: 160_000_000_000n });
+    let called = false;
+    const spyFetch = async () => { called = true; return { ok: true, json: async () => ({ shortBorrowRatePercent: '0.0006' }) }; };
+    const r = await resolveBorrowRate({ direction: 'short', symbol: 'SOL', collateralCustodyData: usdc, fetchImpl: spyFetch, skipApi: true });
+    eq(called, false, 'fetchImpl never invoked when skipApi is set');
+    eq(r.source, 'model', 'model source when the api is skipped');
+  });
+
+  await test('resolveBorrowRate: short with api, curve, and legacy field all unavailable -> unavailable, hourlyFraction null (never 0)', async () => {
+    const nothing = decodedCustodyWithCurve({ mint: PERP_MINTS.USDC, decimals: 6, isStable: true, jumpRateState: { minRateBps: 0n, maxRateBps: 0n, targetRateBps: 0n, targetUtilizationRate: 0n }, owned: 1_000_000n, locked: 0n, hourlyFundingDbps: 0n });
+    const r = await resolveBorrowRate({ direction: 'short', symbol: 'SOL', collateralCustodyData: nothing, fetchImpl: async () => { throw new Error('down'); } });
+    eq(r.source, 'unavailable', 'unavailable, not 0');
+    eq(r.hourlyFraction, null, 'null, never 0');
+  });
+
+  await test('getPerpQuote: long borrow rate comes from the on-chain jump-rate curve on the collateral (= traded asset) custody', async () => {
+    const sol = decodedCustodyWithCurve({ mint: PERP_MINTS.SOL, decimals: 9, jumpRateState: SOL_JUMP_RATE, owned: 1_000_000_000_000n, locked: 120_000_000_000n });
+    const rpc = fakeRpc({ extraAccounts: { [C.SOL]: jupPerpsClient.getCustodyEncoder().encode(sol) } });
+    const q = await getPerpQuote('SOLUSDT', 'long', 1000, 2, { connection: rpc, skipBorrowRateApi: true });
+    eq(q.borrowRateSource, 'onchain', 'onchain source surfaced on the quote');
+    eq(q.borrowRateAprPct, 13.75, 'aprPct surfaced on the quote');
+    assert(q.fundingRatePerHour > 0, 'legacy fundingRatePerHour field now carries the real rate, not 0');
+    eq(q.fundingRate, q.fundingRatePerHour, 'legacy fundingRate alias matches');
+    eq(q.borrowRatePerHour, q.fundingRatePerHour, 'borrowRatePerHour matches the legacy alias');
+  });
+
+  await test('getPerpQuote: short borrow rate prefers a mocked API read; never falls back to a fabricated 0 when everything is unavailable', async () => {
+    const usdcWithCurve = decodedCustodyWithCurve({ mint: PERP_MINTS.USDC, decimals: 6, isStable: true, jumpRateState: USDC_JUMP_RATE, owned: 1_000_000_000_000n, locked: 160_000_000_000n });
+    const rpcApi = fakeRpc({ extraAccounts: { [C.USDC]: jupPerpsClient.getCustodyEncoder().encode(usdcWithCurve) } });
+    const q = await getPerpQuote('SOLUSDT', 'short', 1000, 2, { connection: rpcApi, borrowRateFetchImpl: async () => ({ ok: true, json: async () => ({ shortBorrowRatePercent: '0.0006' }) }) });
+    eq(q.borrowRateSource, 'api', 'api source surfaced on the quote');
+    assert(q.fundingRatePerHour > 0, 'real positive rate from the mocked api');
+
+    // Everything unavailable on this custody (no curve, no legacy field) + a failing api call.
+    const usdcNoData = decodedCustodyWithCurve({ mint: PERP_MINTS.USDC, decimals: 6, isStable: true, jumpRateState: { minRateBps: 0n, maxRateBps: 0n, targetRateBps: 0n, targetUtilizationRate: 0n }, owned: 1_000_000n, locked: 0n, hourlyFundingDbps: 0n });
+    const rpcUnavailable = fakeRpc({ extraAccounts: { [C.USDC]: jupPerpsClient.getCustodyEncoder().encode(usdcNoData) } });
+    const qUnavailable = await getPerpQuote('SOLUSDT', 'short', 1000, 2, { connection: rpcUnavailable, borrowRateFetchImpl: async () => { throw new Error('down'); } });
+    eq(qUnavailable.borrowRateSource, 'unavailable', 'reported as unavailable');
+    eq(qUnavailable.fundingRatePerHour, null, 'null, never 0 -- the original bug this WP fixes');
+    eq(qUnavailable.fundingRate, null, 'legacy alias also null, never 0');
+    eq(qUnavailable.borrowRatePerHour, null, 'borrowRatePerHour also null');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
