@@ -1,5 +1,5 @@
 {
-  "configVersion": "2026.09.27-2",
+  "configVersion": "2026.09.27-3",
 
   "scalp": {
     "maxStopDistancePct": 3.0,
@@ -183,6 +183,18 @@
     "entryToleranceAtr": 0.1,
     "minNetRR": null,
     "stopFloor": { "atrMult": 0.5, "costMult": 3, "minNetRR": 1.0 }
+  },
+
+  "htfEntry": {
+    "emaFast": 21,
+    "emaSlow": 200,
+    "stopBufferAtr": 0.1,
+    "stopFloor": { "atrMult": 0.5, "costMult": 3 },
+    "minRR": 2.5,
+    "minNetRR": 1.0,
+    "cooldownHours": 4,
+    "holdMaxHours": 72,
+    "triggerTimeframes": ["1m", "3m", "5m"]
   },
 
   "mark": {
