@@ -77,6 +77,71 @@
           ],
           "since": "2026-09-23",
           "schemaSince": "1.15.0"
+        },
+        {
+          "path": "lib/retest1hRule.js",
+          "name": "retest1hRule",
+          "role": "The 1h flag-retest entry rule (1D+4h trend gate, retest within 0.25 ATR, NF-floored stop, measured-move TP); one implementation shared by research and the live alert.",
+          "publishes": [
+            "RETEST 1H signal (internal)"
+          ],
+          "consumes": [
+            "1d/4h/1h/15m closed candles"
+          ],
+          "tests": [
+            "test:retest1h"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": null
+        },
+        {
+          "path": "lib/retestShared.js",
+          "name": "retestShared",
+          "role": "Shared helpers for the retest rule family (trend stack, retest print, NF-floored stop, R:R gate).",
+          "publishes": [
+            "retest helpers (internal)"
+          ],
+          "consumes": [
+            "closed candles"
+          ],
+          "tests": [
+            "test:retest1h"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": null
+        },
+        {
+          "path": "lib/retest1hLive.js",
+          "name": "retest1hLive",
+          "role": "Runs the retest-1h rule on live closed candles for the Telegram cron: paper-only RETEST 1H alerts, EXIT SIGNAL alerts, trail exemption linkage.",
+          "publishes": [
+            "RETEST 1H / EXIT SIGNAL alerts (paper)"
+          ],
+          "consumes": [
+            "live candles via services/marketData.js"
+          ],
+          "tests": [
+            "test:retest1h",
+            "test:telegram"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": null
+        },
+        {
+          "path": "lib/slowTrendSpot.js",
+          "name": "slowTrendSpot",
+          "role": "Daily SMA140 spot regime per symbol; alerts only when the regime flips (stand-in for the research 4h SMA840 rule).",
+          "publishes": [
+            "SLOW TREND alerts"
+          ],
+          "consumes": [
+            "daily closed candles"
+          ],
+          "tests": [
+            "test:telegram"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": null
         }
       ]
     },
@@ -1263,7 +1328,7 @@
         {
           "path": "scripts/tracker/strategies-page.js",
           "name": "strategies-page",
-          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) \u2014 split from risk-page.js at merge, same slot originally contested.",
+          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) — split from risk-page.js at merge, same slot originally contested.",
           "publishes": [
             "strategies.html"
           ],
@@ -1992,13 +2057,13 @@
       {
         "stage": "market-data",
         "short": "Market",
-        "label": "price \u00b7 mark \u00b7 account",
+        "label": "price · mark · account",
         "tier": "context"
       },
       {
         "stage": "indicators-geometry",
         "short": "Indicators",
-        "label": "timeframes \u00b7 geometry",
+        "label": "timeframes · geometry",
         "tier": "context"
       },
       {
@@ -2010,13 +2075,13 @@
       {
         "stage": "bias-topdown",
         "short": "Bias",
-        "label": "bias \u00b7 top-down",
+        "label": "bias · top-down",
         "tier": "context"
       },
       {
         "stage": "trade-plan",
         "short": "Plan",
-        "label": "plan \u00b7 risk \u00b7 strategies",
+        "label": "plan · risk · strategies",
         "tier": "context"
       },
       {
@@ -2076,7 +2141,7 @@
           "collect",
           "telegram-cron"
         ],
-        "label": "journal \u00b7 served \u00b7 alerts",
+        "label": "journal · served · alerts",
         "tier": "context"
       }
     ],

@@ -485,10 +485,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       await execSend(EXEC_OFF_REPLY, null, { event: 'off' });
     } else if (cmd === 'open') {
       const state = hasStore ? await readState() : null;
-      // T-18 (owner decision 2026-09-27): the retest-1h rule ships info-only/paper (fails
-      // OOS on both halves, matches the random-direction control - docs/RETEST_ENTRY_STUDY_
-      // 2026-09-27.md) until 30 live signals clear the promotion rule in
-      // docs/OWNER_DECISIONS_2026-09-27.md. A retest plan's ref never carries an Open
+      // T-18 (owner decision 2026-09-27): the retest-1h rule ships info-only/paper (mean
+      // +0.27R, median -0.84R, beats matched controls p~0.01-0.05) until >= 30 live signals
+      // clear the promotion rule in docs/OWNER_DECISIONS_2026-09-27.md (mean net R > 0 with
+      // bootstrap 90% lower bound > 0, drawdown within the active profile). A retest plan's ref never carries an Open
       // button (api/telegram-cron.js), but this refuses defense-in-depth too, e.g. a stale
       // button from before this deploy.
       const retestPlan = state && state.retest1h && state.retest1h.plans ? state.retest1h.plans[parsed.ref] : null;
