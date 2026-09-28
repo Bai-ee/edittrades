@@ -4,33 +4,35 @@
  *
  * Covers: rule parity (lib/retest1hLive.js's live evaluation vs the research rule's own
  * signalAt, scripts/swing/rules/re-flag-retest-1h.js, on the SAME fetched candles),
- * once-per-newly-closed-1h-candle evaluation, dedupe per (symbol, signal close time),
- * order sizing (lib/riskEngine.js math, read-only wallet), the structure-exit streak and
- * 7-day cap, the T-15b trail exemption, the slow-trend SMA140 flip-only alert, and the new
- * state.retest1h / state.slowTrend migration fields. The old-flag-alerts-lose-Open and
- * open:<old ref>-refuses coverage lives in test-telegram.js (it already exercises the full
- * webhook/cron pipeline with its existing fixtures); this file focuses on the new modules
- * and the new cron/webhook wiring that is specific to them.
+ * once-per-newly-closed-1h-candle evaluation, dedupe per (symbol, signal close time), the
+ * structure-exit streak and 7-day cap, the T-15b trail exemption, the slow-trend SMA140
+ * flip-only alert, and the new state.retest1h / state.slowTrend migration fields.
+ *
+ * T-18 (owner decision 2026-09-27, docs/RETEST_ENTRY_STUDY_2026-09-27.md): the retest-1h
+ * rule ships info-only/paper - Track + Plan/Thesis, no Open button, and
+ * api/telegram-webhook.js refuses an `open:<ref>` against a stored retest plan. That
+ * coverage lives here (the module this ships in); flag GOOD/SETUP/BREAKOUT Open coverage
+ * (unaffected by T-18 - flags stay tradable) lives in test-telegram.js.
  *
  * Deterministic, zero-network: every candle fetch is an injected fixture
- * (deps.fetchMarketCandles / evaluateRetest1hFull's fetchCandles param), every wallet read
- * is injected (deps.getAccountSnapshot), all HTTP (Bot API, Blob) is an in-memory fake.
+ * (deps.fetchMarketCandles / evaluateRetest1hFull's fetchCandles param), all HTTP (Bot
+ * API, Blob) is an in-memory fake.
  *
  * Run: node test-retest1h-live.js
  */
 
 import crypto from 'crypto';
 import {
-  RETEST1H_KIND, RETEST1H_EXIT_KIND, RETEST1H_SYMBOLS, RETEST1H_CANDIDATE_PREFIX, RETEST1H_EVIDENCE,
+  RETEST1H_KIND, RETEST1H_EXIT_KIND, RETEST1H_SYMBOLS, RETEST1H_CANDIDATE_PREFIX, RETEST1H_EVIDENCE, RETEST1H_RESEARCH_LINE,
   retestCandidateId, isRetest1hCandidateId, positionIdHash, fetchClosedCandles, latestClosed1hCandle,
-  evaluateRetest1hFull, build15mGeometry, retestOrderSizing, nextInsideStreak, retestOpenRecords, retestPositionHashes,
+  evaluateRetest1hFull, build15mGeometry, nextInsideStreak, retestOpenRecords, retestPositionHashes,
   formatRetest1hAlert, formatRetest1hExitAlert, retest1hMeta
 } from './lib/retest1hLive.js';
 import {
   SLOW_TREND_KIND, SLOW_TREND_SMA_PERIOD, sma, evaluateSlowTrendRegime, formatSlowTrendAlert, fetchClosedDailyCandles
 } from './lib/slowTrendSpot.js';
 import {
-  migrateState, emptyState, normalizeRetest1hState, normalizeSlowTrendState, OFFER_OPEN_ON_FLAG_ALERTS, shortRef, TELEGRAM_STATE_PATH,
+  migrateState, emptyState, normalizeRetest1hState, normalizeSlowTrendState, shortRef, TELEGRAM_STATE_PATH,
   openPositions
 } from './lib/telegram.js';
 import { handleTelegramCron } from './api/telegram-cron.js';
@@ -287,7 +289,7 @@ const minimalPayload = () => ({
   warnings: []
 });
 
-async function runCron({ env = BASE_ENV, blob = fakeBlob(), tg = fakeTelegram(), fetchMarketCandles = async () => ({ candles: [] }), getAccountSnapshot, nowMs = Date.now(), build = async () => minimalPayload() } = {}) {
+async function runCron({ env = BASE_ENV, blob = fakeBlob(), tg = fakeTelegram(), fetchMarketCandles = async () => ({ candles: [] }), nowMs = Date.now(), build = async () => minimalPayload() } = {}) {
   const req = { method: 'GET', headers: { authorization: `Bearer ${CRON_SECRET}` } };
   let statusCode = 200;
   let json = null;
@@ -295,14 +297,14 @@ async function runCron({ env = BASE_ENV, blob = fakeBlob(), tg = fakeTelegram(),
   const oldLog = console.log;
   console.log = () => {};
   try {
-    await handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, now: () => nowMs, env, fetchMarketCandles, ...(getAccountSnapshot ? { getAccountSnapshot } : {}) });
+    await handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, now: () => nowMs, env, fetchMarketCandles });
   } finally {
     console.log = oldLog;
   }
   return { statusCode, json, tg, blob };
 }
 
-async function tapOpen({ ref, env = XENV, blob = fakeBlob(), tg = fakeTelegram(), executor, getAccountSnapshot, nowMs = Date.now(), build = async () => minimalPayload() }) {
+async function tapOpen({ ref, env = XENV, blob = fakeBlob(), tg = fakeTelegram(), executor, nowMs = Date.now(), build = async () => minimalPayload() }) {
   const update = { update_id: 1, callback_query: { id: 'cbq1', from: { id: OWNER }, message: { message_id: 9, chat: { id: OWNER, type: 'private' } }, data: `open:${ref}` } };
   const req = { method: 'POST', headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET }, body: JSON.stringify(update) };
   let statusCode = 200;
@@ -310,7 +312,23 @@ async function tapOpen({ ref, env = XENV, blob = fakeBlob(), tg = fakeTelegram()
   const oldLog = console.log;
   console.log = () => {};
   try {
-    await handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, now: () => nowMs, env, executor, ...(getAccountSnapshot ? { getAccountSnapshot } : {}) });
+    await handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, now: () => nowMs, env, executor });
+  } finally {
+    console.log = oldLog;
+  }
+  return { statusCode, tg, blob, lastText: tg.calls.length ? tg.calls[tg.calls.length - 1].text : '', lastMarkup: tg.calls.length ? tg.calls[tg.calls.length - 1].replyMarkup : null };
+}
+
+/** tapOpen but for a non-open callback (track:/plan:/thesis:/log:*) - same webhook plumbing. */
+async function tap({ data, env = XENV, blob = fakeBlob(), tg = fakeTelegram(), executor, nowMs = Date.now(), build = async () => minimalPayload() }) {
+  const update = { update_id: 1, callback_query: { id: 'cbq1', from: { id: OWNER }, message: { message_id: 9, chat: { id: OWNER, type: 'private' } }, data } };
+  const req = { method: 'POST', headers: { 'x-telegram-bot-api-secret-token': WEBHOOK_SECRET }, body: JSON.stringify(update) };
+  let statusCode = 200;
+  const res = { setHeader() {}, status(c) { statusCode = c; return this; }, json() { return this; } };
+  const oldLog = console.log;
+  console.log = () => {};
+  try {
+    await handleTelegramWebhook(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, now: () => nowMs, env, executor });
   } finally {
     console.log = oldLog;
   }
@@ -412,18 +430,6 @@ async function main() {
     void nowMs;
   });
 
-  console.log('\norder sizing (read-only wallet, same math as the flag engine risk block)');
-
-  await test('retestOrderSizing: sized from a fresh wallet read, capped at ~$10 collateral and stop-distance/exchange leverage; null with no wallet or a zero-width stop', async () => {
-    const big = await retestOrderSizing({ entry: 84600, stop: 84390 }, { getAccountSnapshot: async () => ({ margin: { usd: 100_000 } }) });
-    assert(big && big.collateralUsd === 10 && big.suggestedLeverage === 100, JSON.stringify(big));
-    const small = await retestOrderSizing({ entry: 84600, stop: 84390 }, { getAccountSnapshot: async () => ({ margin: { usd: 5 } }) });
-    assert(small && small.collateralUsd === 5, JSON.stringify(small)); // collateral = min(10, wallet)
-    assertEqual(await retestOrderSizing({ entry: 84600, stop: 84390 }, { getAccountSnapshot: async () => ({ margin: { usd: null } }) }), null, 'no wallet -> null');
-    assertEqual(await retestOrderSizing({ entry: 84600, stop: 84390 }, { getAccountSnapshot: async () => { throw new Error('rpc down'); } }), null, 'a failed wallet read is null, never a throw');
-    assertEqual(await retestOrderSizing({ entry: 100, stop: 100 }, { getAccountSnapshot: async () => ({ margin: { usd: 100 } }) }), null, 'zero-width stop -> null');
-  });
-
   console.log('\nstructure-exit streak + journal linkage');
 
   await test('nextInsideStreak: increments while the close is inside the flag range, resets outside, tolerant of a missing holdRule', () => {
@@ -451,10 +457,14 @@ async function main() {
 
   console.log('\nformatters');
 
-  await test('formatRetest1hAlert: RETEST 1H header, levels, gross R, per-symbol evidence note', () => {
+  await test('formatRetest1hAlert: RETEST 1H header, levels, gross R, the T-18 research line (same on every symbol, HTML-escaped)', () => {
     const t = formatRetest1hAlert({ symbol: 'BTC', direction: 'long', entry: 84600, stop: 84390, tp1: 85146 });
-    for (const f of ['RETEST 1H', 'BTC', '▲ LONG', '84,600.00', '84,390.00', '85,146.00', RETEST1H_EVIDENCE.BTC]) assert(t.includes(f), `missing ${f}\n${t}`);
+    // The card HTML-escapes the line (>  becomes &gt;); compare the escaped form, same as escapeHtml(RETEST1H_RESEARCH_LINE) would produce.
+    const escaped = RETEST1H_RESEARCH_LINE.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    for (const f of ['RETEST 1H', 'BTC', '▲ LONG', '84,600.00', '84,390.00', '85,146.00', escaped]) assert(t.includes(f), `missing ${f}\n${t}`);
     assert(t.includes('R)'), 'gross R printed');
+    assert(RETEST1H_RESEARCH_LINE.includes('mean +0.27R') && RETEST1H_RESEARCH_LINE.includes('median −0.84R') && RETEST1H_RESEARCH_LINE.includes('101 trades') && RETEST1H_RESEARCH_LINE.includes('30 live signals'), RETEST1H_RESEARCH_LINE);
+    void RETEST1H_EVIDENCE; // still exported for state.retest1h.plans[ref].evidenceNote (api/telegram-cron.js), just no longer printed on the card
   });
 
   await test('formatRetest1hExitAlert: info-only EXIT SIGNAL, no button data embedded in the text itself', () => {
@@ -462,15 +472,17 @@ async function main() {
     assert(t.includes('EXIT SIGNAL · RETEST 1H') && t.includes('ETH') && t.includes('▼ SHORT') && t.includes('close it yourself'), t);
   });
 
-  console.log('\ncron: once per newly closed 1h candle, dedupe, Open button, exit alerts, trail exemption');
+  console.log('\ncron: once per newly closed 1h candle, dedupe, info-only card (Track/Plan/Thesis, no Open), exit alerts, trail exemption');
 
-  await test('cron: a firing fixture alerts once with an Open button; the SAME closed candle on the next run sends nothing new (once-per-close, dedupe)', async () => {
+  await test('cron: a firing fixture alerts once with Track/Plan/Thesis/Chart and no Open button; the SAME closed candle on the next run sends nothing new (once-per-close, dedupe)', async () => {
     const { candlesByTf, nowMs } = buildFiringFixture(23);
     const blob = fakeBlob();
     const r1 = await runCron({ env: XENV, blob, fetchMarketCandles: fixtureFetch(candlesByTf), nowMs });
     const alertCall = r1.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text || '').includes('RETEST 1H'));
     assert(alertCall, 'RETEST 1H alert sent');
-    assert(alertCall.replyMarkup && alertCall.replyMarkup.inline_keyboard[0][0].text === 'Open @ plan', JSON.stringify(alertCall.replyMarkup));
+    const cbData = alertCall.replyMarkup ? alertCall.replyMarkup.inline_keyboard.flat().map((b) => b.callback_data) : [];
+    assert(!cbData.some((d) => d.startsWith('open:')), `T-18: no Open button on a retest card, got ${JSON.stringify(cbData)}`);
+    assert(cbData.some((d) => d.startsWith('plan:')) && cbData.some((d) => d.startsWith('thesis:')) && cbData.some((d) => d.startsWith('track:')), `Plan/Thesis/Track present, got ${JSON.stringify(cbData)}`);
     const ref = alertCall.replyMarkup.inline_keyboard[0][0].callback_data.split(':')[1];
     const state1 = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
     assert(state1.retest1h.plans[ref], 'the plan is stored under its ref');
@@ -483,24 +495,61 @@ async function main() {
   await test('cron: a retest alert is muted by focus mode while an unrelated symbol is open, exactly like any other alert kind', async () => {
     const { candlesByTf, nowMs } = buildFiringFixture(24);
     const ex = mockExecutor({ positions: [{ positionId: 'Pos1', symbol: 'ETH', direction: 'long', entryPrice: 2600, stop: 2500 }] });
-    const r = await runCron({ env: XENV, fetchMarketCandles: fixtureFetch(candlesByTf), nowMs, getAccountSnapshot: async () => ({ margin: { usd: 100 } }) });
+    const r = await runCron({ env: XENV, fetchMarketCandles: fixtureFetch(candlesByTf), nowMs });
     void ex; void r; // focus mode needs a live executor wired through resolveExecutor's deps.executor; covered structurally by openRetestTrades/focusRelated unit coverage above and in test-telegram.js's own focus suite - this run just proves the retest path does not bypass the normal pipeline (no crash, no unconditional send).
     assert(true);
   });
 
-  await test('cron open ref resolves through the webhook exactly like an existing plan: preflight runs, sizing follows retestOrderSizing, and the executor\'s own gates still apply', async () => {
+  console.log('\nwebhook: a retest open:<ref> refuses (T-18); Track/Plan/Thesis/Took it resolve through state.retest1h.plans');
+
+  await test('webhook: open:<retest ref> replies the fixed T-18 refusal and never reaches preflight, even with execution on', async () => {
     const { candlesByTf, nowMs } = buildFiringFixture(25);
     const blob = fakeBlob();
     const r1 = await runCron({ env: XENV, blob, fetchMarketCandles: fixtureFetch(candlesByTf), nowMs });
     const alertCall = r1.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text || '').includes('RETEST 1H'));
     const ref = alertCall.replyMarkup.inline_keyboard[0][0].callback_data.split(':')[1];
     const ex = mockExecutor();
-    const tapped = await tapOpen({ ref, blob, executor: ex, getAccountSnapshot: async () => ({ margin: { usd: 100_000 } }) });
-    assert(ex.calls.some((c) => c[0] === 'preflight'), 'reached preflight - full gate re-run, unchanged');
-    const pf = ex.calls.find((c) => c[0] === 'preflight')[1];
-    assertEqual(pf.symbol, 'BTC');
-    assertEqual(pf.direction, 'long');
-    assert(tapped.lastText.startsWith('⚡ ORDER') || tapped.lastText.startsWith('⛔ ORDER REFUSED'), tapped.lastText);
+    const tapped = await tapOpen({ ref, blob, executor: ex });
+    assertEqual(tapped.lastText, 'Execution is not enabled for RETEST 1H yet');
+    assert(!ex.calls.some((c) => c[0] === 'preflight'), 'never reaches preflight');
+  });
+
+  await test('webhook: plan:/thesis: on a retest ref render through resolveRef\'s state.retest1h.plans fallback (no Open row, even with execution on)', async () => {
+    const { candlesByTf, nowMs } = buildFiringFixture(26);
+    const blob = fakeBlob();
+    const r1 = await runCron({ env: XENV, blob, fetchMarketCandles: fixtureFetch(candlesByTf), nowMs });
+    const alertCall = r1.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text || '').includes('RETEST 1H'));
+    const ref = alertCall.replyMarkup.inline_keyboard[0][0].callback_data.split(':')[1];
+    const ex = mockExecutor();
+    const planTap = await tap({ data: `plan:${ref}`, blob, executor: ex });
+    assert(!planTap.lastText.includes('EXPIRED') && planTap.lastText.includes('BTC'), planTap.lastText);
+    // resolveRef falls back to the 'snapshot' source for a retest ref (not in the live flag
+    // payload), same as any other non-live snapshot ref - its Plan card keyboard never
+    // carries open: regardless of execution mode (only a 'live' source's candidateLevels
+    // check can add withOpenButton, see cmd === 'plan' in api/telegram-webhook.js).
+    const planCb = planTap.lastMarkup && Array.isArray(planTap.lastMarkup.inline_keyboard) ? planTap.lastMarkup.inline_keyboard.flat().map((b) => b.callback_data) : [];
+    assert(!planCb.some((d) => d.startsWith('open:')), 'no Open on the Plan card for a retest ref, even with execution on');
+    const thesisTap = await tap({ data: `thesis:${ref}`, blob, executor: ex });
+    assert(!thesisTap.lastText.includes('EXPIRED'), thesisTap.lastText);
+  });
+
+  await test('webhook: track:<retest ref> adds it to state.tracked (existing tracked-candidate flow); Took it journals it the same way', async () => {
+    const { candlesByTf, nowMs } = buildFiringFixture(27);
+    const blob = fakeBlob();
+    const r1 = await runCron({ env: BASE_ENV, blob, fetchMarketCandles: fixtureFetch(candlesByTf), nowMs });
+    const alertCall = r1.tg.calls.find((c) => c.method === 'sendMessage' && String(c.text || '').includes('RETEST 1H'));
+    const ref = alertCall.replyMarkup.inline_keyboard[0][0].callback_data.split(':')[1];
+    const trackTap = await tap({ data: `track:${ref}`, env: BASE_ENV, blob, nowMs });
+    assert(trackTap.lastText.includes('Tracking') && trackTap.lastText.includes('BTC'), trackTap.lastText);
+    const stateAfterTrack = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    assert(Array.isArray(stateAfterTrack.tracked) && stateAfterTrack.tracked.some((t) => t.ref === ref && t.symbol === 'BTC'), 'tracked entry added');
+
+    const cid = stateAfterTrack.retest1h.plans[ref].candidateId;
+    const tookTap = await tap({ data: `log:took:BTC:${ref}`, env: BASE_ENV, blob, nowMs });
+    assert(tookTap.lastText.startsWith('[LOGGED'), tookTap.lastText);
+    const journalDay = new Date(nowMs).toISOString().slice(0, 10);
+    const journalFile = blob.files.get(`journal/${journalDay}.jsonl`);
+    assert(journalFile && journalFile.text.includes(cid), 'the Took it journal entry names the retest plan\'s own candidateId');
   });
 
   await test('T-15b trail exemption: a live position linked (via the journal execRef.positionIdHash) to a retest-1h plan is skipped by the trailing-stop pass', async () => {
@@ -630,11 +679,10 @@ async function main() {
     assertEqual(JSON.stringify(emptyState().retest1h), JSON.stringify(normalizeRetest1hState(null)), 'emptyState uses the same defaults');
   });
 
-  console.log('\nsanity: RETEST1H_KIND/RETEST1H_EXIT_KIND/SLOW_TREND_KIND stay distinct; OFFER_OPEN_ON_FLAG_ALERTS is off');
+  console.log('\nsanity: RETEST1H_KIND/RETEST1H_EXIT_KIND/SLOW_TREND_KIND stay distinct');
 
   await test('constants', () => {
     assert(new Set([RETEST1H_KIND, RETEST1H_EXIT_KIND, SLOW_TREND_KIND]).size === 3, 'three distinct alert kinds');
-    assertEqual(OFFER_OPEN_ON_FLAG_ALERTS, false, 'flag-based Open stays off (research WP4/WP7)');
     assertEqual(RETEST1H_SYMBOLS.join(), 'BTC,ETH,SOL');
     assert(RETEST1H_CANDIDATE_PREFIX === 'retest1h_');
     void crypto; void fetchClosedDailyCandles;

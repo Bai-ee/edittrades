@@ -291,10 +291,10 @@ const allCallbackData = (markup) => (markup && markup.inline_keyboard ? markup.i
 // their own `fetchMarketCandles` fixture.
 const NO_CANDLES = async () => ({ candles: [] });
 
-async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, executor = null, importExecutor, render = fakeRender, fetchMarketCandles = NO_CANDLES, getAccountSnapshot }) {
+async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, executor = null, importExecutor, render = fakeRender, fetchMarketCandles = NO_CANDLES }) {
   const req = { method: 'GET', headers: auth ? { authorization: auth } : {} };
   const res = mockRes();
-  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render, now: () => nowMs, env, executor, fetchMarketCandles, ...(getAccountSnapshot ? { getAccountSnapshot } : {}), ...(importExecutor ? { importExecutor } : {}) }));
+  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render, now: () => nowMs, env, executor, fetchMarketCandles, ...(importExecutor ? { importExecutor } : {}) }));
   return { res, tg, blob, logs };
 }
 
@@ -2204,41 +2204,7 @@ async function run() {
     if (riskPrefBound) ex.riskPrefBound = (key) => { calls.push(['riskPrefBound', key]); return riskPrefBound(key); };
     return ex;
   }
-  // 2026-09-27: OFFER_OPEN_ON_FLAG_ALERTS is off, so a bare open:<ref> against the flag
-  // engine now refuses (see the "old flag Open disabled" tests below). The large existing
-  // "Open -> preflight -> ticket -> confirm -> live phases" suite below still needs to
-  // exercise that SAME generic execution machinery, so xtap() seeds a default retest-1h
-  // plan under GOOD_REF (same ref/levels as the flag GOOD fixture, and even GOOD_ID as its
-  // candidateId - the webhook's retest lookup does not check the id's shape) unless the
-  // test already wrote its own telegram/state.json. getAccountSnapshot defaults to a large
-  // wallet so retestOrderSizing's collateral (fixed ~$10) and leverage (stop-distance/
-  // exchange capped at 100x here) land well above every mocked executor's own caps, i.e.
-  // "uncapped" behaves the same as before, just at the real formula's numbers.
-  function seedGoodRetestPlan(blob) {
-    if (blob.files.has(TELEGRAM_STATE_PATH)) return;
-    const state = {
-      ...emptyState(),
-      retest1h: {
-        lastEvaluated1hClose: { BTC: null, ETH: null, SOL: null },
-        plans: {
-          [GOOD_REF]: {
-            ref: GOOD_REF, candidateId: GOOD_ID, symbol: 'BTC', direction: 'long',
-            entry: 84600, stop: 84390, tp1: 85146, timeframe: '5m',
-            signalCloseIso: '2026-09-24T13:50:00.000Z', createdAt: '2026-09-24T13:50:00.000Z',
-            holdRule: null, insideStreak: 0, lastCheckedCloseIso: null,
-            exitAlerted: { structure: false, cap: false }, evidenceNote: ''
-          }
-        }
-      }
-    };
-    blob.files.set(TELEGRAM_STATE_PATH, { text: `${JSON.stringify(state, null, 2)}\n`, etag: '"seed-retest"' });
-  }
-  const DEFAULT_WALLET_MARGIN_USD = 100_000;
-  const deps = (o) => ({
-    build: o.build || (async () => xpayload()), put: o.blob.put, get: o.blob.get, fetchImpl: o.tg.fetchImpl, render: o.render || fakeRender, now: () => o.nowMs ?? T0, env: o.env || XENV,
-    getAccountSnapshot: o.getAccountSnapshot || (async () => ({ margin: { usd: DEFAULT_WALLET_MARGIN_USD } })),
-    ...(o.executor !== undefined ? { executor: o.executor } : {}), ...(o.importExecutor ? { importExecutor: o.importExecutor } : {})
-  });
+  const deps = (o) => ({ build: o.build || (async () => xpayload()), put: o.blob.put, get: o.blob.get, fetchImpl: o.tg.fetchImpl, render: o.render || fakeRender, now: () => o.nowMs ?? T0, env: o.env || XENV, ...(o.executor !== undefined ? { executor: o.executor } : {}), ...(o.importExecutor ? { importExecutor: o.importExecutor } : {}) });
   async function xhook(o) {
     o.blob = o.blob || fakeBlob(); o.tg = o.tg || fakeTelegram();
     const update = { update_id: updateSeq++, message: { message_id: o.messageId ?? 77, from: { id: OWNER }, chat: { id: OWNER, type: 'private' }, text: o.text } };
@@ -2248,7 +2214,6 @@ async function run() {
   }
   async function xtap(o) {
     o.blob = o.blob || fakeBlob(); o.tg = o.tg || fakeTelegram();
-    seedGoodRetestPlan(o.blob);
     const update = { update_id: updateSeq++, callback_query: { id: `cbq${updateSeq}`, from: { id: OWNER }, message: { message_id: 9, chat: { id: OWNER, type: 'private' } }, data: o.data } };
     const res = mockRes();
     const { logs } = await quiet(() => handleTelegramWebhook({ method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) }, res, deps(o)));
@@ -2269,23 +2234,19 @@ async function run() {
     assert(!allCallbackData(lastMarkup(notReady)).some((d) => d.startsWith('open:')), 'no Open unless GET IN NOW');
     const sol = await xtap({ data: `plan:${shortRef('SOL:1m:long:x')}`, executor: ex });
     assert(!allCallbackData(lastMarkup(sol)).some((d) => d.startsWith('open:')), 'no Open on a rejected plan');
-    // 2026-09-27 (OFFER_OPEN_ON_FLAG_ALERTS = false, research WP4/WP7): a flag GOOD alert
-    // never gets Open any more, execution on or off - flag scalps do not clear costs. See
-    // "old flag alerts lose their Open button" below for the dedicated coverage; this test
-    // keeps proving the Plan-card path above is unaffected by that flag.
     const c1 = await cron({ env: XENV, build: async () => xpayload(), executor: ex });
     const good = c1.tg.calls.find((c) => kindOf(c.text || c.caption) === 'GOOD');
-    assert(good && !allCallbackData(good.replyMarkup).some((d) => d.startsWith('open:')), 'cron GOOD has no Open (flag alerts are info only)');
+    assert(good && allCallbackData(good.replyMarkup)[0] === `open:${GOOD_REF}`, 'cron GOOD has Open');
     const c2 = await cron({ env: ENV, build: async () => xpayload() });
     const good2 = c2.tg.calls.find((c) => kindOf(c.text || c.caption) === 'GOOD');
     assert(good2 && !allCallbackData(good2.replyMarkup).some((d) => d.startsWith('open:')), 'cron GOOD without Open when disabled');
-    // A tracked flag turning ready: TRACK · GET IN NOW is a flag alert too, so it also gets no Open.
+    // A tracked flag turning ready: TRACK · GET IN NOW carries Open too (never an in-trade update).
     const tblob = fakeBlob();
     const tsnap = candidateSnapshot('BTC', goodRiskSym(), GOOD_ID);
     await tblob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), tracked: [{ ...trackEntry(tsnap, T0), lastState: 'confirmed', setupSeen: true }] }), { allowOverwrite: true });
     const c3 = await cron({ env: XENV, blob: tblob, build: async () => xpayload(), executor: ex });
     const tgo = c3.tg.calls.find((c) => String(c.text || c.caption).includes('TRACK · GET IN NOW'));
-    assert(tgo && !allCallbackData(tgo.replyMarkup).some((d) => d.startsWith('open:')), 'tracked GET IN NOW has no Open (flag alerts are info only)');
+    assert(tgo && allCallbackData(tgo.replyMarkup)[0] === `open:${GOOD_REF}`, 'tracked GET IN NOW has Open');
     assert(isOpenReady(resolveRef(GOOD_REF, xpayload(), null)) && !isOpenReady(resolveRef(GOOD_REF, xpayload('WAIT'), null)), 'isOpenReady');
     assert(ex.calls.every((c) => c[0] !== 'preflight'), 'plan cards never preflight');
   });
@@ -2295,10 +2256,7 @@ async function run() {
     const r = await xtap({ data: `open:${GOOD_REF}`, executor: ex });
     const pf = ex.calls.find((c) => c[0] === 'preflight');
     const i = pf[1];
-    // 2026-09-27: this ticket now resolves through the seeded retest-1h plan (GOOD_REF),
-    // since flag-based Open is off; the retest plan carries no tp2 (unlike the old flag
-    // fixture), so i.tp2 is no longer asserted here.
-    assert(i.symbol === 'BTC' && i.direction === 'long' && i.sizeUsd === 50 && i.leverage === 3 && i.entry === 84600 && i.stop === 84390 && i.tp1 === 85146 && i.candidateId === GOOD_ID && i.source === 'telegram', JSON.stringify(i));
+    assert(i.symbol === 'BTC' && i.direction === 'long' && i.sizeUsd === 50 && i.leverage === 3 && i.entry === 84600 && i.stop === 84390 && i.tp1 === 85146 && i.tp2 === 85300 && i.candidateId === GOOD_ID && i.source === 'telegram', JSON.stringify(i));
     assert(pf[2].userId === String(OWNER) && pf[2].source === 'telegram', 'ctx carries the owner');
     const t = lastText(r);
     printed.push(['ticket', t]);
@@ -2310,15 +2268,12 @@ async function run() {
     const lines = execLines(r.blob);
     assert(lines.length === 1 && lines[0].event === 'ticket' && lines[0].mode === 'dry' && lines[0].symbol === 'BTC' && lines[0].stop === 84390, JSON.stringify(lines));
     assert(!/\$50\.00|3x|max loss|fees/.test(lines[0].text) && !findSensitiveKeys(lines[0]).length, lines[0].text);
-    // Uncapped when the caps allow the suggestion; live banner. 2026-09-27: sized by
-    // retestOrderSizing now (collateral fixed ~$10, leverage floored by the stop distance
-    // / exchange cap at 100x with this large a mocked wallet) - "uncapped" now means these
-    // caps (500 / 10x) are themselves what binds, not the flag fixture's old 200/5x.
+    // Uncapped when the caps allow the suggestion; live banner.
     const big = mockExecutor({ mode: 'live' });
     big.status = async () => ({ ok: true, mode: 'live', kill: { active: false }, caps: { maxSizeUsd: 500, maxLeverage: 10 } });
     const r2 = await xtap({ data: `open:${GOOD_REF}`, executor: big });
     const i2 = big.calls.find((c) => c[0] === 'preflight')[1];
-    assert(i2.sizeUsd === 500 && i2.leverage === 10 && lastText(r2).includes('🔴 <b>LIVE</b>'), JSON.stringify(i2));
+    assert(i2.sizeUsd === 200 && i2.leverage === 5 && lastText(r2).includes('🔴 <b>LIVE</b>'), JSON.stringify(i2));
   });
 
   await test('refused: preflight not ok -> ⛔ ORDER REFUSED with every reason, no ticket; unsized plan refused before preflight', async () => {
@@ -2329,13 +2284,9 @@ async function run() {
     assert(t.startsWith('⛔ ORDER REFUSED · ₿ <b>BTC 5m ▲ LONG</b>') && t.includes('• size_over_cap') && t.includes('• kill_switch') && t.includes('Nothing was sent.'), t);
     assert(!ex.calls.some((c) => c[0] === 'createTicket'), 'no ticket');
     assertEqual(execLines(r.blob)[0].event, 'refused', 'logged');
-    // 2026-09-27: an unsized plan for GOOD_REF now means retestOrderSizing has no wallet
-    // margin to size against (its own "use /order" refusal, before preflight) - the old
-    // flag "no risk block on the candidate" case is no longer reachable through GOOD_REF
-    // (it resolves through the seeded retest-1h plan first) and is covered instead by "old
-    // flag alerts ... get no Open button" above, which refuses every flag ref outright.
     const ex2 = mockExecutor();
-    const r2 = await xtap({ data: `open:${GOOD_REF}`, executor: ex2, getAccountSnapshot: async () => ({ margin: { usd: null } }) });
+    const unsized = payload({ BTC: (() => { const s = goodRiskSym(); delete s.candidateSetups[0].risk; return s; })() });
+    const r2 = await xtap({ data: `open:${GOOD_REF}`, executor: ex2, build: async () => unsized });
     assert(lastText(r2).includes('did not size this plan') && !ex2.calls.some((c) => c[0] === 'preflight'), lastText(r2));
   });
 
@@ -2922,22 +2873,24 @@ async function run() {
     assertEqual(withOpenButton(null, 'x', false).inline_keyboard[0][0].text, 'Open (early)', 'early label');
   });
 
-  await test('old flag alerts (SETUP, BREAKOUT) get no Open button any more; a flag open:<ref> refuses with a clear reason (defense in depth, OFFER_OPEN_ON_FLAG_ALERTS off)', async () => {
+  await test('cron: SETUP and BREAKOUT alerts get "Open (early)" when execution is on; the ticket "from" line names the alert kind', async () => {
     const ex = mockExecutor({ positions: [] });
     const build = async () => payload({ SOL: setupSolSym(), ETH: breakoutEthSym() });
     const r = await cron({ env: XENV, build, executor: ex });
     const setupMsg = r.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'SETUP');
-    assert(setupMsg && !allCallbackData(setupMsg.replyMarkup).some((d) => d.startsWith('open:')), 'SETUP has no Open');
+    assert(setupMsg && allCallbackData(setupMsg.replyMarkup)[0] === `open:${shortRef(SETUP_SOL_ID)}`, 'SETUP has Open');
+    assertEqual(setupMsg.replyMarkup.inline_keyboard[0][0].text, 'Open (early)', 'SETUP label is early');
     // BTC's default goodSym() also has a 'confirmed' candidate, so it fires its own
     // BREAKOUT:BTC alert too (in addition to GOOD:BTC) -- match ETH specifically.
     const breakoutMsg = r.tg.calls.find((c) => c.method === 'sendMessage' && kindOf(c.text) === 'BREAKOUT' && c.text.includes('ETH'));
-    assert(breakoutMsg && !allCallbackData(breakoutMsg.replyMarkup).some((d) => d.startsWith('open:')), 'BREAKOUT has no Open');
-    // Defense in depth: even a manual/stale open:<ref> against a live flag candidate refuses,
-    // never reaching preflight - the alert text itself (SETUP/BREAKOUT/GOOD/tracking) is untouched.
+    assert(breakoutMsg && allCallbackData(breakoutMsg.replyMarkup)[0] === `open:${shortRef(BREAKOUT_ETH_ID)}`, 'BREAKOUT has Open');
+    assertEqual(breakoutMsg.replyMarkup.inline_keyboard[0][0].text, 'Open (early)', 'BREAKOUT label is early');
+    // Tapping Open on the SETUP builds an intent from the candidate's own levels and the
+    // ticket card names its source.
     const tap = await xtap({ data: `open:${shortRef(SETUP_SOL_ID)}`, executor: ex, build });
     const ticket = lastText(tap);
-    assert(ticket.startsWith('⛔ ORDER REFUSED') && ticket.includes('flag scalps do not clear round-trip costs') && ticket.includes('Nothing was sent.'), ticket);
-    assert(!ex.calls.some((c) => c[0] === 'preflight'), 'never reaches preflight');
+    assert(ticket.includes('from SETUP SOL 3m') && ticket.includes(shortRef(SETUP_SOL_ID)), ticket);
+    assert(ticket.includes('116.77') && ticket.includes('117.10') && ticket.includes('115.60'), ticket);
   });
 
   await test('focus auto: a live SOL position keeps SOL and health, drops BTC/ETH; delivered:false suppressed:"focus" is still logged', async () => {

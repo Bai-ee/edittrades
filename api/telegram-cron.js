@@ -72,7 +72,7 @@ import {
   withOpenButton, openEligible, candidateLevels, liveView, focusRelated, LIVE_POSITIONS_CACHE_MS,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES,
-  livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, OFFER_OPEN_ON_FLAG_ALERTS, shortRef
+  livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, shortRef, tradeKeyboard
 } from '../lib/telegram.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
@@ -215,7 +215,11 @@ async function evaluateRetest1h({ env, deps, nowMs, log, prevState, openRetestTr
       const candidateId = retestCandidateId(symbol, closedIso);
       const newRef = shortRef(candidateId);
       if (!next.plans[newRef]) {
-        alerts.push({ kind: RETEST1H_KIND, symbol, candidateId, text: formatRetest1hAlert({ symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1 }) });
+        // T-18: info-only with tracking - Plan/Thesis/Chart/Track/Took it/Skipped (the same
+        // trade buttons every other alert kind carries), never an Open button. resolveRef /
+        // findButtonSnapshot (lib/telegram.js) resolve this ref through state.retest1h.plans,
+        // so Plan, Thesis, Track and Took it all work without a separate button-memory entry.
+        alerts.push({ kind: RETEST1H_KIND, symbol, candidateId, text: formatRetest1hAlert({ symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1 }), replyMarkup: tradeKeyboard(symbol, '1h', candidateId) });
         next.plans[newRef] = {
           ref: newRef, candidateId, symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1, timeframe: '1h',
           signalCloseIso: closedIso, createdAt: new Date(nowMs).toISOString(),
@@ -581,16 +585,10 @@ export async function handleTelegramCron(req, res, deps = {}) {
   // Open (T-3, extended T-7): a ready GOOD/GET IN NOW plan gets "Open @ plan"; a SETUP,
   // BREAKOUT or tracked-setup alert with entry/stop/TP1 on file (never WATCH/TRIGGERING)
   // gets "Open (early)". Only when execution is enabled; the webhook gates the rest (PIN, caps, kill, re-preflight, drift, stop cap).
-  // OFFER_OPEN_ON_FLAG_ALERTS (2026-09-27, research WP4/WP7): flag scalps do not clear
-  // costs, so the flag-engine path below (GOOD/SETUP/BREAKOUT/tracked-setup) is gated off
-  // by default; RETEST_1H is a separate, still-open path and always gets its Open button
-  // here (its own candidateId is not a flag-engine one, so it would never resolve through
-  // liveView/candidateLevels below anyway).
   if (env.TRADE_EXECUTION_ENABLED === 'true') {
     const syms = compact && compact.symbols ? compact.symbols : {};
     alerts = alerts.map((a) => {
-      if (a.kind === RETEST1H_KIND && a.candidateId) return { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId, true) };
-      if (!OFFER_OPEN_ON_FLAG_ALERTS || !openEligible(a) || !a.candidateId || !a.symbol) return a;
+      if (!openEligible(a) || !a.candidateId || !a.symbol) return a;
       const lv = candidateLevels(liveView(a.symbol, syms[a.symbol] || {}, a.candidateId, compact));
       return lv ? { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId, lv.ready) } : a;
     });
