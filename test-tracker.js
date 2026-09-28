@@ -2835,7 +2835,7 @@ async function run() {
   await test('build-page.js: class-check table shows the T-12 GOOD-row columns and the one-line 1-minute-log note when goodCallLogSince is set', () => {
     const dir = tmp();
     const CID = 'BTC:1m:long:X';
-    const calledAt = '2026-09-25T00:00:00.000Z'; // inside the PHASE_START window build-page.js scopes classCheck to
+    const calledAt = '2026-09-28T00:00:00.000Z'; // inside the PHASE_START window (T-21: 2026-09-27, the flag epoch) build-page.js scopes classCheck to
     writeJsonl(goodCallOutcomesFile(dir), [{
       callId: goodCallId({ symbol: 'BTC', candidateId: CID }), kind: 'good', symbol: 'BTC', candidateId: CID, calledAt,
       timeframe: '1m', direction: 'long', entry: 100, stop: 99, tp1: 103, grossRR: 3, netRR: 2.8, levelSource: 'plan', class: 'GOOD',
@@ -2845,10 +2845,10 @@ async function run() {
     }]);
     const { htmlFile, mdFile } = buildPage(dir, path.join(dir, 'docs'), Date.parse(calledAt) + MIN);
     const html = readFileSync(htmlFile, 'utf8');
-    assert(html.includes('id="class-check-good-log-note"') && html.includes('1-minute alert log since 2026-09-25'), 'note rendered with the first ingest date');
+    assert(html.includes('id="class-check-good-log-note"') && html.includes('1-minute alert log since 2026-09-28'), 'note rendered with the first ingest date');
     assert(html.includes('Calls (1-min log)') && html.includes('Of which captured') && html.includes('Median GOOD window (min)'), 'new columns rendered');
     const md = readFileSync(mdFile, 'utf8');
-    assert(md.includes('1-minute alert log since 2026-09-25'), 'report.md carries the same note');
+    assert(md.includes('1-minute alert log since 2026-09-28'), 'report.md carries the same note');
   });
 
   console.log('\nRETEST_1H calls from the 1-minute alert log (T-18)\n');

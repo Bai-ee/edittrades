@@ -64,14 +64,13 @@ export const PROVISIONAL = 'provisional; not evidence of an edge';
 export const EDGE_NOTE = "Not evidence of an edge. Scores the engine's calls against later closed candles.";
 export const NO_SCORED = '[NO SCORED CALLS YET]';
 
-// Active testing phase (docs/MASTER_PLAN_T6_FEE_AWARE_FLAGS.md Phase 1). Edit here when the phase changes.
-// PHASE_START deliberately NOT moved for "D-variant revised" (owner decision
-// 2026-09-24, docs/OWNER_DECISIONS_2026-09-24.md) - the window continues, it does not
-// restart; the rule-change note lives in the dynamic configBoundary marker instead
-// (aggregate.js's configBoundary, rendered by configBoundaryNote below), not a
-// manually-maintained restart note.
-export const PHASE_NAME = 'Phase 5 forward record (2.5R gross, net gate off)';
-export const PHASE_START = '2026-09-24';
+// Active testing phase. Edit here when the phase changes.
+// T-21 (owner decision 2026-09-28, docs/OWNER_DECISIONS_2026-09-28.md "start from zero"):
+// the window restarts at the net-floor deploy date, the same date as the flag strategy's
+// scoreboard epoch (scripts/tracker/epochs.js). Everything scored before it stays in the
+// archive section; the 2026-09-24 window is history, not deleted.
+export const PHASE_NAME = 'Net-floor forward record (2.5R gross, net floor live)';
+export const PHASE_START = '2026-09-27';
 export const PHASE_DAYS = 14;
 export const PHASE_TARGET_PLANS = 30;
 // Owner decision "D-variant revised" (docs/OWNER_DECISIONS_2026-09-24.md): thresholds stay
@@ -164,12 +163,14 @@ const outcomeStatus = (o) => (o === 'tp1' ? 'st-good' : o === 'stop' ? 'st-bad' 
 /** Testing-phase progress from the aggregate (phase stats are optional for older callers). */
 export function phaseProgress(agg) {
   const nowMs = Date.parse(agg.generatedAt);
-  const elapsed = nowMs < PHASE_START_MS ? 0 : clamp(Math.floor((nowMs - PHASE_START_MS) / DAY) + 1, 0, PHASE_DAYS);
+  // T-21: when the aggregate carries a phase start (aligned to the flag epoch), count days from it.
+  const startMs = agg.phase && Number.isFinite(Date.parse(agg.phase.startedAt)) ? Date.parse(agg.phase.startedAt) : PHASE_START_MS;
+  const elapsed = nowMs < startMs ? 0 : clamp(Math.floor((nowMs - startMs) / DAY) + 1, 0, PHASE_DAYS);
   const t = agg.phase && agg.phase.tradable;
   const scored = t ? t.wins + t.losses : null;
   const done = elapsed >= PHASE_DAYS && isNum(scored) && scored >= PHASE_TARGET_PLANS;
-  const status = nowMs < PHASE_START_MS ? 'SCHEDULED' : done ? 'READY FOR REVIEW' : 'RUNNING';
-  return { elapsed, scored, status, endDate: new Date(PHASE_START_MS + PHASE_DAYS * DAY).toISOString().slice(0, 10) };
+  const status = nowMs < startMs ? 'SCHEDULED' : done ? 'READY FOR REVIEW' : 'RUNNING';
+  return { elapsed, scored, status, endDate: new Date(startMs + PHASE_DAYS * DAY).toISOString().slice(0, 10) };
 }
 
 function ageText(fromIso, nowIso) {

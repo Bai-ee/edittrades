@@ -632,6 +632,11 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
   const goodCallOutcomes = opts.goodCallOutcomes || [];
   const epochs = opts.epochs || null;
   const flagEpochMs = epochs && epochs.flag ? Date.parse(epochs.flag.epochIso) : NaN;
+  // T-21: the testing phase never starts before the flag strategy's epoch, so the timeline's
+  // "plans scored" count and the scoreboard's flag card count the same rows.
+  const phaseStartMs = isFiniteNumber(opts.phaseStartMs)
+    ? (Number.isFinite(flagEpochMs) ? Math.max(opts.phaseStartMs, flagEpochMs) : opts.phaseStartMs)
+    : (Number.isFinite(flagEpochMs) ? flagEpochMs : null);
   const epochGoodCallOutcomes = Number.isFinite(flagEpochMs)
     ? goodCallOutcomes.filter((r) => r && Number.isFinite(Date.parse(r.calledAt)) && Date.parse(r.calledAt) >= flagEpochMs)
     : goodCallOutcomes;
@@ -725,15 +730,15 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
       served24h: served24h.length,
       servedGood24h: served24h.filter((r) => r.flagRecommendation && r.flagRecommendation.class === 'GOOD').length
     },
-    classCheck: classCheck(outcomes, opts.phaseStartMs, goodCallOutcomes),
+    classCheck: classCheck(outcomes, phaseStartMs, goodCallOutcomes),
     alerts: computeAlertAggregates(opts.alertOutcomes || [], opts.transitions || [], nowMs),
     goodCallLogSince,
     retest1h: retestStats(opts.retestCallOutcomes || []),
     htf1m: htfStats(opts.htfCallOutcomes || []),
-    phase: isFiniteNumber(opts.phaseStartMs)
+    phase: isFiniteNumber(phaseStartMs)
       ? {
-          startedAt: new Date(opts.phaseStartMs).toISOString(),
-          tradable: statsFor((goodCallOutcomes.length ? goodCallOutcomes : tradable).filter((r) => Date.parse(r.calledAt) >= opts.phaseStartMs))
+          startedAt: new Date(phaseStartMs).toISOString(),
+          tradable: statsFor((goodCallOutcomes.length ? goodCallOutcomes : tradable).filter((r) => Date.parse(r.calledAt) >= phaseStartMs))
         }
       : null,
     // T-21 (docs/PROMPT_T21_STRATEGY_SCOREBOARD.md): null unless `opts.epochs` is given.
