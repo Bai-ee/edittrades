@@ -75,11 +75,14 @@ import { ema as researchEma } from './scripts/research/edge/lib.js';
 import { portfolioSeries as researchPortfolioSeries } from './scripts/research/edge/spot-portfolio.js';
 import {
   goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines,
-  retestCallsFromAlertLines, retestExitTimesFromAlertLines
+  retestCallsFromAlertLines, retestExitTimesFromAlertLines, htfCallsFromAlertLines, htfExitTimesFromAlertLines
 } from './scripts/tracker/collect.js';
-import { scoreGoodCalls, scoreGoodCallsDataDir, goodCallId, scoreRetestCalls, scoreRetestCallsDataDir, retestCallId } from './scripts/tracker/score.js';
-import { goodCallOutcomesFile, retestCallOutcomesFile } from './scripts/tracker/store.js';
-import { retestStats, bootstrapMeanLowerBound90, maxDrawdownR } from './scripts/tracker/aggregate.js';
+import {
+  scoreGoodCalls, scoreGoodCallsDataDir, goodCallId, scoreRetestCalls, scoreRetestCallsDataDir, retestCallId,
+  scoreHtfCalls, scoreHtfCallsDataDir, htfCallId
+} from './scripts/tracker/score.js';
+import { goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile } from './scripts/tracker/store.js';
+import { retestStats, bootstrapMeanLowerBound90, maxDrawdownR, htfStats } from './scripts/tracker/aggregate.js';
 
 let passed = 0;
 let failed = 0;
@@ -3012,6 +3015,148 @@ async function run() {
     assert(html.includes('paper') && html.includes('2 / 30'), 'still-paper status names the count toward the promotion rule');
     const md = readFileSync(mdFile, 'utf8');
     assert(md.includes('## RETEST 1H · paper') && md.includes('2 / 30 toward the promotion rule'), md.slice(md.indexOf('## RETEST 1H')));
+  });
+
+  console.log('\nHTF_1M calls from the 1-minute alert log (T-20)\n');
+
+  const hLine = (id, sentAt, over = {}) => ({
+    id, sentAt, kind: 'HTF_ENTRY', event: null, symbol: 'BTC', timeframe: '5m', direction: 'long', candidateId: 'htf_BTC_5m_long_2026-09-27T15:05:00.000Z',
+    signature: null, verdict: null, etaMin: null, breakout: null, invalidation: null, entry: 100, stop: 99, tp1: 103,
+    grossRR: null, netRR: null, roomR: null, closedThrough: sentAt, configVersion: '2026.09.27-3', silent: false, level: null, tracked: false, delivered: true, text: 'ENTRY BTC', ...over
+  });
+  const hExitLine = (id, sentAt, candidateId, over = {}) => ({
+    id, sentAt, kind: 'HTF_EXIT', event: null, symbol: 'BTC', timeframe: '5m', direction: 'long', candidateId,
+    signature: null, verdict: null, etaMin: null, breakout: null, invalidation: null, entry: 100, stop: 99, tp1: 103,
+    grossRR: null, netRR: null, roomR: null, closedThrough: sentAt, configVersion: '2026.09.27-3', silent: false, level: null, tracked: false, delivered: true, text: 'EXIT BTC LONG structure', ...over
+  });
+
+  await test('collect.js: htfCallsFromAlertLines - first HTF_ENTRY line per symbol+candidateId, levels + configVersion from the alert line; SLOW_TREND lines never match', () => {
+    const CID = 'htf_BTC_5m_long_2026-09-27T15:05:00.000Z';
+    const alerts = [
+      hLine('h1', at('14:03'), { candidateId: CID }),
+      hLine('h2', at('14:04'), { candidateId: CID, entry: 999 }), // repeat send - ignored, first sighting is the call
+      slowLine('s1', at('14:05')), // logged, never an HTF_1M call
+      hLine('h3', at('14:10'), { candidateId: 'htf_ETH_1m_short_2026-09-27T15:10:00.000Z', symbol: 'ETH', direction: 'short', entry: 50, stop: 51, tp1: 47, timeframe: '1m' })
+    ];
+    const calls = htfCallsFromAlertLines(alerts);
+    assertEqual(calls.length, 2, 'one per symbol+candidateId, SLOW_TREND excluded, first HTF_ENTRY line only');
+    const btc = calls.find((c) => c.symbol === 'BTC');
+    assertEqual(btc.calledAt, at('14:03'), 'first HTF_ENTRY line is the call');
+    assertEqual(btc.entry, 100, 'levels come from the first line, not the repeat');
+    assertEqual(btc.candidateId, CID);
+    assertEqual(btc.configVersion, '2026.09.27-3', 'configVersion carried through for the config-boundary join');
+    const eth = calls.find((c) => c.symbol === 'ETH');
+    assertEqual(eth.direction, 'short');
+    assertEqual(eth.entry, 50);
+    assertEqual(htfCallsFromAlertLines([]).length, 0, 'empty in -> empty out, never throws');
+    assertEqual(htfCallsFromAlertLines(null).length, 0, 'null in -> empty out, never throws');
+  });
+
+  await test('collect.js: htfExitTimesFromAlertLines - an HTF_EXIT line always carries its own candidateId (no per-symbol open-candidate walk needed)', () => {
+    const CID = 'htf_BTC_5m_long_2026-09-27T15:05:00.000Z';
+    const alerts = [hLine('h1', at('14:03'), { candidateId: CID }), hExitLine('x1', at('14:06'), CID)];
+    const exited = htfExitTimesFromAlertLines(alerts);
+    assertEqual(exited.size, 1);
+    assertEqual(exited.get(`BTC|${CID}`), at('14:06'));
+    const withRepeat = htfExitTimesFromAlertLines([...alerts, hExitLine('x2', at('14:07'), CID)]);
+    assertEqual(withRepeat.get(`BTC|${CID}`), at('14:06'), 'earliest exit line wins');
+  });
+
+  await test('score.js: scoreHtfCalls walks an HTF_1M call prefilled from its own calledAt (tp1/stop), class HTF_1M, carries exitedAt + configVersion; no_levels when the alert line had none', () => {
+    const calledAt = at('14:03');
+    const cs = candles(Date.parse(calledAt), 3, (i) => (i < 2 ? { h: 100.2, l: 99.8 } : { h: 103.5, l: 100 })); // TP1 (103) touched on candle 2
+    const call = { symbol: 'BTC', candidateId: 'htf_BTC_X', calledAt, direction: 'long', entry: 100, stop: 99, tp1: 103, configVersion: '2026.09.27-3' };
+    const exitedAt = new Map([['BTC|htf_BTC_X', at('16:00')]]);
+    const rows = scoreHtfCalls([call], { BTC: cs }, exitedAt, [], Date.parse(calledAt) + 10 * MIN);
+    assertEqual(rows.length, 1);
+    const row = rows[0];
+    assertEqual(row.callId, htfCallId(call), 'callId shape htf1m|symbol|candidateId');
+    assertEqual(row.outcome, 'tp1', 'walked to tp1');
+    assertEqual(row.r, 3, 'gross R = |tp1-entry|/|entry-stop|');
+    assertEqual(row.filledAt, calledAt, 'prefilled at calledAt - the HTF trigger fires ON the fill candle');
+    assertEqual(row.class, 'HTF_1M');
+    assertEqual(row.kind, 'htf1m');
+    assertEqual(row.configVersion, '2026.09.27-3');
+    assertEqual(row.exitedAt, at('16:00'), 'carries the info-only exit alert time, does not change the walked outcome');
+
+    const noLevels = scoreHtfCalls(
+      [{ symbol: 'ETH', candidateId: 'htf_ETH_X', calledAt, direction: 'short', entry: null, stop: null, tp1: null }],
+      {}, new Map(), [], Date.parse(calledAt) + 10 * MIN
+    );
+    assertEqual(noLevels[0].outcome, 'no_levels');
+    assertEqual(noLevels[0].exitedAt, null, 'no exit line for this key');
+  });
+
+  await test('score.js: scoreHtfCallsDataDir - no capture fallback (unlike GOOD), idempotent once resolved, written to htf-call-outcomes.jsonl', () => {
+    const dir = tmp();
+    const CID = 'htf_BTC_X';
+    const calledAt = at('14:07');
+    appendTelegramAlerts(dir, [hLine('h1', calledAt, { candidateId: CID })]);
+    const cs = candles(Date.parse(calledAt), 2, () => ({ h: 100.2, l: 98.5 })); // stop (99) hit on the fill candle
+    appendCandles(dir, '1m', toStoreCandles('BTC', cs));
+    const first = scoreHtfCallsDataDir(dir, Date.parse(calledAt) + 5 * MIN);
+    assertEqual(first.length, 1);
+    assertEqual(first[0].outcome, 'stop', 'walked to stop');
+    assertEqual(JSON.stringify(first[0].sources), '["alert-1m"]', 'the only source - no capture equivalent for HTF entries');
+    const scoredAt1 = first[0].scoredAt;
+    const second = scoreHtfCallsDataDir(dir, Date.parse(calledAt) + 60 * MIN);
+    assertEqual(second[0].scoredAt, scoredAt1, 'idempotent - final row kept byte-for-byte on rerun');
+    assertEqual(readJsonl(htfCallOutcomesFile(dir)).length, 1, 'written to htf-call-outcomes.jsonl');
+  });
+
+  await test('SLOW_TREND crosses are logged in the same alert-log store but never scored as HTF_1M trades', () => {
+    const dir = tmp();
+    appendTelegramAlerts(dir, [hLine('h1', at('14:03')), slowLine('s1', at('14:05')), slowLine('s2', at('15:05'), 'ETH')]);
+    const rows = scoreHtfCallsDataDir(dir, Date.parse(at('14:03')) + MIN);
+    assertEqual(rows.length, 1, 'only the HTF_ENTRY line becomes a scored call');
+    assert(rows.every((r) => r.class === 'HTF_1M'), 'SLOW_TREND never enters HTF_1M class scoring');
+  });
+
+  await test('aggregate.js: htfStats - calls/wins/losses/winRate, gross+net R mean AND median, bootstrap lower bound, max drawdown, towardThirty (resolved count); mirrors retestStats\' shape', () => {
+    const mk = (outcome, r, entry = 100, stop = 99, direction = 'long', calledAt = at('14:00')) => ({ outcome, r, entry, stop, direction, calledAt, resolvedAt: calledAt });
+    const rows = [mk('tp1', 3), mk('stop', null), mk('tp1', 2), mk('stop', null), mk('open', null)];
+    const s = htfStats(rows);
+    assertEqual(s.calls, 5, 'every fired signal, including the still-open one');
+    assertEqual(s.resolved, 4, 'tp1/stop only');
+    assertEqual(s.wins, 2);
+    assertEqual(s.losses, 2);
+    assertEqual(s.winRate, 0.5);
+    assertEqual(s.towardThirty, 4);
+    assertEqual(s.promotionTarget, 30);
+    assert(typeof s.grossRMean === 'number' && typeof s.grossRMedian === 'number');
+    assert(typeof s.netRMean === 'number' && typeof s.netRMedian === 'number' && s.netRMean < s.grossRMean);
+    assert(typeof s.netRBootstrapLowerBound90 === 'number' && s.netRBootstrapLowerBound90 <= s.netRMean + 1e-9);
+    assert(typeof s.maxDrawdownR === 'number' && s.maxDrawdownR >= 0);
+    assertEqual(s.promoted, false, 'fewer than 30 resolved signals -> promoted stays false (monitoring only for this already-live class)');
+    assertEqual(JSON.stringify(htfStats([])), JSON.stringify(retestStats([])), 'identical empty shape to retestStats');
+  });
+
+  await test('aggregate.js: computeAggregates wires opts.htfCallOutcomes into agg.htf1m', () => {
+    const rows = [{ outcome: 'tp1', r: 3, entry: 100, stop: 99, direction: 'long', calledAt: iso(T0), resolvedAt: iso(T0) }];
+    const agg = computeAggregates([], [], {}, T0 + MIN, { htfCallOutcomes: rows });
+    assertEqual(agg.htf1m.calls, 1);
+    assertEqual(agg.htf1m.resolved, 1);
+    const empty = computeAggregates([], [], {}, T0 + MIN, {});
+    assertEqual(empty.htf1m.calls, 0, 'omitted opts.htfCallOutcomes -> empty stats, never throws');
+  });
+
+  await test('page + report: HTF ENTRY tile (next to RETEST 1H) and report section; empty state from an empty data dir', () => {
+    const empty = tmp();
+    const e = readFileSync(buildPage(path.join(empty, 'data'), path.join(empty, 'docs'), T0).htmlFile, 'utf8');
+    assert(e.includes('id="htf1m-section"') && e.includes('id="htf1m-empty"'), 'empty tile');
+    assert(e.indexOf('id="retest1h-section"') < e.indexOf('id="htf1m-section"'), 'placed right after RETEST 1H');
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    writeJsonl(htfCallOutcomesFile(dataDir), [
+      { callId: 'htf1m|BTC|c1', kind: 'htf1m', symbol: 'BTC', candidateId: 'c1', calledAt: iso(T0), timeframe: '5m', direction: 'long', entry: 100, stop: 99, tp1: 103, class: 'HTF_1M', outcome: 'tp1', r: 3, resolvedAt: iso(T0 + 5 * MIN) },
+      { callId: 'htf1m|ETH|c2', kind: 'htf1m', symbol: 'ETH', candidateId: 'c2', calledAt: iso(T0 + MIN), timeframe: '1m', direction: 'short', entry: 50, stop: 51, tp1: 47, class: 'HTF_1M', outcome: 'stop', r: null, resolvedAt: iso(T0 + 2 * MIN) }
+    ]);
+    const { htmlFile, mdFile } = buildPage(dataDir, path.join(dir, 'docs'), T0 + 60 * MIN);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="htf1m-summary-table"') && html.includes('id="htf1m-status-note"'), 'summary table + status note rendered');
+    assert(html.includes('live') && html.includes('2 resolved signal'), 'live status names the resolved count');
+    const md = readFileSync(mdFile, 'utf8');
+    assert(md.includes('## HTF ENTRY · live') && md.includes('2 resolved signal(s) scored so far'), md.slice(md.indexOf('## HTF ENTRY')));
   });
 
   console.log('\nSpot trend filter (docs/PLAN_SPOT_TREND_2026-09-27.md P1)');

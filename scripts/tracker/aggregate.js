@@ -43,7 +43,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions, goodCallOutcomesFile, retestCallOutcomesFile } from './store.js';
+import { parseArgs, readAllCalls, readCandles, readJsonl, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions, goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile } from './store.js';
 import { round, median, isFiniteNumber } from './walk-outcome.js';
 import { costR, netR } from './costs.js';
 
@@ -282,6 +282,50 @@ export function retestStats(rows) {
     towardThirty: decided.length,
     promotionTarget: 30,
     // Median is reported above, never gating - see the module-header note.
+    promoted: decided.length >= 30 && isFiniteNumber(avg(netRs)) && avg(netRs) > 0 && isFiniteNumber(bootstrapMeanLowerBound90(netRs)) && bootstrapMeanLowerBound90(netRs) > 0
+  };
+}
+
+// ---------------------------------------------------------------- HTF_1M class (T-20)
+//
+// docs/PROMPT_T20_HTF_ENTRY.md: unlike RETEST_1H (paper until 30 signals clear a
+// promotion rule), HTF-anchored entries ship LIVE immediately on the owner's own decision
+// - `promoted`/`towardThirty` below are monitoring stats only, not a gate anything reads;
+// the same mean/median/bootstrap/max-drawdown shape as RETEST_1H just keeps every live
+// signal class measured the same way on the strategies page.
+
+/**
+ * HTF_1M class stats, over `rows` (score.js scoreHtfCalls output - any order in, sorted
+ * chronologically here). `calls` is every fired signal; `towardThirty` is the resolved
+ * (tp1/stop) count, reported for the same reason RETEST_1H reports it (comparability), not
+ * as a live gate for this already-shipped class.
+ * @param {Array<Object>} rows - score.js scoreHtfCalls output
+ * @returns {Object}
+ */
+export function htfStats(rows) {
+  const all = Array.isArray(rows) ? rows : [];
+  const decided = all.filter(isDecided).sort((a, b) => Date.parse(a.resolvedAt || a.calledAt) - Date.parse(b.resolvedAt || b.calledAt));
+  const wins = decided.filter((r) => r.outcome === 'tp1');
+  const grossRs = decided.map((r) => (r.outcome === 'stop' ? -1 : r.r)).filter(isFiniteNumber);
+  const netRs = decided.map((r) => {
+    const gross = r.outcome === 'stop' ? -1 : r.r;
+    return isFiniteNumber(gross) ? netR(r.entry, r.stop, gross, r.direction) : null;
+  }).filter(isFiniteNumber);
+  const avg = (arr) => (arr.length ? round(arr.reduce((a, b) => a + b, 0) / arr.length) : null);
+  return {
+    calls: all.length,
+    resolved: decided.length,
+    wins: wins.length,
+    losses: decided.length - wins.length,
+    winRate: decided.length ? round(wins.length / decided.length) : null,
+    grossRMean: avg(grossRs),
+    grossRMedian: median(grossRs),
+    netRMean: avg(netRs),
+    netRMedian: median(netRs),
+    netRBootstrapLowerBound90: bootstrapMeanLowerBound90(netRs),
+    maxDrawdownR: maxDrawdownR(netRs),
+    towardThirty: decided.length,
+    promotionTarget: 30,
     promoted: decided.length >= 30 && isFiniteNumber(avg(netRs)) && avg(netRs) > 0 && isFiniteNumber(bootstrapMeanLowerBound90(netRs)) && bootstrapMeanLowerBound90(netRs) > 0
   };
 }
@@ -567,6 +611,7 @@ export function computeAggregates(outcomes, captureRows, candles1mBySymbol = {},
     alerts: computeAlertAggregates(opts.alertOutcomes || [], opts.transitions || [], nowMs),
     goodCallLogSince,
     retest1h: retestStats(opts.retestCallOutcomes || []),
+    htf1m: htfStats(opts.htfCallOutcomes || []),
     phase: isFiniteNumber(opts.phaseStartMs)
       ? {
           startedAt: new Date(opts.phaseStartMs).toISOString(),
@@ -580,7 +625,7 @@ export function aggregateDataDir(dataDir, nowMs = Date.now(), opts = {}) {
   const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), readAllCalls(dataDir), readCandles(dataDir, '1m'), nowMs,
     {
       alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), goodCallOutcomes: readJsonl(goodCallOutcomesFile(dataDir)),
-      retestCallOutcomes: readJsonl(retestCallOutcomesFile(dataDir)), ...opts
+      retestCallOutcomes: readJsonl(retestCallOutcomesFile(dataDir)), htfCallOutcomes: readJsonl(htfCallOutcomesFile(dataDir)), ...opts
     });
   writeJson(aggregatesFile(dataDir), agg);
   return agg;

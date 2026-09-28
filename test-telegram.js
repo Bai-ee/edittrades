@@ -3033,7 +3033,7 @@ async function run() {
   console.log('\nsent-alert + transition logs');
 
   const ALERT_LINE_KEYS = ['id', 'sentAt', 'kind', 'event', 'symbol', 'timeframe', 'direction', 'candidateId', 'signature', 'verdict', 'etaMin', 'breakout', 'invalidation',
-    'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'silent', 'level', 'tracked', 'delivered', 'suppressed', 'text'];
+    'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'configVersion', 'silent', 'level', 'tracked', 'delivered', 'suppressed', 'text'];
 
   await test('alert log line: field list, verdict + eta, levels from the plan, no sensitive keys, sizing rows cut from the text', () => {
     const p = payload();
