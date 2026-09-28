@@ -1,9 +1,9 @@
 # EditTrades Harness Upgrade
 ## Master Research Handoff + Orchestrator Implementation-Planning Brief
 
-**Date:** 2026-09-27  
-**Status:** Research handoff. **No implementation authorization is implied by this document.**  
-**Primary objective:** Improve the evidence quality, calibration, and forward accuracy of EditTrades trade signals by adding a small number of proven research/observability capabilities that the current system appears to lack or only partially implements.  
+**Date:** 2026-09-27
+**Status:** Research handoff. **No implementation authorization is implied by this document.**
+**Primary objective:** Improve the evidence quality, calibration, and forward accuracy of EditTrades trade signals by adding a small number of proven research/observability capabilities that the current system appears to lack or only partially implements.
 **Operating constraint:** **Do not rebuild EditTrades. Do not replace the current signal engine. Do not replatform the application.** Add only narrowly scoped capabilities that can produce immediate research or signal-quality value inside the existing system.
 
 ---
