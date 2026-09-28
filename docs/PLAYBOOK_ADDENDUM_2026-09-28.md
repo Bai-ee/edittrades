@@ -12,6 +12,8 @@ Source for sections 10–12 of `EditTrades_Living_Scalp_Playbook_v2.docx` (the C
 
 **Estimating time to TP1/TP2:** derive from the candidate's own timeframe, the price distance to the target, ATR, momentum, and structure (a tighter timeframe + strong momentum + clean structure implies a shorter estimate than a wide-target/choppy setup on a slower timeframe). Always label it an estimate, and always pair it with a Time Stop: a point to reassess the thesis, never an instruction to auto-close.
 
+**Fields moved from the Instructions box 2026-09-28 (T-22):** the engine reads candles, EMA21/200 and distance, Stoch, trend, S/R, swings and session/prev-day levels on 1m-1d. `decisionTrace.window` = `range(to, closedCandles)`. A failed candidate trace token's 4th field is `failReason` (e.g. `5m:short:failed:stale`); cite it verbatim if asked.
+
 ## 11. Engine changes since 2026-09-22 (what the payload now carries)
 
 **Net stop floor, live since 2026-09-27 (configVersion 2026.09.27-2).** Every flag candidate's stop is widened to `max(0.5 × ATR15m, 3 × round-trip cost)` before any gate, then capped at 3% from entry (a candidate needing more than 3% is rejected, never widened past). `flagTradePlan` publishes `stop` (floored), `stopSource` (`structure` | `floor`) and `structureStop` (pre-floor invalidation); `flagRecommendation.setup.stopFloor = {applied, stopPct, netRR}`. Quote the floored `stop`, not `structureStop`, as the protective stop. A ready plan needs gross R:R ≥ the config minimum AND net R:R ≥ the floor's minimum; `net_rr_low` (net < 1.0) is non-blocking: say "thin after fees".
