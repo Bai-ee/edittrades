@@ -6,24 +6,17 @@ Numbers only, no recommendation — the owner already decided to ship this rule 
 same phase (`docs/OWNER_DECISIONS_2026-09-27.md` "T-20"); this replay does not gate that
 release.
 
-**Data-window disclosure (read this first):** the master prompt names
-`test/fixtures/history/deep2y-2026-09-26` (2024-10-01 → 2026-09-27, ~103.7 weeks) as the
-replay fixture. That run was started in this same phase (`node --max-old-space-size=20480
-scripts/swing/run.js --history test/fixtures/history/deep2y-2026-09-26 --symbols
-BTC,SOL,ETH --rules <id> --out-dir docs/swing`, one process per rule, run in parallel) but
-did not finish inside this session's wall-clock budget: this is the **first 1-minute-cadence
-rule** ever run through `scripts/swing/run.js` (every prior swing rule signals at 1h/4h/1d
-cadence, 60–1,440× fewer `signalAt` calls over the same span), and `detectFlagLifecycle`
-per call dominates the cost. A timed run on the smaller `deep60-2026-09-24` fixture
-(2026-07-01 → 2026-09-24, ~12.2 weeks, same 3 symbols) needed **1,164,945 ms (~19.4 min) for
-one rule alone** — scaling that to the ~8.6× larger 2-year window puts each rule at roughly
-2.5–3 hours, and all three were still running after ~2 hours when this doc was written.
-**The tables below are the complete, real, correctly-scored `deep60-2026-09-24` replay
-(~12.2 weeks) — not the 2-year window.** The three `deep2y-2026-09-26` background
-processes were left running (not killed) past the end of this session; see "Resuming the
-2-year run" below for the exact commands to pick up their output and regenerate this doc's
-tables from it. Every mechanic (rule, scoring, cost model, histogram, bootstrap) is
-identical between the two windows — only the sample size and calendar span differ.
+**Fixture**: `test/fixtures/history/deep2y-2026-09-26` (2024-10-01 → 2026-09-27, ~103.7
+weeks — the same span `docs/RETEST_ENTRY_STUDY_2026-09-27.md` quotes for this identical
+fixture), BTC/SOL/ETH, run at every closed 1m candle. This is the first 1-minute-cadence
+rule ever run through `scripts/swing/run.js` (every prior swing rule signals at 1h/4h/1d
+cadence, 60–1,440× fewer `signalAt` calls over the same span); each of the three rules
+below took ~12.3–12.8 million ms (~3.4–3.5 hours) to complete, run as three parallel
+processes (`node --max-old-space-size=20480 scripts/swing/run.js --history
+test/fixtures/history/deep2y-2026-09-26 --symbols BTC,SOL,ETH --rules <id> --out-dir
+docs/swing`). An earlier draft of this doc shipped a smaller `deep60-2026-09-24` (~12.2
+week) interim while the full run was still computing; this revision replaces it with the
+complete 2-year results.
 
 ## Rules and controls (`scripts/swing/rules/`)
 
@@ -43,9 +36,9 @@ identical between the two windows — only the sample size and calendar span dif
   from `buildHtfPlan`'s own swing math run on the 15m series instead of 1h. Isolates what
   anchoring to 1h structure specifically is worth against a tighter, faster 15m read.
 
-Run at every closed 1m candle (`tf: '1m'`), 3m skipped in this harness (no native 3m
-fixture — the harness's own convention: "3m is derived production-side and not
-reconstructed here," same as every prior swing study); the live wiring checks 3m too.
+3m skipped in this harness (no native 3m fixture — the harness's own convention: "3m is
+derived production-side and not reconstructed here," same as every prior swing study);
+the live wiring checks 3m too.
 
 ## Method
 
@@ -73,16 +66,11 @@ reconstructed here," same as every prior swing study); the live wiring checks 3m
   — the SAME seeded (1,000 resamples) function the live tracker's `RETEST_1H`/`HTF_1M`
   classes use — applied to net R.
 - **Filled %**: resolved (`win`/`loss`/`timeout`/`structure_exit`) ÷ every fired signal;
-  the remainder is `not_filled` (the trigger printed but price never touched the entry
-  within the fill window — entry is the trigger candle's own close here, so this is
-  normally at/near 100%, matching the "prefilled" convention `re-flag-retest-1h` also
-  uses since its entry is likewise the signal candle's own close).
+  the remainder is `not_filled`. Entry is the trigger candle's own close (prefilled), same
+  convention `re-flag-retest-1h` uses, so this reads high (92–98%) across every rule here.
 - **Median stop %**: over every fired signal (not just resolved) — `|entry−stop|/entry×100`.
 - **Median hold**: hours, over resolved signals only (`outcome.holdCandles / 60`).
-- **Signals/week**: `n ÷ weeks` — `12.2143` weeks for `deep60-2026-09-24` (2026-07-01 →
-  2026-09-24); the 2-year table (once regenerated) uses `103.7` weeks, the same figure
-  `docs/RETEST_ENTRY_STUDY_2026-09-27.md` quotes for the identical `deep2y-2026-09-26`
-  fixture.
+- **Signals/week**: `n ÷ 103.7` weeks.
 - **OOS split**: harness convention (`splitHalves`-style, index-based within the combined
   row's concatenated symbol order) — median AND mean net R, both halves, same convention
   `docs/RETEST_ENTRY_STUDY_2026-09-27.md` uses.
@@ -94,103 +82,73 @@ reconstructed here," same as every prior swing study); the live wiring checks 3m
   and signals/week columns this study's own table needs) against the raw per-signal JSON
   `scripts/swing/run.js` writes to `docs/swing/<id>.json`.
 
-## Results — `deep60-2026-09-24` (~12.2 weeks, 2026-07-01 → 2026-09-24)
+## Results — `deep2y-2026-09-26` (~103.7 weeks, 2024-10-01 → 2026-09-27)
 
 ### htf-entry-1m — the live rule
 
 | scope | n | filled % | win % | gross R mean | gross R median | net R mean | net R median | net R 90% LB | median stop % | median hold h | signals/wk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| BTC | 20 | 80% | 12.5% | -0.671 | -1.000 | -0.996 | -1.273 | -1.130 | 0.42% | 1.64 | 1.637 |
-| SOL | 89 | 73.03% | 36.92% | 0.250 | -0.285 | -0.019 | -0.556 | -0.265 | 1.02% | 4.45 | 7.287 |
-| ETH | 46 | 69.57% | 34.38% | 0.458 | -1.000 | 0.135 | -1.303 | -0.271 | 1.02% | 17.44 | 3.766 |
-| combined | 155 | 72.9% | 32.74% | 0.178 | -0.833 | -0.114 | -1.144 | -0.315 | 1.02% | 10.2 | 12.690 |
+| BTC | 536 | 97.57% | 29.06% | 0.221 | -1.000 | -0.043 | -1.154 | -0.148 | 0.47% | 2.72 | 5.169 |
+| SOL | 627 | 93.94% | 28.69% | 0.119 | -1.000 | -0.125 | -1.124 | -0.237 | 0.62% | 1.05 | 6.046 |
+| ETH | 613 | 92.17% | 25.49% | -0.118 | -1.000 | -0.374 | -1.186 | -0.465 | 0.67% | 2.27 | 5.911 |
+| combined | 1776 | 94.43% | 27.73% | 0.071 | -1.000 | -0.183 | -1.151 | -0.248 | 0.58% | 2.02 | 17.126 |
 
-OOS (net R): median 1st/2nd half −1.150 / −1.057; mean 1st/2nd half −0.560 / +0.325.
+OOS (net R): median 1st/2nd half −1.128 / −1.171; mean 1st/2nd half −0.008 / −0.358.
 
-R histogram (gross, resolved, n=113): `-1`: 76 · `0–1`: 12 · `1–2`: 0 · `2–3`: 6 · `≥3`: 19
+R histogram (gross, resolved, n=1677): `-1`: 1212 · `0–1`: 173 · `1–2`: 6 · `2–3`: 79 · `≥3`: 207
 
 ### ctl-htf-random-1m — control (seeded random direction)
 
 | scope | n | filled % | win % | gross R mean | gross R median | net R mean | net R median | net R 90% LB | median stop % | median hold h | signals/wk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| BTC | 318 | 79.56% | 24.11% | -0.397 | -1.000 | -0.675 | -1.181 | -0.757 | 0.51% | 2.02 | 26.035 |
-| SOL | 380 | 70.26% | 25.84% | -0.087 | -1.000 | -0.346 | -1.100 | -0.456 | 0.76% | 1.92 | 31.111 |
-| ETH | 388 | 53.87% | 29.67% | 0.011 | -1.000 | -0.269 | -1.072 | -0.400 | 0.75% | 4.43 | 31.766 |
-| combined | 1086 | 67.13% | 26.34% | -0.167 | -1.000 | -0.438 | -1.116 | -0.496 | 0.66% | 2.35 | 88.912 |
+| BTC | 3379 | 96.12% | 26.42% | -0.123 | -1.000 | -0.397 | -1.124 | -0.430 | 0.61% | 2.28 | 32.584 |
+| SOL | 4259 | 94.51% | 27.06% | -0.018 | -1.000 | -0.267 | -1.112 | -0.305 | 1.02% | 1.37 | 41.070 |
+| ETH | 4059 | 93.87% | 26.85% | -0.101 | -1.000 | -0.355 | -1.122 | -0.388 | 1.02% | 2.02 | 39.142 |
+| combined | 11697 | 94.75% | 26.80% | -0.077 | -1.000 | -0.335 | -1.118 | -0.356 | 0.96% | 1.93 | 112.797 |
 
-OOS (net R): median 1st/2nd half −1.163 / −1.082; mean 1st/2nd half −0.541 / −0.336.
+OOS (net R): median 1st/2nd half −1.112 / −1.123; mean 1st/2nd half −0.333 / −0.338.
 
-R histogram (gross, resolved, n=729): `-1`: 537 · `0–1`: 100 · `1–2`: 11 · `2–3`: 35 · `≥3`: 46
+R histogram (gross, resolved, n=11083): `-1`: 8113 · `0–1`: 1505 · `1–2`: 96 · `2–3`: 497 · `≥3`: 872
 
 ### ctl-htf-15mstop-1m — control (stop/target at 15m structure)
 
 | scope | n | filled % | win % | gross R mean | gross R median | net R mean | net R median | net R 90% LB | median stop % | median hold h | signals/wk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| BTC | 7 | 85.71% | 0% | -0.586 | -0.626 | -0.920 | -0.959 | -1.173 | 0.42% | 36.18 | 0.573 |
-| SOL | 16 | 75% | 8.33% | -0.280 | -1.000 | -0.613 | -1.333 | -1.269 | 0.42% | 0.92 | 1.310 |
-| ETH | 8 | 62.5% | 60% | 1.592 | 3.142 | 1.259 | 2.808 | 0.323 | 1.02% | 59.25 | 0.655 |
-| combined | 31 | 74.19% | 17.39% | 0.047 | -1.000 | -0.286 | -1.333 | -0.784 | 0.42% | 1.02 | 2.538 |
+| BTC | 290 | 96.90% | 27.40% | 0.018 | -1.000 | -0.267 | -1.227 | -0.397 | 0.42% | 1.38 | 2.797 |
+| SOL | 451 | 94.46% | 24.18% | -0.070 | -1.000 | -0.353 | -1.242 | -0.465 | 0.43% | 1.02 | 4.349 |
+| ETH | 333 | 91.59% | 26.56% | -0.056 | -1.000 | -0.324 | -1.233 | -0.449 | 0.51% | 1.38 | 3.211 |
+| combined | 1074 | 94.23% | 25.79% | -0.042 | -1.000 | -0.320 | -1.236 | -0.389 | 0.44% | 1.02 | 10.357 |
 
-OOS (net R): median 1st/2nd half −1.333 / −1.333; mean 1st/2nd half −0.392 / −0.189.
+OOS (net R): median 1st/2nd half −1.239 / −1.233; mean 1st/2nd half −0.298 / −0.342.
 
-R histogram (gross, resolved, n=23): `-1`: 19 · `0–1`: 0 · `1–2`: 0 · `2–3`: 0 · `≥3`: 4
+R histogram (gross, resolved, n=1012): `-1`: 751 · `0–1`: 84 · `1–2`: 3 · `2–3`: 64 · `≥3`: 110
 
 ## Findings (numbers only, no recommendation)
 
-- On this ~12.2-week window, `htf-entry-1m` fires far less often than the random-direction
-  control (155 vs 1,086 signals) — the 4h+1D direction gate is doing real filtering, not
-  passing through everything. `ctl-htf-15mstop-1m` fires far less often still (31 signals):
-  that control's stop/target requirement (a confirmed 15m swing structure at all, plus the
-  same ≥2.5R/≥1.0R gates against a much smaller 15m impulse) is far more restrictive than a
-  1h swing's typically-larger impulse, so most triggers never clear the R:R floor on a 15m
-  anchor. `htf-entry-1m`'s own combined net R median (−1.144) and mean (−0.114) are both
-  negative on this window; ETH's combined mean is the only positive symbol-level net figure
-  (+0.135, on a small 32-resolved sample).
-- The random-direction control's net R median (−1.116 combined) is close to
-  `htf-entry-1m`'s own (−1.144) on this window — consistent with (not distinguishing
-  from) a "no edge from the direction gate specifically, on this sample" read, though the
-  sample is 12.2 weeks, not the 2-year window this study is meant to run on.
-- All three rules' median net R is negative in both OOS halves on this window (the same
-  asymmetric-tail shape `docs/RETEST_ENTRY_STUDY_2026-09-27.md` found for the S3 family:
-  a low win rate with a right tail of large winners, e.g. `htf-entry-1m`'s own histogram —
-  19 of 113 resolved signals landed ≥3R gross — pulls the mean toward positive while the
-  median stays negative).
-- The 15m-stop control's ETH row (n=8, 60% win, net median +2.81R) is the one clearly
-  positive cell in this table; it is also the smallest sample in the study (8 signals) and
-  should not be read as a finding at this size.
-- **None of this is a verdict.** The window is ~12.2 weeks, not the 2-year window the
-  master prompt specifies, and the master prompt is explicit that this replay does not
-  gate the release either way (`docs/OWNER_DECISIONS_2026-09-27.md` "T-20").
-
-## Resuming the 2-year run
-
-The three `deep2y-2026-09-26` background processes (started from
-`/Users/bballi/Documents/Repos/snapshot_tradingview-htf`, branch `htf-entry`) were:
-
-```
-node --max-old-space-size=20480 scripts/swing/run.js --history test/fixtures/history/deep2y-2026-09-26 --symbols BTC,SOL,ETH --rules htf-entry-1m --out-dir docs/swing --out-md <scratch>/htf-main.md
-node --max-old-space-size=20480 scripts/swing/run.js --history test/fixtures/history/deep2y-2026-09-26 --symbols BTC,SOL,ETH --rules ctl-htf-random-1m --out-dir docs/swing --out-md <scratch>/htf-random.md
-node --max-old-space-size=20480 scripts/swing/run.js --history test/fixtures/history/deep2y-2026-09-26 --symbols BTC,SOL,ETH --rules ctl-htf-15mstop-1m --out-dir docs/swing --out-md <scratch>/htf-15mstop.md
-```
-
-Each writes `docs/swing/<rule-id>.json` on completion (the CLI's own `--out-md` markdown
-table is not what this doc uses — the tables above come from `scripts/swing/analyze-htf.js`
-against that JSON directly). Once all three `docs/swing/{htf-entry-1m,ctl-htf-random-1m,
-ctl-htf-15mstop-1m}.json` exist:
-
-```
-node -e "
-import('./scripts/swing/analyze-htf.js').then((m) => {
-  for (const id of ['htf-entry-1m','ctl-htf-random-1m','ctl-htf-15mstop-1m']) {
-    console.log(id, JSON.stringify(m.analyzeRule(id), null, 2));
-  }
-});
-"
-```
-
-produces the same shape of numbers as this doc's tables (default `weeks` is already
-`103.7`, correct for `deep2y-2026-09-26`) — replace this doc's three tables and the
-"Findings" section with the 2-year numbers and remove the data-window disclosure at the
-top once that is done. Expect roughly 2.5–3 hours per rule (all three can run in parallel;
-14 CPU cores / 36 GB RAM handled three concurrent processes at ~2–3 GB RSS / 120–150% CPU
-each without contention in this session).
+- All three rules' median net R is negative in both OOS halves, on every symbol and
+  combined — the same asymmetric-tail shape `docs/RETEST_ENTRY_STUDY_2026-09-27.md` found
+  for the S3 family: a win rate around 26–28% with a right tail of large winners (e.g.
+  `htf-entry-1m` combined: 207 of 1,677 resolved signals, 12.3%, landed ≥3R gross) pulls
+  the mean toward zero/positive while the median stays deep negative (all three rules'
+  combined net R median sits between −1.12 and −1.24 — i.e. typically the FULL stop is
+  hit, consistent with a low base win rate at this stop/target ratio).
+- `htf-entry-1m`'s own combined net R mean (−0.183, 90% LB −0.248) and the random-direction
+  control's (−0.335, 90% LB −0.356) are both negative, with the live rule's mean and lower
+  bound each sitting closer to zero than the control's — the 4h+1D direction gate reads as
+  somewhat less negative than an undirected coin flip on this window, though neither
+  clears zero and the median read (the more robust statistic at this sample size per
+  `docs/VARIANTS_STUDY_2026-09-26.md`'s own reasoning) is close between the two
+  (−1.151 vs −1.118).
+- The 15m-structure-stop control's combined net R median (−1.236) and mean (−0.320) sit
+  between the other two, closer to the random control than to the live rule; its per-symbol
+  spread is the tightest of the three (−0.267 to −0.353 mean net R across BTC/SOL/ETH).
+- Signal frequency: the live rule fires 17.1 signals/week combined (1,776 over 103.7
+  weeks) — far fewer than the random-direction control's 112.8/week (11,697), confirming
+  the direction gate materially restricts trigger frequency, as it should by construction
+  (only a subset of 1m/5m flags occur while a 4h+1D-agreeing regime is active). The
+  15m-stop control fires 10.4/week (1,074) — fewer than the live rule despite sharing the
+  same direction/trigger gate, because a qualifying 15m swing structure that also clears
+  the ≥2.5R/≥1.0R gates against a smaller 15m impulse is less often available than a 1h one.
+- **None of this is a verdict.** The master prompt is explicit that this replay does not
+  gate the release either way (`docs/OWNER_DECISIONS_2026-09-27.md` "T-20") — the owner's
+  decision to ship live stands regardless of what these numbers show.
