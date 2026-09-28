@@ -1458,9 +1458,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n10) payload controls (filterPayload, buildConfigSnapshot, phase 5)');
 
-  await test('buildScalpContext (case 6) carries schemaVersion 1.28.0 and a config snapshot', () => {
+  await test('buildScalpContext (case 6) carries schemaVersion 1.29.0 and a config snapshot', () => {
     assert(case6Result, 'case 6 result not available');
-    assertEqual(case6Result.schemaVersion, '1.28.0', 'schemaVersion must be bumped to 1.28.0');
+    assertEqual(case6Result.schemaVersion, '1.29.0', 'schemaVersion must be bumped to 1.29.0');
     assert(case6Result.config && typeof case6Result.config === 'object', 'payload is missing the top-level config snapshot');
     assertEqual(case6Result.config.scalp.maxStopDistancePct, ENGINE_CONFIG.scalp.maxStopDistancePct, 'config.scalp.maxStopDistancePct must mirror ENGINE_CONFIG');
     assertEqual(case6Result.config.risk.maxLeverage, ENGINE_CONFIG.risk.maxLeverage, 'config.risk.maxLeverage must mirror ENGINE_CONFIG');
@@ -1916,7 +1916,7 @@ async function main() {
       assertEqual(failed.flagHigh, 3, 'input not mutated');
     });
 
-    await test('T6 completion plan A1/C2: payload byte caps on a synthetic worst case, not a frozen day (default <= 81,500 B, compact <= 46,000 B)', async () => {
+    await test('T6 completion plan A1/C2: payload byte caps on a synthetic worst case, not a frozen day (default <= 81,700 B, compact <= 46,300 B)', async () => {
       // A frozen historical fixture only proves "this one day fit" - it says nothing
       // about the worst case, and the live payload has already exceeded 79,000 B on a
       // day this suite never captured. This test instead builds the worst SHAPE the
@@ -2095,8 +2095,15 @@ async function main() {
       // T-15: stopSource/structureStop on every flagTradePlan, plus setup.stopFloor's
       // extra key (was setup.shadowNF, 2 keys; now {applied, stopPct, netRR}, 3 keys) -
       // 81,200 -> 81,500 B, 45,800 -> 46,000 B.
-      assert(def <= 81500, `default worst-case payload ${def} B exceeds 81,500`);
-      assert(compact <= 46000, `compact worst-case payload ${compact} B exceeds 46,000`);
+      // T-20 (docs/PROMPT_T20_HTF_ENTRY.md): htfEntry - null when there is no HTF direction
+      // (same convention as flagTradePlan: null, not an object of nulls), else
+      // {direction, since, state} only, plus stop/structureStop/tp1/tp2/grossRR/netRR/
+      // stopPct/candidateId when state is 'ready' - direction/since/state alone (the
+      // common 'watching' case, exercised by this test's real fetched candles) is the
+      // floor cost and cannot be trimmed further without dropping a contract field -
+      // 81,500 -> 81,700 B, 46,000 -> 46,300 B.
+      assert(def <= 81700, `default worst-case payload ${def} B exceeds 81,700`);
+      assert(compact <= 46300, `compact worst-case payload ${compact} B exceeds 46,300`);
     });
 
     await test('failed candidate trace string carries failReason as a fourth token; live ones keep three', () => {

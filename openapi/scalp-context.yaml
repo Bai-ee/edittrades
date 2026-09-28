@@ -832,6 +832,75 @@ components:
             "tf=5m|structureSteps=some|roomR=roomy".
           type: string
       required: [id, tf, dir, at, lean, likely, chase, w, n, cal, key]
+
+    HtfEntry:
+      type: [object, "null"]
+      description: >-
+        Schema 1.29.0 (T-20, docs/PROMPT_T20_HTF_ENTRY.md, owner decision 2026-09-27:
+        "larger stops, gauge total direction over time, the 1 and 5 minute become
+        entries for the 1 hour"). A wholly separate signal family from
+        flagTradePlan/flagRecommendation/strategies/bestSignal - never reads or feeds
+        any of them. Direction: EMA21 > EMA200 on BOTH 4h and 1D and price above
+        EMA21(4h) = long (short mirrored). Trigger: a 1m/3m/5m flag
+        (lib/patternDetector.js) reaching triggering in that direction. Stop: the 1h
+        swing anchor +/- 0.1 ATR(1h), NF-floored (max(0.5x ATR15m, 3x round-trip
+        cost)), gated (never widened past) the 3% scalp cap. Target: the last 1h
+        impulse projected from that same swing; requires >= 2.5R gross and >= 1.0R
+        net off the floored stop. Null when the symbol has no HTF direction at all
+        (byte budget - same null-when-absent convention as flagTradePlan, not an
+        object of nulls). Compact keys: direction/since/state only while 'watching'
+        (a direction on file, no fired trigger this instant - by far the most common
+        non-null state); the plan fields below are present only when state=ready.
+      properties:
+        direction:
+          type: string
+          enum: [long, short]
+        since:
+          description: >-
+            ISO timestamp the current direction began (stateless backward
+            recomputation over the fetched 4h/1D window - see lib/htfEntryRule.js
+            htfDirectionSince; the live Telegram DIRECTION alert keeps its own
+            persisted since separately and the two are not meant to be
+            byte-identical).
+          type: string
+        state:
+          description: >-
+            none - no HTF direction (the whole field is null instead). watching - a
+            direction is on file but no trigger has fired this instant. ready - a
+            1m/3m/5m trigger fired and its plan cleared every gate (NF floor, 3%
+            scalp cap, gross/net R:R) - the plan fields below are populated.
+          type: string
+          enum: [none, watching, ready]
+        stop:
+          description: Present only when state=ready. The NF-floored, scalp-capped stop.
+          type: number
+        structureStop:
+          description: >-
+            Present only when state=ready. The 1h swing anchor +/- 0.1 ATR(1h)
+            before NF flooring - the level an EXIT · structure alert closes past.
+          type: number
+        tp1:
+          description: Present only when state=ready. The last 1h impulse projected from the swing anchor.
+          type: number
+        tp2:
+          description: Present only when state=ready and a next 1h/4h zone exists ahead of tp1.
+          type: number
+        grossRR:
+          description: Present only when state=ready.
+          type: number
+        netRR:
+          description: Present only when state=ready.
+          type: number
+        stopPct:
+          description: Present only when state=ready. Percent distance from entry to stop.
+          type: number
+        candidateId:
+          description: >-
+            Present only when state=ready. `htf_<SYM>_<triggerTf>_<direction>_<closeIso>`
+            - stable id for this exact trigger candle.
+          type: string
+      required: [direction, since, state]
+
     FlagTradePlan:
       type: [object, "null"]
       description: >-
@@ -1634,6 +1703,8 @@ components:
           $ref: "#/components/schemas/FlagRecommendation"
         pathOutlook:
           $ref: "#/components/schemas/PathOutlook"
+        htfEntry:
+          $ref: "#/components/schemas/HtfEntry"
         model:
           $ref: "#/components/schemas/ModelEvidence"
         timeframes:

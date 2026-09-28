@@ -217,6 +217,34 @@
  *     vendored copy in `scripts/tracker/flag-paths.js`, used the same way by
  *     `labelPath`'s own `retestReachedHeld`).
  *
+ * `htfEntry` block (T-20, `lib/htfEntryRule.js`, config 2026.09.27-3, owner decision
+ * 2026-09-27 - "larger stops, gauge total direction over time, the 1 and 5 minute become
+ * entries for the 1 hour", `docs/OWNER_DECISIONS_2026-09-27.md`):
+ *   - emaFast/emaSlow (21/200): the EMA lengths `computeHtfDirection` reads on 4h and 1D -
+ *     LONG when EMA21 > EMA200 on BOTH AND price > EMA21(4h); SHORT mirrored; else NONE.
+ *     Independent of `retestShared.js`'s own hardcoded EMA_FAST_PERIOD/EMA_SLOW_PERIOD
+ *     (S3-specific by design there) so this rule's lengths can move without touching S3.
+ *   - stopBufferAtr (0.1): the 1h swing low/high (last confirmed pivot, `lib/geometry.js`)
+ *     is pushed out by this many ATR(1h) before net-flooring - "swing low minus 0.1 x
+ *     ATR(1h)" (long), mirrored short.
+ *   - stopFloor.atrMult/costMult (0.5 / 3): fed straight into `netFloorStopDistance`
+ *     (`lib/flagTradePlan.js`) - identical numbers to `flagPlan.stopFloor` above, kept as
+ *     this block's own copy (not a shared reference) so the two rules' floors can diverge
+ *     later without a hidden coupling.
+ *   - minRR (2.5) / minNetRR (1.0): gross and net R:R floors against TP1 (the 1h measured
+ *     target); below either, the plan does not fire (`state` stays `watching`).
+ *   - cooldownHours (4): one ENTRY trigger per symbol per HTF regime (direction + `since`)
+ *     per this many hours - live-side only (`lib/htfEntryLive.js`), never gates the
+ *     `symbols.<SYM>.htfEntry` payload read itself.
+ *   - holdMaxHours (72): `EXIT · time` - the position is mark-to-market closed (or the
+ *     owner is told to move to breakeven) once a live HTF trade has been open this long.
+ *   - triggerTimeframes (1m/3m/5m): mirrors `flag.timeframes` - the flag detector
+ *     timeframes eligible to trigger an HTF entry once `htf.direction` is set. Kept as
+ *     this block's own copy (read-only reference to the same live values) rather than a
+ *     hidden coupling to `flag.timeframes`, matching `stopFloor` above.
+ *   3 % scalp cap: NOT duplicated here - the live stop is capped by `scalp.maxStopDistancePct`
+ *   directly (the one canonical threshold; CLAUDE.md: "do not raise the threshold").
+ *
  * `mark.pyth` block (P1 Pyth mark, `lib/pythMark.js`, config 2026.09.23-5):
  *   - feedIds (BTC/ETH/SOL): Hermes price feed ids for Crypto.<SYM>/USD, resolved once
  *     and stored as constants so the request path never looks them up.

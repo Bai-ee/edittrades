@@ -329,6 +329,12 @@ export function retestCallOutcomesFile(dataDir) {
   return path.join(dataDir, 'retest-call-outcomes.jsonl');
 }
 
+/** Scored HTF_1M calls (T-20): 1-minute alert log only (no capture source - an HTF ready
+ * state is too transient for the 10-minute poll to reliably see), one row per symbol+candidateId. */
+export function htfCallOutcomesFile(dataDir) {
+  return path.join(dataDir, 'htf-call-outcomes.jsonl');
+}
+
 export const telegramAlertKey = (r) => r.id;
 export const transitionRowKey = (r) => `${r.candidateId}|${r.at}`;
 

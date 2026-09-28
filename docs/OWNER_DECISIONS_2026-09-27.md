@@ -60,3 +60,33 @@ Source: `docs/PROMPT_T18_LIVE_RELEASE_MODIFIED.md` (T-18 master prompt, "ship th
 ## Implementation (T-18)
 
 See `CHANGELOG.md`'s 2026-09-27 T-18 entry for the full file-by-file list.
+
+## T-20 — HTF-anchored entries ship live, without a prior study
+
+Source: `docs/PROMPT_T20_HTF_ENTRY.md` (master prompt) + its addendum (every HTF card is a
+photo with a fixed WHAT-TO-DO caption). Executed in worktree `snapshot_tradingview-htf`
+(branch `htf-entry`, off `origin/upgrade-signal-engine`).
+
+| # | Question | Answer | Why it matters |
+| --- | --- | --- | --- |
+| T-20 | **Unlike T-18's retest-1h (which shipped paper pending a promotion rule because the study came first), the owner asked for HTF-anchored entries to ship live-capable (Open button, full caps) in the SAME phase as the 2-year replay, not gated on it. Is that the right call given retest-1h's own experience (fails OOS, matches a random-direction control)?** The owner's own instruction: "larger stops, gauge total direction over time, the 1 and 5 minute become entries for the 1 hour" - explicitly a live release, replay attached for the record, not a promotion gate. `docs/HTF_ENTRY_STUDY_2026-09-27.md` (this phase) has the numbers: n, filled %, win %, gross/net R mean and median, the bootstrap 90 % lower bound, median stop %, median hold, signals/week, OOS halves, and an R histogram for the live rule plus two controls (random direction with identical mechanics; the same rule with the stop at 15m structure instead of 1h) over `deep2y-2026-09-26`. | **Ship as instructed: HTF-anchored entries are live from this phase (Open button, same executor/caps/PIN/kill), the replay is informational, not a gate.** This is a materially different mechanism from retest-1h - a wider, structure-anchored 1h stop (not a tight retest print) and a direction filter gauged over 4h/1D rather than 1h/4h - so retest-1h's own OOS failure is evidence about retest-1h's mechanics, not a reason to withhold a different mechanism the owner explicitly asked to ship live. The replay numbers are reported without a recommendation, per the master prompt ("no recommendation; numbers only"), so the owner reads them with full knowledge of what did and did not clear a bar, while the release itself does not wait on them. | Flags the asymmetry with T-18 explicitly rather than silently applying a different standard to two similar-shaped signal classes; the owner's own explicit release instruction is the deciding fact, not this session's judgment of the replay numbers. |
+| Structure exit modelling | **The live EXIT · structure alert checks the real 1h candle close against the swing-defined stop. The 2-year replay cannot cheaply do the same (the swing harness's own `holdRule` mechanism samples periodically from the signal's own trigger time, not recalendared to real exchange 1h boundaries).** Is a documented approximation acceptable for the replay specifically? | **Yes, documented, not applied to the live path.** `lib/htfEntryRule.js`'s own header states the approximation plainly; `lib/htfEntryLive.js`'s live structure-exit check reads the real 1h close directly, unaffected. | The replay is explicitly "numbers only," not a live gate - a small, disclosed timing approximation there does not touch what actually executes. |
+| DIRECTION card entry stand-in | **The DIRECTION card draws the planned 1h swing stop and target with "no entry marker" (addendum), but the chart renderer's trade-overlay validation (`lib/chartRender.js` `normalizeTradeOverlay`) requires a numeric `entry` to confirm the stop/TP1 sides are correct even when no trade exists yet.** What stands in for it? | The symbol's current 1h close is used purely as a geometric anchor for that validation, paired with a new additive `hideEntryMarker: true` flag (`lib/chartRender.js`) that skips drawing the entry line specifically - stop/TP1 and the risk/reward bands still draw. Never surfaced in the card's text as an "entry." | A decision point flagged for the owner rather than silently invented; the addendum's literal requirement ("no entry marker") is met by suppressing the drawn line, not by omitting the underlying validation input the renderer needs regardless. |
+| ENTRY card tier/risk display | **The `htfEntry` payload contract (deliverable 1) has no `risk`/`tier` field, but the addendum's own ENTRY caption example shows "tier A · risk $5.20 (1 %)".** How is that line populated? | `lib/htfEntryLive.js`'s `htfRiskEstimate` sizes against `config.risk.defaultMarginUsd` directly (no live wallet fetch, unlike a flag candidate's payload-computed `risk` block) via the same `lib/riskEngine.js` `positionPlan` math; tier defaults to `'B'` (`lib/tier.js`'s own safe default) rather than inventing an HTF-specific tier rule the prompt never specified. `preflight` independently re-sizes and re-caps the real order the moment Open is tapped, regardless of what this line displays. | A second flagged decision point: the display line is a simplification, not a new sizing authority: it never affects what an order is actually allowed to do. |
+
+## Not built / deferred (T-20)
+
+- Live wallet-aware sizing for the ENTRY card's displayed risk $/tier (see the decision
+  table above) - `preflight` sizes and caps the real order correctly regardless; only the
+  card's own display line is a simplification.
+- A page-level "direction lost" DIRECTION card (regime flips from long/short back to none):
+  the addendum's own example only covers gaining an active direction, so a regime loss is a
+  silent state update (`state.htf.direction[symbol]` set to null), no card - documented here
+  rather than silently decided.
+- `docs/PLAN_TELEGRAM.md`/`docs/PLAN_TELEGRAM_EXECUTION.md` status-line updates for T-20 (see
+  those docs' own change logs for the exact lines touched).
+
+## Implementation (T-20)
+
+See `CHANGELOG.md`'s 2026-09-27/28 T-20 entry for the full file-by-file list;
+`docs/HTF_ENTRY_STUDY_2026-09-27.md` has the 2-year replay numbers.

@@ -71,6 +71,11 @@ import {
   PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
+// T-20 HTF-anchored entry (owner-approved "ships live-capable" 2026-09-27). Open resolves
+// through its OWN dedicated intent builder (orderIntentFromHtfPlan), never
+// candidateLevels/orderIntentFromCandidate - those two, and the retest1h Open refusal
+// above, are unchanged by this feature.
+import { orderIntentFromHtfPlan, formatHtfStatus } from '../lib/htfEntryLive.js';
 
 // 300 s (Vercel Pro ceiling): the live two-phase open runs inside one confirm request —
 // worst case 45 s land + 60 s keeper fill + 2 x 45 s stop landings + 45 s emergency close
@@ -492,8 +497,25 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       // button (api/telegram-cron.js), but this refuses defense-in-depth too, e.g. a stale
       // button from before this deploy.
       const retestPlan = state && state.retest1h && state.retest1h.plans ? state.retest1h.plans[parsed.ref] : null;
+      // T-20: an HTF-entry ref (state.htf.plans[ref]) resolves through its OWN dedicated
+      // intent builder (orderIntentFromHtfPlan) - it never reaches resolveRef/
+      // candidateLevels/orderIntentFromCandidate below (those stay exactly as the flag
+      // family and the retest1h refusal above left them). Unlike retest1h, HTF entries DO
+      // ship live-capable, so this is an Open, not a fixed refusal.
+      const htfPlan = state && state.htf && state.htf.plans ? state.htf.plans[parsed.ref] : null;
       if (retestPlan) {
         await reply('Execution is not enabled for RETEST 1H yet');
+      } else if (htfPlan) {
+        const built = orderIntentFromHtfPlan(htfPlan, execCaps(await safeStatus(), env));
+        if (built.error) await execSend(formatRefusedCard({ symbol: htfPlan.symbol, direction: htfPlan.direction }, [built.error], { timeframe: htfPlan.timeframe }), null, { event: 'refused', symbol: htfPlan.symbol, timeframe: htfPlan.timeframe, candidateId: htfPlan.candidateId });
+        else {
+          const payload = filterPayload(await build(), { compact: true });
+          await runOrder({ ...built.intent, tier: 'B' }, {
+            timeframe: htfPlan.timeframe, snap: { symbol: htfPlan.symbol, candidateId: htfPlan.candidateId, timeframe: htfPlan.timeframe, direction: htfPlan.direction, entry: htfPlan.entry, stop: htfPlan.stop, tp1: htfPlan.tp1 },
+            mark: markCtx(htfPlan.symbol, payload && payload.symbols ? payload.symbols[htfPlan.symbol] : null),
+            from: { kind: 'HTF_ENTRY', timeframe: htfPlan.timeframe, ref: parsed.ref }
+          });
+        }
       } else {
         const payload = filterPayload(await build(), { compact: true });
         const v = resolveRef(parsed.ref, payload, state);
@@ -1045,6 +1067,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       const state = hasStore ? await readState() : null;
       if (!state) await reply('Tracking store unavailable.');
       else await reply(formatTrackingList(state.tracked, now()), trackingKeyboard(state.tracked, now()) || menuKeyboard());
+    } else if (cmd === 'htf') {
+      const state = hasStore ? await readState() : null;
+      if (!state) await reply('HTF store unavailable.');
+      else await reply(formatHtfStatus(state.htf), menuKeyboard());
     } else if (cmd === 'positions') {
       if (!hasStore) await reply('Journal store unavailable.');
       else {

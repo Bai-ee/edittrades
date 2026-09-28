@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "updatedAt": "2026-09-24",
+  "updatedAt": "2026-09-28",
   "stages": [
     {
       "id": "market-data",
@@ -122,6 +122,41 @@
           ],
           "tests": [
             "test:retest1h",
+            "test:telegram"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": null
+        },
+        {
+          "path": "lib/htfEntryRule.js",
+          "name": "htfEntryRule",
+          "role": "T-20 HTF-anchored entry rule: direction from the 4h+1D EMA21/EMA200 stack, entry from a 1m/3m/5m flag reaching triggering, 1h swing stop (NF-floored, 3% scalp-capped), target from the last 1h impulse projected from that swing; one implementation shared by research and the live alert.",
+          "publishes": [
+            "symbols.<SYM>.htfEntry",
+            "HTF ENTRY signal (internal)"
+          ],
+          "consumes": [
+            "1d/4h/1h/15m/1m/3m/5m closed candles"
+          ],
+          "tests": [
+            "test:htfrule"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": "1.29.0"
+        },
+        {
+          "path": "lib/htfEntryLive.js",
+          "name": "htfEntryLive",
+          "role": "Runs the HTF-entry rule on live closed candles for the Telegram cron: live DIRECTION/ENTRY/EXIT alerts (each a photo with a fixed WHAT-TO-DO caption), the dedicated Open intent builder, /htf status.",
+          "publishes": [
+            "DIRECTION / ENTRY / EXIT alerts (live)"
+          ],
+          "consumes": [
+            "live candles via services/marketData.js"
+          ],
+          "tests": [
+            "test:htfrule",
+            "test:htflive",
             "test:telegram"
           ],
           "since": "2026-09-27",
@@ -1328,7 +1363,7 @@
         {
           "path": "scripts/tracker/strategies-page.js",
           "name": "strategies-page",
-          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) — split from risk-page.js at merge, same slot originally contested.",
+          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) \u2014 split from risk-page.js at merge, same slot originally contested.",
           "publishes": [
             "strategies.html"
           ],
@@ -2086,13 +2121,13 @@
       {
         "stage": "market-data",
         "short": "Market",
-        "label": "price · mark · account",
+        "label": "price \u00b7 mark \u00b7 account",
         "tier": "context"
       },
       {
         "stage": "indicators-geometry",
         "short": "Indicators",
-        "label": "timeframes · geometry",
+        "label": "timeframes \u00b7 geometry",
         "tier": "context"
       },
       {
@@ -2104,13 +2139,13 @@
       {
         "stage": "bias-topdown",
         "short": "Bias",
-        "label": "bias · top-down",
+        "label": "bias \u00b7 top-down",
         "tier": "context"
       },
       {
         "stage": "trade-plan",
         "short": "Plan",
-        "label": "plan · risk · strategies",
+        "label": "plan \u00b7 risk \u00b7 strategies",
         "tier": "context"
       },
       {
@@ -2170,7 +2205,7 @@
           "collect",
           "telegram-cron"
         ],
-        "label": "journal · served · alerts",
+        "label": "journal \u00b7 served \u00b7 alerts",
         "tier": "context"
       }
     ],

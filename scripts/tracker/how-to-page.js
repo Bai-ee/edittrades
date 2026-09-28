@@ -68,6 +68,7 @@ export const TG_EXEC = [
   ['Open @ plan', 'Ready plans only', 'On a GOOD alert or Plan card when the call is GET IN NOW. Builds the order from the engine plan: entry, stop, TP1; size and leverage = the engine suggestion, capped by your caps.'],
   ['Open (early)', 'SETUP / BREAKOUT with levels', 'Available once a SETUP or BREAKOUT already has entry, stop and TP1 but isn\'t ready yet — same checks and ticket as Open @ plan; you\'re choosing to go in ahead of the trigger, not waiting for it.'],
   ['RETEST 1H (paper)', 'Track / Plan / Thesis only', 'RETEST 1H alerts run the 1h flag-retest rule on live closed candles and ship paper-only: no Open button, and the bot refuses retest orders until the promotion rule passes (30 live signals, mean net R above 0 with the bootstrap 90% lower bound above 0). Use Track to follow one; EXIT SIGNAL alerts mark the structure exit or the 7-day cap.'],
+  ['HTF ENTRY (live)', 'DIRECTION → ENTRY → EXIT, each a photo', 'A separate, wider-stop signal family gauged over 4h/1D direction: a 🧭 DIRECTION card once the trend stack agrees (no trade yet - Track it), then ⚡ ENTRY the moment a 1m/5m flag triggers in that direction, with Open @ plan same as any other ready call. Stop is the 1h swing, not a tight retest print. 🚪 EXIT fires on a structure break or the 72h cap. /htf shows all three symbols\' current direction, stop and target.'],
   ['Focus mode', 'auto (default) · off', 'While you have a position open, focus auto quiets every other alert down to just that symbol (health and kill-switch alerts still always send); off sends everything regardless of open positions. Toggle from the persistent menu or /alerts focus auto|off.'],
   ['Ticket', '60 s', '⚡ ORDER card: DRY RUN or LIVE banner, side, size, leverage, expected fill, SL, TP1, max loss, fees, and a risk $X (Y% eq) · exposure line once the risk policy is on it (see /risk below). Anything over a cap, a stop over 3%, the kill switch on or a missing cap → ⛔ ORDER REFUSED with the reasons.'],
   ['Confirm + PIN', 'Every time', 'Tap Confirm, then reply /confirm <nonce> <PIN>. The bot deletes that message so the PIN does not stay in the chat. Wrong PIN 3 times → execution auto-kills for 1 hour. Cancel sends nothing.'],
@@ -150,7 +151,7 @@ export const DATA_BLOCK = [
   ['Generated At', 'Snapshot time', 'Should be minutes old. If not, ask again.'],
   ['Closed Through', 'Last closed candle', 'The engine reads closed candles only, so it can trail the live price by one candle.'],
   ['Wallet Updated At', 'Account read', 'Unavailable is not a zero balance.'],
-  ['Schema / Config', 'Versions', 'Instruction schema 1.27.x and the engine configVersion (payload schema is 1.28.0; the instructions box has not been re-audited to it yet). A config change marks a boundary on the tracker.'],
+  ['Schema / Config', 'Versions', 'Instruction schema 1.27.x and the engine configVersion (payload schema is 1.29.0; the instructions box has not been re-audited to it yet). A config change marks a boundary on the tracker.'],
   ['Warnings', 'Read them', 'Any listed warning means ask again before acting.']
 ];
 
@@ -340,7 +341,7 @@ export function renderHowTo() {
   const rules = zone({
     id: 'howto-rules-section', title: 'The rules in force', sub: 'Frozen until 2026-10-08, except NF stop floor / trailing stop / guardrails (freeze lifted 2026-09-27)',
     tiles: [tile({
-      id: 'howto-rules-tile', title: 'Rules', tag: 'config 2026.09.27-2', body: rulesTable,
+      id: 'howto-rules-tile', title: 'Rules', tag: 'config 2026.09.27-3', body: rulesTable,
       foot: 'Sources: config/engine.json, docs/OWNER_DECISIONS_2026-09-23.md, docs/OWNER_DECISIONS_2026-09-24.md in the engine repo. The flag detector runs on 1m / 3m / 5m.'
     })]
   });

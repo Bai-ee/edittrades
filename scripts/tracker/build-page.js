@@ -731,6 +731,32 @@ function retest1hBody(stats) {
   return table1 + `<p class="note" id="retest1h-status-note">${esc(status)}</p>`;
 }
 
+// ---------- HTF_1M · live (T-20, docs/PROMPT_T20_HTF_ENTRY.md) ----------
+//
+// Owner decision 2026-09-27: HTF-anchored entries ship LIVE (Open button, full caps),
+// unlike RETEST_1H's paper-until-promoted class - this section reads the same 1-minute
+// alert log with the same mean/median/bootstrap/max-DD math (scripts/tracker/aggregate.js
+// htfStats) so every live signal class is measured the same way, but the status line
+// below reports it as a monitoring count, never a gate on anything already shipped.
+
+export const NO_HTF1M = '[NO HTF ENTRY SIGNALS YET]';
+export const HTF1M_NOTE = 'HTF-anchored entries ship live (docs/PROMPT_T20_HTF_ENTRY.md, owner decision 2026-09-27): direction from the 4h+1D EMA21/EMA200 stack, entry from a 1m/3m/5m flag reaching triggering, stop from the 1h swing (NF-floored, 3% scalp-capped), target from the last 1h impulse projected from that swing. Scored here from the 1-minute alert log, same math as RETEST_1H (mean/median/bootstrap 90% lower bound/max drawdown) for comparability — not a promotion gate; this class is already live.';
+
+export const HTF1M_HEADERS = RETEST1H_HEADERS;
+
+function htf1mBody(stats) {
+  if (!stats || !stats.calls) return `<p class="empty" id="htf1m-empty">${esc(NO_HTF1M)}</p>`;
+  const row = [
+    stats.calls, stats.resolved, stats.wins, stats.losses, pct(stats.winRate),
+    { v: rVal(stats.grossRMean), cls: rStatus(stats.grossRMean) }, { v: rVal(stats.grossRMedian), cls: rStatus(stats.grossRMedian) },
+    { v: rVal(stats.netRMean), cls: rStatus(stats.netRMean) }, { v: rVal(stats.netRMedian), cls: rStatus(stats.netRMedian) },
+    { v: rVal(stats.netRBootstrapLowerBound90), cls: rStatus(stats.netRBootstrapLowerBound90) },
+    num(stats.maxDrawdownR, 2)
+  ];
+  const table1 = table('htf1m-summary-table', HTF1M_HEADERS, [row], NO_HTF1M, 1);
+  return table1 + `<p class="note" id="htf1m-status-note">live — ${stats.towardThirty} resolved signal(s) scored so far</p>`;
+}
+
 export function renderHtml(agg, data = {}) {
   const t = agg.tiles;
   const nowMs = Date.parse(agg.generatedAt);
@@ -808,6 +834,9 @@ export function renderHtml(agg, data = {}) {
   // RETEST 1H (T-18): next to Live/NF above and Aggressive on strategies.html - a third,
   // separate signal class, paper until its own promotion rule clears.
   const retest1hSection = section('retest1h-section', 'RETEST 1H · paper', retest1hBody(agg.retest1h), { sm: 2, lg: 12, foot: RETEST1H_NOTE });
+
+  // HTF ENTRY (T-20): a fourth, separate signal class - ships live, scored the same way.
+  const htf1mSection = section('htf1m-section', 'HTF ENTRY · live', htf1mBody(agg.htf1m), { sm: 2, lg: 12, foot: HTF1M_NOTE });
 
   // Secondary: instruments, one small tile each.
   const good7 = (w7.byClass.find((g) => g.key === 'GOOD') || { calls: 0 }).calls;
@@ -963,7 +992,7 @@ export function renderHtml(agg, data = {}) {
     }),
     zone({
       id: 'zone-performance', title: 'Performance', sub: 'Last 7 days · gross R, before fees',
-      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, nfShadowSection, retest1hSection, ...instruments]
+      tiles: [hero, classCheck, flagPathsSection, pathCalibrationSection, breakoutShadowSection, v3ShadowSection, nfShadowSection, retest1hSection, htf1mSection, ...instruments]
     }),
     zone({
       id: 'zone-charts', title: 'Charts', sub: 'Engine calls, your trades, wallet',
@@ -1088,6 +1117,11 @@ export function renderReport(agg, data = {}) {
   out.push(r1h
     ? `${mdTable(RETEST1H_HEADERS, [[r1h.calls, r1h.resolved, r1h.wins, r1h.losses, pct(r1h.winRate), rVal(r1h.grossRMean), rVal(r1h.grossRMedian), rVal(r1h.netRMean), rVal(r1h.netRMedian), rVal(r1h.netRBootstrapLowerBound90), num(r1h.maxDrawdownR, 2)]])}\n${r1h.towardThirty} / ${r1h.promotionTarget} toward the promotion rule. ${RETEST1H_NOTE}\n`
     : `${NO_RETEST1H}\n`);
+  const hEntry = agg.htf1m && agg.htf1m.calls ? agg.htf1m : null;
+  out.push(`\n## HTF ENTRY · live\n\n_${PROVISIONAL}_\n`);
+  out.push(hEntry
+    ? `${mdTable(HTF1M_HEADERS, [[hEntry.calls, hEntry.resolved, hEntry.wins, hEntry.losses, pct(hEntry.winRate), rVal(hEntry.grossRMean), rVal(hEntry.grossRMedian), rVal(hEntry.netRMean), rVal(hEntry.netRMedian), rVal(hEntry.netRBootstrapLowerBound90), num(hEntry.maxDrawdownR, 2)]])}\n${hEntry.towardThirty} resolved signal(s) scored so far. ${HTF1M_NOTE}\n`
+    : `${NO_HTF1M}\n`);
   const c = agg.captures;
   out.push(`\n## Data health\n\n_${PROVISIONAL}_\n\nCaptures ${c.captures}, gaps ${c.gaps}, DATA_UNAVAILABLE ${c.dataUnavailable}, mark drift |bps| median ${num(c.markDriftBps.medianAbs)} / max ${num(c.markDriftBps.maxAbs)}, missing 1m candles ${c.missing1mCandles}.\n`);
   return out.join('\n');

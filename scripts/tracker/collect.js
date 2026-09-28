@@ -644,6 +644,71 @@ export function retestExitTimesFromAlertLines(alertRows) {
   return exited;
 }
 
+// ---------------------------------------------------------------- HTF_1M calls from the 1-minute alert log (T-20)
+//
+// docs/PROMPT_T20_HTF_ENTRY.md: the HTF-anchored entry class, scored from the Telegram
+// alert log exactly like RETEST_1H above (an HTF `ready` state is too transient for the
+// 10-minute capture poll to reliably ever see it, so the alert log is the only practical
+// source, same reasoning as RETEST_1H's own header comment). `configVersion` (stamped on
+// every alert log line generically since T-20, lib/telegramLog.js alertLogLine) rides
+// through so aggregate.js's configBoundary works for this class from day one, unlike
+// RETEST_1H (which predates that stamp and has none on its own historical rows).
+
+/**
+ * One HTF_1M call per symbol+candidateId, from the first (earliest sentAt) kind
+ * HTF_ENTRY line for that pair. Levels come from the alert's own `trackLevels`
+ * (api/telegram-cron.js's evaluateHtfEntry stamps entry/stop/tp1/timeframe/direction there
+ * since an HTF candidateId is never durably in the live flag payload for candidateSnapshot
+ * to resolve - it only appears in symbols.<SYM>.htfEntry for the single instant a trigger
+ * fires 'ready').
+ * @param {Array<Object>} alertRows - data/telegram-alerts lines (lib/telegramLog.js alertLogLine shape)
+ * @returns {Array<Object>} {symbol, candidateId, calledAt, timeframe, direction, entry, stop, tp1, configVersion, source:'alert-1m'}
+ */
+export function htfCallsFromAlertLines(alertRows) {
+  const hits = (alertRows || [])
+    .filter((r) => r && r.kind === 'HTF_ENTRY' && typeof r.symbol === 'string' && typeof r.candidateId === 'string' && Number.isFinite(Date.parse(r.sentAt)))
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  const byKey = new Map();
+  for (const r of hits) {
+    const key = `${r.symbol}|${r.candidateId}`;
+    if (byKey.has(key)) continue;
+    byKey.set(key, {
+      symbol: r.symbol,
+      candidateId: r.candidateId,
+      calledAt: r.sentAt,
+      timeframe: typeof r.timeframe === 'string' ? r.timeframe : null,
+      direction: r.direction === 'long' || r.direction === 'short' ? r.direction : null,
+      entry: isFiniteNum(r.entry) ? r.entry : null,
+      stop: isFiniteNum(r.stop) ? r.stop : null,
+      tp1: isFiniteNum(r.tp1) ? r.tp1 : null,
+      configVersion: typeof r.configVersion === 'string' ? r.configVersion : null,
+      source: 'alert-1m'
+    });
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * symbol+candidateId -> the first HTF_EXIT line's sentAt that closed it (structure exit or
+ * the 72h hold cap - lib/htfEntryLive.js formatHtfExitAlert). An HTF_EXIT line always
+ * carries its own candidateId (api/telegram-cron.js evaluateHtfEntry always names the plan
+ * it is closing), so this is a direct index, not a per-symbol "currently open" walk - same
+ * shape as RETEST_1H's own retestExitTimesFromAlertLines.
+ * @param {Array<Object>} alertRows
+ * @returns {Map<string,string>} key `symbol|candidateId` -> exitedAt (ISO, earliest)
+ */
+export function htfExitTimesFromAlertLines(alertRows) {
+  const exited = new Map();
+  const hits = (alertRows || [])
+    .filter((r) => r && r.kind === 'HTF_EXIT' && typeof r.symbol === 'string' && typeof r.candidateId === 'string' && Number.isFinite(Date.parse(r.sentAt)))
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  for (const r of hits) {
+    const key = `${r.symbol}|${r.candidateId}`;
+    if (!exited.has(key)) exited.set(key, r.sentAt);
+  }
+  return exited;
+}
+
 /** Write one payload's calls and candles into `dataDir`. */
 export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const rows = recordsFromPayload(payload, capturedAtMs);

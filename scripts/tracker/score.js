@@ -74,10 +74,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseArgs, readAllCalls, readCandles, readJsonl, writeJsonl, outcomesFile, readJournal, journalOutcomesFile,
-  readTelegramAlerts, readTransitions, alertOutcomesFile, goodCallOutcomesFile, retestCallOutcomesFile
+  readTelegramAlerts, readTransitions, alertOutcomesFile, goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile
 } from './store.js';
 import { walkOutcome, isFiniteNumber, FILL_WINDOW_CANDLES } from './walk-outcome.js';
-import { goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines, retestCallsFromAlertLines, retestExitTimesFromAlertLines } from './collect.js';
+import {
+  goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines, retestCallsFromAlertLines, retestExitTimesFromAlertLines,
+  htfCallsFromAlertLines, htfExitTimesFromAlertLines
+} from './collect.js';
 
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 const MINUTE = 60_000;
@@ -764,6 +767,79 @@ export function scoreRetestCallsDataDir(dataDir, nowMs = Date.now()) {
   return rows;
 }
 
+// ---------------------------------------------------------------- HTF_1M calls from the 1-minute alert log (T-20)
+
+export const htfCallId = (c) => `htf1m|${c.symbol}|${c.candidateId}`;
+
+/**
+ * Walk each HTF_1M call (collect.js htfCallsFromAlertLines) from its own calledAt, prefilled
+ * exactly like a RETEST_1H call (scoreRetestCalls above): the trigger fires ON the flag's
+ * own breakout candle close (lib/htfEntryRule.js), so the signal's `entry` IS that close -
+ * already "filled" the moment the alert goes out. `exitedAtByKey`
+ * (collect.js htfExitTimesFromAlertLines) is display only - it does NOT change the walked
+ * outcome; the walk always answers "what would this trade's own levels have done" against
+ * entry/stop/tp1, same as RETEST_1H - the live structure/72h-cap exits are a separate,
+ * parallel info-only alert, not reproduced in this walk. Idempotent: a call whose outcome
+ * is already final keeps that outcome.
+ * @param {Array<Object>} calls - collect.js htfCallsFromAlertLines output
+ * @param {Object<string, Array<Object>>} candlesBySymbol - 1m candles, ascending
+ * @param {Map<string,string>} [exitedAtByKey=new Map()] - collect.js htfExitTimesFromAlertLines output
+ * @param {Array<Object>} [previous=[]] - existing htf-call-outcomes.jsonl rows
+ * @param {number} [nowMs=Date.now()]
+ * @returns {Array<Object>}
+ */
+export function scoreHtfCalls(calls, candlesBySymbol, exitedAtByKey = new Map(), previous = [], nowMs = Date.now()) {
+  const prevById = new Map((previous || []).map((r) => [r.callId, r]));
+  const nowIso = new Date(nowMs).toISOString();
+  const rows = [];
+  for (const call of calls || []) {
+    if (!call || !call.symbol || !call.candidateId) continue;
+    const callId = htfCallId(call);
+    const prev = prevById.get(callId);
+    const key = `${call.symbol}|${call.candidateId}`;
+    const exitedAt = exitedAtByKey instanceof Map ? (exitedAtByKey.get(key) ?? null) : null;
+    const candles = candlesBySymbol[call.symbol] || [];
+    const hasLevels = isFiniteNumber(call.entry) && isFiniteNumber(call.stop) && isFiniteNumber(call.tp1);
+    let result;
+    if (prev && FINAL_OUTCOMES.has(prev.outcome)) {
+      result = { outcome: prev.outcome, r: prev.r, filledAt: prev.filledAt, resolvedAt: prev.resolvedAt, minutesToResolution: prev.minutesToResolution };
+    } else if (!hasLevels) {
+      result = { outcome: 'no_levels', r: null, filledAt: null, resolvedAt: null, minutesToResolution: null };
+    } else {
+      result = walkCall(call, candles, nowMs, true);
+    }
+    const row = {
+      callId, kind: 'htf1m', symbol: call.symbol, candidateId: call.candidateId, calledAt: call.calledAt,
+      timeframe: call.timeframe ?? null, direction: call.direction ?? null,
+      entry: call.entry ?? null, stop: call.stop ?? null, tp1: call.tp1 ?? null,
+      configVersion: call.configVersion ?? null,
+      levelSource: 'alert', class: 'HTF_1M',
+      sources: ['alert-1m'],
+      exitedAt,
+      ...result,
+      mode: hasLevels ? 'ready_prefilled' : 'not_walked',
+      rUnits: 'gross_R_before_fees_slippage'
+    };
+    row.scoredAt = prev && stableJson(prev) === stableJson(row) ? prev.scoredAt : nowIso;
+    rows.push(row);
+  }
+  return rows;
+}
+
+/**
+ * Score the Telegram HTF_1M alert log and write htf-call-outcomes.jsonl. No capture
+ * fallback (like RETEST_1H) - an HTF `ready` state is too transient for the 10-minute poll
+ * to reliably have seen it.
+ */
+export function scoreHtfCallsDataDir(dataDir, nowMs = Date.now()) {
+  const alertRows = readTelegramAlerts(dataDir);
+  const calls = htfCallsFromAlertLines(alertRows);
+  const exitedAtByKey = htfExitTimesFromAlertLines(alertRows);
+  const rows = scoreHtfCalls(calls, readCandles(dataDir, '1m'), exitedAtByKey, readJsonl(htfCallOutcomesFile(dataDir)), nowMs);
+  writeJsonl(htfCallOutcomesFile(dataDir), rows);
+  return rows;
+}
+
 /** Score the journal in `dataDir` against its 1m candles and engine outcomes; write journal-outcomes.jsonl. */
 export function scoreJournalDataDir(dataDir, nowMs = Date.now()) {
   const rows = scoreJournal(readJournal(dataDir), readCandles(dataDir, '1m'), readJsonl(outcomesFile(dataDir)),
@@ -797,6 +873,8 @@ function main() {
   console.log(`[tracker:score] ${goodCalls.length} GOOD call(s) (1-min log) -> ${goodCallOutcomesFile(opts.data)}`);
   const retestCalls = scoreRetestCallsDataDir(opts.data, nowMs);
   console.log(`[tracker:score] ${retestCalls.length} RETEST_1H call(s) (1-min log) -> ${retestCallOutcomesFile(opts.data)}`);
+  const htfCalls = scoreHtfCallsDataDir(opts.data, nowMs);
+  console.log(`[tracker:score] ${htfCalls.length} HTF_1M call(s) (1-min log) -> ${htfCallOutcomesFile(opts.data)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
