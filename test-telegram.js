@@ -2016,6 +2016,7 @@ async function run() {
     const blob = fakeBlob();
     const x = await tap({ data: 'alerts:tf:5m', blob });
     assert(unpad(x.tg.calls[1].text).includes('Timeframes: 5m') && JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.alertTimeframes) === '["5m"]', x.tg.calls[1].text);
+    assert(unpad(x.tg.calls[1].text).includes('Strategies: Flag 21/200') && unpad(x.tg.calls[1].text).includes('HTF ENTRY (4h + 1D') && unpad(x.tg.calls[1].text).includes('RETEST 1H'), '/alerts lists every strategy and its timeframes: ' + x.tg.calls[1].text);
     await hook({ text: '/alerts tf all', blob });
     assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.alertTimeframes, null, 'all persisted as null');
     const status = await hook({ text: '/status', blob });

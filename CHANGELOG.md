@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-28 — /alerts lists every strategy and its timeframes; GPT knowledge file v2
+
+- `lib/telegram.js`: `/alerts` gains a `Strategies:` line (`STRATEGY_COVERAGE_TEXT`) naming Flag 21/200, HTF ENTRY (4h + 1D direction, 1h stop/target), RETEST 1H and SLOW TREND spot with their timeframes, whether or not a call has fired, and stating that the always-on kinds ignore level/tf and only focus mode holds them. Presentation only; no filter changed. `test:telegram` 162 (assertion added).
+- `docs/PLAYBOOK_ADDENDUM_2026-09-28.md`: sections 10–12 appended to the Custom GPT knowledge file (`~/Downloads/EditTrades_Living_Scalp_Playbook_v2.docx`, built with `textutil`, not committed): the four field lists moved out of the Instructions box, engine changes since 2026-09-22 (net floor, +1R trail, RETEST paper, HTF entries / `htfEntry`, spot, tracker). New Custom GPT re-created 2026-09-28 with schema 1.29.0.
+
 ## 2026-09-28 — T-21: tracker starts from zero per strategy (scoreboard + archive, site only)
 
 Owner decision 2026-09-28 (`docs/OWNER_DECISIONS_2026-09-28.md`, `docs/PROMPT_T21_STRATEGY_SCOREBOARD.md`). Tracker scripts only; no engine change, no deploy, nothing deleted from `data/`.
