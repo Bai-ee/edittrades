@@ -775,8 +775,12 @@ async function run() {
     // Live execution state (T-15, 2026-09-27): mode is live, caps raised, trailing stop and
     // trade-chart v2 documented; the old dry-run-default / 2x-leverage / not-yet-merged
     // copy this replaced must be gone.
-    for (const fact of ['Mode: LIVE', '$150 size, 100x leverage, $5 loss/trade, $25/day, 1 open position', 'Automatic trailing stop', '100x — matches the venue', 'config 2026.09.27-2']) {
+    for (const fact of ['Mode: LIVE', '$150 size, 100x leverage, $5 loss/trade, $25/day, 1 open position', 'Automatic trailing stop', '100x — matches the venue', 'config 2026.09.27-3']) {
       assert(howTo.includes(esc(fact)), `how-to states: ${fact}`);
+    }
+    // T-20: HTF ENTRY row describes the live, wider-stop signal family and its /htf command.
+    for (const fact of ['HTF ENTRY (live)', 'DIRECTION', 'ENTRY', '1h swing', '/htf shows all three symbols']) {
+      assert(howTo.includes(esc(fact)), `how-to states (T-20): ${fact}`);
     }
     assert(!/net R:R ≥ 2\.0|restarted/i.test(howTo), 'no stale net-gate or restart copy');
     assert(!/Mode is DRY RUN until|Do at least 3 dry orders before going live|2x today · 100x at the venue|Planned: scoring GOOD calls straight from a 1-minute|not yet merged into this build/i.test(howTo), 'no stale dry-run/leverage/1-minute-log copy');

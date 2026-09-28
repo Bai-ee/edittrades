@@ -1,6 +1,6 @@
 # T-1 — Telegram alerts + read commands (owner-approved 2026-09-24)
 
-Status: built and live (alerts, levels, quiet hours, menu, charts, tracking story, focus mode, Open (early)/Open @ plan, clarity lines, trade chart with ENTRY/EXIT markers + an RSI(14) panel on every touchpoint - T-13, upgraded T-16 2026-09-27). Execution (including the automatic +1R trailing stop, T-15) lives in docs/PLAN_TELEGRAM_EXECUTION.md.
+Status: built and live (alerts, levels, quiet hours, menu, charts, tracking story, focus mode, Open (early)/Open @ plan, clarity lines, trade chart with ENTRY/EXIT markers + an RSI(14) panel on every touchpoint - T-13, upgraded T-16 2026-09-27). Execution (including the automatic +1R trailing stop, T-15) lives in docs/PLAN_TELEGRAM_EXECUTION.md. T-20 (worktree `snapshot_tradingview-htf`, branch `htf-entry`, not yet merged): a new HTF-anchored entry signal family - `🧭 DIRECTION`/`⚡ ENTRY`/`🚪 EXIT` cards, each a photo with a fixed WHAT-TO-DO caption, `/htf` status command. See `docs/PROMPT_T20_HTF_ENTRY.md` and `docs/OWNER_DECISIONS_2026-09-27.md` "T-20".
 Goal: the owner's phone gets a Telegram message the moment a GOOD or SETUP appears, and can ask the engine the same questions the GPT answers, plus chart snapshots and journal logging. No GPT in the loop.
 
 ## Boundaries (hard)
