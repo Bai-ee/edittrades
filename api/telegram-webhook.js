@@ -68,9 +68,19 @@ import {
   formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket,
   parseRiskArgs, applyRiskPrefsChange, formatRiskStatus,
   stopFloorOf, stopFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, msgHeader, CHART_GRID_TIMEFRAMES,
-  PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal
+  PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal,
+  OFFER_OPEN_ON_FLAG_ALERTS
 } from '../lib/telegram.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
+// Live retest-1h alert (2026-09-27): resolves a stored retest plan for `open:<ref>` and
+// sizes it read-only (services/walletTracker.js via retestOrderSizing - no keypair, no
+// signing). Not under lib/execution/ - see lib/retest1hLive.js header for the isolation note.
+import { retestOrderSizing } from '../lib/retest1hLive.js';
+
+/** Defense-in-depth refusal reason for a flag-engine open:<ref> while OFFER_OPEN_ON_FLAG_ALERTS
+ * is off (2026-09-27, research WP4/WP7 EDGE_EVIDENCE_SUMMARY_2026-09-27.md): the alert
+ * itself is unchanged and still info-only, this only blocks opening a position from it. */
+const FLAG_OPEN_DISABLED_REASON = 'Flag-based Open is off — flag scalps do not clear round-trip costs after fees (research WP4/WP7). This alert is info only; use a retest-1h signal or /order.';
 
 // 300 s (Vercel Pro ceiling): the live two-phase open runs inside one confirm request —
 // worst case 45 s land + 60 s keeper fill + 2 x 45 s stop landings + 45 s emergency close
@@ -484,22 +494,62 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       if ((cmd === 'confirm' || cmd === 'arm') && parsed.args.length) await deleteOwn();
       await execSend(EXEC_OFF_REPLY, null, { event: 'off' });
     } else if (cmd === 'open') {
-      const payload = filterPayload(await build(), { compact: true });
       const state = hasStore ? await readState() : null;
-      const v = resolveRef(parsed.ref, payload, state);
-      if (!v) await reply(EXPIRED_REPLY);
-      else {
-        const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
-        // T-7: any levelled alert with entry/stop/TP1 on file can Open, not only a ready
-        // GOOD plan -- orderIntentFromCandidate falls back to the candidate's own
-        // breakout/invalidation/measured-target levels; preflight (below, via runOrder)
-        // still re-checks every gate (caps, drift, 3% stop, kill, PIN) against them.
-        const built = orderIntentFromCandidate(v, execCaps(await safeStatus(), env));
-        if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || (v.candidate && v.candidate.direction) }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
-        else await runOrder({ ...built.intent, tier: classifyTier(v.rec) }, {
-          timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null),
-          from: { kind: openSourceKind(v), timeframe: tf, ref: parsed.ref }
-        });
+      const retestPlan = state && state.retest1h && state.retest1h.plans ? state.retest1h.plans[parsed.ref] : null;
+      if (retestPlan) {
+        // Live retest-1h alert (2026-09-27): the SAME open:<ref> -> preflight -> ticket
+        // path as any other plan, sized read-only exactly like the flag engine's own risk
+        // block (lib/retest1hLive.js retestOrderSizing). Every existing gate still runs
+        // unchanged inside runOrder (caps, kill, PIN, 15 bps entry-drift guard, and the
+        // executor's universal 3% stop cap - a wide structure stop can and will refuse
+        // here, same as it would for any other order; this file does not loosen it).
+        const sizing = await retestOrderSizing({ entry: retestPlan.entry, stop: retestPlan.stop }, { getAccountSnapshot: deps.getAccountSnapshot });
+        if (!sizing) {
+          await execSend(formatRefusedCard({ symbol: retestPlan.symbol, direction: retestPlan.direction }, ['the engine did not size this plan (wallet margin unavailable); use /order'], { timeframe: retestPlan.timeframe }), null, { event: 'refused', symbol: retestPlan.symbol, timeframe: retestPlan.timeframe, candidateId: retestPlan.candidateId });
+        } else {
+          const caps = execCaps(await safeStatus(), env);
+          const suggested = sizing.suggestedLeverage * sizing.collateralUsd;
+          const sizeUsd = Math.round((typeof caps.maxSizeUsd === 'number' && Number.isFinite(caps.maxSizeUsd) ? Math.min(caps.maxSizeUsd, suggested) : suggested) * 100) / 100;
+          const leverage = typeof caps.maxLeverage === 'number' && Number.isFinite(caps.maxLeverage) ? Math.min(caps.maxLeverage, sizing.suggestedLeverage) : sizing.suggestedLeverage;
+          const payload = filterPayload(await build(), { compact: true });
+          const sym = payload && payload.symbols ? payload.symbols[retestPlan.symbol] : null;
+          // A candidateSnapshot-shaped object (symbol/candidateId are the only fields the
+          // auto-track-on-confirm path requires) so a filled retest position gets "Tracking
+          // on" and shows up in /positions exactly like a flag-sourced open does.
+          const snap = {
+            symbol: retestPlan.symbol, candidateId: retestPlan.candidateId, planId: null, recClass: 'GOOD', reasonCode: null,
+            timeframe: retestPlan.timeframe, direction: retestPlan.direction, entry: retestPlan.entry, stop: retestPlan.stop, tp1: retestPlan.tp1,
+            state: 'confirmed', breakoutLevel: null, invalidation: null, measuredRR: null, measuredTarget: null, planStatus: 'ready'
+          };
+          await runOrder({
+            symbol: retestPlan.symbol, direction: retestPlan.direction, sizeUsd, leverage,
+            entry: retestPlan.entry, stop: retestPlan.stop, tp1: retestPlan.tp1,
+            candidateId: retestPlan.candidateId, recClass: 'GOOD', source: 'telegram'
+          }, { timeframe: retestPlan.timeframe, snap, mark: markCtx(retestPlan.symbol, sym), from: { kind: 'RETEST_1H', timeframe: retestPlan.timeframe, ref: parsed.ref } });
+        }
+      } else {
+        const payload = filterPayload(await build(), { compact: true });
+        const v = resolveRef(parsed.ref, payload, state);
+        if (!v) await reply(EXPIRED_REPLY);
+        else if (!OFFER_OPEN_ON_FLAG_ALERTS) {
+          // Defense in depth (2026-09-27, research WP4/WP7): a flag-engine ref never opens
+          // any more, even from a still-showing button (e.g. a Plan card, or a message sent
+          // before this deploy) - the alert itself is unaffected, only Open is refused.
+          const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
+          await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || (v.candidate && v.candidate.direction) }, [FLAG_OPEN_DISABLED_REASON], { timeframe: tf }), null, { event: 'refused_flag_open_disabled', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
+        } else {
+          const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
+          // T-7: any levelled alert with entry/stop/TP1 on file can Open, not only a ready
+          // GOOD plan -- orderIntentFromCandidate falls back to the candidate's own
+          // breakout/invalidation/measured-target levels; preflight (below, via runOrder)
+          // still re-checks every gate (caps, drift, 3% stop, kill, PIN) against them.
+          const built = orderIntentFromCandidate(v, execCaps(await safeStatus(), env));
+          if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || (v.candidate && v.candidate.direction) }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
+          else await runOrder({ ...built.intent, tier: classifyTier(v.rec) }, {
+            timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null),
+            from: { kind: openSourceKind(v), timeframe: tf, ref: parsed.ref }
+          });
+        }
       }
     } else if (cmd === 'order') {
       const o = parseOrderArgs(parsed.args);

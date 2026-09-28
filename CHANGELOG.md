@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-27 — Live retest-1h alert, old flag alerts info-only, slow-trend spot alert
+
+Worktree `live-retest1h` (base `upgrade-signal-engine`), owner-approved engine-freeze exception. Evidence: `docs/research/EDGE_EVIDENCE_SUMMARY_2026-09-27.md`, `harness/WP4_MATCHED.md`, `harness/WP7_SPOT.md` (in `snapshot_tradingview-edge-sma200`).
+
+- **Old flag alerts (GOOD/GET IN NOW, SETUP, BREAKOUT, tracked-setup) lose their `Open` button** (`lib/telegram.js` `OFFER_OPEN_ON_FLAG_ALERTS = false`; flag scalps do not clear round-trip costs after fees). Alert text/chart/tracking/trailing/close flows unchanged. `api/telegram-webhook.js` refuses `open:<ref>` for any flag-engine ref, defense in depth.
+- **New live retest-1h alert** (`lib/retest1hLive.js`): runs the SAME rule as `lib/retest1hRule.js` (moved from `scripts/swing/rules/re-flag-retest-1h.js`, which now re-exports it, alongside `lib/retestShared.js`) against live closed 1h/4h/1d/15m candles (`services/marketData.js`, limit 720), once per newly closed 1h candle per symbol, deduped per (symbol, close time). A new signal sends `RETEST 1H · SYM LONG/SHORT` with `Open @ plan`, storing the plan for the webhook to resolve through the unchanged executor gates (PIN, caps, fill-drift, kill switch, and the executor's own universal 3% stop cap - untouched).
+- **Exit alerts**: an open retest trade's structure exit (5 closed 1h candles back inside the flag) or 7-day cap sends one info-only `EXIT SIGNAL · RETEST 1H` alert.
+- **T-15b trail exemption**: a live position linked to a retest-1h plan (via the journal's `execRef.positionIdHash`) is skipped by the automatic +1R trailing pass - the research rule's own exits had no trailing.
+- **Slow-trend spot alert** (`lib/slowTrendSpot.js`): SMA140 of daily closes (stands in for the research `SLOW_SMA840_4H_V1`, since Kraken caps 4h history at ~720 bars) alerts only on a regime flip, no button.
+- **State**: `telegram/state.json` gains `retest1h` and `slowTrend`, migrated forward like every other field.
+- Tests: `test-retest1h-live.js` (new, 23 cases); `test-telegram.js` 162 (two rewritten for the new behavior, not net new); `test-execution.js` 99; every research swing-rules suite unchanged (29/21/29/22/15); the eleven-suite deploy gate green. See `docs/PLAN_TELEGRAM.md` "Live retest-1h alert + flag-Open disabled + slow-trend spot alert" for the full design.
+
 ## 2026-09-27 — live-borrow: real Jupiter Perps borrow rate (was hardcoded to 0)
 
 Worktree `et-live-borrow` (branch `live-borrow`, off `upgrade-signal-engine`). Owner-approved production fix to the engine freeze. Reference: `docs/research/harness/WP6_JUPITER_BORROW.md` and `scripts/research/edge/jupiter-borrow.js` (`snapshot_tradingview-edge-sma200`).
