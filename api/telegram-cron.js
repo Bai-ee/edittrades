@@ -378,6 +378,9 @@ async function evaluateHtfEntry({ env, deps, nowMs, log, prevState, openHtfTrade
         alerts.push({
           kind: HTF_EXIT_KIND, symbol, candidateId: plan.candidateId,
           text: formatHtfExitAlert({ symbol, direction: plan.direction, kind: firedKind, structureStop: plan.structureStop, took }),
+          // Addendum: every HTF card is a photo, EXIT included - the same 1h trade chart the
+          // ENTRY card used, so the owner sees exactly what invalidated.
+          chart: entryChartRequest(symbol, { direction: plan.direction, entry: plan.entry, stop: plan.stop, tp1: plan.tp1, tp2: plan.tp2, grossRR: plan.grossRR, netRR: plan.netRR }),
           trackLevels: { timeframe: plan.timeframe, direction: plan.direction, entry: plan.entry, stop: plan.stop, tp1: plan.tp1 }
         });
         next.plans[ref] = { ...plan, exitAlerted: updatedExit };
