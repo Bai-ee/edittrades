@@ -33,3 +33,30 @@ See `CHANGELOG.md`'s 2026-09-27 T-15 entry for the full file-by-file list, and
 `docs/EDITTRADES_MCP_CONNECTOR.md`'s schema-map rows for `flagTradePlan.stop`/
 `.stopSource`/`.structureStop` and `flagRecommendation.setup.stopFloor` (schema 1.28.0,
 configVersion 2026.09.27-1).
+
+## T-18 — retest-1h ships paper, not tradable
+
+Source: `docs/PROMPT_T18_LIVE_RELEASE_MODIFIED.md` (T-18 master prompt, "ship the
+`live-release` branch in a MODIFIED form"). Executed in worktree `et-live-release` (branch
+`live-release`, off `origin/upgrade-signal-engine`).
+
+| # | Question | Answer | Why it matters |
+| --- | --- | --- | --- |
+| T-18 | **`live-release` (a69608c) shipped the retest-1h signal with a live Open button and disabled the flag engine's own Open button in the same change (`d284a5b`). Does the research support either of those two calls?** Evidence: `docs/RETEST_ENTRY_STUDY_2026-09-27.md` (re-flag-retest-1h: gross R mean +0.44 / net mean +0.27, gross R median −0.55 / net median −0.84 on 101 trades over ~2 years, both OOS halves net-median-negative, the seeded random-direction control also fails - not a repeatable edge, a fat right tail flattering the mean) and `docs/VARIANTS_STUDY_2026-09-26.md` (NF-live + the +1R trailing stop: median −0.20R, 61% wins, the only variant close to breakeven - this is the flag engine's own live rule, unrelated to the retest-1h finding). | **Ship modified: keep the flag engine's Open button live (revert `d284a5b`'s disable), ship retest-1h info-only/paper (Track + Plan/Thesis, no Open) instead of live.** The flag engine's disable-Open change was not supported by any study of the flag engine itself; the retest-1h Open button was not supported by the retest-1h study, which the SAME branch had just finished writing. | Neither the flag-Open removal nor the retest-1h Open addition had evidence behind it at the moment `d284a5b` shipped; this decision aligns what trades with what the branch's own research actually supports. |
+| Promotion rule | **Under what condition does retest-1h graduate from paper to a live Open button?** | retest-1h ships paper; promotion rule: ≥ 30 live signals, mean net R > 0 with the bootstrap 90 % lower bound > 0, and max drawdown within the active profile's daily/weekly limits. Median is reported but is not the gate: a 30 %-win / 2.5R+ rule has a negative typical trade by design. Control note: the other thread's matched controls (same symbol, side, hour, conditions; p≈0.01–0.05) supersede the retest study's random-direction 4h control as the reference test. | The 101-trade study's own median is reliably negative by construction (win rate 30.3%, per `docs/RETEST_ENTRY_STUDY_2026-09-27.md`'s histogram) - gating on mean + a bootstrap lower bound (rewards a real, resample-stable positive edge) instead of median is the only promotion rule this rule could ever pass on its own shape, while still refusing a lucky-mean fluke (the lower bound must also clear zero). |
+
+## Not built / deferred (T-18)
+
+- The retest-1h rule's own exit mechanics (structure exit, 7-day hold cap) are not
+  reproduced inside the live tracker's 24h tp1/stop/expired walk (`scripts/tracker/score.js`
+  `scoreRetestCalls`) - they stay a separate, parallel info-only `RETEST_1H_EXIT` alert
+  (`lib/retest1hLive.js`), same as the flag engine's own live walk never models a manual
+  close either.
+- A page-level enforcement of the promotion rule (auto-flipping retest-1h to tradable once
+  it clears) was not built; `scripts/tracker/aggregate.js` `retestStats` reports `promoted`
+  as a boolean for a human to act on, nothing reads it back into
+  `OFFER_OPEN_ON_FLAG_ALERTS`-style live gating.
+
+## Implementation (T-18)
+
+See `CHANGELOG.md`'s 2026-09-27 T-18 entry for the full file-by-file list.
