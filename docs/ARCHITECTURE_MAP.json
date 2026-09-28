@@ -1392,6 +1392,21 @@
           "schemaSince": "1.18.0"
         },
         {
+          "path": "scripts/tracker/home-hero.js",
+          "name": "home-hero",
+          "role": "The tracker homepage hero: EditTrax headline beside the signed net R per scored call and the data volume behind it.",
+          "publishes": [
+            "homeHero",
+            "HOME_HERO_CSS"
+          ],
+          "consumes": [],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-27",
+          "schemaSince": "1.28.0"
+        },
+        {
           "path": "scripts/tracker/bento.js",
           "name": "bento",
           "role": "The shared tile and section building blocks of every tracker page.",

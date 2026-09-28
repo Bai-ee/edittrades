@@ -52,6 +52,7 @@ import {
 } from './charts.js';
 import { PAGE_CSS } from './page-style.js';
 import { tile, zone, sub, jumpNav } from './bento.js';
+import { homeHero, homeHeroScript, HOME_HERO_CSS } from './home-hero.js';
 import { renderHowTo } from './how-to-page.js';
 import { renderRisk } from './risk-page.js';
 import { renderStrategies } from './strategies-page.js';
@@ -759,9 +760,10 @@ export function renderHtml(agg, data = {}) {
   const c = agg.captures;
   const phase = phaseProgress(agg);
 
-  // Tertiary: top edge + jump nav.
+  // Top edge, homepage hero (home-hero.js), then the sticky jump nav.
   const topStrip = `<header class="edge-strip" id="tracker-top-edge-strip"><span id="tracker-page-title">EDITTRADES / CALL TRACKER</span>`
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
+    + homeHero(agg)
     + jumpNav('tracker-jump-nav', [
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
       ['#zone-wallet-strategies', 'Strategies'],
@@ -1017,7 +1019,7 @@ export function renderHtml(agg, data = {}) {
 <title>EditTrades Call Tracker</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700&family=Space+Grotesk:wght@400;500&family=Space+Mono:wght@400&display=swap">
 <style>
-${PAGE_CSS}${CHART_CSS}
+${PAGE_CSS}${HOME_HERO_CSS}${CHART_CSS}
 </style>
 </head>
 <body>
@@ -1028,7 +1030,7 @@ ${bottomStrip}
 </main>
 <script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows, setup: setupRows })}</script>
 <script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods, marks })}</script>
-<script>${chartScript()}${statusScript()}</script>
+<script>${chartScript()}${statusScript()}${homeHeroScript()}</script>
 </body>
 </html>
 `;

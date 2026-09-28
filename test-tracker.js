@@ -939,6 +939,27 @@ async function run() {
     assert(html.indexOf('id="tile-expectancy-7d"') < html.indexOf('id="hero-net-expectancy-7d"'), 'net line follows the gross hero value');
   });
 
+  await test('page: home hero leads with the headline and signed net R per scored call, above the jump nav', () => {
+    const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
+    const agg = computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN, { phaseStartMs: T0 - 60 * MIN });
+    const html = renderHtml(agg);
+    for (const id of ['home-hero-shell', 'home-hero-headline-panel', 'home-hero-title', 'home-hero-result-card', 'home-hero-net-r', 'home-hero-stats']) {
+      assert(html.includes(`id="${id}"`), `missing #${id}`);
+    }
+    assert(html.includes('<span>The signal</span><span>is coming</span><span>from inside</span><span>the noise.</span>'), 'first headline server-rendered, stacked');
+    assert(html.includes('id="home-hero-title-data"') && html.includes('et-hero-title'), 'headline cycles per refresh via the inline script');
+    const net = agg.totals.tradable.netExpectancy;
+    assert(typeof net === 'number', 'synthetic day has a net expectancy');
+    const sign = net > 0 ? '+' : net < 0 ? '−' : '';
+    assert(html.includes(`id="home-hero-net-r">${sign}${Math.abs(net).toFixed(2)}<span class="home-hero-unit">R</span>`), 'hero figure is signed net R, not gross');
+    assert(html.includes('R gross · fees and slippage'), 'gross shown beside net');
+    assert(html.indexOf('id="tracker-top-edge-strip"') < html.indexOf('id="home-hero-shell"'), 'hero follows the top edge');
+    assert(html.indexOf('id="home-hero-shell"') < html.indexOf('id="tracker-jump-nav"'), 'hero sits above the jump nav');
+    assert(html.includes('src:url("fonts/mathias-bold.ttf")'), 'Mathias loaded from docs/fonts');
+    const empty = renderHtml(computeAggregates([], [], {}, T0));
+    assert(empty.includes('id="home-hero-net-r">0.00') && empty.includes('[NO SCORED CALLS YET]'), 'empty store shows an empty hero, never NaN');
+  });
+
   await test('page: window stat tables show a net-of-fees column beside gross expectancy (T5 S1)', () => {
     const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
     const agg = computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN, { phaseStartMs: T0 - 60 * MIN });
