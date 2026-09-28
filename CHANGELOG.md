@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-28 — T-21: tracker starts from zero per strategy (scoreboard + archive, site only)
+
+Owner decision 2026-09-28 (`docs/OWNER_DECISIONS_2026-09-28.md`, `docs/PROMPT_T21_STRATEGY_SCOREBOARD.md`). Tracker scripts only; no engine change, no deploy, nothing deleted from `data/`.
+
+- New `scripts/tracker/epochs.js`: one epoch per strategy, derived from data (flag = first capture at configVersion 2026.09.27-2 → 2026-09-27T08:58Z; htf = first at 2026.09.27-3 → 2026-09-28T08:17Z; retest1h = first RETEST_1H alert line, else the flag epoch; spot = ledger startDate 2026-09-26; wallet = constant 2026-09-26T22:08Z) with documented constant fallbacks.
+- `index.html`: "Strategy scoreboard · each from its own start" zone (`zone-scoreboard`) right after the status tile, one card per strategy (`scoreboard-<key>-tile`), same columns everywhere, `[NO SIGNALS SINCE <date>]` empty state. Hero headline and the 7d/30d Performance windows read the epoch-filtered flag rows ("since 2026-09-27 (net floor)"). The testing phase restarts at the flag epoch (`PHASE_START` 2026-09-27, `PHASE_NAME` "Net-floor forward record"), so timeline, headline and class check count the same rows as the flag card. Everything before the epochs moves to a collapsed `archive-section` at the bottom (old blended totals, config-boundary table, pre-epoch GOOD calls, old windows), still fully browsable.
+- `aggregate.js`: `computeScoreboard`, `epochStats`, spot/wallet scoreboard stats; `computeAggregates` gains optional `epochs` (omitted → unchanged behaviour); `agg.epochs`/`agg.scoreboard`/`agg.archive` written to `aggregates.json`; `report.md` mirrors the scoreboard.
+- `product.html` and `how-to.html`: one line each on epochs and the archive. `strategies.html` unchanged.
+- Tests: `test-tracker.js` 168 (+5); `test:archmap` 10 (114 files). `git diff --check` clean.
+
 ## 2026-09-27/28 — T-20: HTF-anchored entries ship live-capable (direction + 1m/5m entry + 1h stop/target)
 
 Worktree `snapshot_tradingview-htf` (branch `htf-entry`, off `upgrade-signal-engine`). `docs/PROMPT_T20_HTF_ENTRY.md` + addendum, owner decision 2026-09-27: "larger stops, gauge total direction over time, the 1 and 5 minute become entries for the 1 hour." Ships live-capable (`Open` button, same executor/caps/PIN/kill, tracked as its own class) without a prior study — the 2-year replay is produced in this same phase, `docs/HTF_ENTRY_STUDY_2026-09-27.md`.
