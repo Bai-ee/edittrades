@@ -75,7 +75,9 @@
     "test:exits": "node test-exits-study.js",
     "study:variants": "node scripts/research/variants.js",
     "test:variants": "node test-variants-study.js",
-    "research:capture-binance-1m": "node scripts/research/capture-binance-1m.js"
+    "research:capture-binance-1m": "node scripts/research/capture-binance-1m.js",
+    "test:sma4h": "node test-sma4h-trend.js",
+    "test:research": "node test-sma4h-trend.js && node test-causality-audit.js && node test-warmup-audit.js && node test-wp3-significance.js && node test-wp3-risk-shuffle.js && node test-wp3-montecarlo.js && node test-wp3-trial-ledger.js && node test-matched-controls-wp4.js && node test-fetch-venue.js && node test-carry-rerun.js && node test-jupiter-borrow.js && node test-wp7-spot.js && node test-quattro.js && node test-macd-obv.js && node test-wp10-lib.js && node test-wp10-horizon-backfill.js && node test-wp10-wait-scoring.js && node test-wp10-confidence-calibration.js && node test-wp10-reason-attribution.js && node test-wp10-side-mix.js && node test-wp10-drift.js && node test-adaptive-walk.js"
   },
   "keywords": [
     "trading",

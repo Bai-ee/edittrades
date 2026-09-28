@@ -166,6 +166,55 @@ export function netR(tr, dir, cost) {
 
 // ---------------------------------------------------------------- stats
 
+// ---------------------------------------------------------------- WP9 indicators (MACD, OBV)
+
+/**
+ * MACD(fast, slow, signal) on a close series. macd = EMA(fast) - EMA(slow); signal = EMA(signal)
+ * of the macd line, seeded from the macd line's own first finite value (not index 0), so the
+ * signal EMA's SMA-seed warmup (see `ema()`) uses `signal` consecutive macd values, not NaNs.
+ * hist = macd - signal. All three NaN during warmup.
+ */
+export function macd(close, fast = 12, slow = 26, signalP = 9) {
+  const n = close.length;
+  const emaFast = ema(close, fast);
+  const emaSlow = ema(close, slow);
+  const macdLine = new Float64Array(n).fill(NaN);
+  let firstValid = -1;
+  for (let i = 0; i < n; i++) {
+    if (Number.isFinite(emaFast[i]) && Number.isFinite(emaSlow[i])) {
+      macdLine[i] = emaFast[i] - emaSlow[i];
+      if (firstValid < 0) firstValid = i;
+    }
+  }
+  const signal = new Float64Array(n).fill(NaN);
+  const hist = new Float64Array(n).fill(NaN);
+  if (firstValid >= 0) {
+    const sigSub = ema(macdLine.slice(firstValid), signalP);
+    for (let k = 0; k < sigSub.length; k++) {
+      const idx = firstValid + k;
+      if (Number.isFinite(sigSub[k])) {
+        signal[idx] = sigSub[k];
+        hist[idx] = macdLine[idx] - signal[idx];
+      }
+    }
+  }
+  return { macd: macdLine, signal, hist };
+}
+
+/**
+ * On-balance volume. obv[0] = 0; obv[i] = obv[i-1] +/- v[i] on a higher/lower close, unchanged
+ * on an unchanged close. No warmup (defined at every index).
+ */
+export function obv(bars) {
+  const out = new Float64Array(bars.n);
+  for (let i = 1; i < bars.n; i++) {
+    if (bars.c[i] > bars.c[i - 1]) out[i] = out[i - 1] + bars.v[i];
+    else if (bars.c[i] < bars.c[i - 1]) out[i] = out[i - 1] - bars.v[i];
+    else out[i] = out[i - 1];
+  }
+  return out;
+}
+
 export function stats(trades, key = 'netR') {
   const r = trades.map((t) => t[key]);
   const n = r.length;
