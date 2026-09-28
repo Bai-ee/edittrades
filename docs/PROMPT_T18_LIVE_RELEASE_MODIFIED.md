@@ -1,0 +1,21 @@
+# Master prompt — modify the `live-release` branch before it ships (T-18)
+
+Owner decision 2026-09-27 (orchestrator recommendation accepted): ship the other thread's `live-release` (a69608c, worktree `../et-live-release`) in a MODIFIED form. Keep everything it built except one product decision that the research does not support.
+
+Read first: `CLAUDE.md`, `docs/AGENT_SESSION_RULES.md`, `docs/RETEST_ENTRY_STUDY_2026-09-27.md` (the retest-1h rule: mean +0.27R from a fat tail, median −0.84R, fails both out-of-sample halves, matches the random-direction control), `docs/VARIANTS_STUDY_2026-09-26.md` (NF-live + trailing: median −0.20R, 61 % wins, the current live tradable rule), `docs/OWNER_DECISIONS_2026-09-27.md`, then the release's own docs and the diff `git diff origin/upgrade-signal-engine...live-release` (98 files). Work in the existing worktree `../et-live-release` on branch `live-release` (do not create another). Nothing under `lib/execution/` changes. Stage by name, commit per item, do not push, do not deploy; the orchestrator merges and deploys.
+
+## Keep as built
+- RETEST 1H · <SYM> alerts and the parity-tested rule (`lib/retest1hRule.js`, `lib/retest1hLive.js`, `lib/retestShared.js`), EXIT SIGNAL alerts, the retest exclusion from the +1R auto-trail.
+- SLOW TREND spot alerts (`lib/slowTrendSpot.js`), alerts only.
+- Jupiter borrow rate in `getPerpQuote` (`services/jupiterPerps.js`).
+- Research harness WP1–WP11, evidence docs.
+
+## Change
+1. **Flag alerts stay tradable.** Revert the parts of `d284a5b` that (a) remove the Open button from GOOD / GET IN NOW flag alerts and Plan cards, and (b) make the webhook refuse existing `open:<ref>` links. The NF-live flag plan (config 2026.09.27-2) remains the primary tradable signal exactly as on `origin/upgrade-signal-engine`. Diff each of `lib/telegram.js`, `api/telegram-webhook.js`, `api/telegram-cron.js` against origin to be sure only the retest/slow-trend additions remain there.
+2. **RETEST 1H alerts ship info-only with tracking**, not with an Open button: the alert card carries `Track` (existing tracked-candidate flow, `state.tracked`, journaled via Took it if the owner trades it by hand) and `Plan` / `Thesis`, plus one line: `research: mean +0.27R, median −0.84R on 101 trades (2 y) · paper until 30 live signals show a positive median`. No `open:` callback for retest candidates; the webhook must answer `Execution is not enabled for RETEST 1H yet` if one arrives.
+3. **Tracker**: retest alerts and their EXIT signals are scored as their own class `RETEST_1H` (calls, wins, gross/net R, median, count toward 30) on the strategies page next to Live / NF / Aggressive, from the 1-minute alert log (same path as GOOD). Slow-trend crosses are logged (`data/alerts.jsonl` kind `SLOW_TREND`) but not scored as trades.
+4. **Docs**: `docs/OWNER_DECISIONS_2026-09-27.md` gets the decision ("retest-1h ships paper; promotion rule: 30 live signals with positive median net R"); CHANGELOG entry rewritten to match what ships; how-to page sentence (describe; orchestrator syncs); `docs/EDITTRADES_MCP_CONNECTOR.md` command table if a command changed.
+5. **Tests**: flag Open button present and functional (existing tests must pass unchanged); retest card has Track/Plan/Thesis and no Open; webhook refusal for a retest `open:` ref; tracker RETEST_1H class scoring; SLOW_TREND logged not scored. All `npm run test:*` green, `npm run check:gpt`, `git diff --check`, guard scan (`grep -c "jupiterPerps\|walletManager\|signTransaction\|Keypair" api/telegram-cron.js api/telegram-webhook.js lib/telegram.js` = 0 0 0).
+
+## Hard rules
+No engine rule, cap, gate, PIN, kill or executor change. No env, no orders, no deploy, no push. Handback: commits, the three Telegram files' diff-stat vs origin after your change, test counts, and a one-paragraph "what ships" summary the orchestrator can paste into the release note.
