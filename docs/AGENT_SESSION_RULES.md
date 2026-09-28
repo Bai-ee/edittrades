@@ -11,3 +11,4 @@ Live perps trading is ON in production (EXECUTION_MODE=live, simulate-only OFF, 
 7. Hard rules in `CLAUDE.md` always apply (no execution tool in MCP, wallet tracker read-only, no secrets in logs, 3 % scalp stop, no live-mode weakening).
 
 Current queue (orchestrator-enforced): A agent G focus mode (in progress, shared tree) → C alert clarity Phase A (worktree `alert-clarity`) → D wallet risk policy (`docs/PROMPT_T8_AGENT_H.md`). Volume-context work (schema 1.26) commits when its own session says it is test-clean.
+8. Research docs (`docs/*_STUDY_*.md`, `docs/research/*`, backlog cards, decisions) are pushed to `origin/upgrade-signal-engine` the same day they are written, even when the code stays on a branch: unpushed docs are invisible to every other session. The shared research backlog is `docs/research/RESEARCH_BACKLOG.md`.
