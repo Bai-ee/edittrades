@@ -53,6 +53,7 @@
     "test:telegram": "node test-telegram.js",
     "test:story": "node test-track-story.js",
     "test:execution": "node test-execution.js",
+    "test:retest1h": "node test-retest1h-live.js",
     "test:jupiter": "node test-jupiter-perps.js",
     "test:served": "node test-served.js",
     "test:paths": "node test-flag-paths.js",

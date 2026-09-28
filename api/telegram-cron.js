@@ -72,13 +72,23 @@ import {
   withOpenButton, openEligible, candidateLevels, liveView, focusRelated, LIVE_POSITIONS_CACHE_MS,
   createBotClient, parseAllowedIds, migrateState, diffAlerts, inQuietHours, escapeHtml, TELEGRAM_STATE_PATH,
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES,
-  livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS
+  livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, OFFER_OPEN_ON_FLAG_ALERTS, shortRef
 } from '../lib/telegram.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
 // deps.importExecutor injection for tests). This cron never builds, signs or sends a
 // transaction; it only calls listPositions() to know which symbols are open.
 import { resolveExecutor } from './telegram-webhook.js';
+// Live retest-1h alert (2026-09-27, engine-freeze exception; see lib/retest1hLive.js
+// header). No lib/execution import anywhere in this file (isolation, test-telegram.js):
+// positionIdHash below duplicates lib/execution/audit.js's idHash so a live position can
+// be matched to a journal open record's execRef.positionIdHash without one.
+import {
+  RETEST1H_KIND, RETEST1H_EXIT_KIND, RETEST1H_SYMBOLS, RETEST1H_EVIDENCE, RETEST1H_HOLD_MAX_HOURS,
+  latestClosed1hCandle, evaluateRetest1hFull, retestCandidateId, isRetest1hCandidateId, nextInsideStreak,
+  retestOpenRecords, retestPositionHashes, positionIdHash, formatRetest1hAlert, formatRetest1hExitAlert
+} from '../lib/retest1hLive.js';
+import { SLOW_TREND_KIND, fetchClosedDailyCandles, evaluateSlowTrendRegime, formatSlowTrendAlert } from '../lib/slowTrendSpot.js';
 
 /**
  * Record one cron outcome in telegram/health.json and send the FAILING / RECOVERED
@@ -145,6 +155,116 @@ async function resolveLivePositions({ get, env, deps, nowMs, log }) {
 }
 
 /**
+ * Live retest-1h alert (lib/retest1hLive.js, docs/PLAN_TELEGRAM.md "Live retest-1h
+ * alert"): once per symbol per NEWLY closed 1h candle (state.retest1h.lastEvaluated1hClose),
+ * runs the SAME rule as lib/retest1hRule.js against live candles.
+ *   - A new signal -> one RETEST_1H alert (Open @ plan is attached by the caller, same as
+ *     every other alert kind) and a stored plan (state.retest1h.plans[ref]) the webhook
+ *     resolves at Open time exactly like an existing plan. Deduped per (symbol, signal
+ *     close time): the candidateId embeds the close ISO, so a re-run of the same closed
+ *     candle never re-alerts even across a state reset within the same close.
+ *   - An already-open retest trade on that symbol (`openRetestTrades`, from the journal,
+ *     T-15 "trail exemption" section) whose structure exit fires (STRUCTURE_EXIT_N closed
+ *     1h candles back inside the flag) or whose 7-day hard cap is reached -> one
+ *     RETEST_1H_EXIT alert, info only (no button; the owner closes manually).
+ * Never throws: a candle-fetch failure for one symbol just skips that symbol this tick
+ * (the next newly-closed candle tries again); returns `retest1h: null` when nothing
+ * changed, same convention as resolveLivePositions/applyTrailingStops above.
+ * @returns {Promise<{retest1h: Object|null, alerts: Array}>}
+ */
+async function evaluateRetest1h({ env, deps, nowMs, log, prevState, openRetestTrades }) {
+  const alerts = [];
+  const next = { lastEvaluated1hClose: { ...prevState.lastEvaluated1hClose }, plans: { ...prevState.plans } };
+  let changed = false;
+  const fetchOpts = { fetchCandles: deps.fetchMarketCandles, nowMs };
+  const openBySymbol = new Map(openRetestTrades.map((o) => [o.symbol, o]));
+
+  for (const symbol of RETEST1H_SYMBOLS) {
+    let latest;
+    try { latest = await latestClosed1hCandle(symbol, fetchOpts); } catch (err) { log('retest1h', ` reason=candle_read_${err && err.name ? err.name : 'Error'} symbol=${symbol}`); continue; }
+    if (!latest || !Number.isFinite(latest.closeTime)) continue;
+    const closedIso = new Date(latest.closeTime).toISOString();
+    if (closedIso === next.lastEvaluated1hClose[symbol]) continue; // no new 1h close this tick
+
+    // Exit check for an already-open retest trade on this symbol (this candle's close).
+    const openTrade = openBySymbol.get(symbol);
+    const ref = openTrade && openTrade.engineRef ? shortRef(openTrade.engineRef.candidateId) : null;
+    const openPlan = ref ? next.plans[ref] : null;
+    if (openPlan && openPlan.holdRule) {
+      const streak = nextInsideStreak(latest.close, openPlan.holdRule, openPlan.insideStreak);
+      const updated = { ...openPlan, insideStreak: streak, lastCheckedCloseIso: closedIso, exitAlerted: { ...openPlan.exitAlerted } };
+      if (streak >= openPlan.holdRule.n && !openPlan.exitAlerted.structure) {
+        alerts.push({ kind: RETEST1H_EXIT_KIND, symbol, candidateId: openPlan.candidateId, text: formatRetest1hExitAlert({ symbol, direction: openPlan.direction, reason: `${openPlan.holdRule.n} closed 1h candles back inside the pre-breakout flag range` }) });
+        updated.exitAlerted.structure = true;
+      }
+      const ageMs = nowMs - Date.parse(openPlan.createdAt);
+      if (Number.isFinite(ageMs) && ageMs >= RETEST1H_HOLD_MAX_HOURS * 3600000 && !openPlan.exitAlerted.cap) {
+        alerts.push({ kind: RETEST1H_EXIT_KIND, symbol, candidateId: openPlan.candidateId, text: formatRetest1hExitAlert({ symbol, direction: openPlan.direction, reason: '7-day hard hold cap reached' }) });
+        updated.exitAlerted.cap = true;
+      }
+      next.plans[ref] = updated;
+      changed = true;
+    }
+
+    // New-signal evaluation (full ctx: 1h/1d/4h/15m) - only worth the extra fetches once a
+    // new 1h close has already been confirmed above.
+    let full = null;
+    try { full = await evaluateRetest1hFull(symbol, fetchOpts); } catch (err) { log('retest1h', ` reason=eval_${err && err.name ? err.name : 'Error'} symbol=${symbol}`); }
+    if (full && full.signal) {
+      const s = full.signal;
+      const candidateId = retestCandidateId(symbol, closedIso);
+      const newRef = shortRef(candidateId);
+      if (!next.plans[newRef]) {
+        alerts.push({ kind: RETEST1H_KIND, symbol, candidateId, text: formatRetest1hAlert({ symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1 }) });
+        next.plans[newRef] = {
+          ref: newRef, candidateId, symbol, direction: s.direction, entry: s.entry, stop: s.stop, tp1: s.tp1, timeframe: '1h',
+          signalCloseIso: closedIso, createdAt: new Date(nowMs).toISOString(),
+          holdRule: s.holdRule || null, insideStreak: 0, lastCheckedCloseIso: null,
+          exitAlerted: { structure: false, cap: false }, evidenceNote: RETEST1H_EVIDENCE[symbol] || ''
+        };
+      }
+    }
+
+    next.lastEvaluated1hClose[symbol] = closedIso;
+    changed = true;
+  }
+
+  return { retest1h: changed ? next : null, alerts };
+}
+
+/**
+ * Slow-trend spot alert (lib/slowTrendSpot.js, docs/PLAN_TELEGRAM.md "Slow-trend spot
+ * alert"): SMA140 of daily closes (stand-in for the research SLOW_SMA840_4H_V1 - Kraken
+ * caps 4h history at ~720 bars, too short for an 840-bar SMA live), alert only, no button.
+ * Re-derives the regime every tick (cheap: one daily-candle fetch per symbol) but only
+ * ever alerts on a genuine state.slowTrend[symbol] FLIP against the stored value, so this
+ * is observably "once per new closed daily candle" without a separate dedup pointer - the
+ * regime cannot change without a new closed day. The very first read (previous state
+ * null, e.g. right after this deploy) seeds silently, same convention as the transition
+ * log's first run. Never throws.
+ * @returns {Promise<{slowTrend: Object|null, alerts: Array}>}
+ */
+async function evaluateSlowTrend({ deps, nowMs, log, prevState }) {
+  const alerts = [];
+  const next = { ...prevState };
+  let changed = false;
+  const fetchOpts = { fetchCandles: deps.fetchMarketCandles, nowMs };
+  for (const symbol of RETEST1H_SYMBOLS) {
+    let candles;
+    try { candles = await fetchClosedDailyCandles(symbol, fetchOpts); } catch (err) { log('slowtrend', ` reason=candle_read_${err && err.name ? err.name : 'Error'} symbol=${symbol}`); continue; }
+    const regime = evaluateSlowTrendRegime(candles);
+    if (!regime) continue;
+    const prev = prevState[symbol];
+    if (prev !== regime.state) {
+      if (prev !== null) alerts.push({ kind: SLOW_TREND_KIND, symbol, text: formatSlowTrendAlert(symbol, regime) });
+      next[symbol] = regime.state;
+      changed = true;
+    }
+  }
+  return { slowTrend: changed ? next : null, alerts };
+}
+
+/**
  * Refusal reasons that are routine (kill switch on, execution off, cooldown, a race with
  * the cron's own tightening check) and never worth waking the owner for - anything else
  * (trail_failed, trail_current_stop_unknown, stop_wrong_side, stop_beyond_liquidation,
@@ -164,12 +284,18 @@ const TRAIL_ROUTINE_REASONS = new Set(['trail_cooldown', 'kill_switch', 'kill_st
  * pattern as resolveLivePositions above). Only runs when TRADE_EXECUTION_ENABLED==='true'
  * and EXECUTION_MODE==='live', and never when the owner has turned it off
  * (`prefs.trail === 'off'`, default on). Never throws.
+ * T-15b (2026-09-27, live retest-1h alert): a live position linked to a retest-1h plan
+ * (`retestHashes`, from the journal's `execRef.positionIdHash` - see evaluateRetest1h /
+ * retestPositionHashes above) is skipped entirely, before it ever gets a `state.trail`
+ * entry - the research rule this plan came from had no +1R trailing in its own exits
+ * (structure exit / 7-day cap only), so trailing it here would not be testing the rule
+ * that was actually studied.
  * @returns {Promise<{trail: Object|null, alerts: Array<string>}>} `trail` is the full
  *   updated state.trail map to persist, or null when this run touched nothing (execution
  *   off, pref off, executor unavailable, or a read failure - the caller then leaves
  *   state.trail exactly as it was).
  */
-async function applyTrailingStops({ get, env, deps, payload, nowMs, log }) {
+async function applyTrailingStops({ get, env, deps, payload, nowMs, log, retestHashes = new Set() }) {
   if (env.TRADE_EXECUTION_ENABLED !== 'true' || env.EXECUTION_MODE !== 'live') return { trail: null, alerts: [] };
   let prevState;
   try {
@@ -195,6 +321,7 @@ async function applyTrailingStops({ get, env, deps, payload, nowMs, log }) {
 
   for (const p of Array.isArray(r.positions) ? r.positions : []) {
     if (!p || typeof p.positionId !== 'string' || !p.positionId) continue;
+    if (retestHashes.has(positionIdHash(p.positionId))) continue; // T-15b: retest-1h positions are never auto-trailed
     const prevEntry = previous[p.positionId] || null;
     const long = p.direction === 'long';
     const entry = p.entryPrice;
@@ -329,12 +456,28 @@ export async function handleTelegramCron(req, res, deps = {}) {
     livePositionsRead = true;
   }
 
+  // Live retest-1h alert + slow-trend spot alert (2026-09-27): resolved before the state
+  // transaction, same reason as resolveLivePositions/applyTrailingStops above (candle
+  // fetches are real network calls; updateBlob's change() callback must stay synchronous).
+  // `openRetestTrades` (journal opens whose engineRef.candidateId is a retest-1h id) feeds
+  // both the exit-signal check inside evaluateRetest1h and the T-15b trail exemption below.
+  let retestPrevState;
+  try {
+    const peek = await readBlob(get, TELEGRAM_STATE_PATH);
+    retestPrevState = migrateState(peek ? peek.text : null).state;
+  } catch { retestPrevState = migrateState(null).state; }
+  let retestJournalRecords = [];
+  try { retestJournalRecords = await readRecent({ get, put, head }, 50); } catch (err) { log('retest1h', ` reason=journal_read_${err && err.name ? err.name : 'Error'}`); }
+  const openRetestTrades = retestOpenRecords(openPositions(retestJournalRecords));
+
   // T-15 automatic trailing stop after +1R: also resolved before the state transaction
   // (executor.trailStops is a real write, it cannot run inside updateBlob's synchronous
   // change() callback). `trailResult.trail` is null when this run touched nothing
   // (execution off, mode not live, prefs.trail off, or the executor/position read
   // failed) - state.trail is then left exactly as it was, same convention as livePositions.
-  const trailResult = await applyTrailingStops({ get, env, deps, payload, nowMs, log });
+  const trailResult = await applyTrailingStops({ get, env, deps, payload, nowMs, log, retestHashes: retestPositionHashes(openRetestTrades) });
+  const retest1hResult = await evaluateRetest1h({ env, deps, nowMs, log, prevState: retestPrevState.retest1h, openRetestTrades });
+  const slowTrendResult = await evaluateSlowTrend({ deps, nowMs, log, prevState: retestPrevState.slowTrend });
 
   let alerts = [];
   let transitions = [];
@@ -370,7 +513,17 @@ export async function handleTelegramCron(req, res, deps = {}) {
         trailChanged = JSON.stringify(m.state.trail) !== JSON.stringify(trailResult.trail);
         diff.state.trail = trailResult.trail;
       }
-      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
+      let retest1hChanged = false;
+      if (retest1hResult.retest1h) {
+        retest1hChanged = JSON.stringify(m.state.retest1h) !== JSON.stringify(retest1hResult.retest1h);
+        diff.state.retest1h = retest1hResult.retest1h;
+      }
+      let slowTrendChanged = false;
+      if (slowTrendResult.slowTrend) {
+        slowTrendChanged = JSON.stringify(m.state.slowTrend) !== JSON.stringify(slowTrendResult.slowTrend);
+        diff.state.slowTrend = slowTrendResult.slowTrend;
+      }
+      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
   } catch (err) {
@@ -383,6 +536,11 @@ export async function handleTelegramCron(req, res, deps = {}) {
   if (resetReason) log('state', ` reason=state_reset cause=${resetReason}`);
   if (migratedFrom !== null) log('state', ` reason=state_migrated from=${migratedFrom}`);
   const health = await recordHealth({ get, put, bot, chats, nowMs, outcome: { ok: true }, log });
+
+  // Live retest-1h + slow-trend spot alerts (computed before the state transaction above):
+  // merged into the normal alert pipeline so they get the same focus-mode filtering, Open
+  // button attachment (retest-1h only) and send/log treatment as every other alert kind.
+  alerts = alerts.concat(retest1hResult.alerts, slowTrendResult.alerts);
 
   // T-15 trail failure alerts (throttled to once per position per hour, computed inside
   // applyTrailingStops): sent regardless of whether the state write above succeeded, since
@@ -423,10 +581,16 @@ export async function handleTelegramCron(req, res, deps = {}) {
   // Open (T-3, extended T-7): a ready GOOD/GET IN NOW plan gets "Open @ plan"; a SETUP,
   // BREAKOUT or tracked-setup alert with entry/stop/TP1 on file (never WATCH/TRIGGERING)
   // gets "Open (early)". Only when execution is enabled; the webhook gates the rest (PIN, caps, kill, re-preflight, drift, stop cap).
+  // OFFER_OPEN_ON_FLAG_ALERTS (2026-09-27, research WP4/WP7): flag scalps do not clear
+  // costs, so the flag-engine path below (GOOD/SETUP/BREAKOUT/tracked-setup) is gated off
+  // by default; RETEST_1H is a separate, still-open path and always gets its Open button
+  // here (its own candidateId is not a flag-engine one, so it would never resolve through
+  // liveView/candidateLevels below anyway).
   if (env.TRADE_EXECUTION_ENABLED === 'true') {
     const syms = compact && compact.symbols ? compact.symbols : {};
     alerts = alerts.map((a) => {
-      if (!openEligible(a) || !a.candidateId || !a.symbol) return a;
+      if (a.kind === RETEST1H_KIND && a.candidateId) return { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId, true) };
+      if (!OFFER_OPEN_ON_FLAG_ALERTS || !openEligible(a) || !a.candidateId || !a.symbol) return a;
       const lv = candidateLevels(liveView(a.symbol, syms[a.symbol] || {}, a.candidateId, compact));
       return lv ? { ...a, replyMarkup: withOpenButton(a.replyMarkup, a.candidateId, lv.ready) } : a;
     });
