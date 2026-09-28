@@ -19,6 +19,9 @@ import { buildGeometryContext, buildGeometryB, geometryTraceSummary, nearMissDia
 import { geometryTimeframeFor, snapCandidateLevels, resolveCoils, buildVisualGate, identifyCandidate } from '../lib/patternLifecycle.js';
 import { attachQualification } from '../lib/candidateQualifier.js';
 import { buildFlagTradePlan } from '../lib/flagTradePlan.js';
+import {
+  htfDirectionAt, htfDirectionSince, checkHtfTrigger, buildHtfPlan, htfCandidateId, LIVE_TRIGGER_TIMEFRAMES
+} from '../lib/htfEntryRule.js';
 import { buildModelEvidence } from '../lib/modelEvidence.js';
 import { buildFlagRecommendation, compactRecommendation } from '../lib/flagRecommendation.js';
 import { buildPathOutlook } from '../lib/pathOutlook.js';
@@ -1713,6 +1716,67 @@ export async function buildScalpContext(options = {}) {
       flagTradePlan = flagTradePlanWithoutSetup;
     }
 
+    // T-20 HTF-anchored entry (docs/PROMPT_T20_HTF_ENTRY.md, owner decision 2026-09-27):
+    // direction from the 4h+1D EMA21/EMA200 stack, entry from the SAME 1m/3m/5m flag
+    // detector reaching triggering (lib/htfEntryRule.js - the identical functions the
+    // Telegram live alert and the swing-harness replay call, parity by construction), stop
+    // from the 1h swing anchor (NF-floored, 3% scalp-capped), target from the last 1h
+    // impulse projected from that swing. A wholly separate channel from flagTradePlan/
+    // flagRecommendation/strategies/bestSignal above - never reads or feeds any of them,
+    // and a fault here is logged, never warned (same convention as qualification/risk/
+    // trade-plan). `since` is a stateless backward recomputation (htfDirectionSince) - the
+    // live Telegram alert (lib/htfEntryLive.js, api/telegram-cron.js) keeps its own
+    // persisted `since`, stamped once at the 1h close the regime actually started; the two
+    // are not meant to be byte-identical (see htfDirectionSince's own docstring).
+    let htfEntry = null;
+    try {
+      const htfDirection = htfDirectionAt({ candles4h: closedByTf['4h'], candles1d: closedByTf['1d'] });
+      if (htfDirection) {
+        const since = htfDirectionSince({ candles4h: closedByTf['4h'], candles1d: closedByTf['1d'], direction: htfDirection });
+        const oneM = closedByTf['1m'] || [];
+        const cutMs = oneM.length ? (oneM[oneM.length - 1].closeTime ?? oneM[oneM.length - 1].timestamp) : safeNow;
+        const trigger = checkHtfTrigger({
+          candlesByTf: { '1m': oneM, '3m': closedByTf['3m'] || [], '5m': closedByTf['5m'] || [] },
+          tfs: LIVE_TRIGGER_TIMEFRAMES,
+          direction: htfDirection,
+          cutMs
+        });
+        let state = 'watching';
+        let plan = null;
+        if (trigger) {
+          const geometry1h = geometryContext['1h'] || null;
+          const geometry4h = geometryContext['4h'] || null;
+          const geometry15m = geometryContext['15m'] || null;
+          const atr1h = geometry1h && isFiniteNumber(geometry1h.atr) ? geometry1h.atr : null;
+          const atr15m = geometry15m && isFiniteNumber(geometry15m.atr) ? geometry15m.atr : null;
+          if (atr1h !== null) {
+            plan = buildHtfPlan({ direction: htfDirection, entry: trigger.entry, candles1h: closedByTf['1h'] || [], atr1h, atr15m, geometry1h, geometry4h });
+            if (plan.status === 'ready') state = 'ready';
+          }
+        }
+        // Byte budget (T6 completion plan A1/C2, 81,500 B default / 46,000 B compact worst
+        // case): compact keys per the deliverable's own instruction means OMITTING a field
+        // that has nothing to say yet, not publishing it as an explicit null - the same
+        // convention `flagTradePlan: null` already uses when there is no confirmed
+        // candidate at all, rather than an object of nulls. 'watching' (a direction with no
+        // fired plan, by far the most common non-null state) is direction/since/state only;
+        // 'ready' adds the plan's own fields.
+        htfEntry = { direction: htfDirection, since: since !== null ? new Date(since).toISOString() : null, state };
+        if (state === 'ready') {
+          Object.assign(htfEntry, {
+            stop: plan.stop, structureStop: plan.structureStop, tp1: plan.tp1,
+            ...(isFiniteNumber(plan.tp2) ? { tp2: plan.tp2 } : {}),
+            grossRR: plan.grossRR, netRR: plan.netRR, stopPct: plan.stopPct,
+            candidateId: htfCandidateId(symbol, trigger.tf, htfDirection, Number.isFinite(trigger.closeTime) ? new Date(trigger.closeTime).toISOString() : new Date(cutMs).toISOString())
+          });
+        }
+      }
+      // 'none' (no direction at all, the most common state overall) publishes as a single
+      // null, exactly like flagTradePlan does with nothing to say - not an object of nulls.
+    } catch (err) {
+      console.warn(`[ScalpContext] ${symbol}: htf entry failed - ${err.message}`);
+    }
+
     // P1: Pyth mark beside the closed-candle price. `price` itself is untouched.
     const mark = buildMark(rawMarks[symbol], price, safeNow, ENGINE_CONFIG.mark.pyth.maxAgeSec);
 
@@ -1774,7 +1838,11 @@ export async function buildScalpContext(options = {}) {
       flagRecommendation: compactRecommendation(recommendationFull),
       // T4 P1: measured-history scenario weights for the live flag candidate. null when
       // none exists. Never gates anything above.
-      pathOutlook
+      pathOutlook,
+      // T-20: direction/entry/stop/target for the HTF-anchored entry class - a separate
+      // signal family, never read by flagTradePlan/flagRecommendation/strategies/bestSignal
+      // above and reading nothing from them either.
+      htfEntry
     };
     if (includeModel && modelEvidence) symbolsOut[symbol].model = { ...modelEvidence, recommendation: recommendationFull };
     if (includeBias && bias) {
@@ -1828,7 +1896,7 @@ export async function buildScalpContext(options = {}) {
   }
 
   const payload = {
-    schemaVersion: '1.28.0',
+    schemaVersion: '1.29.0',
     configVersion: CONFIG_VERSION,
     config: buildConfigSnapshot(includeFailed),
     generatedAt: new Date(safeNow).toISOString(),
