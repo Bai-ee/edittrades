@@ -125,16 +125,16 @@ function strategiesSection() {
   });
 
   const htf = strategyCard('product-strategy-htf-entry', {
-    title: 'HTF-anchored entries', tag: 'IN BUILD · T-20', lg: 12,
-    rule: `Owner decision 2026-09-27: direction comes from the 4H and 1D lean, the stop and target are built on 1h structure (so the stop is wide enough to survive fees), and the 1m / 5m flag is only the trigger that times the entry. Released live without a prior replay study, by owner call, and judged on the tracker like everything else: it must clear the same promotion bar (≥ 30 live signals, mean net R > 0, bootstrap 90% lower bound > 0) before it is treated as more than an experiment. Every HTF signal ships as a picture: the trade chart (entry, stop, target, 21/200 EMAs, RSI) with a fixed <b>WHAT TO DO</b> caption saying exactly what action the signal asks for, so a phone glance is enough.`,
+    title: 'HTF-anchored entries', tag: 'LIVE · T-20', lg: 12,
+    rule: `Owner decision 2026-09-27: direction comes from the 4H and 1D lean, the stop and target are built on 1h structure (so the stop is wide enough to survive fees), and the 1m / 5m flag is only the trigger that times the entry. Released live 2026-09-28 without a prior replay study, by owner call, and judged on the tracker like everything else: it must clear the same promotion bar (≥ 30 live signals, mean net R > 0, bootstrap 90% lower bound > 0) before it is treated as more than an experiment. Every HTF signal ships as a picture: the trade chart (entry, stop, target, 21/200 EMAs, RSI) with a fixed <b>WHAT TO DO</b> caption saying exactly what action the signal asks for, so a phone glance is enough.`,
     levels: [
       ['Direction', '', '4H and 1D lean must agree; no counter-trend entries'],
       ['Stop / target', '', '1h structure, NF-floored; target at least 2.5R gross'],
       ['Trigger', '', 'A 1m or 5m flag retest that holds, in the HTF direction'],
       ['Output', '', 'Chart image + WHAT TO DO caption on every alert and touchpoint']
     ],
-    status: 'IN BUILD — not yet in the live payload or Telegram; schema will bump to 1.29.0 / config 2026.09.27-3 when it deploys.',
-    statusClass: 'st-warn',
+    status: 'LIVE since 2026-09-28 — schema 1.29.0 / config 2026.09.27-3. DIRECTION, ENTRY and EXIT cards ship as photos with a fixed WHAT TO DO caption; Open allowed on ENTRY under the same caps and PIN. Tracked as its own HTF_1M class on the tracker; the 2-year replay table is still computing and is not a gate.',
+    statusClass: 'st-good',
     sources: [srcLink('docs/PROMPT_T20_HTF_ENTRY.md', 'docs/PROMPT_T20_HTF_ENTRY.md'), srcLink('docs/OWNER_DECISIONS_2026-09-27.md', 'docs/OWNER_DECISIONS_2026-09-27.md')]
   });
 
