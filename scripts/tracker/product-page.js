@@ -133,9 +133,10 @@ function strategiesSection() {
       ['Trigger', '', 'A 1m or 5m flag retest that holds, in the HTF direction'],
       ['Output', '', 'Chart image + WHAT TO DO caption on every alert and touchpoint']
     ],
-    status: 'LIVE since 2026-09-28 — schema 1.29.0 / config 2026.09.27-3. DIRECTION, ENTRY and EXIT cards ship as photos with a fixed WHAT TO DO caption; Open allowed on ENTRY under the same caps and PIN. Tracked as its own HTF_1M class on the tracker; the 2-year replay table is still computing and is not a gate.',
+    record: `<b>HTF_ENTRY_STUDY_2026-09-27</b>, 2-year replay (BTC/SOL/ETH, 2024-10 → 2026-09, ~104 weeks), run after the release: <b>1,776 signals (17.1/week), 27.7% wins, net R mean −0.18 (bootstrap 90% lower bound −0.25), net R median −1.15</b>. The random-direction control with identical mechanics: 11,697 signals, net R mean −0.34, median −1.12. A 15m-structure-stop variant: 1,074 signals, mean −0.32, median −1.24. All three are negative-median in both out-of-sample halves. The live rule sits closer to zero than its random control, but it is not a measured edge. It stays live by owner decision and is judged on the tracker's HTF_1M class like everything else.`,
+    status: 'LIVE since 2026-09-28 — schema 1.29.0 / config 2026.09.27-3. DIRECTION, ENTRY and EXIT cards ship as photos with a fixed WHAT TO DO caption; Open allowed on ENTRY under the same caps and PIN. Tracked as its own HTF_1M class on the tracker; the 2-year replay (below) is negative and was not a gate.',
     statusClass: 'st-good',
-    sources: [srcLink('docs/PROMPT_T20_HTF_ENTRY.md', 'docs/PROMPT_T20_HTF_ENTRY.md'), srcLink('docs/OWNER_DECISIONS_2026-09-27.md', 'docs/OWNER_DECISIONS_2026-09-27.md')]
+    sources: [srcLink('docs/HTF_ENTRY_STUDY_2026-09-27.md', 'docs/HTF_ENTRY_STUDY_2026-09-27.md'), srcLink('docs/PROMPT_T20_HTF_ENTRY.md', 'docs/PROMPT_T20_HTF_ENTRY.md'), srcLink('docs/OWNER_DECISIONS_2026-09-27.md', 'docs/OWNER_DECISIONS_2026-09-27.md')]
   });
 
   const candidates = tile({
