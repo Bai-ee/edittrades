@@ -324,6 +324,11 @@ export function goodCallOutcomesFile(dataDir) {
   return path.join(dataDir, 'good-call-outcomes.jsonl');
 }
 
+/** Scored RETEST_1H calls (T-18): 1-minute alert log only (no capture source), one row per symbol+candidateId. */
+export function retestCallOutcomesFile(dataDir) {
+  return path.join(dataDir, 'retest-call-outcomes.jsonl');
+}
+
 export const telegramAlertKey = (r) => r.id;
 export const transitionRowKey = (r) => `${r.candidateId}|${r.at}`;
 

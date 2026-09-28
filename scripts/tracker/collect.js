@@ -578,6 +578,72 @@ export function mergeGoodCalls(alertCalls, captureCalls) {
   return [...byKey.values()];
 }
 
+// ---------------------------------------------------------------- RETEST_1H calls from the 1-minute alert log (T-18)
+//
+// docs/RETEST_ENTRY_STUDY_2026-09-27.md / docs/OWNER_DECISIONS_2026-09-27.md: the retest-1h
+// rule ships info-only/paper - lib/retest1hLive.js has no flagRecommendation/flagTradePlan
+// equivalent (it never touches buildScalpContext), so unlike GOOD there is no 10-minute
+// capture source to merge with - the Telegram cron's per-minute alert log (pulled into
+// data/telegram-alerts/, same store as GOOD) is the ONLY source. One call per
+// symbol+candidateId from the first RETEST_1H line; RETEST_1H_EXIT lines close it - unlike
+// GOOD_ENDED, a RETEST_1H_EXIT line carries its own candidateId (api/telegram-cron.js
+// evaluateRetest1h always names the plan it is closing), so no "currently open per symbol"
+// tracking is needed. SLOW_TREND lines (lib/slowTrendSpot.js) are logged in the same store
+// but never match `kind === 'RETEST_1H'` here - crosses are alerts only, never scored.
+// score.js calls these to walk-outcome score the result into data/retest-call-outcomes.jsonl.
+
+/**
+ * One RETEST_1H call per symbol+candidateId, from the first (earliest sentAt) kind
+ * RETEST_1H line for that pair. Levels come from the alert's own `trackLevels`
+ * (api/telegram-cron.js's evaluateRetest1h stamps entry/stop/tp1/timeframe/direction there
+ * since a retest candidateId is never in the live flag payload for candidateSnapshot to
+ * resolve - see lib/telegramLog.js alertLogLine's `pick()` fallback).
+ * @param {Array<Object>} alertRows - data/telegram-alerts lines (lib/telegramLog.js alertLogLine shape)
+ * @returns {Array<Object>} {symbol, candidateId, calledAt, timeframe, direction, entry, stop, tp1, source:'alert-1m'}
+ */
+export function retestCallsFromAlertLines(alertRows) {
+  const hits = (alertRows || [])
+    .filter((r) => r && r.kind === 'RETEST_1H' && typeof r.symbol === 'string' && typeof r.candidateId === 'string' && Number.isFinite(Date.parse(r.sentAt)))
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  const byKey = new Map();
+  for (const r of hits) {
+    const key = `${r.symbol}|${r.candidateId}`;
+    if (byKey.has(key)) continue;
+    byKey.set(key, {
+      symbol: r.symbol,
+      candidateId: r.candidateId,
+      calledAt: r.sentAt,
+      timeframe: typeof r.timeframe === 'string' ? r.timeframe : null,
+      direction: r.direction === 'long' || r.direction === 'short' ? r.direction : null,
+      entry: isFiniteNum(r.entry) ? r.entry : null,
+      stop: isFiniteNum(r.stop) ? r.stop : null,
+      tp1: isFiniteNum(r.tp1) ? r.tp1 : null,
+      source: 'alert-1m'
+    });
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * symbol+candidateId -> the first RETEST_1H_EXIT line's sentAt that closed it (structure
+ * exit or the 7-day hold cap - lib/retest1hLive.js formatRetest1hExitAlert). Unlike
+ * GOOD_ENDED, a RETEST_1H_EXIT line always carries its own candidateId, so this is a
+ * direct index, not a per-symbol "currently open" walk.
+ * @param {Array<Object>} alertRows
+ * @returns {Map<string,string>} key `symbol|candidateId` -> exitedAt (ISO, earliest)
+ */
+export function retestExitTimesFromAlertLines(alertRows) {
+  const exited = new Map();
+  const hits = (alertRows || [])
+    .filter((r) => r && r.kind === 'RETEST_1H_EXIT' && typeof r.symbol === 'string' && typeof r.candidateId === 'string' && Number.isFinite(Date.parse(r.sentAt)))
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+  for (const r of hits) {
+    const key = `${r.symbol}|${r.candidateId}`;
+    if (!exited.has(key)) exited.set(key, r.sentAt);
+  }
+  return exited;
+}
+
 /** Write one payload's calls and candles into `dataDir`. */
 export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const rows = recordsFromPayload(payload, capturedAtMs);

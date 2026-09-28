@@ -285,10 +285,16 @@ const allCallbackData = (markup) => (markup && markup.inline_keyboard ? markup.i
  * read (resolveExecutor) checks hasOwnProperty, so an explicit null short-circuits it
  * without any dynamic import; a test exercising focus mode passes a mock instead.
  */
-async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, executor = null, importExecutor, render = fakeRender }) {
+// No-network default for the live retest-1h / slow-trend spot candle fetch (2026-09-27):
+// empty candles -> both features find nothing and stay silent, so every existing cron()
+// test call stays deterministic and network-free. Tests exercising retest1h/slowTrend pass
+// their own `fetchMarketCandles` fixture.
+const NO_CANDLES = async () => ({ candles: [] });
+
+async function cron({ auth = `Bearer ${CRON}`, env = ENV, blob = fakeBlob(), tg = fakeTelegram(), build = async () => payload(), nowMs = T0, executor = null, importExecutor, render = fakeRender, fetchMarketCandles = NO_CANDLES }) {
   const req = { method: 'GET', headers: auth ? { authorization: auth } : {} };
   const res = mockRes();
-  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render, now: () => nowMs, env, executor, ...(importExecutor ? { importExecutor } : {}) }));
+  const { logs } = await quiet(() => handleTelegramCron(req, res, { build, put: blob.put, get: blob.get, fetchImpl: tg.fetchImpl, render, now: () => nowMs, env, executor, fetchMarketCandles, ...(importExecutor ? { importExecutor } : {}) }));
   return { res, tg, blob, logs };
 }
 

@@ -484,22 +484,33 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       if ((cmd === 'confirm' || cmd === 'arm') && parsed.args.length) await deleteOwn();
       await execSend(EXEC_OFF_REPLY, null, { event: 'off' });
     } else if (cmd === 'open') {
-      const payload = filterPayload(await build(), { compact: true });
       const state = hasStore ? await readState() : null;
-      const v = resolveRef(parsed.ref, payload, state);
-      if (!v) await reply(EXPIRED_REPLY);
-      else {
-        const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
-        // T-7: any levelled alert with entry/stop/TP1 on file can Open, not only a ready
-        // GOOD plan -- orderIntentFromCandidate falls back to the candidate's own
-        // breakout/invalidation/measured-target levels; preflight (below, via runOrder)
-        // still re-checks every gate (caps, drift, 3% stop, kill, PIN) against them.
-        const built = orderIntentFromCandidate(v, execCaps(await safeStatus(), env));
-        if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || (v.candidate && v.candidate.direction) }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
-        else await runOrder({ ...built.intent, tier: classifyTier(v.rec) }, {
-          timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null),
-          from: { kind: openSourceKind(v), timeframe: tf, ref: parsed.ref }
-        });
+      // T-18 (owner decision 2026-09-27): the retest-1h rule ships info-only/paper (mean
+      // +0.27R, median -0.84R, beats matched controls p~0.01-0.05) until >= 30 live signals
+      // clear the promotion rule in docs/OWNER_DECISIONS_2026-09-27.md (mean net R > 0 with
+      // bootstrap 90% lower bound > 0, drawdown within the active profile). A retest plan's ref never carries an Open
+      // button (api/telegram-cron.js), but this refuses defense-in-depth too, e.g. a stale
+      // button from before this deploy.
+      const retestPlan = state && state.retest1h && state.retest1h.plans ? state.retest1h.plans[parsed.ref] : null;
+      if (retestPlan) {
+        await reply('Execution is not enabled for RETEST 1H yet');
+      } else {
+        const payload = filterPayload(await build(), { compact: true });
+        const v = resolveRef(parsed.ref, payload, state);
+        if (!v) await reply(EXPIRED_REPLY);
+        else {
+          const tf = (v.plan && v.plan.timeframe) || (v.candidate && v.candidate.timeframe) || null;
+          // T-7: any levelled alert with entry/stop/TP1 on file can Open, not only a ready
+          // GOOD plan -- orderIntentFromCandidate falls back to the candidate's own
+          // breakout/invalidation/measured-target levels; preflight (below, via runOrder)
+          // still re-checks every gate (caps, drift, 3% stop, kill, PIN) against them.
+          const built = orderIntentFromCandidate(v, execCaps(await safeStatus(), env));
+          if (built.error) await execSend(formatRefusedCard({ symbol: v.symbol, direction: (v.plan && v.plan.direction) || (v.candidate && v.candidate.direction) }, [built.error], { timeframe: tf }), null, { event: 'refused', symbol: v.symbol, timeframe: tf, candidateId: v.candidateId });
+          else await runOrder({ ...built.intent, tier: classifyTier(v.rec) }, {
+            timeframe: tf, snap: built.snap, mark: markCtx(v.symbol, payload && payload.symbols ? payload.symbols[v.symbol] : null),
+            from: { kind: openSourceKind(v), timeframe: tf, ref: parsed.ref }
+          });
+        }
       }
     } else if (cmd === 'order') {
       const o = parseOrderArgs(parsed.args);
