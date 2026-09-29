@@ -3912,7 +3912,7 @@ async function run() {
     assert(panel.includes('id="pred-panel-foot-link"') && panel.includes('href="predictions.html"'), 'footer links to predictions.html');
   });
 
-  await test('T-24c: homeHero places the prediction panel in the hero grid; the live board renders after it, full width, no longer grid-area:board', () => {
+  await test('T-24c/owner 2026-09-29: homeHero right column = prediction panel over the live board, both inside the hero shell', () => {
     const html = homeHero([], '2026-09-29T01:00:00.000Z', {});
     const iShellOpen = html.indexOf('id="home-hero-shell"');
     const iPanel = html.indexOf('id="home-hero-prediction-panel"');
@@ -3922,8 +3922,9 @@ async function run() {
     // The panel is a single, self-contained block: the live board never nests inside it.
     const panelOnly = predictionsPanelHtml({});
     assert(!panelOnly.includes('id="live-board-card"'), 'live board is not part of the panel markup');
-    assert(PREDICTIONS_CSS.includes('.home-hero-prediction-panel{grid-area:board'), 'the panel, not the board, now claims the hero\'s board grid area');
-    assert(!HOME_HERO_CSS.includes('.live-board{grid-area:board}'), 'live board no longer pinned to the hero grid (moved below, full width)');
+    assert(HOME_HERO_CSS.includes('.home-hero-side-column{grid-area:board'), 'the side column (panel over live board) claims the hero\'s board grid area (owner 2026-09-29)');
+    assert(!PREDICTIONS_CSS.includes('grid-area:board') && !HOME_HERO_CSS.includes('.live-board{grid-area:board}'), 'neither the panel nor the board pins itself to the grid; the column does');
+    assert(html.indexOf('id="home-hero-side-column"') < iPanel && html.lastIndexOf('</div>') > iBoard, 'panel and live board both sit inside the side column');
   });
 
   await test('predictions.html: full breakdown tables, last-50 results, method paragraph and the GitHub study link, empty and populated', () => {
