@@ -6,15 +6,17 @@
  *   middle (#home-hero-right-now)      - one "right now" card per symbol (T-23): price/mark,
  *                                        a 7-cell timeframe trend strip, the engine's own
  *                                        class + action + reason, and the active candidate
- *   right  (#live-board-card)          - live engine state (live-board.js), capped at 40vh
+ *   right  (#home-hero-prediction-panel) - next-candle overall hit rate + 12-row current-call
+ *                                        table (T-24c, predictions.js), capped at 40vh
  *
- * The board's ALL tab carries the overall net PnL summary; full performance detail lives in the
- * scoreboard and class-check zones. Styles: HOME_HERO_CSS below plus LIVE_BOARD_CSS, both
- * appended to PAGE_CSS by build-page.js.
+ * The live board (live-board.js) no longer sits in the hero's right column - it renders
+ * directly below the hero, full width, its own markup untouched. Styles: HOME_HERO_CSS below
+ * plus LIVE_BOARD_CSS and PREDICTIONS_CSS, all appended to PAGE_CSS by build-page.js.
  */
 
 import { esc } from './bento.js';
 import { liveBoard } from './live-board.js';
+import { predictionsPanelHtml } from './predictions.js';
 
 const SYMBOLS = ['BTC', 'ETH', 'SOL'];
 const dash = '–';
@@ -240,11 +242,14 @@ export function rightNowCards(rows) {
 }
 
 /**
- * The right column is the live board (live-board.js), not the old performance card; its ALL
- * tab leads with the overall net PnL, the rest of performance is in the zones further down.
+ * The right column is the next-candle prediction panel (predictions.js, T-24c) - overall hit
+ * rate on top, the 12-row current-call table under it. The live board renders as its own
+ * full-width block directly after the hero (still built here so its args stay in one place);
+ * its ALL tab leads with the overall net PnL, the rest of performance is in the zones further
+ * down.
  * @param {Array<Object>} liveRows - latest capture row per symbol
  * @param {string} [generatedAt] - page build time
- * @param {Object} [agg] - computeAggregates() output, for the ALL tab's PnL summary
+ * @param {Object} [agg] - computeAggregates() output, for the panel and the board's PnL summary
  */
 export function homeHero(liveRows, generatedAt, agg) {
   const rows = Array.isArray(liveRows) ? liveRows : [];
@@ -254,7 +259,8 @@ export function homeHero(liveRows, generatedAt, agg) {
     + `<div class="home-hero-actions" id="home-hero-actions"><a class="home-hero-action is-primary" id="home-hero-calls-link" href="#zone-calls">See every call</a>`
     + `<a class="home-hero-action" id="home-hero-howto-link" href="how-to.html">How to use it</a>`
     + `<a class="home-hero-action" id="home-hero-product-link" href="product.html">What EditTrades is</a></div></div></div>`;
-  return `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${rightNowCards(rows)}${liveBoard(rows, generatedAt, agg)}</div>`;
+  const hero = `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${rightNowCards(rows)}${predictionsPanelHtml(agg)}</div>`;
+  return `${hero}${liveBoard(rows, generatedAt, agg)}`;
 }
 
 export const HOME_HERO_CSS = `
@@ -292,5 +298,4 @@ export const HOME_HERO_CSS = `
 .home-hero-now-stance{color:var(--text-secondary)}
 .home-hero-now-empty{color:var(--text-secondary)}
 .home-hero-now-data-tag{align-self:flex-start;padding:1px var(--sp-2);border:1px solid var(--border-visible);border-radius:999px;font:400 10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-disabled)}
-.live-board{grid-area:board}
 `;

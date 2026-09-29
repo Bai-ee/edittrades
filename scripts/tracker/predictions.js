@@ -12,7 +12,10 @@
  *   join       joinPredictions() pairs each PREDICTION row with its PREDICTION_RESULT (same
  *              id) when one has landed.
  *   aggregate  computePredictionsAggregate() builds aggregates.json.predictions per the
- *              contract: cells "<SYM>:<tf>", byTimeframe, bySymbol, overall, duringGood, last.
+ *              contract: cells "<SYM>:<tf>", current, byTimeframe, bySymbol, overall,
+ *              duringGood, last. current[key] (T-24c) is the latest PREDICTION for that cell:
+ *              still-pending -> {direction, confidence, closedAt, refClose}; already resolved
+ *              -> the same shape plus {resolved:true, hit}; no predictions yet -> null.
  *              n/hits/misses count decided results (hit true/false); noCalls counts resolved
  *              results whose prediction direction was 'no_call' (excluded from n, per spec);
  *              a flat-tie result (hit null, direction not no_call) counts toward none of them.
@@ -29,6 +32,18 @@
  *              coloured only when a cell has n >= 30 and beats both the coin flip and
  *              same-as-last baselines, plus the one-line summary. Empty (`since` null) renders
  *              `[NO PREDICTIONS YET]` instead of the grid - the block itself is never omitted.
+ *              Kept exported for predictions.html (predictions-page.js); no longer placed on
+ *              the homepage (T-24c below).
+ *   panel      (T-24c, docs/PROMPT_T24C_PREDICTION_PANEL.md) predictionsPanelHtml() renders
+ *              `id="home-hero-prediction-panel"`, the hero's right-column replacement for the
+ *              old zone-predictions grid: predictionsOverallHtml() (id="pred-overall-rate",
+ *              the overall hit rate oversized, n/since under it, baselines below - or the
+ *              `[NO PREDICTIONS YET]` empty state) plus predictionsCurrentTableHtml()
+ *              (id="pred-current-table", 12 rows id="pred-row-<sym>-<tf>", BTC/ETH/SOL x
+ *              5m/15m/1h/4h: token, tf, next-candle glyph from `current`, hit rate from
+ *              `cells[key]`, and the last resolved result read off the existing `last` list).
+ *              home-hero.js places it in the hero grid; build-page.js no longer calls
+ *              predictionsZone() for the homepage body.
  *
  * Symbols/timeframes mirror lib/predictionRule.js's PREDICTION_SYMBOLS/PREDICTION_TIMEFRAMES
  * (agent A, merged separately) - duplicated as local constants rather than imported, the same
@@ -154,6 +169,18 @@ function statsForJoined(list) {
 
 export const EMPTY_PREDICTIONS_CELL = Object.freeze({ n: 0, hits: 0, misses: 0, noCalls: 0, hitRate: null, coinFlip: 0.5, sameAsLastRate: null, meanMoveBpsHit: null, meanMoveBpsMiss: null });
 
+/** T-24c: the latest PREDICTION for one cell - still pending (no PREDICTION_RESULT yet) ->
+ * {direction, confidence, closedAt, refClose}; already resolved -> the same shape plus
+ * {resolved:true, hit}; no predictions at all -> null. */
+function currentForCell(cellJoined) {
+  if (!cellJoined || !cellJoined.length) return null;
+  const sorted = [...cellJoined].sort((a, b) => Date.parse(b.closedAt) - Date.parse(a.closedAt));
+  const pending = sorted.find((j) => !j.result);
+  const j = pending || sorted[0];
+  const base = { direction: j.direction, confidence: j.confidence, closedAt: j.closedAt, refClose: j.prediction.refClose };
+  return pending ? base : { ...base, resolved: true, hit: j.result.hit };
+}
+
 /** [startMs, endMs] a GOOD call was active: calledAt -> endedAt, or calledAt+goodWindowMin when still open, or a point at calledAt. */
 function goodWindow(g) {
   const startMs = Date.parse(g && g.calledAt);
@@ -177,9 +204,13 @@ export function computePredictionsAggregate(rows, goodCallOutcomes = []) {
   }, null);
 
   const cells = {};
+  const current = {};
   for (const symbol of PREDICTION_SYMBOLS) {
     for (const timeframe of PREDICTION_TIMEFRAMES) {
-      cells[predictionCellKey(symbol, timeframe)] = statsForJoined(joined.filter((j) => j.symbol === symbol && j.timeframe === timeframe));
+      const key = predictionCellKey(symbol, timeframe);
+      const cellJoined = joined.filter((j) => j.symbol === symbol && j.timeframe === timeframe);
+      cells[key] = statsForJoined(cellJoined);
+      current[key] = currentForCell(cellJoined);
     }
   }
   const byTimeframe = {};
@@ -210,12 +241,13 @@ export function computePredictionsAggregate(rows, goodCallOutcomes = []) {
       hit: j.result.hit, direction: j.direction, confidence: j.confidence, lastCandleDir: j.result.lastCandleDir
     }));
 
-  return { since: firstMs !== null ? new Date(firstMs).toISOString() : null, cells, byTimeframe, bySymbol, overall, duringGood, last };
+  return { since: firstMs !== null ? new Date(firstMs).toISOString() : null, cells, current, byTimeframe, bySymbol, overall, duringGood, last };
 }
 
 export const EMPTY_PREDICTIONS_AGGREGATE = Object.freeze({
   since: null,
   cells: Object.fromEntries(PREDICTION_SYMBOLS.flatMap((s) => PREDICTION_TIMEFRAMES.map((tf) => [predictionCellKey(s, tf), EMPTY_PREDICTIONS_CELL]))),
+  current: Object.fromEntries(PREDICTION_SYMBOLS.flatMap((s) => PREDICTION_TIMEFRAMES.map((tf) => [predictionCellKey(s, tf), null]))),
   byTimeframe: Object.fromEntries(PREDICTION_TIMEFRAMES.map((tf) => [tf, EMPTY_PREDICTIONS_CELL])),
   bySymbol: Object.fromEntries(PREDICTION_SYMBOLS.map((s) => [s, EMPTY_PREDICTIONS_CELL])),
   overall: EMPTY_PREDICTIONS_CELL,
@@ -280,8 +312,88 @@ export function predictionsZone(agg) {
   });
 }
 
+// ---------------------------------------------------------------- home-hero panel (T-24c)
+
+const NEXT_GLYPH = { over: '▲', under: '▼' };
+
+/** '▲' over / '▼' under / '·' no call or no current prediction yet. */
+export function predictionNextGlyph(current) {
+  return (current && NEXT_GLYPH[current.direction]) || '·';
+}
+
+/** The most recently resolved result for one cell, read off the existing last-50 list
+ * (already sorted newest first) - no new aggregate field needed. */
+function latestResultForCell(agg, symbol, timeframe) {
+  const list = Array.isArray(agg && agg.last) ? agg.last : [];
+  return list.find((r) => r.symbol === symbol && r.timeframe === timeframe) || null;
+}
+
+function predCurrentRowHtml(symbol, timeframe, agg) {
+  const key = predictionCellKey(symbol, timeframe);
+  const cell = (agg.cells && agg.cells[key]) || EMPTY_PREDICTIONS_CELL;
+  const current = agg.current && agg.current[key];
+  const last = latestResultForCell(agg, symbol, timeframe);
+  const lastGlyph = !last ? dash : (last.hit === true ? '✓' : last.hit === false ? '✗' : dash);
+  const rateText = isNum(cell.hitRate) ? pct(cell.hitRate) : dash;
+  const id = `pred-row-${symbol.toLowerCase()}-${timeframe}`;
+  return `<tr class="pred-current-row${predCellBeats(cell) ? ' pred-row-good' : ''}" id="${id}">`
+    + `<td class="pred-current-sym">${esc(symbol)}</td>`
+    + `<td class="pred-current-tf">${esc(TF_LABEL[timeframe] || timeframe.toUpperCase())}</td>`
+    + `<td class="pred-current-next">${esc(predictionNextGlyph(current))}</td>`
+    + `<td class="pred-current-rate">${esc(rateText)}<span class="pred-current-hit-n">n=${cell.n || 0}</span></td>`
+    + `<td class="pred-current-last">${esc(lastGlyph)}</td>`
+    + `</tr>`;
+}
+
+/** `id="pred-current-table"`: 12 rows, BTC/ETH/SOL x 5m/15m/1h/4h, row id="pred-row-<sym>-<tf>".
+ * Columns: token, tf, next-candle glyph (from `current`), hit rate (from `cells`, n small),
+ * last resolved result. Never hidden - empty cells render their own dashes. */
+export function predictionsCurrentTableHtml(agg) {
+  const rows = PREDICTION_SYMBOLS.flatMap((sym) => PREDICTION_TIMEFRAMES.map((tf) => predCurrentRowHtml(sym, tf, agg))).join('');
+  return `<div class="table-scroll pred-current-table-wrap" id="pred-current-table-scroll">`
+    + `<table class="pred-current-table" id="pred-current-table">`
+    + `<thead><tr><th>Coin</th><th>TF</th><th>Next</th><th>Hit rate</th><th>Last</th></tr></thead>`
+    + `<tbody>${rows}</tbody></table></div>`;
+}
+
+/** `id="pred-overall-rate"`: oversized overall hit rate with n/since under it and the two
+ * baselines on their own line. Empty (`since` null) shows '–' and [NO PREDICTIONS YET]
+ * instead - the block itself is never hidden. */
+export function predictionsOverallHtml(agg) {
+  const a = agg || EMPTY_PREDICTIONS_AGGREGATE;
+  const o = a.overall || EMPTY_PREDICTIONS_CELL;
+  const since = a.since ? String(a.since).slice(0, 10) : null;
+  if (!since) {
+    return `<div class="pred-overall-block" id="pred-overall-block">`
+      + `<div class="pred-overall-rate is-empty" id="pred-overall-rate">${dash}</div>`
+      + `<p class="pred-overall-meta" id="pred-overall-meta">${esc(NO_PREDICTIONS)}</p>`
+      + `</div>`;
+  }
+  return `<div class="pred-overall-block" id="pred-overall-block">`
+    + `<div class="pred-overall-rate" id="pred-overall-rate">${esc(pct(o.hitRate))}</div>`
+    + `<p class="pred-overall-meta" id="pred-overall-meta">n=${o.n || 0} · since ${esc(since)}</p>`
+    + `<p class="pred-overall-baseline" id="pred-overall-baseline">coin flip 50% · same-as-last ${esc(pct(o.sameAsLastRate))}</p>`
+    + `</div>`;
+}
+
+/**
+ * `id="home-hero-prediction-panel"`: the hero's right-column panel (T-24c) - overall hit-rate
+ * figure, the 12-row current-call table, a footer link to predictions.html. Replaces the old
+ * zone-predictions grid on the homepage; never hidden (renders its own empty states).
+ * @param {Object} [pageAgg] - computeAggregates() output; `pageAgg.predictions` is read
+ */
+export function predictionsPanelHtml(pageAgg) {
+  const agg = (pageAgg && pageAgg.predictions) || EMPTY_PREDICTIONS_AGGREGATE;
+  return `<div class="home-hero-prediction-panel" id="home-hero-prediction-panel" data-section="home-hero-prediction-panel">`
+    + predictionsOverallHtml(agg)
+    + predictionsCurrentTableHtml(agg)
+    + `<p class="pred-panel-foot" id="pred-panel-foot"><a id="pred-panel-foot-link" href="predictions.html">every call, every close →</a></p>`
+    + `</div>`;
+}
+
 export const PREDICTIONS_CSS = `
-/* zone-predictions: 3x4 next-candle hit-rate grid, scrolls inside its tile on phone. */
+/* zone-predictions (predictions.html only, see predictionsZone header note): 3x4 next-candle
+   hit-rate grid, scrolls inside its tile on phone. */
 .pred-grid{display:grid;grid-template-columns:repeat(4,minmax(84px,1fr));gap:var(--sp-2);min-width:360px}
 .pred-cell{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:var(--sp-2);border:1px solid var(--border);border-radius:var(--radius);min-width:0}
 .pred-cell-head{display:flex;align-items:baseline;gap:var(--sp-1);font-style:normal}
@@ -292,6 +404,23 @@ export const PREDICTIONS_CSS = `
 .pred-cell-good{border-color:var(--success)}
 .pred-cell-good .pred-cell-rate{color:var(--success)}
 .pred-summary{margin:0;font:400 12px/1.4 var(--mono);color:var(--text-secondary)}
+/* home-hero-prediction-panel (T-24c): hero right column, hard-capped at 40vh like live-board -
+   the current-call table scrolls inside it, the panel itself never grows past the cap. */
+.home-hero-prediction-panel{grid-area:board;container-type:inline-size;display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;max-height:40vh;overflow:hidden;padding:var(--sp-3) var(--sp-4);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.pred-overall-block{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding-bottom:var(--sp-2);border-bottom:1px solid var(--border)}
+.pred-overall-rate{font:700 clamp(40px,11cqi,64px)/.95 var(--doto);letter-spacing:-.03em;color:var(--text-display);font-variant-numeric:tabular-nums}
+.pred-overall-rate.is-empty{color:var(--text-disabled)}
+.pred-overall-meta{margin:0;font:400 11px/1.4 var(--mono);color:var(--text-secondary)}
+.pred-overall-baseline{margin:0;font:400 11px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
+.pred-current-table-wrap{flex:1 1 auto;min-height:0;overflow-y:auto}
+.pred-current-table{width:100%}
+.pred-current-table th{font:400 10px/1.2 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary);white-space:nowrap}
+.pred-current-table td{font:400 12px/1.4 var(--mono);color:var(--text-primary);white-space:nowrap}
+.pred-current-next{font-size:14px}
+.pred-current-hit-n{margin-left:4px;font-size:10px;color:var(--text-secondary)}
+.pred-row-good td{color:var(--success)}
+.pred-panel-foot{margin:0;flex:0 0 auto;font:400 11px/1.4 var(--mono);color:var(--text-secondary)}
+.pred-panel-foot a{color:inherit}
 `;
 
 // ---------------------------------------------------------------- CLI
