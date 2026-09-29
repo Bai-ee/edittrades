@@ -60,6 +60,8 @@ import { renderStrategies } from './strategies-page.js';
 import { renderSpot, readSpotData } from './spot-page.js';
 import { renderProduct } from './product-page.js';
 import { computeProfileCurves } from './profiles.js';
+import { predictionsZone, PREDICTIONS_CSS } from './predictions.js';
+import { renderPredictionsPage } from './predictions-page.js';
 
 export const PROVISIONAL = 'provisional; not evidence of an edge';
 export const EDGE_NOTE = "Not evidence of an edge. Scores the engine's calls against later closed candles.";
@@ -975,7 +977,7 @@ export function renderHtml(agg, data = {}) {
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
       ['#zone-wallet-strategies', 'Strategies'],
       ['#zone-calls', 'Calls'], ['#zone-alerts', 'Alerts'], ['#zone-breakdown', 'Breakdown'], ['#zone-reference', 'Data'],
-      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="tracker-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="tracker-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="tracker-spot-trend-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"'], ['product.html', 'What EditTrades is →', 'class="nav-link" id="tracker-product-link"']
+      ['how-to.html', 'How to use →', 'class="nav-link" id="tracker-how-to-link"'], ['risk.html', 'Risk & sizing →', 'class="nav-link" id="tracker-risk-link"'], ['strategies.html', 'Wallet strategies →', 'class="nav-link" id="tracker-strategies-link"'], ['spot.html', 'Spot trend →', 'class="nav-link" id="tracker-spot-trend-link"'], ['predictions.html', 'Next-candle calls →', 'class="nav-link" id="tracker-predictions-link"'], ['changelog.html', 'System map →', 'class="nav-link" id="tracker-system-map-link"'], ['product.html', 'What EditTrades is →', 'class="nav-link" id="tracker-product-link"']
     ]);
 
   // Primary: hero. Net (fees + slippage, costs.js) shown beside gross (T5 S1).
@@ -1162,6 +1164,10 @@ export function renderHtml(agg, data = {}) {
     + `<span id="page-generated-at">GENERATED ${esc(time(agg.generatedAt))} · LAST CLOSE ${esc(time(t.lastClosedThrough))} · ${agg.totals.outcomes} ROWS</span></footer>`;
 
   const body = [
+    // T-24: next-candle prediction grid, directly under the hero's right-now cards (topStrip
+    // above) and above the strategy scoreboard. Never omitted - predictionsZone renders its
+    // own [NO PREDICTIONS YET] empty state when agg.predictions has nothing yet.
+    predictionsZone(agg),
     zone({
       id: 'zone-system', title: 'System', sub: 'Automated tracker · testing window',
       tiles: [
@@ -1232,7 +1238,7 @@ export function renderHtml(agg, data = {}) {
 <title>EditTrades Call Tracker</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700&family=Space+Grotesk:wght@400;500&family=Space+Mono:wght@400&display=swap">
 <style>
-${PAGE_CSS}${HOME_HERO_CSS}${LIVE_BOARD_CSS}${CHART_CSS}
+${PAGE_CSS}${HOME_HERO_CSS}${LIVE_BOARD_CSS}${CHART_CSS}${PREDICTIONS_CSS}
 </style>
 </head>
 <body>
@@ -1322,6 +1328,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const strategiesFile = path.join(outDir, 'strategies.html');
   const spotFile = path.join(outDir, 'spot.html');
   const productFile = path.join(outDir, 'product.html');
+  const predictionsFile = path.join(outDir, 'predictions.html');
   const journal = readJournal(dataDir);
   const journalOutcomes = readJsonl(journalOutcomesFile(dataDir));
   const outcomes = readJsonl(outcomesFile(dataDir));
@@ -1344,7 +1351,8 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   writeFileSync(strategiesFile, renderStrategies(profileCurves, telegram && telegram.riskProfile));
   writeFileSync(spotFile, renderSpot(readSpotData(dataDir)));
   writeFileSync(productFile, renderProduct());
-  return { agg, htmlFile, mdFile, howToFile, riskFile, strategiesFile, spotFile, productFile };
+  writeFileSync(predictionsFile, renderPredictionsPage(agg.predictions));
+  return { agg, htmlFile, mdFile, howToFile, riskFile, strategiesFile, spotFile, productFile, predictionsFile };
 }
 
 function main() {

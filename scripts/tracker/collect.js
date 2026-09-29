@@ -62,6 +62,7 @@ import {
   appendTelegramAlerts, appendTransitions, readTelegramAlerts, readTransitions
 } from './store.js';
 import { stripSensitive, findSensitiveKeys, recordsFromPayload, servedKey } from './records.js';
+import { pullPredictions } from './predictions.js';
 
 // Row building lives in records.js (shared with the engine's served-calls recorder).
 export { isSensitiveKey, stripSensitive, findSensitiveKeys, slimCandidate, recordsFromPayload, servedKey } from './records.js';
@@ -777,10 +778,23 @@ async function main() {
       console.warn(`[tracker:collect] telegram log pull failed: ${err.message}`);
     }
   }
+  // T-24 (docs/PROMPT_T24_PREDICTION_TRACKER.md): PREDICTION / PREDICTION_RESULT rows live in
+  // the same public Blob store as journal/served/telegram above, so the same base resolves.
+  let predictions = 'off';
+  const predictionsBase = opts['no-predictions'] ? null : resolveJournalBase(opts);
+  if (predictionsBase) {
+    try {
+      const p = await pullPredictions(opts.data, predictionsBase);
+      predictions = `+${p.added} (dup ${p.duplicates}, ${p.days} day file(s))`;
+    } catch (err) {
+      predictions = 'failed';
+      console.warn(`[tracker:collect] predictions pull failed: ${err.message}`);
+    }
+  }
   console.log(`[tracker:collect] closedThrough=${result.closedThrough} symbols=${result.symbols.join(',')} `
     + `calls +${result.calls.added} (dup ${result.calls.duplicates}) `
     + `candles 1m +${result.candles['1m']} 5m +${result.candles['5m']} 15m +${result.candles['15m']} `
-    + `wallet +${result.wallet} (${result.walletStatus}) journal ${journal} served ${served} telegram ${telegram}`);
+    + `wallet +${result.wallet} (${result.walletStatus}) journal ${journal} served ${served} telegram ${telegram} predictions ${predictions}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
