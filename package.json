@@ -31,6 +31,7 @@
     "test:evidence": "node test-model-evidence.js",
     "test:mark": "node test-pyth-mark.js",
     "test:tracker": "node test-tracker.js",
+    "test:predlive": "node test-prediction-live.js",
     "replay": "node scripts/replay.js",
     "replay:metrics": "node scripts/replay-metrics.js",
     "replay:outcomes": "node scripts/replay-outcomes.js",

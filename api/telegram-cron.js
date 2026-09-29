@@ -86,7 +86,8 @@ import { resolveExecutor } from './telegram-webhook.js';
 import {
   RETEST1H_KIND, RETEST1H_EXIT_KIND, RETEST1H_SYMBOLS, RETEST1H_EVIDENCE, RETEST1H_HOLD_MAX_HOURS,
   latestClosed1hCandle, evaluateRetest1hFull, retestCandidateId, isRetest1hCandidateId, nextInsideStreak,
-  retestOpenRecords, retestPositionHashes, positionIdHash, formatRetest1hAlert, formatRetest1hExitAlert
+  retestOpenRecords, retestPositionHashes, positionIdHash, formatRetest1hAlert, formatRetest1hExitAlert,
+  fetchClosedCandles
 } from '../lib/retest1hLive.js';
 import { SLOW_TREND_KIND, fetchClosedDailyCandles, evaluateSlowTrendRegime, formatSlowTrendAlert } from '../lib/slowTrendSpot.js';
 // Live HTF-anchored entry (T-20, owner-approved "ships live-capable" 2026-09-27; see
@@ -101,6 +102,12 @@ import {
   htfOpenRecords, formatHtfDirectionAlert, formatHtfEntryAlert, formatHtfExitAlert,
   directionChartRequest, entryChartRequest, htfCandidateId
 } from '../lib/htfEntryLive.js';
+// T-24 next-candle prediction tracker (docs/PROMPT_T24_PREDICTION_TRACKER.md, "Agent D").
+// Info-only: never an alert, never a message, never a threshold/schema change. Reuses the
+// SAME fetchClosedCandles accessor the HTF/retest1h wiring above already uses - no second
+// exchange client. lib/predictionLive.js does its own Blob append (predictions/*.jsonl +
+// manifest) via the `store` it is handed; this file only fetches candles and gates it.
+import { evaluatePredictions, PREDICTION_SYMBOLS, PREDICTION_TIMEFRAMES, HIGHER_TF } from '../lib/predictionLive.js';
 
 /**
  * Record one cron outcome in telegram/health.json and send the FAILING / RECOVERED
@@ -426,6 +433,43 @@ async function evaluateHtfEntry({ env, deps, nowMs, log, prevState, openHtfTrade
   return { htf: changed ? next : null, alerts };
 }
 
+/** Every closed timeframe lib/predictionLive.js needs: PREDICTION_TIMEFRAMES plus each
+ * one's own HIGHER_TF (4h's higher, 1d, is not itself a PREDICTION_TIMEFRAMES entry). */
+const PREDICTION_FETCH_TFS = [...new Set([...PREDICTION_TIMEFRAMES, ...Object.values(HIGHER_TF)])];
+
+/**
+ * T-24 next-candle prediction live writer (docs/PROMPT_T24_PREDICTION_TRACKER.md, "Agent
+ * D"). Info-only: never sends a message, never touches an alert, never changes a
+ * threshold or the payload schema. Fetches the closed candles lib/predictionLive.js needs
+ * with the SAME fetchClosedCandles accessor the HTF/retest1h live wiring above already
+ * uses (never throws - a candle-read failure just leaves that cell's candles empty, which
+ * lib/predictionLive.js skips on its own), then hands them straight to
+ * `evaluatePredictions`, which does its own Blob append (predictions/YYYY-MM-DD.jsonl +
+ * manifest) before this resolves. Gated by PREDICTIONS_ENABLED (default on; 'false' turns
+ * it off); any evaluation failure (e.g. a Blob write that could not be swallowed
+ * internally) is logged `[Pred] skipped=<reason>` and swallowed here too - never thrown,
+ * never alerted.
+ * @returns {Promise<{predictions: Object|null}>} `predictions` is the full next
+ *   `state.predictions` to persist, or null when nothing changed this tick (disabled,
+ *   nothing newly closed, or a failure) - the caller then leaves state.predictions as it was.
+ */
+async function evaluatePredictionsCron({ env, deps, nowMs, log, prevState, payload, get, put, head }) {
+  if (env.PREDICTIONS_ENABLED === 'false') return { predictions: null };
+  const fetchOpts = { fetchCandles: deps.fetchMarketCandles, nowMs };
+  const candlesByTf = {};
+  for (const symbol of PREDICTION_SYMBOLS) {
+    candlesByTf[symbol] = {};
+    for (const tf of PREDICTION_FETCH_TFS) candlesByTf[symbol][tf] = await fetchClosedCandles(symbol, tf, fetchOpts);
+  }
+  try {
+    const { state, rows } = await evaluatePredictions({ payload, candlesByTf, prevState, nowMs, store: { get, put, head } });
+    return { predictions: rows.length ? state : null };
+  } catch (err) {
+    log('pred', ` skipped=eval_${err && err.name ? err.name : 'Error'}`);
+    return { predictions: null };
+  }
+}
+
 /**
  * Refusal reasons that are routine (kill switch on, execution off, cooldown, a race with
  * the cron's own tightening check) and never worth waking the owner for - anything else
@@ -652,6 +696,10 @@ export async function handleTelegramCron(req, res, deps = {}) {
   // so it needs no `retestHashes`-style set passed into applyTrailingStops.
   const openHtfTrades = htfOpenRecords(openPositions(retestJournalRecords));
   const htfResult = await evaluateHtfEntry({ env, deps, nowMs, log, prevState: retestPrevState.htf, openHtfTrades, trackedList: retestPrevState.tracked });
+  // T-24 next-candle prediction tracker: info-only, produces no alerts - resolved here
+  // (real candle fetches + its own Blob append) for the same reason as the evaluations
+  // above (updateBlob's change() callback below must stay synchronous).
+  const predictionsResult = await evaluatePredictionsCron({ env, deps, nowMs, log, prevState: retestPrevState.predictions, payload, get, put, head });
 
   let alerts = [];
   let transitions = [];
@@ -702,6 +750,11 @@ export async function handleTelegramCron(req, res, deps = {}) {
         htfChanged = JSON.stringify(m.state.htf) !== JSON.stringify(htfResult.htf);
         diff.state.htf = htfResult.htf;
       }
+      let predictionsChanged = false;
+      if (predictionsResult.predictions) {
+        predictionsChanged = JSON.stringify(m.state.predictions) !== JSON.stringify(predictionsResult.predictions);
+        diff.state.predictions = predictionsResult.predictions;
+      }
       // T-16 handback fix: apply any T-15 auto-trail stop update onto the FRESH (just-read)
       // state.tracked here, inside the transaction, not against the stale pre-transaction
       // peek - the owner could have tracked/untracked/taken something in between.
@@ -710,7 +763,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
         const { tracked: nextTracked, changed: tc } = applyTrackedStopUpdates(diff.state.tracked, trailResult.trackedStopUpdates);
         if (tc) { diff.state.tracked = nextTracked; trackedTrailChanged = true; }
       }
-      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
+      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || predictionsChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
   } catch (err) {
