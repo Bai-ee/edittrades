@@ -45,12 +45,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseArgs, readAllCalls, readCandles, readJsonl, readJson, writeJson, outcomesFile, aggregatesFile, alertOutcomesFile, readTransitions,
-  goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile, readWallet, readJournal, readTelegramAlerts
+  goodCallOutcomesFile, retestCallOutcomesFile, htfCallOutcomesFile, readWallet, readJournal, readTelegramAlerts, readPredictions
 } from './store.js';
 import { round, median, isFiniteNumber } from './walk-outcome.js';
 import { costR, netR } from './costs.js';
 import { deriveEpochsFrom } from './epochs.js';
 import { spotDir } from './spot-trend.js';
+import { computePredictionsAggregate } from './predictions.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 export const CAPTURE_GAP_MINUTES = 20;
@@ -767,14 +768,19 @@ export function aggregateDataDir(dataDir, nowMs = Date.now(), opts = {}) {
     alertRows: readTelegramAlerts(dataDir),
     spotMeta: readJson(path.join(spotDir(dataDir), 'meta.json'), null)
   });
+  const goodCallOutcomes = readJsonl(goodCallOutcomesFile(dataDir));
   const agg = computeAggregates(readJsonl(outcomesFile(dataDir)), captureRows, readCandles(dataDir, '1m'), nowMs,
     {
-      alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), goodCallOutcomes: readJsonl(goodCallOutcomesFile(dataDir)),
+      alertOutcomes: readJsonl(alertOutcomesFile(dataDir)), transitions: readTransitions(dataDir), goodCallOutcomes,
       retestCallOutcomes: readJsonl(retestCallOutcomesFile(dataDir)), htfCallOutcomes: readJsonl(htfCallOutcomesFile(dataDir)),
       epochs, spotLedger: readJson(path.join(spotDir(dataDir), 'ledger.json'), null), spotFlips: readJsonl(path.join(spotDir(dataDir), 'flips.jsonl')),
       wallet: readWallet(dataDir), journal: readJournal(dataDir),
       ...opts
     });
+  // T-24 (docs/PROMPT_T24_PREDICTION_TRACKER.md): next-candle prediction tracker. predictions.js
+  // owns the pull/join/aggregate (data/predictions/, dedupe id+kind); attached here rather than
+  // threaded through computeAggregates' own signature, same reason scoreboard/epochs stay separate.
+  agg.predictions = opts.predictionsAggregate || computePredictionsAggregate(readPredictions(dataDir), goodCallOutcomes);
   writeJson(aggregatesFile(dataDir), agg);
   return agg;
 }

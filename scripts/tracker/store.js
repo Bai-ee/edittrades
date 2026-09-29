@@ -25,6 +25,11 @@
  *                            captures separately saw for the same symbol+candidateId,
  *                            keeps the earlier calledAt, and walks it like a ready plan
  *                            (rewritten by score.js)
+ *   predictions/YYYY-MM-DD.jsonl      T-24 next-candle PREDICTION and PREDICTION_RESULT rows
+ *                            (UTC day of closedAt), pulled from Blob predictions/ by
+ *                            scripts/tracker/predictions.js, keyed by id+kind (a PREDICTION
+ *                            and its later PREDICTION_RESULT share one id but different kind,
+ *                            so both are kept)
  *
  * Node >= 20, fs only. No network, no secrets.
  */
@@ -407,4 +412,23 @@ export function appendTelegramAlerts(dataDir, rows) {
 /** @returns {{added:number, duplicates:number}} dedupe by candidateId+at */
 export function appendTransitions(dataDir, rows) {
   return appendDayDir(transitionsDir(dataDir), rows, 'at', transitionRowKey);
+}
+
+// ---------------------------------------------------------------- predictions (T-24)
+
+export function predictionsDir(dataDir) {
+  return path.join(dataDir, 'predictions');
+}
+
+/** Dedupe key for a prediction row: a PREDICTION and its later PREDICTION_RESULT share one id but differ in kind, so both are kept. */
+export const predictionRowKey = (r) => `${r.id}|${r.kind}`;
+
+/** Every stored PREDICTION / PREDICTION_RESULT line, oldest first by closedAt. */
+export function readPredictions(dataDir) {
+  return readDayDir(predictionsDir(dataDir), 'closedAt');
+}
+
+/** @returns {{added:number, duplicates:number}} dedupe by id+kind, day = UTC day of closedAt */
+export function appendPredictions(dataDir, rows) {
+  return appendDayDir(predictionsDir(dataDir), rows, 'closedAt', predictionRowKey);
 }

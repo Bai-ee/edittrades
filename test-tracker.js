@@ -92,6 +92,13 @@ import {
   FLAG_CONFIG_VERSION, HTF_CONFIG_VERSION, FLAG_EPOCH_FALLBACK, HTF_EPOCH_FALLBACK, SPOT_EPOCH_FALLBACK, WALLET_EPOCH_ISO
 } from './scripts/tracker/epochs.js';
 import { epochStats, spotScoreboardStats, walletScoreboardStats, computeScoreboard } from './scripts/tracker/aggregate.js';
+import { predictionsDir, readPredictions, appendPredictions, predictionRowKey } from './scripts/tracker/store.js';
+import {
+  PREDICTION_SYMBOLS, PREDICTION_TIMEFRAMES, predictionRowsFromLines, pullPredictions, joinPredictions,
+  computePredictionsAggregate, EMPTY_PREDICTIONS_AGGREGATE, predCellBeats, predictionsGridHtml, predictionsSummaryLine, predictionsZoneBody,
+  NO_PREDICTIONS
+} from './scripts/tracker/predictions.js';
+import { renderPredictionsPage } from './scripts/tracker/predictions-page.js';
 
 let passed = 0;
 let failed = 0;
@@ -3613,6 +3620,232 @@ async function run() {
     assert(/<a[^>]*href="product\.html"[^>]*id="strategies-nav-product-link"/.test(strategies), 'strategies links to product');
     assert(/<a[^>]*href="product\.html"[^>]*id="spot-trend-nav-product-link"/.test(spot), 'spot links to product');
     assert(product.includes('href="index.html"') && product.includes('href="how-to.html"') && product.includes('href="risk.html"') && product.includes('href="strategies.html"') && product.includes('href="spot.html"'), 'product links back to every other page');
+  });
+
+  // ---------- T-24 prediction tracker (agent B, docs/PROMPT_T24_PREDICTION_TRACKER.md) ----------
+  // Synthetic PREDICTION / PREDICTION_RESULT rows only - lib/predictionRule.js (agent A) and the
+  // live writer (agent D) are separate worktrees, merged later; this codes strictly against the
+  // shared row and aggregate contract.
+
+  function predRow(id, symbol, timeframe, closedAt, refClose, direction) {
+    return { id, kind: 'PREDICTION', symbol, timeframe, closedAt, refClose, direction, confidence: Math.abs({ over: 2, under: -2, no_call: 0 }[direction] || 0) / 5,
+      inputs: {}, reason: 'test', configVersion: 'v-test', ruleVersion: 'pred-1', writtenAt: closedAt };
+  }
+  function resultRow(id, symbol, timeframe, closedAt, refClose, nextClose, hit, lastCandleDir) {
+    return { id, kind: 'PREDICTION_RESULT', symbol, timeframe, closedAt, refClose, nextClose,
+      moveBps: Math.round(((nextClose - refClose) / refClose) * 1e4 * 10) / 10, hit, lastCandleDir, writtenAt: closedAt };
+  }
+  const P5 = 5 * 60_000;
+  function predPair(i, { symbol = 'BTC', timeframe = '5m', direction = 'over', hit = true, lastCandleDir, refClose = 100, move = 1 } = {}) {
+    const t0 = new Date(Date.parse('2026-09-01T00:00:00Z') + i * P5).toISOString();
+    const t1 = new Date(Date.parse('2026-09-01T00:00:00Z') + (i + 1) * P5).toISOString();
+    const nextClose = hit === null ? refClose : (hit ? refClose * (1 + move / 100) : refClose * (1 - move / 100));
+    const dir = lastCandleDir || (hit === false ? (direction === 'over' ? 'under' : 'over') : direction === 'no_call' ? 'flat' : direction);
+    return [predRow(`${symbol}:${timeframe}:${t0}`, symbol, timeframe, t0, refClose, direction),
+      resultRow(`${symbol}:${timeframe}:${t0}`, symbol, timeframe, t1, refClose, nextClose, hit, dir)];
+  }
+
+  await test('predictions store: appendPredictions/readPredictions dedupe by id+kind, not by id alone', () => {
+    const dir = tmp();
+    const [p, r] = predPair(0);
+    const a1 = appendPredictions(dir, [p, r]);
+    assertEqual(a1.added, 2, 'PREDICTION and its own PREDICTION_RESULT share an id but differ in kind - both kept');
+    const a2 = appendPredictions(dir, [p, r]);
+    assertEqual(a2.added, 0, 'repeat of the same id+kind is a duplicate');
+    assertEqual(a2.duplicates, 2, 'both rows deduped');
+    assertEqual(readPredictions(dir).length, 2, 'both rows stored');
+    assert(existsSync(path.join(predictionsDir(dir), '2026-09-01.jsonl')), 'day file = UTC day of closedAt');
+    assertEqual(predictionRowKey(p), `${p.id}|PREDICTION`, 'dedupe key is id+kind');
+  });
+
+  await test('predictions store: readPredictions sorts by closedAt across day files', () => {
+    const dir = tmp();
+    const [p1, r1] = predPair(0); // closes 2026-09-01T00:00 / 00:05
+    const [p2, r2] = predPair(300, { symbol: 'ETH' }); // 25h later -> next day file
+    appendPredictions(dir, [r2, p2, r1, p1]);
+    const rows = readPredictions(dir);
+    assertEqual(rows[0].id, p1.id, 'earliest closedAt first');
+    assert(Date.parse(rows[0].closedAt) <= Date.parse(rows[rows.length - 1].closedAt), 'ascending by closedAt');
+  });
+
+  await test('predictionRowsFromLines: keeps only well-formed PREDICTION/PREDICTION_RESULT rows', () => {
+    const [p] = predPair(0);
+    const rows = predictionRowsFromLines([p, { ...p, id: undefined }, { ...p, kind: 'OTHER' }, { ...p, closedAt: 'not-a-date' }, null, [1], 'x']);
+    assertEqual(rows.length, 1, 'only the valid row survives');
+  });
+
+  await test('predictions pull: manifest + day file, dedupe id+kind, second pull adds nothing, missing manifest is not an error', async () => {
+    const dir = tmp();
+    const base = 'https://storeX.public.blob.vercel-storage.com';
+    const [p, r] = predPair(0);
+    const files = {
+      [`${base}/predictions/manifest.json`]: JSON.stringify({ schemaVersion: 'predictions-manifest-1', baseUrl: base, days: ['2026-09-01', 'bad'] }),
+      [`${base}/predictions/2026-09-01.jsonl`]: [JSON.stringify(p), JSON.stringify(r), '{torn'].join('\n')
+    };
+    const fakeFetch = async (url) => {
+      const key = url.split('?')[0];
+      return files[key] === undefined ? { ok: false, status: 404, text: async () => '' } : { ok: true, status: 200, text: async () => files[key] };
+    };
+    const r1 = await pullPredictions(dir, base, fakeFetch, 1);
+    assertEqual(r1.days, 1, 'valid day only');
+    assertEqual(r1.added, 2, 'PREDICTION + PREDICTION_RESULT');
+    const r2 = await pullPredictions(dir, base, fakeFetch, 2);
+    assertEqual(r2.added, 0, 'second pull adds nothing new');
+    const none = await pullPredictions(tmp(), 'https://empty.public.blob.vercel-storage.com', fakeFetch);
+    assertEqual(none.added, 0, 'missing manifest -> nothing, not an error');
+  });
+
+  await test('joinPredictions: pairs a PREDICTION with its PREDICTION_RESULT by id; unresolved stays null', () => {
+    const [p1, r1] = predPair(0);
+    const [p2] = predPair(1); // no result yet
+    const joined = joinPredictions([p1, r1, p2]);
+    assertEqual(joined.length, 2, 'one row per PREDICTION');
+    assertEqual(joined.find((j) => j.id === p1.id).result.id, r1.id, 'resolved prediction carries its result');
+    assertEqual(joined.find((j) => j.id === p2.id).result, null, 'unresolved prediction has a null result');
+  });
+
+  await test('computePredictionsAggregate: hitRate math - no_call excluded from n but counted in noCalls', () => {
+    const rows = [];
+    for (let i = 0; i < 20; i++) rows.push(...predPair(i, { hit: i < 14 }));
+    const [pNo, rNo] = predPair(20, { direction: 'no_call', hit: null });
+    rows.push(pNo, rNo);
+    const agg = computePredictionsAggregate(rows, []);
+    const c = agg.cells['BTC:5m'];
+    assertEqual(c.n, 20, 'no_call excluded from n');
+    assertEqual(c.hits, 14);
+    assertEqual(c.misses, 6);
+    assertEqual(c.noCalls, 1);
+    assertEqual(c.hitRate, 0.7, '14/20');
+    assertEqual(c.coinFlip, 0.5);
+  });
+
+  await test('computePredictionsAggregate: sameAsLastRate baseline from lastCandleDir vs the actual move direction', () => {
+    const rows = [
+      ...predPair(0, { hit: true, lastCandleDir: 'over' }), // actual over, last over -> baseline right
+      ...predPair(1, { hit: true, lastCandleDir: 'under' }), // actual over, last under -> baseline wrong
+      ...predPair(2, { hit: false, lastCandleDir: 'under' }), // actual under, last under -> baseline right
+      ...predPair(3, { hit: false, lastCandleDir: 'over' }) // actual under, last over -> baseline wrong
+    ];
+    const agg = computePredictionsAggregate(rows, []);
+    const c = agg.cells['BTC:5m'];
+    assertEqual(c.n, 4);
+    assertEqual(c.sameAsLastRate, 0.5, '2 of 4 decided results match their own last-candle direction');
+  });
+
+  await test('computePredictionsAggregate: meanMoveBpsHit/meanMoveBpsMiss are mean |moveBps| for correct vs incorrect calls', () => {
+    const rows = [...predPair(0, { hit: true, move: 2 }), ...predPair(1, { hit: true, move: 4 }), ...predPair(2, { hit: false, move: 1 })];
+    const agg = computePredictionsAggregate(rows, []);
+    const c = agg.cells['BTC:5m'];
+    assertEqual(c.meanMoveBpsHit, 300, 'mean of ~200 and ~400 bps');
+    assertEqual(c.meanMoveBpsMiss, 100, 'single miss ~100 bps');
+  });
+
+  await test('computePredictionsAggregate: byTimeframe/bySymbol roll up the same underlying decided calls', () => {
+    const rows = [
+      ...predPair(0, { symbol: 'BTC', timeframe: '5m', hit: true }),
+      ...predPair(1, { symbol: 'BTC', timeframe: '15m', hit: false }),
+      ...predPair(2, { symbol: 'ETH', timeframe: '5m', hit: true })
+    ];
+    const agg = computePredictionsAggregate(rows, []);
+    assertEqual(agg.bySymbol.BTC.n, 2, 'BTC across both timeframes');
+    assertEqual(agg.bySymbol.ETH.n, 1);
+    assertEqual(agg.bySymbol.SOL.n, 0, 'untouched symbol stays at zero, not missing');
+    assertEqual(agg.byTimeframe['5m'].n, 2, '5m across both symbols');
+    assertEqual(agg.byTimeframe['15m'].n, 1);
+    assertEqual(agg.overall.n, 3, 'overall = every decided call');
+  });
+
+  await test('computePredictionsAggregate: duringGood restricts to result rows overlapping a scored GOOD call for that symbol', () => {
+    const inside = predPair(0, { symbol: 'BTC' }); // closes 2026-09-01T00:00 / 00:05, inside the GOOD window below
+    const outside = predPair(2000, { symbol: 'BTC' }); // ~1 week later, well outside
+    const otherSymbol = predPair(0, { symbol: 'ETH' }); // same time window, different symbol
+    const good = [{ symbol: 'BTC', calledAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T00:10:00Z' }];
+    const agg = computePredictionsAggregate([...inside, ...outside, ...otherSymbol], good);
+    assertEqual(agg.duringGood.n, 1, 'only the BTC call inside the GOOD window counts');
+  });
+
+  await test('computePredictionsAggregate: since is the first PREDICTION row; empty input matches the empty shape', () => {
+    const rows = [...predPair(5), ...predPair(0), ...predPair(10)];
+    const agg = computePredictionsAggregate(rows, []);
+    assertEqual(agg.since, new Date(Date.parse('2026-09-01T00:00:00Z')).toISOString(), 'earliest PREDICTION closedAt, i=0');
+    const empty = computePredictionsAggregate([], []);
+    assertEqual(empty.since, null);
+    assertEqual(empty.overall.n, 0);
+    assertEqual(Object.keys(empty.cells).length, PREDICTION_SYMBOLS.length * PREDICTION_TIMEFRAMES.length, '3x4 = 12 cells always present');
+    assertEqual(JSON.stringify(empty.overall), JSON.stringify(EMPTY_PREDICTIONS_AGGREGATE.overall), 'matches the exported empty shape');
+  });
+
+  await test('predCellBeats: coloured only at n >= 30 and beating both the coin flip and same-as-last baselines', () => {
+    const rows = [];
+    for (let i = 0; i < 30; i++) rows.push(...predPair(i, { hit: i < 20, lastCandleDir: i % 2 === 0 ? 'flat' : undefined }));
+    const agg = computePredictionsAggregate(rows, []);
+    const c = agg.cells['BTC:5m'];
+    assertEqual(c.n, 30);
+    assert(c.hitRate > 0.5 && c.hitRate > c.sameAsLastRate, 'fixture beats both baselines');
+    assert(predCellBeats(c), 'n=30 and beats both -> coloured');
+    const shy = computePredictionsAggregate(rows.slice(0, 58), []).cells['BTC:5m']; // 29 pairs = 58 rows
+    assert(!predCellBeats(shy), 'n=29 -> not coloured even with the same rate');
+    assert(!predCellBeats(null), 'no cell -> not coloured');
+  });
+
+  await test('predictions render: grid + summary line carry the stable ids for every symbol x timeframe cell', () => {
+    const rows = [];
+    for (let i = 0; i < 30; i++) rows.push(...predPair(i, { hit: i < 20 }));
+    const agg = computePredictionsAggregate(rows, []);
+    const grid = predictionsGridHtml(agg);
+    assert(grid.includes('id="pred-grid"'), 'grid container id');
+    for (const sym of PREDICTION_SYMBOLS) for (const tf of PREDICTION_TIMEFRAMES) assert(grid.includes(`id="pred-cell-${sym.toLowerCase()}-${tf}"`), `cell id for ${sym} ${tf}`);
+    const summary = predictionsSummaryLine(agg);
+    assert(summary.includes('Overall') && summary.includes('coin flip 50%') && summary.includes('same-as-last') && summary.includes('since 2026-09-01'), 'summary line shape');
+    assertEqual(predictionsZoneBody(EMPTY_PREDICTIONS_AGGREGATE), `<p class="empty" id="zone-predictions-empty">${NO_PREDICTIONS}</p>`, 'empty aggregate renders the empty state, not the grid');
+  });
+
+  await test('homepage: zone-predictions sits under home-hero-right-now and above the strategy scoreboard/system zone; empty state never hides the block', () => {
+    const dir = tmp();
+    const out = path.join(dir, 'site');
+    const { htmlFile, predictionsFile } = buildPage(path.join(dir, 'data'), out, T0);
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="zone-predictions"'), 'block present even with no data dir');
+    assert(html.includes(NO_PREDICTIONS), 'empty state text shown');
+    const iHero = html.indexOf('id="home-hero-right-now"');
+    const iPred = html.indexOf('id="zone-predictions"');
+    const iSystem = html.indexOf('id="zone-system"');
+    assert(iHero > -1 && iPred > iHero, 'zone-predictions renders after home-hero-right-now');
+    assert(iPred < iSystem, 'zone-predictions renders above the rest of the page, including the strategy scoreboard slot');
+    assert(html.includes('id="tracker-predictions-link"') && html.includes('href="predictions.html"'), 'nav link to the predictions page');
+    assert(existsSync(predictionsFile) && predictionsFile.endsWith('predictions.html'), 'buildPage writes docs/predictions.html');
+  });
+
+  await test('homepage: zone-predictions grid renders real cells and highlights a qualifying one once there is live data', () => {
+    const dir = tmp();
+    const out = path.join(dir, 'site');
+    const rows = [];
+    for (let i = 0; i < 30; i++) rows.push(...predPair(i, { hit: i < 20 }));
+    appendPredictions(path.join(dir, 'data'), rows);
+    const { htmlFile } = buildPage(path.join(dir, 'data'), out, Date.parse('2026-09-05T00:00:00Z'));
+    const html = readFileSync(htmlFile, 'utf8');
+    assert(html.includes('id="pred-grid"'), 'grid renders once there is a first PREDICTION row');
+    assert(html.includes('id="pred-cell-btc-5m"') && html.includes('pred-cell-good'), 'the BTC/5m cell is present and coloured (n=30, beats both baselines)');
+    assert(html.includes('Overall'), 'summary line renders');
+  });
+
+  await test('predictions.html: full breakdown tables, last-50 results, method paragraph and the GitHub study link, empty and populated', () => {
+    const empty = renderPredictionsPage(EMPTY_PREDICTIONS_AGGREGATE);
+    assert(empty.includes(NO_PREDICTIONS), 'empty state');
+    assert(empty.includes('id="predictions-method-note"'), 'method paragraph always present');
+    assert(empty.includes('id="predictions-study-link"') && empty.includes('PREDICTION_STUDY_2026-09-28.md'), 'links to the replay study (may 404 until merge)');
+    assert(!/<script/i.test(empty), 'no scripts, same as the other static pages');
+
+    const rows = [];
+    for (let i = 0; i < 5; i++) rows.push(...predPair(i, { hit: i < 3 }));
+    const agg = computePredictionsAggregate(rows, []);
+    const full = renderPredictionsPage(agg);
+    assert(full.includes('id="predictions-by-cell-table"'), 'by-cell table');
+    assert(full.includes('id="predictions-by-timeframe-table"'), 'by-timeframe table');
+    assert(full.includes('id="predictions-by-coin-table"'), 'by-coin table');
+    assert(full.includes('id="predictions-overall-table"'), 'overall + during-GOOD table');
+    assert(full.includes('id="predictions-last-table"'), 'last-50 results table');
+    assert(full.includes('id="predictions-back-link"') && full.includes('href="index.html"'), 'links back to the tracker');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
