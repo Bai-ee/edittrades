@@ -1,22 +1,32 @@
 /**
  * Homepage hero for the tracker site (index.html): the showcase row above the jump nav.
  *
- *   left  (#home-hero-headline-panel) - stacked EditTrax headline (cycles per refresh), one plain line, two links
- *   right (#home-hero-result-card)    - net R per scored GOOD call, oversized and signed,
- *                                       with the data volume behind it in small type
+ *   left   (#home-hero-headline-panel) - one-sentence headline + subhead built from the
+ *                                        latest capture rows (T-23), two links
+ *   middle (#home-hero-right-now)      - one "right now" card per symbol (T-23): price/mark,
+ *                                        a 7-cell timeframe trend strip, the engine's own
+ *                                        class + action + reason, and the active candidate
+ *   right  (#live-board-card)          - live engine state (live-board.js), capped at 40vh
  *
- * The figure is net of fees and slippage (costs.js) over every scored ready plan since
- * tracking began, never gross: PRODUCT.md "net over gross". Styles: HOME_HERO_CSS below,
+ * The board's ALL tab carries the overall net PnL summary; full performance detail lives in the
+ * scoreboard and class-check zones. Styles: HOME_HERO_CSS below plus LIVE_BOARD_CSS, both
  * appended to PAGE_CSS by build-page.js.
  */
 
 import { esc } from './bento.js';
+import { liveBoard } from './live-board.js';
+
+const SYMBOLS = ['BTC', 'ETH', 'SOL'];
+const dash = '–';
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
 /**
- * Headlines, one per page load: the first is server-rendered (no-JS default), homeHeroScript()
- * swaps in the next one on each refresh (index kept in localStorage,
- * random when storage is unavailable) and shrinks the type if a line would overflow.
- * Each entry is the stacked lines, ~10 characters per line at most.
+ * Historical rotating headline lines (pre-T-23). The h1 is now a data-driven sentence
+ * (buildHeadline below), so these are no longer read to render it; kept exported because
+ * other work may still reach for them. homeHeroScript() no longer finds the title-data
+ * script it used to rotate (removed from homeHero's output), so it is now a harmless no-op -
+ * still wired in by build-page.js's inline script, left as-is since this pass only touches
+ * the hero call there.
  */
 export const HOME_HERO_TITLES = [
   ['The signal', 'is coming', 'from inside', 'the noise.'],
@@ -31,14 +41,8 @@ export const HOME_HERO_TITLES = [
   ['We tuned', 'into the', 'void. The', 'void tuned', 'back.'],
   ['Every', 'silence', 'has a', 'frequency.']
 ];
-const titleSpans = (lines) => lines.map((l) => `<span>${esc(l)}</span>`).join('');
 
-/** Headline list for the page, as inert JSON (the page keeps one executable script). */
-function titleData() {
-  return `<script type="application/json" id="home-hero-title-data">${JSON.stringify(HOME_HERO_TITLES).replace(/</g, '\\u003c')}</script>`;
-}
-
-/** Appended to the page's single inline script by build-page.js. */
+/** Appended to the page's single inline script by build-page.js; no-op now (see note above). */
 export function homeHeroScript() {
   return `(function(){var d=document.getElementById('home-hero-title-data'),h=document.getElementById('home-hero-title');if(!d||!h)return;var T;try{T=JSON.parse(d.textContent);}catch(e){return;}var i;`
     + `try{i=(parseInt(localStorage.getItem('et-hero-title'),10)+1)%T.length;if(isNaN(i))i=0;localStorage.setItem('et-hero-title',String(i));}catch(e){i=Math.floor(Math.random()*T.length);}`
@@ -47,148 +51,220 @@ export function homeHeroScript() {
     + `fit();if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);addEventListener('resize',fit);})();`;
 }
 
-export const HOME_HERO_LEDE = 'Every call the engine makes is captured, scored against later closed candles and shown net of fees. The data is here. The trade is yours.';
-export const HOME_HERO_NOTE = 'Not evidence of an edge. Scored = a ready GOOD plan that reached TP1 or stop.';
+/** Static half of the subhead; buildLede() appends the live "Data as of HH:MMZ." clause. */
+export const HOME_HERO_LEDE = 'Closed-candle read of BTC, ETH and SOL every 10 minutes, scored net of fees.';
 
-const MINUS = '−';
-const dash = '–';
-const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
-const signed = (v) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Math.abs(v).toFixed(2)}`;
-const count = (v) => (isNum(v) ? v.toLocaleString('en-US') : dash);
-const heroStatus = (v) => (v >= 0 ? 'st-good' : v >= -0.5 ? 'st-warn' : 'st-bad');
-
-const pct = (v) => (isNum(v) ? `${Math.round(v * 1000) / 10}%` : dash);
-const signedR = (v) => (isNum(v) ? `${signed(Math.abs(v) < 0.005 ? 0 : v)}R` : dash);
-
-/** One strategy line: name + since-epoch numbers, second line the progress toward the 30-trade target. */
-function strategyRow(id, card, waitingText) {
-  if (!card) return '';
-  const name = `<span class="home-hero-strat-name">${esc(card.label)}</span>`;
-  const isSpot = card.key === 'spot';
-  const isWallet = card.key === 'wallet';
-  let main;
-  let sub;
-  if (isSpot) {
-    main = `${isNum(card.equityPct) ? `${card.equityPct >= 0 ? '+' : MINUS}${Math.abs(card.equityPct * 100).toFixed(2)}%` : dash} paper`;
-    sub = `vs buy-and-hold ${isNum(card.bhPct) ? `${card.bhPct >= 0 ? '+' : MINUS}${Math.abs(card.bhPct * 100).toFixed(2)}%` : dash} · ${count(card.flips)} flips · ${count(card.daysTracked)}d tracked`;
-  } else if (isWallet) {
-    main = isNum(card.equityNowUsd) ? `$${card.equityNowUsd.toFixed(2)}` : dash;
-    sub = `start ${isNum(card.equityStartUsd) ? `$${card.equityStartUsd.toFixed(2)}` : dash} · ${count(card.trades)} live trades · ${isNum(card.daysLive) ? card.daysLive : dash}d`;
-  } else if (!card.calls) {
-    main = '0 calls';
-    sub = waitingText;
-  } else {
-    main = `${count(card.wins)}W / ${count(card.losses)}L · ${card.resolved > 0 ? pct(card.winRate) : dash}`;
-    sub = `net ${card.resolved > 0 ? signedR(card.netRMean) : dash} · ${count(card.towardThirty)}/${count(card.promotionTarget)} toward promotion · ${count(card.calls)} call${card.calls === 1 ? '' : 's'} · ${isNum(card.daysLive) ? card.daysLive : dash}d`;
+/** `tf:1m=S,...`, `scalp:`, `swing:`, `ct:`, `td:<sentiment>:n/of`, `a200:n/of`, `mark:bps`
+ * out of a capture row's bias string. Pure; missing tokens or garbage input parse to nulls/empty,
+ * never throw. Unrecognised tokens (no `key:value` shape) are skipped.
+ * @param {string} bias
+ */
+export function parseBiasString(bias) {
+  const out = { tf: {}, scalp: null, swing: null, ct: null, td: null, a200: null, mark: null };
+  if (typeof bias !== 'string' || !bias) return out;
+  for (const part of bias.split('|')) {
+    const i = part.indexOf(':');
+    if (i < 0) continue;
+    const key = part.slice(0, i);
+    const val = part.slice(i + 1);
+    if (key === 'tf') {
+      for (const pair of val.split(',')) {
+        const [k, v] = pair.split('=');
+        if (k && v) out.tf[k] = v;
+      }
+    } else if (key === 'scalp') out.scalp = val || null;
+    else if (key === 'swing') out.swing = val || null;
+    else if (key === 'ct') {
+      const n = Number(val);
+      out.ct = Number.isFinite(n) ? n : null;
+    } else if (key === 'td') {
+      const m = /^([A-Za-z]+):(\d+)\/(\d+)$/.exec(val);
+      out.td = m ? { sentiment: m[1], n: Number(m[2]), of: Number(m[3]) } : null;
+    } else if (key === 'a200') {
+      const m = /^(\d+)\/(\d+)$/.exec(val);
+      out.a200 = m ? { n: Number(m[1]), of: Number(m[2]) } : null;
+    } else if (key === 'mark') {
+      const n = Number(val);
+      out.mark = Number.isFinite(n) ? n : null;
+    }
   }
-  return `<li class="home-hero-strat-row" id="${id}">${name}<span class="home-hero-strat-main">${esc(main)}</span><span class="home-hero-strat-sub">${esc(sub)}</span></li>`;
+  return out;
 }
 
-function strategyRows(sb) {
-  if (!sb) return '';
-  return `<div class="home-hero-block" id="home-hero-strategy-block"><h2 class="home-hero-block-title label">Strategies · each from its own start</h2>`
-    + `<ul class="home-hero-strat-list" id="home-hero-strategy-rows">`
-    + strategyRow('home-hero-strat-flag', sb.flag, 'waiting for the first GOOD')
-    + strategyRow('home-hero-strat-htf', sb.htf, 'waiting for the first HTF ENTRY')
-    + strategyRow('home-hero-strat-retest', sb.retest1h, 'waiting for the first RETEST signal')
-    + strategyRow('home-hero-strat-spot', sb.spot)
-    + strategyRow('home-hero-strat-wallet', sb.wallet)
-    + `</ul></div>`;
+const joinNames = (list) => {
+  if (list.length <= 1) return list[0] || '';
+  if (list.length === 2) return `${list[0]} and ${list[1]}`;
+  return `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`;
+};
+const trendWord = (side) => (side === 'L' ? 'up' : side === 'S' ? 'down' : null);
+
+/**
+ * One sentence built only from the latest capture rows: what is aligned (all present symbols
+ * agreeing on both 1h and 4h, else how many lean the same way on 4h alone), then any candidate
+ * actually `triggering` or `confirmed` on a WATCH (never a class the row doesn't show) - else
+ * "no flag ready". Pure, unit-tested.
+ * @param {Array<Object>} rows - latest capture row per symbol
+ */
+export function buildHeadline(rows) {
+  const bySym = new Map((rows || []).map((r) => [r.symbol, r]));
+  const have = SYMBOLS.filter((s) => bySym.has(s));
+  if (!have.length) return 'Reading the market. No live capture yet.';
+
+  const sides = have.map((s) => {
+    const bias = parseBiasString(bySym.get(s).bias);
+    return { symbol: s, h1: bias.tf['1h'] || null, h4: bias.tf['4h'] || null };
+  });
+  const letters = sides.map((s) => (s.h1 && s.h1 === s.h4 ? s.h1 : null));
+  const uniform = letters.every((l) => l && l === letters[0]);
+
+  let trendPart;
+  if (uniform) {
+    trendPart = `${joinNames(have)}: 1h and 4h trend ${trendWord(letters[0])}`;
+  } else {
+    const counts = { L: 0, S: 0 };
+    for (const s of sides) if (s.h4 === 'L' || s.h4 === 'S') counts[s.h4] += 1;
+    if (counts.L === 0 && counts.S === 0) {
+      trendPart = `${joinNames(have)}: no clear 4h trend`;
+    } else {
+      const dom = counts.L >= counts.S ? 'L' : 'S';
+      trendPart = `${counts[dom]} of ${have.length} coin${have.length === 1 ? '' : 's'} trending ${trendWord(dom)} on 4h`;
+    }
+  }
+
+  let flagPart = null;
+  for (const s of have) {
+    const rec = bySym.get(s).flagRecommendation;
+    const cand = rec && rec.class === 'WATCH' ? rec.candidate : null;
+    if (cand && (cand.state === 'triggering' || cand.state === 'confirmed')) {
+      const verb = cand.state === 'confirmed' ? 'breaking out' : 'triggering';
+      flagPart = `${s} ${cand.timeframe} ${cand.direction} flag ${verb}`;
+      break;
+    }
+  }
+  return flagPart ? `${trendPart} · ${flagPart}.` : `${trendPart}, no flag ready.`;
 }
 
-function classCheckStrip(cc) {
-  if (!cc || !Array.isArray(cc.rows)) return '';
-  const rows = cc.rows.filter((r) => ['GOOD', 'WATCH', 'BAD'].includes(r.key));
-  if (!rows.length) return '';
-  const cell = (t, cls = '') => `<span class="home-hero-cc-cell ${cls}">${esc(t)}</span>`;
-  const head = `<div class="home-hero-cc-row is-head">${cell('Class')}${cell('Calls')}${cell('W/L')}${cell('Win')}${cell('Exp R')}${cell('No fill')}</div>`;
-  const body = rows.map((r) => `<div class="home-hero-cc-row" id="home-hero-cc-${r.key.toLowerCase()}">`
-    + cell(r.key, 'is-key') + cell(count(r.calls)) + cell(`${count(r.wins)}/${count(r.losses)}`)
-    + cell(r.scored > 0 ? pct(r.winRate) : dash) + cell(r.scored > 0 ? signedR(r.expectancy) : dash) + cell(count(r.notFilled))
-    + `</div>`).join('');
-  const since = cc.since ? ` since ${String(cc.since).slice(0, 10)}` : '';
-  return `<div class="home-hero-block" id="home-hero-class-check-strip"><h2 class="home-hero-block-title label">Class check · WATCH and BAD scored as if taken</h2>`
-    + `<div class="home-hero-cc-table" id="home-hero-class-check-rows">${head}${body}</div>`
-    + `<p class="home-hero-block-note">Counterfactual, gross R${esc(since)}. Never counted in the 30-trade target.</p></div>`;
+const timeZ = (iso) => {
+  const t = new Date(iso);
+  return Number.isNaN(t.getTime()) ? null : `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}Z`;
+};
+
+/** HOME_HERO_LEDE plus the newest `closedThrough` across rows, "Data as of HH:MMZ." */
+export function buildLede(rows) {
+  const closes = (rows || []).map((r) => Date.parse(r.closedThrough)).filter(Number.isFinite);
+  const asOf = closes.length ? timeZ(new Date(Math.max(...closes)).toISOString()) : null;
+  return asOf ? `${HOME_HERO_LEDE} Data as of ${asOf}.` : `${HOME_HERO_LEDE} No live capture yet.`;
 }
 
-function asOfLine(agg) {
-  const t = agg.generatedAt ? new Date(agg.generatedAt) : null;
-  if (!t || Number.isNaN(t.getTime())) return '';
-  const hhmm = `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}Z`;
-  return `<p class="home-hero-asof" id="home-hero-asof-line">Data as of ${esc(hhmm)} · page refreshes every 10 min</p>`;
+const TFS = ['1m', '3m', '5m', '15m', '1h', '4h', '1d'];
+const ARROW = { L: '▲', S: '▼' };
+const SIDE_CLASS = { L: 'hh-long', S: 'hh-short' };
+
+const fmtPrice = (v) => (isNum(v) ? v.toLocaleString('en-US', { maximumFractionDigits: v >= 100 ? 2 : 4 }) : dash);
+
+function trendStrip(sym, tf) {
+  const cells = TFS.map((k) => {
+    const side = tf[k];
+    return `<span class="home-hero-now-trend-cell ${SIDE_CLASS[side] || ''}"><b>${side ? (ARROW[side] || '·') : '·'}</b><i>${k}</i></span>`;
+  }).join('');
+  return `<div class="home-hero-now-trend" id="home-hero-now-${sym}-trend" role="img" aria-label="${esc(sym.toUpperCase())} timeframe trend">${cells}</div>`;
 }
 
-function stat(id, label, value) {
-  return `<div class="home-hero-stat" id="${id}"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`;
+function contextLine(sym, bias) {
+  const parts = [];
+  if (bias.a200) parts.push(`EMA200 above on ${bias.a200.n}/${bias.a200.of}`);
+  if (bias.td) parts.push(`top-down ${bias.td.sentiment} ${bias.td.n}/${bias.td.of}`);
+  return parts.length ? `<p class="home-hero-now-context" id="home-hero-now-${sym}-context">${esc(parts.join(' · '))}</p>` : '';
+}
+
+/** `class` + `action.call` (e.g. "WATCH · WAIT") and `primaryReason.text` verbatim, truncated ~140 chars. */
+function stanceLine(sym, rec) {
+  const klass = (rec && rec.class) || 'NO DATA';
+  const call = rec && rec.action && rec.action.call ? rec.action.call : null;
+  const head = call ? `${klass} · ${call}` : klass;
+  const reasonRaw = rec && rec.primaryReason && rec.primaryReason.text ? String(rec.primaryReason.text) : '';
+  const reason = reasonRaw.length > 140 ? `${reasonRaw.slice(0, 140)}…` : reasonRaw;
+  return `<p class="home-hero-now-stance" id="home-hero-now-${sym}-stance">${esc(head)}${reason ? ` — ${esc(reason)}` : ''}</p>`;
+}
+
+function candidateLine(sym, cand) {
+  if (!cand) return '';
+  const text = `${cand.timeframe || dash} ${cand.direction || ''} flag ${cand.state || ''} · break ${fmtPrice(cand.breakout)} · void ${fmtPrice(cand.invalidation)} · ${isNum(cand.measuredRR) ? `${cand.measuredRR.toFixed(1)}R` : dash}`;
+  return `<p class="home-hero-now-candidate" id="home-hero-now-${sym}-candidate">${esc(text)}</p>`;
+}
+
+/** Grey `data: <status>` tag when the row isn't clean; never hides the card. */
+function dataTag(sym, row) {
+  const status = row.dataStatus && row.dataStatus !== 'complete'
+    ? row.dataStatus
+    : (row.mark && row.mark.status && row.mark.status !== 'ok' ? row.mark.status : null);
+  return status ? `<span class="home-hero-now-data-tag" id="home-hero-now-${sym}-data-tag">data: ${esc(status)}</span>` : '';
+}
+
+function nowCard(symbol, row) {
+  const sym = symbol.toLowerCase();
+  if (!row) {
+    return `<div class="home-hero-now-card" id="home-hero-now-${sym}" data-section="home-hero-now-${sym}">`
+      + `<div class="home-hero-now-head" id="home-hero-now-${sym}-head"><span class="home-hero-now-symbol">${esc(symbol)}</span></div>`
+      + `<p class="home-hero-now-empty" id="home-hero-now-${sym}-empty">No live capture yet.</p></div>`;
+  }
+  const bias = parseBiasString(row.bias);
+  const mark = row.mark || {};
+  const drift = isNum(mark.driftBps) ? `${mark.driftBps > 0 ? '+' : ''}${mark.driftBps} bps` : dash;
+  const rec = row.flagRecommendation || {};
+
+  return `<div class="home-hero-now-card" id="home-hero-now-${sym}" data-section="home-hero-now-${sym}">`
+    + `<div class="home-hero-now-head" id="home-hero-now-${sym}-head">`
+    + `<span class="home-hero-now-symbol">${esc(symbol)}</span>`
+    + `<span class="home-hero-now-prices"><b>${esc(fmtPrice(mark.price))}</b> Pyth mark · ${esc(fmtPrice(row.price))} Kraken close · ${esc(drift)}</span>`
+    + `</div>`
+    + trendStrip(sym, bias.tf)
+    + contextLine(sym, bias)
+    + stanceLine(sym, rec)
+    + candidateLine(sym, rec.candidate || null)
+    + dataTag(sym, row)
+    + `</div>`;
 }
 
 /**
- * T-21 (docs/PROMPT_T21_STRATEGY_SCOREBOARD.md): once aggregate.js has a flag epoch
- * (`agg.scoreboard.flag`, only set when build-page.js calls aggregateDataDir - direct
- * computeAggregates() callers with no `opts.epochs` never get one), the hero switches from
- * the all-time blended totals to the flag strategy's own since-epoch numbers and the
- * "Tracking since" stat becomes the epoch label. No `agg.scoreboard` -> the pre-T-21
- * all-time figure, unchanged.
- * @param {Object} agg - computeAggregates() output
+ * "Right now" cards, one per symbol (T-23), read off the same latest capture rows as the
+ * headline and the live board: price/mark/drift, a 7-cell timeframe trend strip, the a200/td
+ * context line, the engine's own class + action + reason (verbatim, truncated), and the active
+ * candidate if any. A missing symbol row or a non-"ok"/non-"complete" status never hides the card.
+ * @param {Array<Object>} rows - latest capture row per symbol
  */
-export function homeHero(agg) {
-  const flagCard = agg.scoreboard && agg.scoreboard.flag ? agg.scoreboard.flag : null;
-  const tr = agg.totals.tradable;
-  const legacyScored = tr.wins + tr.losses;
-  const scored = flagCard ? flagCard.resolved : legacyScored;
-  const net = flagCard
-    ? (flagCard.resolved > 0 && isNum(flagCard.netRMean) ? flagCard.netRMean : null)
-    : (legacyScored > 0 && isNum(tr.netExpectancy) ? tr.netExpectancy : null);
-  const gross = flagCard
-    ? (flagCard.resolved > 0 && isNum(flagCard.grossRMean) ? flagCard.grossRMean : null)
-    : (legacyScored > 0 && isNum(tr.expectancy) ? tr.expectancy : null);
-  const winRate = flagCard ? flagCard.winRate : tr.winRate;
-  const goodCalls = flagCard ? flagCard.calls : agg.byDay.reduce((n, d) => n + d.good, 0);
-  const candles = Object.values(agg.captures.candles1m).reduce((n, v) => n + v, 0);
-  const sinceLabel = flagCard ? 'Since' : 'Tracking since';
-  const sinceValue = flagCard ? `${String(flagCard.epochIso).slice(0, 10)} (net floor)` : (agg.byDay.length ? agg.byDay[agg.byDay.length - 1].day : null);
+export function rightNowCards(rows) {
+  const bySym = new Map((rows || []).map((r) => [r.symbol, r]));
+  const cards = SYMBOLS.map((s) => nowCard(s, bySym.get(s))).join('');
+  return `<div class="home-hero-right-now" id="home-hero-right-now" data-section="home-hero-right-now">${cards}</div>`;
+}
 
-  const figure = net === null
-    ? `<div class="home-hero-figure hero-empty" id="home-hero-net-r">0.00<span class="home-hero-unit">R</span></div>`
-      + `<p class="home-hero-figure-sub" id="home-hero-gross-line">[NO SCORED CALLS YET]</p>`
-    : `<div class="home-hero-figure ${heroStatus(net)}" id="home-hero-net-r">${esc(signed(net))}<span class="home-hero-unit">R</span></div>`
-      + `<p class="home-hero-figure-sub" id="home-hero-gross-line">${esc(`${signed(gross)}R gross · fees and slippage ${signed(net - gross)}R`)}</p>`;
-
+/**
+ * The right column is the live board (live-board.js), not the old performance card; its ALL
+ * tab leads with the overall net PnL, the rest of performance is in the zones further down.
+ * @param {Array<Object>} liveRows - latest capture row per symbol
+ * @param {string} [generatedAt] - page build time
+ * @param {Object} [agg] - computeAggregates() output, for the ALL tab's PnL summary
+ */
+export function homeHero(liveRows, generatedAt, agg) {
+  const rows = Array.isArray(liveRows) ? liveRows : [];
   const headline = `<div class="home-hero-headline-panel" id="home-hero-headline-panel" data-section="home-hero-headline-panel">`
-    + `<h1 class="home-hero-title" id="home-hero-title">${titleSpans(HOME_HERO_TITLES[0])}</h1>${titleData()}`
-    + `<div class="home-hero-copy" id="home-hero-copy"><p class="home-hero-lede" id="home-hero-lede">${esc(HOME_HERO_LEDE)}</p>`
+    + `<h1 class="home-hero-title" id="home-hero-title">${esc(buildHeadline(rows))}</h1>`
+    + `<div class="home-hero-copy" id="home-hero-copy"><p class="home-hero-lede" id="home-hero-lede">${esc(buildLede(rows))}</p>`
     + `<div class="home-hero-actions" id="home-hero-actions"><a class="home-hero-action is-primary" id="home-hero-calls-link" href="#zone-calls">See every call</a>`
     + `<a class="home-hero-action" id="home-hero-howto-link" href="how-to.html">How to use it</a>`
     + `<a class="home-hero-action" id="home-hero-product-link" href="product.html">What EditTrades is</a></div></div></div>`;
-
-  const card = `<article class="home-hero-card" id="home-hero-result-card" data-section="home-hero-result-card">`
-    + `<header class="home-hero-card-head" id="home-hero-card-head"><span class="label">Net R · per scored GOOD call</span><span class="home-hero-tag" id="home-hero-net-tag">Net of fees</span></header>`
-    + `<div class="home-hero-figure-block" id="home-hero-figure-block">${figure}</div>`
-    + `<dl class="home-hero-stats" id="home-hero-stats">`
-    + stat('home-hero-stat-signals', 'Signals logged', count(agg.totals.recCalls))
-    + stat('home-hero-stat-good', 'GOOD calls', count(goodCalls))
-    + stat('home-hero-stat-scored', 'Scored', count(scored))
-    + stat('home-hero-stat-win-rate', 'Win rate', scored > 0 && isNum(winRate) ? `${Math.round(winRate * 1000) / 10}%` : dash)
-    + stat('home-hero-stat-candles', '1m candles', count(candles))
-    + stat('home-hero-stat-since', sinceLabel, sinceValue || dash)
-    + `</dl>`
-    + strategyRows(agg.scoreboard)
-    + classCheckStrip(agg.classCheck)
-    + `<p class="home-hero-note" id="home-hero-note">${esc(HOME_HERO_NOTE)}</p>${asOfLine(agg)}</article>`;
-
-  return `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${card}</div>`;
+  return `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${rightNowCards(rows)}${liveBoard(rows, generatedAt, agg)}</div>`;
 }
 
 export const HOME_HERO_CSS = `
 /* home hero: EditTrax headline + net-R card. Type sizes track each column (cqi):
    the widest headline line is ~5.5em, a six-glyph figure (+10.25R) ~3.6em. */
 @font-face{font-family:"Mathias";src:url("fonts/mathias-bold.ttf") format("truetype");font-weight:700;font-style:normal;font-display:swap}
-.home-hero{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-6);padding:var(--sp-6) 0 var(--sp-7)}
-@media (min-width:1024px){.home-hero{grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:var(--sp-7);padding:var(--sp-8) 0}}
-.home-hero-headline-panel{container-type:inline-size;display:flex;flex-direction:column;justify-content:center;gap:var(--sp-5);min-width:0}
-.home-hero-title{margin:0;font:700 clamp(40px,17.5cqi,96px)/.9 "Mathias","Space Grotesk",system-ui,sans-serif;text-transform:uppercase;letter-spacing:0;color:var(--text-display)}
-.home-hero-title span{display:block}
+.home-hero{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"headline" "now" "board";gap:var(--sp-6);padding:var(--sp-6) 0 var(--sp-7)}
+@media (min-width:1024px){.home-hero{grid-template-columns:minmax(0,7fr) minmax(0,5fr);grid-template-areas:"headline board" "now board";gap:var(--sp-7);padding:var(--sp-8) 0}}
+.home-hero-headline-panel{grid-area:headline;container-type:inline-size;display:flex;flex-direction:column;justify-content:center;gap:var(--sp-5);min-width:0}
+.home-hero-title{margin:0;font:700 clamp(26px,4.4cqi,42px)/1.25 "Mathias","Space Grotesk",system-ui,sans-serif;letter-spacing:0;color:var(--text-display)}
 .home-hero-copy{display:flex;flex-direction:column;gap:var(--sp-5)}
 .home-hero-lede{margin:0;max-width:36em;font-size:var(--fs-title);line-height:1.55;color:var(--text-primary)}
 .home-hero-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
@@ -198,30 +274,23 @@ export const HOME_HERO_CSS = `
 .home-hero-action.is-primary:hover{background:var(--text-primary);border-color:var(--text-primary)}
 .home-hero-action:focus-visible{outline:1px solid var(--text-display);outline-offset:2px}
 @media (prefers-reduced-motion: reduce){.home-hero-action{transition:none}}
-.home-hero-card{container-type:inline-size;display:flex;flex-direction:column;gap:var(--sp-5);min-width:0;padding:var(--tile-pad);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
-.home-hero-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:var(--sp-3)}
-.home-hero-tag{flex:0 0 auto;padding:1px var(--sp-2);border:1px solid var(--border-visible);border-radius:999px;font:400 10px/1.5 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--text-secondary)}
-.home-hero-figure-block{display:flex;flex-direction:column;gap:var(--sp-2)}
-.home-hero-figure{font-family:var(--doto);font-weight:700;font-size:clamp(44px,16cqi,80px);line-height:.9;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
-.home-hero-unit{font-family:var(--mono);font-weight:400;font-size:var(--fs-md);letter-spacing:0;vertical-align:top;margin-left:var(--sp-2);color:var(--text-secondary)}
-.home-hero-figure-sub{margin:0;font:400 var(--fs-sm)/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
-.home-hero-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-top:1px solid var(--border)}
-.home-hero-stat{display:flex;flex-direction:column;gap:var(--sp-1);padding:var(--sp-3) 0;border-bottom:1px solid var(--border);min-width:0}
-.home-hero-stat:nth-child(odd){padding-right:var(--sp-3)}
-.home-hero-stat:nth-child(even){padding-left:var(--sp-3);border-left:1px solid var(--border)}
-.home-hero-stat dt{font:400 var(--fs-sm)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
-.home-hero-stat dd{font:400 var(--fs-md)/1.1 var(--mono);color:var(--text-display);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.home-hero-block{display:flex;flex-direction:column;gap:var(--sp-2);padding-top:var(--sp-3);border-top:1px solid var(--border)}
-.home-hero-block-title{margin:0;font-weight:400}
-.home-hero-strat-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
-.home-hero-strat-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--border)}
-.home-hero-strat-name{font:400 var(--fs-sm)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
-.home-hero-strat-main{font:400 var(--fs-md)/1.2 var(--mono);color:var(--text-display);font-variant-numeric:tabular-nums;text-align:right}
-.home-hero-strat-sub{grid-column:1 / -1;font:400 var(--fs-sm)/1.4 var(--mono);color:var(--text-secondary);overflow-wrap:anywhere}
-.home-hero-cc-table{display:flex;flex-direction:column}
-.home-hero-cc-row{display:grid;grid-template-columns:1.1fr .8fr .9fr .9fr 1fr .9fr;gap:var(--sp-1);padding:var(--sp-1) 0;border-bottom:1px solid var(--border);font:400 var(--fs-sm)/1.3 var(--mono);font-variant-numeric:tabular-nums;color:var(--text-display)}
-.home-hero-cc-row.is-head{color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}
-.home-hero-cc-cell.is-key{color:var(--text-secondary)}
-.home-hero-block-note,.home-hero-asof{margin:0;font-size:var(--fs-sm);line-height:1.5;color:var(--text-secondary)}
-.home-hero-note{margin:auto 0 0;font-size:var(--fs-sm);line-height:1.5;color:var(--text-secondary)}
+/* "Right now" cards (T-23): one per symbol, phone-first single column, three-up from 640px. */
+.home-hero-right-now{grid-area:now;display:grid;grid-template-columns:minmax(0,1fr);gap:var(--sp-3);min-width:0}
+@media (min-width:640px){.home-hero-right-now{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.home-hero-now-card{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;padding:var(--tile-pad);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.home-hero-now-head{display:flex;flex-direction:column;gap:2px}
+.home-hero-now-symbol{font:700 var(--fs-md)/1 var(--doto);color:var(--text-display)}
+.home-hero-now-prices{font:400 11px/1.4 var(--mono);color:var(--text-secondary);overflow-wrap:anywhere}
+.home-hero-now-prices b{color:var(--text-display)}
+.home-hero-now-trend{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
+.home-hero-now-trend-cell{display:flex;flex-direction:column;align-items:center;padding:2px 0;border:1px solid var(--border);border-radius:4px;font:400 12px/1.2 var(--mono);color:var(--text-secondary)}
+.home-hero-now-trend-cell b{font-style:normal}
+.home-hero-now-trend-cell i{font-style:normal;font-size:9px;color:var(--text-secondary);margin-top:1px}
+.home-hero-now-trend-cell.hh-long{color:var(--success);border-color:var(--success)}
+.home-hero-now-trend-cell.hh-short{color:var(--accent);border-color:var(--accent)}
+.home-hero-now-context,.home-hero-now-stance,.home-hero-now-candidate,.home-hero-now-empty{margin:0;font:400 12px/1.4 var(--mono);color:var(--text-primary);overflow-wrap:anywhere}
+.home-hero-now-stance{color:var(--text-secondary)}
+.home-hero-now-empty{color:var(--text-secondary)}
+.home-hero-now-data-tag{align-self:flex-start;padding:1px var(--sp-2);border:1px solid var(--border-visible);border-radius:999px;font:400 10px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--text-disabled)}
+.live-board{grid-area:board}
 `;

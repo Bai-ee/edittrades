@@ -9,7 +9,7 @@
  * Run: node test-tracker.js
  */
 
-import { mkdtempSync, rmSync, readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -54,6 +54,9 @@ import { netFloorStopDistance, netRiskReward } from './lib/flagTradePlan.js';
 import { ENGINE_CONFIG } from './config/engine.js';
 import { writeFileSync } from 'node:fs';
 import { esc } from './scripts/tracker/bento.js';
+import { liveBoard, parseBias } from './scripts/tracker/live-board.js';
+import { parseBiasString, buildHeadline, buildLede, rightNowCards } from './scripts/tracker/home-hero.js';
+import { latestCallPerSymbol } from './scripts/tracker/store.js';
 import { computeProfileCurves, computeProfileCurvesDataDir, BOT_WALLET_START_EQUITY_USD } from './scripts/tracker/profiles.js';
 import { renderStrategies } from './scripts/tracker/strategies-page.js';
 import { PROFILES as VENDORED_PROFILES, PROFILE_KEYS as VENDORED_PROFILE_KEYS, tieredPolicyConfig as vendoredTieredPolicyConfig } from './scripts/tracker/profileConfig.js';
@@ -952,25 +955,159 @@ async function run() {
     assert(html.indexOf('id="tile-expectancy-7d"') < html.indexOf('id="hero-net-expectancy-7d"'), 'net line follows the gross hero value');
   });
 
-  await test('page: home hero leads with the headline and signed net R per scored call, above the jump nav', () => {
+  const LIVE_ROWS = [
+    { symbol: 'ETH', closedThrough: '2026-09-29T00:57:00.000Z', price: 2679.28, mark: { price: 2678.09, driftBps: -4.4, status: 'ok' },
+      bias: 'scalp:L48,S8,N44|swing:L80,S0,N20|tf:1m=S,3m=N,5m=N,15m=L,1h=L,4h=L,1d=L|ct:2|td:bull:4/4|a200:4/7|mark:-4.4',
+      flagRecommendation: { class: 'WATCH', candidate: { direction: 'short', timeframe: '1m', state: 'forming', breakout: 2677.48 },
+        action: { call: 'WAIT', etaMin: 1, note: '1m close below 2,677.48, then a retest that holds it' },
+        clarity: { gate: { passable: false, text: 'a 15m level blocks the measured target' }, killIf: { text: 'close back above 2,677.48 = stand down' }, otherSide: { text: 'rotation to 2,678.82-2,685.43' } } },
+      pathOutlook: { w: { retest_go: 20, runner: 11, false_break: 12, fail_first: 50, chop: 8 }, n: 121, cal: true, chase: 'low' },
+      candidateSetups: [
+        { id: 'a', tf: '1m', dir: 'short', state: 'forming', breakout: 2677.48, measuredRR: 4.58, qual: { decision: 'watch' } },
+        { id: 'b', tf: '5m', dir: 'long', state: 'triggering', breakout: 2690, measuredRR: 3.1, qual: { decision: 'watch' } },
+        { id: 'c', tf: '3m', dir: 'long', state: 'failed', breakout: 2700, measuredRR: 2, qual: { decision: 'dont' } }
+      ] },
+    { symbol: 'BTC', closedThrough: '2026-09-29T00:57:00.000Z', price: 83990, mark: { price: 83988.78, driftBps: -0.1, status: 'ok' }, bias: 'tf:1m=L', flagRecommendation: { class: 'BAD' }, candidateSetups: [] }
+  ];
+
+  await test('page: home hero is the headline plus the live board, no performance card, above the jump nav', () => {
     const out = scoreCalls(extractCalls(rows), candleSet, [], T0 + 2 * 60 * MIN);
     const agg = computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN, { phaseStartMs: T0 - 60 * MIN });
-    const html = renderHtml(agg);
-    for (const id of ['home-hero-shell', 'home-hero-headline-panel', 'home-hero-title', 'home-hero-result-card', 'home-hero-net-r', 'home-hero-stats']) {
+    const html = renderHtml(agg, { liveRows: LIVE_ROWS });
+    for (const id of [
+      'home-hero-shell', 'home-hero-headline-panel', 'home-hero-title', 'home-hero-lede',
+      'home-hero-right-now', 'home-hero-now-btc', 'home-hero-now-eth', 'home-hero-now-sol',
+      'live-board-card', 'live-board-tabs', 'live-board-panel-all', 'live-board-panel-eth', 'live-board-panel-btc', 'live-board-asof-line'
+    ]) {
       assert(html.includes(`id="${id}"`), `missing #${id}`);
     }
-    assert(html.includes('<span>The signal</span><span>is coming</span><span>from inside</span><span>the noise.</span>'), 'first headline server-rendered, stacked');
-    assert(html.includes('id="home-hero-title-data"') && html.includes('et-hero-title'), 'headline cycles per refresh via the inline script');
-    const net = agg.totals.tradable.netExpectancy;
-    assert(typeof net === 'number', 'synthetic day has a net expectancy');
-    const sign = net > 0 ? '+' : net < 0 ? '−' : '';
-    assert(html.includes(`id="home-hero-net-r">${sign}${Math.abs(net).toFixed(2)}<span class="home-hero-unit">R</span>`), 'hero figure is signed net R, not gross');
-    assert(html.includes('R gross · fees and slippage'), 'gross shown beside net');
+    assert(!html.includes('id="home-hero-result-card"') && !html.includes('id="home-hero-net-r"'), 'performance card is gone from the hero');
+    assert(html.includes(`id="home-hero-title">${esc(buildHeadline(LIVE_ROWS))}</h1>`), 'headline is the data-driven sentence, server-rendered (T-23)');
+    assert(!html.includes('id="home-hero-title-data"'), 'no client-side title-rotation payload any more (headline is data-driven, not stacked words)');
+    assert(html.includes(`id="home-hero-lede">${esc(buildLede(LIVE_ROWS))}</p>`), 'lede states the data-as-of time from the latest closed candle');
+    assert(html.includes('id="home-hero-now-sol"') && html.includes('No live capture yet.'), 'SOL has no row in this fixture but its Right-now card still renders, never hidden');
     assert(html.indexOf('id="tracker-top-edge-strip"') < html.indexOf('id="home-hero-shell"'), 'hero follows the top edge');
     assert(html.indexOf('id="home-hero-shell"') < html.indexOf('id="tracker-jump-nav"'), 'hero sits above the jump nav');
     assert(html.includes('src:url("fonts/mathias-bold.ttf")'), 'Mathias loaded from docs/fonts');
-    const empty = renderHtml(computeAggregates([], [], {}, T0));
-    assert(empty.includes('id="home-hero-net-r">0.00') && empty.includes('[NO SCORED CALLS YET]'), 'empty store shows an empty hero, never NaN');
+    assert(html.includes('.live-board{') && html.includes('max-height:40vh'), 'live board is hard-capped at 40vh');
+    const net = agg.totals.tradable.netExpectancy;
+    assert(typeof net === 'number', 'synthetic day has a net expectancy');
+    const sign = net > 0 ? '+' : net < 0 ? '−' : '';
+    assert(html.includes(`id="live-board-net-r">${sign}${Math.abs(net).toFixed(2)}<span class="lb-net-unit">R</span>`), 'ALL tab leads with signed net R, not gross');
+    assert(html.includes('id="live-board-fees-line">') && html.includes('R gross · fees and slippage'), 'fees line sits under the net figure');
+    for (const id of ['live-board-summary-stats', 'live-board-stat-record', 'live-board-stat-wallet', 'live-board-stat-progress', 'live-board-stat-active-flags']) {
+      assert(html.includes(`id="${id}"`), `missing #${id}`);
+    }
+    assert(html.indexOf('id="live-board-pnl-block"') < html.indexOf('id="live-board-radar-list"'), 'PnL summary sits above the flag radar');
+    assert(html.includes('id="live-board-stat-active-flags"><dt>Active flags now</dt><dd>2</dd>'), 'active flag count skips failed flags');
+    const noRows = renderHtml(computeAggregates([], [], {}, T0));
+    assert(noRows.includes('id="live-board-net-r">0.00') && noRows.includes('[NO SCORED CALLS YET]'), 'empty store shows an empty PnL, never NaN');
+    assert(noRows.includes('id="live-board-empty"') && noRows.includes('No live capture yet'), 'no capture rows shows an empty board, never NaN');
+  });
+
+  await test('live board: radar sorts break-out states first, symbol panel shows call, lean, odds, gate; failed flags stay off the radar', () => {
+    const html = liveBoard(LIVE_ROWS, '2026-09-29T01:00:00.000Z');
+    const radar = html.slice(html.indexOf('id="live-board-panel-all"'), html.indexOf('id="live-board-panel-eth"'));
+    assert(radar.indexOf('BREAKING') < radar.indexOf('FORMING'), 'triggering (BREAKING) ranks above forming');
+    assert(!radar.includes('FAILED'), 'failed flag is not on the radar');
+    assert(html.includes('id="live-board-eth-price">2,679.28<') && html.includes('Pyth 2,678.09 · -4.4 bps'), 'price and Pyth mark with drift');
+    assert(html.includes('>WATCH<') && html.includes('SHORT 1m FORMING') && html.includes('WAIT ~1m'), 'called direction, state and action with ETA');
+    assert(html.includes('<i>15m</i>L') && html.includes('<i>1m</i>S'), 'timeframe lean cells parsed from the bias string');
+    assert(html.includes('fail first 50%') && html.includes('n=121') && !html.includes('uncalibrated'), 'path odds legend, calibrated');
+    assert(html.includes('Blocked</b> a 15m level blocks') && html.includes('Kill if</b>') && html.includes('Other side</b>'), 'gate, kill and other-side lines');
+    assert(html.includes('Closed 00:57Z · 3m old at build'), 'as-of stamp states the age at build');
+    assert(html.includes('id="live-board-btc-flags"') === false, 'symbol with no flags renders no empty flag list');
+    assert(!/NaN|undefined|null/.test(html.replace(/dash/g, '')), 'no NaN/undefined/null leaks into the board');
+  });
+
+  await test('live board: parseBias handles missing and partial strings; latestCallPerSymbol keeps the newest row per symbol', () => {
+    assert(JSON.stringify(parseBias(undefined)) === JSON.stringify({ tf: {}, scalp: null, swing: null }), 'non-string bias parses to empty');
+    assert(parseBias('scalp:L1,S2,N3|tf:1m=L,5m=S').tf['5m'] === 'S' && parseBias('scalp:L1,S2,N3').scalp === 'L1,S2,N3', 'partial strings parse');
+    const dir = mkdtempSync(path.join(tmpdir(), 'lb-'));
+    mkdirSync(path.join(dir, 'calls'));
+    writeFileSync(path.join(dir, 'calls', '2026-09-29.jsonl'), [
+      { symbol: 'BTC', closedThrough: '2026-09-29T00:10:00.000Z', price: 1 },
+      { symbol: 'BTC', closedThrough: '2026-09-29T00:20:00.000Z', price: 2 },
+      { symbol: 'ETH', closedThrough: '2026-09-29T00:20:00.000Z', price: 3 }
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const latest = latestCallPerSymbol(dir);
+    assert(latest.length === 2 && latest.find((r) => r.symbol === 'BTC').price === 2, 'newest BTC row wins, one row per symbol');
+    assert(latestCallPerSymbol(path.join(dir, 'missing')).length === 0, 'missing data dir returns no rows');
+  });
+
+  await test('home-hero: parseBiasString parses the full token set, tolerates missing tokens, and treats garbage as empty (T-23)', () => {
+    const full = parseBiasString('scalp:L48,S8,N44|swing:L80,S0,N20|tf:1m=S,3m=N,5m=N,15m=L,1h=L,4h=L,1d=L|ct:2|td:bull:4/4|a200:4/7|mark:-4.4');
+    assert(full.tf['1h'] === 'L' && full.tf['1m'] === 'S' && full.scalp === 'L48,S8,N44' && full.swing === 'L80,S0,N20', 'timeframe, scalp and swing tokens parse');
+    assert(full.ct === 2 && JSON.stringify(full.td) === JSON.stringify({ sentiment: 'bull', n: 4, of: 4 }) && JSON.stringify(full.a200) === JSON.stringify({ n: 4, of: 7 }) && full.mark === -4.4, 'ct, td, a200 and mark tokens parse');
+
+    const partial = parseBiasString('tf:1h=L');
+    assert(partial.tf['1h'] === 'L' && partial.scalp === null && partial.td === null && partial.a200 === null && partial.ct === null && partial.mark === null, 'missing tokens parse to null, never throw');
+
+    const EMPTY_BIAS = { tf: {}, scalp: null, swing: null, ct: null, td: null, a200: null, mark: null };
+    assert(JSON.stringify(parseBiasString(undefined)) === JSON.stringify(EMPTY_BIAS), 'non-string bias parses to the empty shape');
+    assert(JSON.stringify(parseBiasString('garbage;;;not a bias string')) === JSON.stringify(EMPTY_BIAS), 'a string with no key:value tokens parses to the same empty shape, never NaN/undefined');
+  });
+
+  await test('home-hero: buildHeadline names 1h+4h alignment, a triggering/confirmed candidate (never an unearned class), and falls back with no rows (T-23)', () => {
+    const up = (s) => ({ symbol: s, bias: 'tf:1h=L,4h=L', flagRecommendation: { class: 'BAD' } });
+    assert(buildHeadline(['BTC', 'ETH', 'SOL'].map(up)) === 'BTC, ETH and SOL: 1h and 4h trend up, no flag ready.', 'all three aligned up on 1h+4h, no flag ready');
+
+    const mixed = [
+      { symbol: 'BTC', bias: 'tf:4h=L' }, { symbol: 'ETH', bias: 'tf:4h=L' }, { symbol: 'SOL', bias: 'tf:4h=S' }
+    ];
+    assert(buildHeadline(mixed) === '2 of 3 coins trending up on 4h, no flag ready.', 'no 1h+4h alignment falls back to a 4h lean count');
+
+    const withTriggering = ['BTC', 'SOL'].map(up).concat([{
+      symbol: 'ETH', bias: 'tf:1h=L,4h=L',
+      flagRecommendation: { class: 'WATCH', candidate: { timeframe: '1m', direction: 'short', state: 'triggering', breakout: 2677.48, invalidation: 2681.03, measuredRR: 4.6 } }
+    }]);
+    assert(buildHeadline(withTriggering) === 'BTC, ETH and SOL: 1h and 4h trend up · ETH 1m short flag triggering.', 'a triggering candidate is named once alignment is stated');
+
+    const confirmed = JSON.parse(JSON.stringify(withTriggering));
+    confirmed[2].flagRecommendation.candidate.state = 'confirmed';
+    assert(buildHeadline(confirmed).includes('ETH 1m short flag breaking out.'), 'a confirmed candidate reads "breaking out"');
+
+    const formingOnly = JSON.parse(JSON.stringify(withTriggering));
+    formingOnly[2].flagRecommendation.candidate.state = 'forming';
+    assert(buildHeadline(formingOnly) === 'BTC, ETH and SOL: 1h and 4h trend up, no flag ready.', 'a merely-forming candidate is not named (only triggering/confirmed)');
+
+    const notWatch = JSON.parse(JSON.stringify(withTriggering));
+    notWatch[2].flagRecommendation.class = 'BAD';
+    assert(buildHeadline(notWatch) === 'BTC, ETH and SOL: 1h and 4h trend up, no flag ready.', 'never claims a candidate the row\'s own class does not show (BAD hides its candidate)');
+
+    assert(buildHeadline([]) === 'Reading the market. No live capture yet.', 'no rows falls back cleanly');
+    assert(buildHeadline(undefined) === 'Reading the market. No live capture yet.', 'undefined rows falls back the same way');
+  });
+
+  await test('home-hero: rightNowCards renders all three symbols with stable ids, tags a partial row without hiding it, truncates the reason, and never claims GOOD for a WATCH row (T-23)', () => {
+    const NOW_ROWS = [
+      { symbol: 'BTC', price: 83990, mark: { price: 83988.78, driftBps: -0.1, status: 'ok' }, dataStatus: 'complete',
+        bias: 'tf:1m=L,3m=L,5m=L,15m=L,1h=L,4h=L,1d=L|a200:4/7|td:bull:4/4', flagRecommendation: { class: 'BAD', primaryReason: { text: 'rr_below_min' } } },
+      { symbol: 'ETH', price: 2679.28, mark: { price: 2678.09, driftBps: -4.4, status: 'ok' }, dataStatus: 'complete',
+        bias: 'tf:1m=S,3m=N,5m=N,15m=L,1h=L,4h=L,1d=L|a200:4/7|td:bull:4/4',
+        flagRecommendation: {
+          class: 'WATCH', action: { call: 'WAIT' }, primaryReason: { text: 'x'.repeat(160) },
+          candidate: { timeframe: '1m', direction: 'short', state: 'forming', breakout: 2677.48, invalidation: 2681.03, measuredRR: 4.6 }
+        } },
+      { symbol: 'SOL', price: 210.5, mark: { price: 210.2, driftBps: 1.4, status: 'ok' }, dataStatus: 'partial', bias: 'tf:1h=N', flagRecommendation: { class: 'WATCH' } }
+    ];
+    const html = rightNowCards(NOW_ROWS);
+    for (const id of [
+      'home-hero-right-now', 'home-hero-now-btc', 'home-hero-now-eth', 'home-hero-now-sol',
+      'home-hero-now-btc-trend', 'home-hero-now-eth-trend', 'home-hero-now-sol-trend',
+      'home-hero-now-eth-stance', 'home-hero-now-eth-candidate', 'home-hero-now-eth-context'
+    ]) {
+      assert(html.includes(`id="${id}"`), `missing #${id}`);
+    }
+    assert(html.includes('83,988.78') && html.includes('Pyth mark') && html.includes('Kraken close') && html.includes('-0.1 bps'), 'price row shows Pyth mark, Kraken close and drift in bps');
+    assert(html.includes('▲') && html.includes('▼'), 'trend strip shows long and short arrows from the bias tf tokens');
+    assert(html.includes('id="home-hero-now-sol-data-tag">data: partial<'), 'a partial dataStatus shows a small grey tag, never hides the card');
+    assert(!html.includes('id="home-hero-now-btc-data-tag"'), 'a complete/ok row carries no data tag');
+    const eth = html.slice(html.indexOf('id="home-hero-now-eth"'), html.indexOf('id="home-hero-now-sol"'));
+    assert(eth.includes('WATCH · WAIT') && !eth.includes('GOOD'), 'ETH stance shows its own class + action call, never claims GOOD for a WATCH row');
+    assert(eth.includes('…') && !eth.includes('x'.repeat(160)), 'primaryReason.text is truncated around 140 chars, not shown verbatim in full');
+    assert(eth.includes('1m short flag forming · break 2,677.48 · void 2,681.03 · 4.6R'), 'active candidate line reads timeframe, direction, state, break, void and measured R');
+    assert(!/NaN|undefined/.test(html), 'no NaN/undefined leaks into the Right-now cards');
   });
 
   await test('page: window stat tables show a net-of-fees column beside gross expectancy (T5 S1)', () => {
@@ -3318,8 +3455,6 @@ async function run() {
     assert(html.includes(`id="scoreboard-retest1h-tile-empty">[NO SIGNALS SINCE`), 'retest1h card (no alert log) shows the same uniform empty state');
     assert(html.includes(`id="scoreboard-flag-tile-signals"><dt>Signals</dt><dd>1</dd>`), 'flag card shows exactly the one post-epoch signal');
 
-    assert(html.includes(`id="home-hero-stat-good"><dt>GOOD calls</dt><dd>1</dd>`), 'home hero "GOOD calls" now reads the epoch-filtered flag card, not the all-time (2-call) total');
-    assert(html.includes(`id="home-hero-stat-since"><dt>Since</dt><dd>${epochAt.slice(0, 10)} (net floor)</dd>`), 'home hero "since" stat is the epoch label, not the last-seen day');
 
     assert(html.includes('id="archive-section"'), 'archive section present, collapsed at the bottom');
     assert(html.includes('id="archive-pre-epoch-good-table"'), 'pre-epoch GOOD calls table present in the archive');

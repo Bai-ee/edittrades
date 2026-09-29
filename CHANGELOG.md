@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-28 — T-23: homepage says what the engine sees right now (headline, subhead, Right-now cards)
+
+Owner decision 2026-09-28 (evening), `docs/PROMPT_T23_HOMEPAGE_RIGHT_NOW.md`. Presentation only; no engine, payload, schema, rule, Telegram or execution change.
+
+- `scripts/tracker/home-hero.js`: the h1 is now a one-sentence headline built from the latest capture rows (`buildHeadline`) instead of the rotating EditTrax lines — names what 1h+4h alignment across BTC/ETH/SOL shows (or, failing that, the 4h lean count), then any candidate actually `triggering`/`confirmed` on a WATCH row, else "no flag ready"; never claims a class a row doesn't show. Subhead (`buildLede`) states the data-as-of time off the newest `closedThrough`. New `parseBiasString` (pure) reads the full bias-string token set (`tf`, `scalp`, `swing`, `ct`, `td`, `a200`, `mark`). New `id="home-hero-right-now"` block, one card per symbol (`id="home-hero-now-<sym>"`, phone-first single column, three-up from 640px): Pyth mark / Kraken close / drift, a 7-cell 1m–1d trend strip, the a200/top-down line, the engine's own `flagRecommendation.class` + `action.call` + `primaryReason.text` (truncated ~140 chars), the active candidate line if any, and a small grey `data:` tag on a non-complete/non-ok row (never hides the card). The old title-rotation script (`homeHeroScript`) is now a harmless no-op (its target script tag is no longer rendered); `HOME_HERO_TITLES` stays exported. The net-R live-board card is unchanged, now laid out via `grid-template-areas` below the Right-now row on phones, beside both from 1024px.
+- `test-tracker.js`: `parseBiasString` (full token set, missing tokens, garbage → nulls), `buildHeadline` (aligned-up, mixed 4h lean, triggering/confirmed candidate naming, class-gated "never claim a class the row doesn't show", no-rows fallback), `rightNowCards` (all three symbol ids present even with a missing row, `dataStatus:'partial'` tag without hiding the card, reason truncation, no GOOD claim on a WATCH row). 170 → 173.
+- Verified against live tracker data (`~/Documents/Repos/edittrades-tracker`, `npm run tracker:sync` + `npm run page`): headline and all three cards render with real numbers, no NaN/undefined.
+
 ## 2026-09-28 — /alerts lists every strategy and its timeframes; GPT knowledge file v2
 
 - `lib/telegram.js`: `/alerts` gains a `Strategies:` line (`STRATEGY_COVERAGE_TEXT`) naming Flag 21/200, HTF ENTRY (4h + 1D direction, 1h stop/target), RETEST 1H and SLOW TREND spot with their timeframes, whether or not a call has fired, and stating that the always-on kinds ignore level/tf and only focus mode holds them. Presentation only; no filter changed. `test:telegram` 162 (assertion added).
