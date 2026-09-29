@@ -57,6 +57,68 @@ const signed = (v) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Math.abs(v).toFixed(
 const count = (v) => (isNum(v) ? v.toLocaleString('en-US') : dash);
 const heroStatus = (v) => (v >= 0 ? 'st-good' : v >= -0.5 ? 'st-warn' : 'st-bad');
 
+const pct = (v) => (isNum(v) ? `${Math.round(v * 1000) / 10}%` : dash);
+const signedR = (v) => (isNum(v) ? `${signed(Math.abs(v) < 0.005 ? 0 : v)}R` : dash);
+
+/** One strategy line: name + since-epoch numbers, second line the progress toward the 30-trade target. */
+function strategyRow(id, card, waitingText) {
+  if (!card) return '';
+  const name = `<span class="home-hero-strat-name">${esc(card.label)}</span>`;
+  const isSpot = card.key === 'spot';
+  const isWallet = card.key === 'wallet';
+  let main;
+  let sub;
+  if (isSpot) {
+    main = `${isNum(card.equityPct) ? `${card.equityPct >= 0 ? '+' : MINUS}${Math.abs(card.equityPct * 100).toFixed(2)}%` : dash} paper`;
+    sub = `vs buy-and-hold ${isNum(card.bhPct) ? `${card.bhPct >= 0 ? '+' : MINUS}${Math.abs(card.bhPct * 100).toFixed(2)}%` : dash} · ${count(card.flips)} flips · ${count(card.daysTracked)}d tracked`;
+  } else if (isWallet) {
+    main = isNum(card.equityNowUsd) ? `$${card.equityNowUsd.toFixed(2)}` : dash;
+    sub = `start ${isNum(card.equityStartUsd) ? `$${card.equityStartUsd.toFixed(2)}` : dash} · ${count(card.trades)} live trades · ${isNum(card.daysLive) ? card.daysLive : dash}d`;
+  } else if (!card.calls) {
+    main = '0 calls';
+    sub = waitingText;
+  } else {
+    main = `${count(card.wins)}W / ${count(card.losses)}L · ${card.resolved > 0 ? pct(card.winRate) : dash}`;
+    sub = `net ${card.resolved > 0 ? signedR(card.netRMean) : dash} · ${count(card.towardThirty)}/${count(card.promotionTarget)} toward promotion · ${count(card.calls)} call${card.calls === 1 ? '' : 's'} · ${isNum(card.daysLive) ? card.daysLive : dash}d`;
+  }
+  return `<li class="home-hero-strat-row" id="${id}">${name}<span class="home-hero-strat-main">${esc(main)}</span><span class="home-hero-strat-sub">${esc(sub)}</span></li>`;
+}
+
+function strategyRows(sb) {
+  if (!sb) return '';
+  return `<div class="home-hero-block" id="home-hero-strategy-block"><h2 class="home-hero-block-title label">Strategies · each from its own start</h2>`
+    + `<ul class="home-hero-strat-list" id="home-hero-strategy-rows">`
+    + strategyRow('home-hero-strat-flag', sb.flag, 'waiting for the first GOOD')
+    + strategyRow('home-hero-strat-htf', sb.htf, 'waiting for the first HTF ENTRY')
+    + strategyRow('home-hero-strat-retest', sb.retest1h, 'waiting for the first RETEST signal')
+    + strategyRow('home-hero-strat-spot', sb.spot)
+    + strategyRow('home-hero-strat-wallet', sb.wallet)
+    + `</ul></div>`;
+}
+
+function classCheckStrip(cc) {
+  if (!cc || !Array.isArray(cc.rows)) return '';
+  const rows = cc.rows.filter((r) => ['GOOD', 'WATCH', 'BAD'].includes(r.key));
+  if (!rows.length) return '';
+  const cell = (t, cls = '') => `<span class="home-hero-cc-cell ${cls}">${esc(t)}</span>`;
+  const head = `<div class="home-hero-cc-row is-head">${cell('Class')}${cell('Calls')}${cell('W/L')}${cell('Win')}${cell('Exp R')}${cell('No fill')}</div>`;
+  const body = rows.map((r) => `<div class="home-hero-cc-row" id="home-hero-cc-${r.key.toLowerCase()}">`
+    + cell(r.key, 'is-key') + cell(count(r.calls)) + cell(`${count(r.wins)}/${count(r.losses)}`)
+    + cell(r.scored > 0 ? pct(r.winRate) : dash) + cell(r.scored > 0 ? signedR(r.expectancy) : dash) + cell(count(r.notFilled))
+    + `</div>`).join('');
+  const since = cc.since ? ` since ${String(cc.since).slice(0, 10)}` : '';
+  return `<div class="home-hero-block" id="home-hero-class-check-strip"><h2 class="home-hero-block-title label">Class check · WATCH and BAD scored as if taken</h2>`
+    + `<div class="home-hero-cc-table" id="home-hero-class-check-rows">${head}${body}</div>`
+    + `<p class="home-hero-block-note">Counterfactual, gross R${esc(since)}. Never counted in the 30-trade target.</p></div>`;
+}
+
+function asOfLine(agg) {
+  const t = agg.generatedAt ? new Date(agg.generatedAt) : null;
+  if (!t || Number.isNaN(t.getTime())) return '';
+  const hhmm = `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}Z`;
+  return `<p class="home-hero-asof" id="home-hero-asof-line">Data as of ${esc(hhmm)} · page refreshes every 10 min</p>`;
+}
+
 function stat(id, label, value) {
   return `<div class="home-hero-stat" id="${id}"><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`;
 }
@@ -110,7 +172,10 @@ export function homeHero(agg) {
     + stat('home-hero-stat-win-rate', 'Win rate', scored > 0 && isNum(winRate) ? `${Math.round(winRate * 1000) / 10}%` : dash)
     + stat('home-hero-stat-candles', '1m candles', count(candles))
     + stat('home-hero-stat-since', sinceLabel, sinceValue || dash)
-    + `</dl><p class="home-hero-note" id="home-hero-note">${esc(HOME_HERO_NOTE)}</p></article>`;
+    + `</dl>`
+    + strategyRows(agg.scoreboard)
+    + classCheckStrip(agg.classCheck)
+    + `<p class="home-hero-note" id="home-hero-note">${esc(HOME_HERO_NOTE)}</p>${asOfLine(agg)}</article>`;
 
   return `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${card}</div>`;
 }
@@ -137,7 +202,7 @@ export const HOME_HERO_CSS = `
 .home-hero-card-head{display:flex;justify-content:space-between;align-items:baseline;gap:var(--sp-3)}
 .home-hero-tag{flex:0 0 auto;padding:1px var(--sp-2);border:1px solid var(--border-visible);border-radius:999px;font:400 10px/1.5 var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--text-secondary)}
 .home-hero-figure-block{display:flex;flex-direction:column;gap:var(--sp-2)}
-.home-hero-figure{font-family:var(--doto);font-weight:700;font-size:clamp(56px,26cqi,128px);line-height:.9;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.home-hero-figure{font-family:var(--doto);font-weight:700;font-size:clamp(44px,16cqi,80px);line-height:.9;letter-spacing:-.03em;font-variant-numeric:tabular-nums;white-space:nowrap}
 .home-hero-unit{font-family:var(--mono);font-weight:400;font-size:var(--fs-md);letter-spacing:0;vertical-align:top;margin-left:var(--sp-2);color:var(--text-secondary)}
 .home-hero-figure-sub{margin:0;font:400 var(--fs-sm)/1.4 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
 .home-hero-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));border-top:1px solid var(--border)}
@@ -146,5 +211,17 @@ export const HOME_HERO_CSS = `
 .home-hero-stat:nth-child(even){padding-left:var(--sp-3);border-left:1px solid var(--border)}
 .home-hero-stat dt{font:400 var(--fs-sm)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
 .home-hero-stat dd{font:400 var(--fs-md)/1.1 var(--mono);color:var(--text-display);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.home-hero-block{display:flex;flex-direction:column;gap:var(--sp-2);padding-top:var(--sp-3);border-top:1px solid var(--border)}
+.home-hero-block-title{margin:0;font-weight:400}
+.home-hero-strat-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.home-hero-strat-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--border)}
+.home-hero-strat-name{font:400 var(--fs-sm)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary)}
+.home-hero-strat-main{font:400 var(--fs-md)/1.2 var(--mono);color:var(--text-display);font-variant-numeric:tabular-nums;text-align:right}
+.home-hero-strat-sub{grid-column:1 / -1;font:400 var(--fs-sm)/1.4 var(--mono);color:var(--text-secondary);overflow-wrap:anywhere}
+.home-hero-cc-table{display:flex;flex-direction:column}
+.home-hero-cc-row{display:grid;grid-template-columns:1.1fr .8fr .9fr .9fr 1fr .9fr;gap:var(--sp-1);padding:var(--sp-1) 0;border-bottom:1px solid var(--border);font:400 var(--fs-sm)/1.3 var(--mono);font-variant-numeric:tabular-nums;color:var(--text-display)}
+.home-hero-cc-row.is-head{color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em}
+.home-hero-cc-cell.is-key{color:var(--text-secondary)}
+.home-hero-block-note,.home-hero-asof{margin:0;font-size:var(--fs-sm);line-height:1.5;color:var(--text-secondary)}
 .home-hero-note{margin:auto 0 0;font-size:var(--fs-sm);line-height:1.5;color:var(--text-secondary)}
 `;
