@@ -55,7 +55,7 @@ import { ENGINE_CONFIG } from './config/engine.js';
 import { writeFileSync } from 'node:fs';
 import { esc } from './scripts/tracker/bento.js';
 import { liveBoard, parseBias } from './scripts/tracker/live-board.js';
-import { parseBiasString, buildHeadline, buildLede, rightNowCards } from './scripts/tracker/home-hero.js';
+import { parseBiasString, buildHeadline, buildLede, rightNowCards, homeHero, HOME_HERO_CSS } from './scripts/tracker/home-hero.js';
 import { latestCallPerSymbol } from './scripts/tracker/store.js';
 import { computeProfileCurves, computeProfileCurvesDataDir, BOT_WALLET_START_EQUITY_USD } from './scripts/tracker/profiles.js';
 import { renderStrategies } from './scripts/tracker/strategies-page.js';
@@ -94,8 +94,9 @@ import {
 import { epochStats, spotScoreboardStats, walletScoreboardStats, computeScoreboard } from './scripts/tracker/aggregate.js';
 import { predictionsDir, readPredictions, appendPredictions, predictionRowKey } from './scripts/tracker/store.js';
 import {
-  PREDICTION_SYMBOLS, PREDICTION_TIMEFRAMES, predictionRowsFromLines, pullPredictions, joinPredictions,
+  PREDICTION_SYMBOLS, PREDICTION_TIMEFRAMES, predictionRowsFromLines, pullPredictions, joinPredictions, predictionCellKey,
   computePredictionsAggregate, EMPTY_PREDICTIONS_AGGREGATE, predCellBeats, predictionsGridHtml, predictionsSummaryLine, predictionsZoneBody,
+  predictionsPanelHtml, predictionsOverallHtml, predictionsCurrentTableHtml, predictionNextGlyph, PREDICTIONS_CSS,
   NO_PREDICTIONS
 } from './scripts/tracker/predictions.js';
 import { renderPredictionsPage } from './scripts/tracker/predictions-page.js';
@@ -3800,33 +3801,121 @@ async function run() {
     assertEqual(predictionsZoneBody(EMPTY_PREDICTIONS_AGGREGATE), `<p class="empty" id="zone-predictions-empty">${NO_PREDICTIONS}</p>`, 'empty aggregate renders the empty state, not the grid');
   });
 
-  await test('homepage: zone-predictions sits under home-hero-right-now and above the strategy scoreboard/system zone; empty state never hides the block', () => {
+  await test('T-24c: zone-predictions is absent from the homepage body; the prediction panel takes its place in the hero', () => {
     const dir = tmp();
     const out = path.join(dir, 'site');
     const { htmlFile, predictionsFile } = buildPage(path.join(dir, 'data'), out, T0);
     const html = readFileSync(htmlFile, 'utf8');
-    assert(html.includes('id="zone-predictions"'), 'block present even with no data dir');
-    assert(html.includes(NO_PREDICTIONS), 'empty state text shown');
-    const iHero = html.indexOf('id="home-hero-right-now"');
-    const iPred = html.indexOf('id="zone-predictions"');
-    const iSystem = html.indexOf('id="zone-system"');
-    assert(iHero > -1 && iPred > iHero, 'zone-predictions renders after home-hero-right-now');
-    assert(iPred < iSystem, 'zone-predictions renders above the rest of the page, including the strategy scoreboard slot');
+    assert(!html.includes('id="zone-predictions"'), 'zone-predictions block is gone from the homepage body');
+    assert(html.includes('id="home-hero-prediction-panel"'), 'the prediction panel takes its place in the hero');
     assert(html.includes('id="tracker-predictions-link"') && html.includes('href="predictions.html"'), 'nav link to the predictions page');
     assert(existsSync(predictionsFile) && predictionsFile.endsWith('predictions.html'), 'buildPage writes docs/predictions.html');
   });
 
-  await test('homepage: zone-predictions grid renders real cells and highlights a qualifying one once there is live data', () => {
+  await test('T-24c: predictions.html still carries the shared zone-predictions renderer (predictionsZoneBody), unchanged by the homepage move', () => {
     const dir = tmp();
     const out = path.join(dir, 'site');
+    const { predictionsFile } = buildPage(path.join(dir, 'data'), out, T0);
+    const predHtml = readFileSync(predictionsFile, 'utf8');
+    assert(predHtml.includes('zone-predictions-empty'), 'predictions.html renders predictionsZoneBody\'s own empty-state id (no data dir here)');
+    assert(!predHtml.includes('id="home-hero-prediction-panel"'), 'the hero panel itself is homepage-only, not on predictions.html');
+
+    const dir2 = tmp();
     const rows = [];
-    for (let i = 0; i < 30; i++) rows.push(...predPair(i, { hit: i < 20 }));
-    appendPredictions(path.join(dir, 'data'), rows);
-    const { htmlFile } = buildPage(path.join(dir, 'data'), out, Date.parse('2026-09-05T00:00:00Z'));
-    const html = readFileSync(htmlFile, 'utf8');
-    assert(html.includes('id="pred-grid"'), 'grid renders once there is a first PREDICTION row');
-    assert(html.includes('id="pred-cell-btc-5m"') && html.includes('pred-cell-good'), 'the BTC/5m cell is present and coloured (n=30, beats both baselines)');
-    assert(html.includes('Overall'), 'summary line renders');
+    for (let i = 0; i < 5; i++) rows.push(...predPair(i, { hit: i < 3 }));
+    appendPredictions(path.join(dir2, 'data'), rows);
+    const { predictionsFile: predictionsFile2 } = buildPage(path.join(dir2, 'data'), path.join(dir2, 'site'), Date.parse('2026-09-05T00:00:00Z'));
+    const predHtml2 = readFileSync(predictionsFile2, 'utf8');
+    assert(predHtml2.includes('id="pred-grid"') && predHtml2.includes('id="pred-summary-line"'), 'with live data, predictionsZoneBody renders the grid + summary on predictions.html, same renderer as before');
+  });
+
+  await test('T-24c: computePredictionsAggregate current - unresolved latest per cell, falls back to the resolved one, null with no predictions', () => {
+    const [pOld, rOld] = predPair(0, { hit: true }); // resolved, older
+    const [pNew] = predPair(1); // no result yet, newer
+    const agg1 = computePredictionsAggregate([pOld, rOld, pNew], []);
+    const cur1 = agg1.current['BTC:5m'];
+    assert(cur1 && cur1.resolved === undefined, 'the unresolved newer prediction wins over the older resolved one');
+    assertEqual(cur1.direction, pNew.direction);
+    assertEqual(cur1.refClose, pNew.refClose);
+    assertEqual(cur1.closedAt, pNew.closedAt);
+
+    const agg2 = computePredictionsAggregate([pOld, rOld], []);
+    const cur2 = agg2.current['BTC:5m'];
+    assert(cur2 && cur2.resolved === true, 'no pending prediction -> falls back to the latest resolved one');
+    assertEqual(cur2.hit, true);
+    assertEqual(cur2.closedAt, pOld.closedAt);
+
+    assertEqual(EMPTY_PREDICTIONS_AGGREGATE.current['ETH:1h'], null, 'a cell with no predictions at all is null');
+    assertEqual(computePredictionsAggregate([], []).current['BTC:5m'], null);
+  });
+
+  await test('T-24c: predictionsCurrentTableHtml renders all 12 rows in BTC/ETH/SOL x 5m/15m/1h/4h order with stable ids', () => {
+    const html = predictionsCurrentTableHtml(EMPTY_PREDICTIONS_AGGREGATE);
+    assert(html.includes('id="pred-current-table"'), 'table container id');
+    const order = PREDICTION_SYMBOLS.flatMap((sym) => PREDICTION_TIMEFRAMES.map((tf) => `pred-row-${sym.toLowerCase()}-${tf}`));
+    let cursor = -1;
+    for (const id of order) {
+      const idx = html.indexOf(`id="${id}"`);
+      assert(idx > cursor, `${id} present and after the previous row`);
+      cursor = idx;
+    }
+    assertEqual(order.length, 12, '3 coins x 4 timeframes = 12 rows');
+    assertEqual(predictionNextGlyph(null), '·', 'no current prediction -> no-call middle dot');
+    assertEqual(predictionNextGlyph({ direction: 'over' }), '▲', 'over -> up arrow');
+    assertEqual(predictionNextGlyph({ direction: 'under' }), '▼', 'under -> down arrow');
+    assertEqual(predictionNextGlyph({ direction: 'no_call' }), '·', 'no_call -> middle dot, not an arrow');
+  });
+
+  await test('T-24c: predictionsCurrentTableHtml "last" column reads the latest resolved result for that cell, even with a newer pending call', () => {
+    const [pHit, rHit] = predPair(0, { hit: true }); // resolved hit, older
+    const [pMiss, rMiss] = predPair(1, { hit: false }); // resolved miss, newer than the hit
+    const [pPending] = predPair(2); // newest, no result yet -> becomes `current`, not `last`
+    const agg = computePredictionsAggregate([pHit, rHit, pMiss, rMiss, pPending], []);
+    assert(!agg.current['BTC:5m'].resolved, 'the newest pending prediction is `current`');
+    const html = predictionsCurrentTableHtml(agg);
+    const row = html.slice(html.indexOf('id="pred-row-btc-5m"'), html.indexOf('id="pred-row-eth-5m"'));
+    assert(row.includes('class="pred-current-last">✗<'), 'last column shows the miss - the most recently RESOLVED result, not the still-pending newest call');
+
+    const onlyHit = computePredictionsAggregate([pHit, rHit], []);
+    const rowHit = predictionsCurrentTableHtml(onlyHit);
+    assert(rowHit.slice(rowHit.indexOf('id="pred-row-btc-5m"')).includes('class="pred-current-last">✓<'), 'a resolved hit shows a checkmark');
+
+    const none = predictionsCurrentTableHtml(EMPTY_PREDICTIONS_AGGREGATE);
+    assert(none.includes('class="pred-current-last">–<'), 'no result yet -> dash');
+  });
+
+  await test('T-24c: predictionsOverallHtml formats the overall hit rate, n and since, plus both baselines', () => {
+    const rows = [];
+    for (let i = 0; i < 20; i++) rows.push(...predPair(i, { hit: i < 14 }));
+    const agg = computePredictionsAggregate(rows, []);
+    const html = predictionsOverallHtml(agg);
+    assert(html.includes('id="pred-overall-rate">70%<'), 'overall hit rate, one-decimal percent formatting (70% here)');
+    assert(html.includes('id="pred-overall-meta">n=20 · since 2026-09-01<'), 'n and since sit under the figure');
+    assert(html.includes('id="pred-overall-baseline">coin flip 50% · same-as-last'), 'both baselines on their own line');
+  });
+
+  await test('T-24c: predictionsOverallHtml/predictionsPanelHtml empty state shows a dash and [NO PREDICTIONS YET]; panel never hidden', () => {
+    const overall = predictionsOverallHtml(EMPTY_PREDICTIONS_AGGREGATE);
+    assert(overall.includes('id="pred-overall-rate' ) && overall.includes('–'), 'empty overall figure is a dash');
+    assert(overall.includes(NO_PREDICTIONS), 'empty state names [NO PREDICTIONS YET]');
+    const panel = predictionsPanelHtml({});
+    assert(panel.includes('id="home-hero-prediction-panel"'), 'panel renders with no aggregate at all');
+    assert(panel.includes('id="pred-current-table"'), 'the 12-row table still renders in the empty state');
+    assert(panel.includes('id="pred-panel-foot-link"') && panel.includes('href="predictions.html"'), 'footer links to predictions.html');
+  });
+
+  await test('T-24c: homeHero places the prediction panel in the hero grid; the live board renders after it, full width, no longer grid-area:board', () => {
+    const html = homeHero([], '2026-09-29T01:00:00.000Z', {});
+    const iShellOpen = html.indexOf('id="home-hero-shell"');
+    const iPanel = html.indexOf('id="home-hero-prediction-panel"');
+    const iBoard = html.indexOf('id="live-board-card"');
+    assert(iShellOpen > -1 && iPanel > iShellOpen, 'prediction panel sits inside home-hero-shell');
+    assert(iBoard > iPanel, 'live board markup follows the prediction panel');
+    // The panel is a single, self-contained block: the live board never nests inside it.
+    const panelOnly = predictionsPanelHtml({});
+    assert(!panelOnly.includes('id="live-board-card"'), 'live board is not part of the panel markup');
+    assert(PREDICTIONS_CSS.includes('.home-hero-prediction-panel{grid-area:board'), 'the panel, not the board, now claims the hero\'s board grid area');
+    assert(!HOME_HERO_CSS.includes('.live-board{grid-area:board}'), 'live board no longer pinned to the hero grid (moved below, full width)');
   });
 
   await test('predictions.html: full breakdown tables, last-50 results, method paragraph and the GitHub study link, empty and populated', () => {

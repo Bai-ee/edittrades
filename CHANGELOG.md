@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-28 — T-24c: homepage prediction panel — big overall hit rate + one token/tf/current-call table, in the hero's right column (worktree `pred-panel`, `docs/PROMPT_T24C_PREDICTION_PANEL.md`)
+
+Owner, 2026-09-28 night: "a single table on the right hand side showing the token, tf and prediction, with the larger winning percentage on top that averages them all together." Presentation + one tracker aggregate field; no engine, payload, schema or rule change.
+
+- `computePredictionsAggregate` (`scripts/tracker/predictions.js`) gains `current`: for each of the 12 `<SYM>:<tf>` cells, the latest `PREDICTION` row still awaiting its result (`{direction, confidence, closedAt, refClose}`), else the latest one with its result (`{..., resolved:true, hit}`), else `null`. Every other field is unchanged.
+- New `id="home-hero-prediction-panel"` (`predictionsPanelHtml`) replaces the old `zone-predictions` grid in the hero's right column (the `board` grid area in `HOME_HERO_CSS`; stacks under Right-now on phones): `id="pred-overall-rate"` (overall hit rate, one-decimal percent) with `n`/`since` under it and a `coin flip 50% · same-as-last <x>%` line - or `[NO PREDICTIONS YET]` with a dash, panel never hidden - then `id="pred-current-table"`, 12 rows `id="pred-row-<sym>-<tf>"` (BTC, ETH, SOL x 5m/15m/1h/4h): token, tf, next-candle glyph (▲/▼/· from `current`), hit rate (from `cells`, n small), and the last resolved result (✓/✗/–, read off the existing `last`-50 list so no cell needs its own pointer). Coloured only at n ≥ 30 beating both baselines (`predCellBeats`, unchanged). Footer links to `predictions.html`.
+- `scripts/tracker/home-hero.js` (placement only): the live board (`live-board.js`) moves out of the hero grid to a full-width block directly below it - its own markup is untouched, only where it's placed. `zone-predictions` is no longer in `build-page.js`'s homepage body list; `predictions.js` still exports `predictionsZone`/`predictionsZoneBody` for `predictions.html`, unchanged there.
+- Tests: `test-tracker.js` 189 → **195** (+6 net: `current`'s pending/resolved/null cases, the 12-row table's order and ids, the "last" column reading the latest *resolved* result even with a newer pending call, overall-figure formatting, the empty state, `zone-predictions` gone from the homepage body while `predictions.html` keeps the same renderer, live board placement below the hero with `grid-area:board` moved to the panel).
+
 ## 2026-09-28 — T-24: prediction tracker — next-candle over/under on 5m/15m/1h/4h for BTC/ETH/SOL, scored and shown on the homepage (branches `pred-rule`, `pred-live`, `pred-site`; three parallel agents, `docs/PROMPT_T24_PREDICTION_TRACKER.md`)
 
 Owner decision 2026-09-28 (night): a strategy that fires at every close so the public record fills fast, info-only, no rule or threshold change anywhere else. Schema stays 1.29.0, configVersion 2026.09.27-3.

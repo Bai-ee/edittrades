@@ -60,7 +60,7 @@ import { renderStrategies } from './strategies-page.js';
 import { renderSpot, readSpotData } from './spot-page.js';
 import { renderProduct } from './product-page.js';
 import { computeProfileCurves } from './profiles.js';
-import { predictionsZone, PREDICTIONS_CSS } from './predictions.js';
+import { PREDICTIONS_CSS } from './predictions.js';
 import { renderPredictionsPage } from './predictions-page.js';
 
 export const PROVISIONAL = 'provisional; not evidence of an edge';
@@ -1164,10 +1164,9 @@ export function renderHtml(agg, data = {}) {
     + `<span id="page-generated-at">GENERATED ${esc(time(agg.generatedAt))} · LAST CLOSE ${esc(time(t.lastClosedThrough))} · ${agg.totals.outcomes} ROWS</span></footer>`;
 
   const body = [
-    // T-24: next-candle prediction grid, directly under the hero's right-now cards (topStrip
-    // above) and above the strategy scoreboard. Never omitted - predictionsZone renders its
-    // own [NO PREDICTIONS YET] empty state when agg.predictions has nothing yet.
-    predictionsZone(agg),
+    // T-24c: the next-candle prediction grid moved into the hero's right column
+    // (home-hero-prediction-panel, homeHero() above) - zone-predictions is no longer placed on
+    // the homepage. Its renderer stays exported from predictions.js for predictions.html.
     zone({
       id: 'zone-system', title: 'System', sub: 'Automated tracker · testing window',
       tiles: [
