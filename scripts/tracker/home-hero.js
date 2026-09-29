@@ -259,16 +259,19 @@ export function homeHero(liveRows, generatedAt, agg) {
     + `<div class="home-hero-actions" id="home-hero-actions"><a class="home-hero-action is-primary" id="home-hero-calls-link" href="#zone-calls">See every call</a>`
     + `<a class="home-hero-action" id="home-hero-howto-link" href="how-to.html">How to use it</a>`
     + `<a class="home-hero-action" id="home-hero-product-link" href="product.html">What EditTrades is</a></div></div></div>`;
-  const hero = `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${rightNowCards(rows)}${predictionsPanelHtml(agg)}</div>`;
-  return `${hero}${liveBoard(rows, generatedAt, agg)}`;
+  // Owner 2026-09-29: no per-coin cards on the homepage. Right column = prediction panel on top,
+  // live board (net PnL per scored GOOD call + per-coin tabs) under it. rightNowCards stays exported.
+  const column = `<div class="home-hero-side-column" id="home-hero-side-column">${predictionsPanelHtml(agg)}${liveBoard(rows, generatedAt, agg)}</div>`;
+  return `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${column}</div>`;
 }
 
 export const HOME_HERO_CSS = `
 /* home hero: EditTrax headline + net-R card. Type sizes track each column (cqi):
    the widest headline line is ~5.5em, a six-glyph figure (+10.25R) ~3.6em. */
 @font-face{font-family:"Mathias";src:url("fonts/mathias-bold.ttf") format("truetype");font-weight:700;font-style:normal;font-display:swap}
-.home-hero{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"headline" "now" "board";gap:var(--sp-6);padding:var(--sp-6) 0 var(--sp-7)}
-@media (min-width:1024px){.home-hero{grid-template-columns:minmax(0,7fr) minmax(0,5fr);grid-template-areas:"headline board" "now board";gap:var(--sp-7);padding:var(--sp-8) 0}}
+.home-hero{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"headline" "board";gap:var(--sp-6);padding:var(--sp-6) 0 var(--sp-7)}
+@media (min-width:1024px){.home-hero{grid-template-columns:minmax(0,7fr) minmax(0,5fr);grid-template-areas:"headline board";gap:var(--sp-7);padding:var(--sp-8) 0;align-items:start}}
+.home-hero-side-column{grid-area:board;display:flex;flex-direction:column;gap:var(--sp-4);min-width:0}
 .home-hero-headline-panel{grid-area:headline;container-type:inline-size;display:flex;flex-direction:column;justify-content:center;gap:var(--sp-5);min-width:0}
 .home-hero-title{margin:0;font:700 clamp(26px,4.4cqi,42px)/1.25 "Mathias","Space Grotesk",system-ui,sans-serif;letter-spacing:0;color:var(--text-display)}
 .home-hero-copy{display:flex;flex-direction:column;gap:var(--sp-5)}

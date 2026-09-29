@@ -984,7 +984,7 @@ async function run() {
     const html = renderHtml(agg, { liveRows: LIVE_ROWS });
     for (const id of [
       'home-hero-shell', 'home-hero-headline-panel', 'home-hero-title', 'home-hero-lede',
-      'home-hero-right-now', 'home-hero-now-btc', 'home-hero-now-eth', 'home-hero-now-sol',
+      'home-hero-side-column', 'home-hero-prediction-panel',
       'live-board-card', 'live-board-tabs', 'live-board-panel-all', 'live-board-panel-eth', 'live-board-panel-btc', 'live-board-asof-line'
     ]) {
       assert(html.includes(`id="${id}"`), `missing #${id}`);
@@ -993,7 +993,8 @@ async function run() {
     assert(html.includes(`id="home-hero-title">${esc(buildHeadline(LIVE_ROWS))}</h1>`), 'headline is the data-driven sentence, server-rendered (T-23)');
     assert(!html.includes('id="home-hero-title-data"'), 'no client-side title-rotation payload any more (headline is data-driven, not stacked words)');
     assert(html.includes(`id="home-hero-lede">${esc(buildLede(LIVE_ROWS))}</p>`), 'lede states the data-as-of time from the latest closed candle');
-    assert(html.includes('id="home-hero-now-sol"') && html.includes('No live capture yet.'), 'SOL has no row in this fixture but its Right-now card still renders, never hidden');
+    assert(!html.includes('id="home-hero-right-now"') && !html.includes('id="home-hero-now-btc"'), 'no per-coin Right-now cards on the homepage (owner 2026-09-29)');
+    assert(html.indexOf('id="home-hero-prediction-panel"') < html.indexOf('id="live-board-card"'), 'prediction panel sits above the live board in the side column');
     assert(html.indexOf('id="tracker-top-edge-strip"') < html.indexOf('id="home-hero-shell"'), 'hero follows the top edge');
     assert(html.indexOf('id="home-hero-shell"') < html.indexOf('id="tracker-jump-nav"'), 'hero sits above the jump nav');
     assert(html.includes('src:url("fonts/mathias-bold.ttf")'), 'Mathias loaded from docs/fonts');

@@ -406,7 +406,7 @@ export const PREDICTIONS_CSS = `
 .pred-summary{margin:0;font:400 12px/1.4 var(--mono);color:var(--text-secondary)}
 /* home-hero-prediction-panel (T-24c): hero right column, hard-capped at 40vh like live-board -
    the current-call table scrolls inside it, the panel itself never grows past the cap. */
-.home-hero-prediction-panel{grid-area:board;container-type:inline-size;display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;max-height:40vh;overflow:hidden;padding:var(--sp-3) var(--sp-4);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+.home-hero-prediction-panel{container-type:inline-size;display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;max-height:40vh;overflow:hidden;padding:var(--sp-3) var(--sp-4);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
 .pred-overall-block{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;padding-bottom:var(--sp-2);border-bottom:1px solid var(--border)}
 .pred-overall-rate{font:700 clamp(40px,11cqi,64px)/.95 var(--doto);letter-spacing:-.03em;color:var(--text-display);font-variant-numeric:tabular-nums}
 .pred-overall-rate.is-empty{color:var(--text-disabled)}
