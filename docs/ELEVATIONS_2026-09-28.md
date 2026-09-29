@@ -34,6 +34,14 @@ Owner supplies: `ANTHROPIC_API_KEY`, `TRACKER_CHAT_PIN` in Vercel env; one prod 
 
 Risks: token spend if the PIN leaks (cap bounds it); answer quality limited by what fits in context; Vercel function count (Pro, fine).
 
+## E3 — Prediction tracker — SHIPPED 2026-09-28 (T-24)
+
+Next-candle over/under on 5m/15m/1h/4h for BTC/ETH/SOL at every close, scored at the next close vs coin flip and same-as-last, per cell / timeframe / coin / overall / during-GOOD. Homepage `zone-predictions` grid + `predictions.html`. Info-only. 2-year replay 48.2% (no edge; the tracker is the point). See `docs/PROMPT_T24_PREDICTION_TRACKER.md`, `docs/PREDICTION_STUDY_2026-09-28.md`.
+
+## E4 — Live numbers without a page rebuild (not started)
+
+Engine cron writes `live/summary.json` to public Blob every minute; the page polls it every 30–60 s and swaps numbers in place. Fixes the STALLED tile for good. Medium, one phase.
+
 ## Order
 
 E1 first (small, unblocks the GPT wording), then E2.

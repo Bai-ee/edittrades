@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-28 — T-24: prediction tracker — next-candle over/under on 5m/15m/1h/4h for BTC/ETH/SOL, scored and shown on the homepage (branches `pred-rule`, `pred-live`, `pred-site`; three parallel agents, `docs/PROMPT_T24_PREDICTION_TRACKER.md`)
+
+Owner decision 2026-09-28 (night): a strategy that fires at every close so the public record fills fast, info-only, no rule or threshold change anywhere else. Schema stays 1.29.0, configVersion 2026.09.27-3.
+
+- **Rule** `lib/predictionRule.js` (pure, `ruleVersion pred-1`): five votes per closed candle (close vs EMA21 on the timeframe, EMA21 vs EMA200, close vs EMA21 on the next timeframe up, StochRSI %K rising < 80 / falling > 20, last confirmed swing higher-high / lower-low); `over` at score ≥ +2, `under` at ≤ −2, else `no_call`; confidence = |score|/5. Reuses `emaSeries`, `swingPivots`, `calculateStochasticRSI`. `test:predrule` 21. Replay `scripts/predictions/replay.js` over `deep2y-2026-09-26`: **48.2% hit rate on 585,826 closes vs coin flip 50.0% and same-as-last 48.5%** — no edge; a starting instrument for the tracker, not a signal (`docs/PREDICTION_STUDY_2026-09-28.md`).
+- **Live writer** `lib/predictionLive.js` + `api/telegram-cron.js` hook (after the HTF evaluation, `PREDICTIONS_ENABLED !== 'false'`, failures logged `[Pred] skipped=` and swallowed): per symbol × timeframe, on a newly closed candle it appends the pending call's `PREDICTION_RESULT` (hit / moveBps / lastCandleDir baseline) then a new `PREDICTION` row to Blob `predictions/<UTC day>.jsonl` + `predictions/manifest.json` (`appendJsonlDay`, dedupe id+kind); candles via the existing `fetchClosedCandles`, no second exchange client. `state.predictions {pending, lastClose}` added to the Telegram state (additive). No alert of any kind. `test:predlive` 22; `test:telegram` 162 with guards green.
+- **Tracker + site** `scripts/tracker/predictions.js` (Blob pull like served calls, join, aggregate `aggregates.json.predictions`: cells, byTimeframe, bySymbol, overall, duringGood, last 50), `scripts/tracker/predictions-page.js` → `predictions.html` (+ nav link `tracker-predictions-link`), homepage `zone-predictions` right after the hero: 3×4 grid `pred-cell-<sym>-<tf>` with hit rate and n, coloured only at n ≥ 30 and above both baselines, empty state `[NO PREDICTIONS YET]`. `test:tracker` 189.
+- Architecture map: four entries (119 files). `docs/ELEVATIONS_2026-09-28.md` E3 shipped.
+
 ## 2026-09-28 — T-23: homepage says what the engine sees right now (headline, subhead, Right-now cards)
 
 Owner decision 2026-09-28 (evening), `docs/PROMPT_T23_HOMEPAGE_RIGHT_NOW.md`. Presentation only; no engine, payload, schema, rule, Telegram or execution change.
