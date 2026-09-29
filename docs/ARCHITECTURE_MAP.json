@@ -163,6 +163,41 @@
           "schemaSince": null
         },
         {
+          "path": "lib/predictionRule.js",
+          "name": "predictionRule",
+          "role": "T-24 pure next-candle over/under rule (5 votes: EMA21/EMA200 side, higher-tf EMA21, StochRSI, last swing) for 5m/15m/1h/4h; no I/O.",
+          "publishes": [
+            "predictNextCandle()"
+          ],
+          "consumes": [
+            "closed candles"
+          ],
+          "tests": [
+            "test:predrule"
+          ],
+          "since": "2026-09-28",
+          "schemaSince": null
+        },
+        {
+          "path": "lib/predictionLive.js",
+          "name": "predictionLive",
+          "role": "T-24 live writer for the Telegram cron: on each newly closed candle per symbol and timeframe it appends the pending PREDICTION_RESULT and a new PREDICTION row to Blob predictions/<day>.jsonl, keeps state.predictions, sends no alert.",
+          "publishes": [
+            "predictions/<day>.jsonl",
+            "predictions/manifest.json"
+          ],
+          "consumes": [
+            "live candles via lib/retest1hLive.js fetchClosedCandles",
+            "lib/predictionRule.js"
+          ],
+          "tests": [
+            "test:predlive",
+            "test:telegram"
+          ],
+          "since": "2026-09-28",
+          "schemaSince": null
+        },
+        {
           "path": "lib/slowTrendSpot.js",
           "name": "slowTrendSpot",
           "role": "Daily SMA140 spot regime per symbol; alerts only when the regime flips (stand-in for the research 4h SMA840 rule).",
@@ -1347,6 +1382,40 @@
           "schemaSince": "1.28.0"
         },
         {
+          "path": "scripts/tracker/predictions.js",
+          "name": "predictions",
+          "role": "T-24 tracker: pulls prediction rows from Blob, joins PREDICTION to PREDICTION_RESULT, computes per cell / timeframe / coin / overall / during-GOOD hit rates vs coin flip and same-as-last baselines, renders the homepage zone-predictions grid.",
+          "publishes": [
+            "aggregates.json.predictions",
+            "zone-predictions"
+          ],
+          "consumes": [
+            "data/predictions/",
+            "good-call-outcomes.jsonl"
+          ],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-28",
+          "schemaSince": null
+        },
+        {
+          "path": "scripts/tracker/predictions-page.js",
+          "name": "predictions-page",
+          "role": "Builds the static predictions page (predictions.html): tables by cell, timeframe, coin, during-GOOD, last 50 results.",
+          "publishes": [
+            "predictions.html"
+          ],
+          "consumes": [
+            "aggregates.json.predictions"
+          ],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-28",
+          "schemaSince": null
+        },
+        {
           "path": "scripts/tracker/profileConfig.js",
           "name": "profileConfig",
           "role": "Vendored, dependency-free copy of PROFILES/PROFILE_KEYS/tieredPolicyConfig from lib/execution/riskPolicy.js, so the tracker repo runs profiles.js/strategies-page.js with no engine checkout (same pattern as walk-outcome.js and nf-shadow.js NF_RULE).",
@@ -1381,7 +1450,7 @@
         {
           "path": "scripts/tracker/strategies-page.js",
           "name": "strategies-page",
-          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) \u2014 split from risk-page.js at merge, same slot originally contested.",
+          "role": "Builds the Wallet strategies page (profile table, which one is live, equity curves, 30-trade evaluation) — split from risk-page.js at merge, same slot originally contested.",
           "publishes": [
             "strategies.html"
           ],
@@ -2155,13 +2224,13 @@
       {
         "stage": "market-data",
         "short": "Market",
-        "label": "price \u00b7 mark \u00b7 account",
+        "label": "price · mark · account",
         "tier": "context"
       },
       {
         "stage": "indicators-geometry",
         "short": "Indicators",
-        "label": "timeframes \u00b7 geometry",
+        "label": "timeframes · geometry",
         "tier": "context"
       },
       {
@@ -2173,13 +2242,13 @@
       {
         "stage": "bias-topdown",
         "short": "Bias",
-        "label": "bias \u00b7 top-down",
+        "label": "bias · top-down",
         "tier": "context"
       },
       {
         "stage": "trade-plan",
         "short": "Plan",
-        "label": "plan \u00b7 risk \u00b7 strategies",
+        "label": "plan · risk · strategies",
         "tier": "context"
       },
       {
@@ -2239,7 +2308,7 @@
           "collect",
           "telegram-cron"
         ],
-        "label": "journal \u00b7 served \u00b7 alerts",
+        "label": "journal · served · alerts",
         "tier": "context"
       }
     ],
