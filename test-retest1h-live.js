@@ -688,6 +688,15 @@ async function main() {
     void crypto; void fetchClosedDailyCandles;
   });
 
+  await test('fetchClosedCandles: a short symbol is fetched as its USDT pair (ETH -> ETHUSDT), a pair passes through', async () => {
+    const seen = [];
+    const fetchCandles = async (symbol, tf) => { seen.push(`${symbol}:${tf}`); return { candles: [] }; };
+    await fetchClosedCandles('ETH', '5m', { fetchCandles });
+    await fetchClosedCandles('SOLUSDT', '1h', { fetchCandles });
+    await fetchClosedCandles('btc', '4h', { fetchCandles });
+    assert(seen.join(',') === 'ETHUSDT:5m,SOLUSDT:1h,BTCUSDT:4h', seen.join(','));
+  });
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) {
     console.log('Failures:', failures.join(', '));

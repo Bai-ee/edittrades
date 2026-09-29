@@ -3629,7 +3629,7 @@ async function run() {
 
   function predRow(id, symbol, timeframe, closedAt, refClose, direction) {
     return { id, kind: 'PREDICTION', symbol, timeframe, closedAt, refClose, direction, confidence: Math.abs({ over: 2, under: -2, no_call: 0 }[direction] || 0) / 5,
-      inputs: {}, reason: 'test', configVersion: 'v-test', ruleVersion: 'pred-1', writtenAt: closedAt };
+      inputs: {}, reason: 'test', configVersion: 'v-test', ruleVersion: 'pred-1.1', writtenAt: closedAt };
   }
   function resultRow(id, symbol, timeframe, closedAt, refClose, nextClose, hit, lastCandleDir) {
     return { id, kind: 'PREDICTION_RESULT', symbol, timeframe, closedAt, refClose, nextClose,
@@ -3702,6 +3702,13 @@ async function run() {
     assertEqual(joined.length, 2, 'one row per PREDICTION');
     assertEqual(joined.find((j) => j.id === p1.id).result.id, r1.id, 'resolved prediction carries its result');
     assertEqual(joined.find((j) => j.id === p2.id).result, null, 'unresolved prediction has a null result');
+  });
+
+  await test('joinPredictions: rows from an ignored rule version (pred-1, BTC-candle bug) are dropped', async () => {
+    const good = predRow('ETH:5m:2026-09-29T05:00:00.000Z', 'ETH', '5m', '2026-09-29T05:00:00.000Z', 2650, 'over');
+    const bad = { ...predRow('ETH:5m:2026-09-29T04:00:00.000Z', 'ETH', '5m', '2026-09-29T04:00:00.000Z', 83035.7, 'under'), ruleVersion: 'pred-1' };
+    const joined = joinPredictions([bad, good]);
+    assert(joined.length === 1 && joined[0].id === good.id, JSON.stringify(joined.map((r) => r.id)));
   });
 
   await test('computePredictionsAggregate: hitRate math - no_call excluded from n but counted in noCalls', () => {

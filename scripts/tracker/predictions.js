@@ -116,8 +116,11 @@ export async function pullPredictions(dataDir, base, fetchImpl = fetch, nowMs = 
  * @param {Array<Object>} rows - data/predictions rows (PREDICTION + PREDICTION_RESULT)
  * @returns {Array<{id:string, symbol:string, timeframe:string, closedAt:string, direction:string, confidence:number, prediction:Object, result:Object|null}>}
  */
+/** Rule versions whose rows are dropped from every aggregate: pred-1 wrote BTC candles for ETH/SOL (engine short-symbol fetch bug, fixed 2026-09-29). */
+export const IGNORED_RULE_VERSIONS = Object.freeze(['pred-1']);
+
 export function joinPredictions(rows) {
-  const predictions = (rows || []).filter((r) => r && r.kind === 'PREDICTION');
+  const predictions = (rows || []).filter((r) => r && r.kind === 'PREDICTION' && !IGNORED_RULE_VERSIONS.includes(r.ruleVersion));
   const results = new Map((rows || []).filter((r) => r && r.kind === 'PREDICTION_RESULT').map((r) => [r.id, r]));
   return predictions.map((p) => ({
     id: p.id, symbol: p.symbol, timeframe: p.timeframe, closedAt: p.closedAt,

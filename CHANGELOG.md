@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-29 — Fix: live candle fetch used BTC candles for ETH and SOL (short-symbol fallback); prediction rows before the fix ignored
+
+Found from the first T-24 prediction rows: ETH and SOL predictions carried BTC prices. `lib/retest1hLive.js` `fetchClosedCandles` passed the short symbol (`ETH`) to `services/marketData.js`, whose `SYMBOL_MAP` is keyed by pair and falls back to `XBTUSD` for anything else. The same accessor serves the live RETEST 1H (since 2026-09-27) and HTF-anchored entry (since 2026-09-28) evaluations, so their ETH and SOL evaluations ran on BTC candles until this deploy; neither produced a signal in that window (0 RETEST, 0 HTF on the tracker), so no card, trade, or scored call was affected. The flag engine, payload, GPT and MCP were never on this path (they build from `services/scalpContext.js`, which maps pairs itself).
+
+- `lib/retest1hLive.js`: new `candlePairOf(symbol)` (`BTC` → `BTCUSDT`, a pair passes through), applied inside `fetchClosedCandles`. One regression test (`test:retest1h` 25).
+- `lib/predictionLive.js`: `RULE_VERSION` `pred-1` → `pred-1.1`. `scripts/tracker/predictions.js`: `IGNORED_RULE_VERSIONS = ['pred-1']`, dropped before the join, so the 24 pre-fix rows (2026-09-29 04:00–04:15Z) never count (`test:tracker` 190). Blob rows are kept as written; nothing deleted.
+
 ## 2026-09-28 — T-24: prediction tracker — next-candle over/under on 5m/15m/1h/4h for BTC/ETH/SOL, scored and shown on the homepage (branches `pred-rule`, `pred-live`, `pred-site`; three parallel agents, `docs/PROMPT_T24_PREDICTION_TRACKER.md`)
 
 Owner decision 2026-09-28 (night): a strategy that fires at every close so the public record fills fast, info-only, no rule or threshold change anywhere else. Schema stays 1.29.0, configVersion 2026.09.27-3.
