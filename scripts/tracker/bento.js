@@ -46,7 +46,20 @@ export function sub(id, title, content, open = false) {
   return `<details class="sub" id="${id}"${open ? ' open' : ''}><summary class="sub-title" id="${id}-summary">${esc(title)}</summary>${content}</details>`;
 }
 
-/** @param {Array<[string, string, string?]>} links - [href, label, extra attrs] */
+/**
+ * Pill nav; below 1024px it collapses behind a "Menu" burger. CSS-only (hidden checkbox + label)
+ * because some pages, product.html included, must ship no script.
+ * @param {Array<[string, string, string?]>} links - [href, label, extra attrs]
+ */
 export function jumpNav(id, links) {
-  return `<nav class="jump-nav" id="${id}" aria-label="Sections">${links.map(([href, label, attrs = '']) => `<a href="${esc(href)}"${attrs ? ` ${attrs}` : ''}>${esc(label)}</a>`).join('')}</nav>`;
+  const anchors = links.map(([href, label, attrs = '']) => `<a href="${esc(href)}"${attrs ? ` ${attrs}` : ''}>${esc(label)}</a>`).join('');
+  return `<nav class="jump-nav" id="${id}" aria-label="Sections">`
+    + `<input class="jump-nav-toggle" type="checkbox" id="${id}-toggle" aria-label="Open section menu">`
+    + `<label class="jump-nav-burger" id="${id}-burger" for="${id}-toggle"><span class="jump-nav-bars" aria-hidden="true"></span>Menu</label>`
+    + `<div class="jump-nav-links" id="${id}-links">${anchors}</div></nav>`;
+}
+
+/** Homepage only (the one page with an inline script): close the open menu after a section link is tapped. */
+export function jumpNavScript() {
+  return `(function(){document.querySelectorAll('.jump-nav-links a').forEach(function(a){a.addEventListener('click',function(){var t=a.closest('.jump-nav').querySelector('.jump-nav-toggle');if(t)t.checked=false;});});})();`;
 }
