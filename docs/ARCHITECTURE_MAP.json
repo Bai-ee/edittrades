@@ -1447,7 +1447,7 @@
         {
           "path": "scripts/tracker/home-hero.js",
           "name": "home-hero",
-          "role": "The tracker homepage hero: EditTrax headline beside the signed net R per scored call and the data volume behind it.",
+          "role": "The tracker homepage hero: EditTrax headline beside the live board (live-board.js).",
           "publishes": [
             "homeHero",
             "HOME_HERO_CSS"
@@ -1458,6 +1458,22 @@
           ],
           "since": "2026-09-27",
           "schemaSince": "1.28.0"
+        },
+        {
+          "path": "scripts/tracker/live-board.js",
+          "name": "live-board",
+          "role": "The homepage live board card (capped at 40vh): flag radar, called direction, timeframe lean, path odds, gate and kill lines per symbol, from the newest capture row.",
+          "publishes": [
+            "liveBoard",
+            "parseBias",
+            "LIVE_BOARD_CSS"
+          ],
+          "consumes": [],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-09-29",
+          "schemaSince": "1.29.0"
         },
         {
           "path": "scripts/tracker/product-page.js",

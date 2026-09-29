@@ -38,7 +38,7 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, ensureDir, readJsonl, readJson, readWallet, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile } from './store.js';
+import { parseArgs, ensureDir, readJsonl, readJson, readWallet, latestCallPerSymbol, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile } from './store.js';
 import { aggregateDataDir, computeAlertAggregates, READY_WITHIN_MIN } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
@@ -51,8 +51,9 @@ import {
   FILTER_DIMS, WALLET_RANGES, DEFAULT_WALLET_RANGE, NO_SCORED_CHART, NO_WALLET, NO_JOURNAL, NO_JOURNAL_TRADES, CHART_CSS
 } from './charts.js';
 import { PAGE_CSS } from './page-style.js';
-import { tile, zone, sub, jumpNav } from './bento.js';
+import { tile, zone, sub, jumpNav, jumpNavScript } from './bento.js';
 import { homeHero, homeHeroScript, HOME_HERO_CSS } from './home-hero.js';
+import { LIVE_BOARD_CSS } from './live-board.js';
 import { renderHowTo } from './how-to-page.js';
 import { renderRisk } from './risk-page.js';
 import { renderStrategies } from './strategies-page.js';
@@ -969,7 +970,7 @@ export function renderHtml(agg, data = {}) {
   // Top edge, homepage hero (home-hero.js), then the sticky jump nav.
   const topStrip = `<header class="edge-strip" id="tracker-top-edge-strip"><span id="tracker-page-title">EDITTRADES / CALL TRACKER</span>`
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
-    + homeHero(agg)
+    + homeHero(Array.isArray(data.liveRows) ? data.liveRows : [], agg.generatedAt, agg)
     + jumpNav('tracker-jump-nav', [
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
       ['#zone-wallet-strategies', 'Strategies'],
@@ -1231,7 +1232,7 @@ export function renderHtml(agg, data = {}) {
 <title>EditTrades Call Tracker</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700&family=Space+Grotesk:wght@400;500&family=Space+Mono:wght@400&display=swap">
 <style>
-${PAGE_CSS}${HOME_HERO_CSS}${CHART_CSS}
+${PAGE_CSS}${HOME_HERO_CSS}${LIVE_BOARD_CSS}${CHART_CSS}
 </style>
 </head>
 <body>
@@ -1243,7 +1244,7 @@ ${bottomStrip}
 </main>
 <script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows, setup: setupRows })}</script>
 <script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods, marks })}</script>
-<script>${chartScript()}${statusScript()}${homeHeroScript()}</script>
+<script>${chartScript()}${statusScript()}${homeHeroScript()}${jumpNavScript()}</script>
 </body>
 </html>
 `;
@@ -1327,6 +1328,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const telegram = readJson(telegramStatusFile(dataDir), null);
   const profileCurves = computeProfileCurves({ journalRecords: journal, journalOutcomes, callOutcomes: outcomes });
   writeFileSync(htmlFile, renderHtml(agg, {
+    liveRows: latestCallPerSymbol(dataDir),
     outcomes, wallet: readWallet(dataDir),
     journal, journalOutcomes,
     telegram,

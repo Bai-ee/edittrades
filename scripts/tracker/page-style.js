@@ -42,6 +42,19 @@ footer.edge-strip{border-top:1px solid var(--border);margin-top:var(--zone-gap);
 /* jump nav: sticky, wraps onto more rows on phones; anchor jumps are instant */
 .jump-nav{position:sticky;top:0;z-index:var(--z-sticky);display:flex;flex-wrap:wrap;gap:var(--sp-2);margin:0 calc(-1 * var(--sp-4));padding:var(--sp-3) var(--sp-4);background:var(--black);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 .jump-nav a{flex:0 0 auto;display:inline-flex;align-items:center;min-height:36px;padding:0 var(--sp-3);border:1px solid var(--border-visible);border-radius:999px;color:var(--text-primary);text-decoration:none;white-space:nowrap;transition:background-color .2s cubic-bezier(.25,1,.5,1),color .2s cubic-bezier(.25,1,.5,1)}
+.jump-nav-links{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.jump-nav-toggle{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.jump-nav-burger{display:none}
+@media (max-width:1023px){
+  .jump-nav{flex-direction:column;flex-wrap:nowrap;gap:0}
+  .jump-nav-burger{display:inline-flex;align-items:center;gap:var(--sp-3);min-height:44px;font:400 var(--fs-sm)/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--text-display);cursor:pointer;user-select:none}
+  .jump-nav-bars{position:relative;display:block;box-sizing:border-box;width:18px;height:14px;border-top:2px solid currentColor;border-bottom:2px solid currentColor}
+  .jump-nav-bars::after{content:"";position:absolute;left:0;right:0;top:50%;margin-top:-1px;border-top:2px solid currentColor}
+  .jump-nav-toggle:focus-visible + .jump-nav-burger{outline:1px solid var(--text-display);outline-offset:2px}
+  .jump-nav-links{display:none;flex-direction:column;flex-wrap:nowrap;gap:var(--sp-2);max-height:70vh;overflow-y:auto;padding:var(--sp-2) 0 var(--sp-1)}
+  .jump-nav-toggle:checked ~ .jump-nav-links{display:flex}
+  .jump-nav-links a{width:100%;min-height:44px;justify-content:flex-start}
+}
 .jump-nav a:hover{border-color:var(--text-display)}
 .jump-nav a.is-page{background:var(--text-display);border-color:var(--text-display);color:var(--black)}
 .jump-nav a:focus-visible,.nav-link:focus-visible,summary:focus-visible{outline:1px solid var(--text-display);outline-offset:2px}

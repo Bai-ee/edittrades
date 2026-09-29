@@ -112,6 +112,26 @@ export function readAllCalls(dataDir) {
 }
 
 /**
+ * Newest stored capture row per symbol (homepage live board). Reads only the latest day file
+ * that has rows, so it stays cheap as the calls directory grows.
+ * @returns {Array<Object>} at most one row per symbol
+ */
+export function latestCallPerSymbol(dataDir) {
+  const dir = callsDir(dataDir);
+  if (!existsSync(dir)) return [];
+  const files = readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f)).sort().reverse();
+  const latest = new Map();
+  for (const f of files.slice(0, 2)) {
+    for (const row of readJsonl(path.join(dir, f))) {
+      const prev = latest.get(row.symbol);
+      if (!prev || Date.parse(row.closedThrough) >= Date.parse(prev.closedThrough)) latest.set(row.symbol, row);
+    }
+    if (latest.size >= 3) break;
+  }
+  return [...latest.values()];
+}
+
+/**
  * Append call rows, skipping any symbol+closedThrough already stored (a cron that sees
  * the same close twice writes nothing the second time).
  * @returns {{added:number, duplicates:number}}
