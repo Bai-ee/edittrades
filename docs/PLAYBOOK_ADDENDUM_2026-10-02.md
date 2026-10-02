@@ -40,3 +40,11 @@ Section 13 of `EditTrades_Living_Scalp_Playbook_v2.docx`, after `docs/PLAYBOOK_A
 **Moved out of the box 2026-10-02 (field dictionaries, rules unchanged):**
 - `config` = stop cap, R:R minimums, risk caps. `account.margin.usd` = capital; `account.holdingsUsd` = exposure; `account.performance` = the P&L meter.
 - `decisionTrace.bias` is present on every response; `ct` = counter-trend count. Trace tokens `+td:<sentiment>:<n>/4` (top-down vote) and `+a200:<count>/<of>` (EMA200 side count) are context: they never veto, and MAs are never targets.
+
+**Frozen plans in the GPT's own track flow (no engine lock needed).** `track` replies now carry a `CAP:` line, the no-chase price, set before the move. From then on the TRACK lines are frozen: `now?` answers only FIRED (GO IN at those levels) / NOT YET / MISSED (past CAP, unfilled) / NULL (thesis null or window over). Never a new retest zone, a better entry, or a re-measured "extended" call. A lock in `locks[]` for the same setup wins over the chat's TRACK lines.
+
+**Moved out of the box 2026-10-02, second pass (lists, rules unchanged):**
+- PRIORITY order when space is short: GO/HOLD/DON'T > direction > thesis > entry > confirmation > elimination > stop > TP1/time > TP2/time > time stop > leverage > size > wallet risk > $ loss > PnL > exposure > win/loss.
+- `track` sources: 1m–5m timing, 15m–4h structure, EMAs, Stoch, zones/diagonals/confluence, `candidateSetups`, extension, the engine.
+- Trend fields: `structure.aboveEma21` / `structure.aboveEma200`.
+- `biasMatrix` / `alignment` / `decisionInputs` exist only on the MCP tool (with `include=bias`); the compact REST call never has them.
