@@ -18,6 +18,8 @@ import { buildScalpContext, filterPayload, wantsBias, wantsModel, capOptInSectio
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { recordServedCalls } from '../lib/servedCalls.js';
+import { readStoredLocks, lockFeed } from '../lib/lockFeed.js';
+import { get as blobGet } from '@vercel/blob';
 import crypto from 'crypto';
 
 /**
@@ -71,7 +73,10 @@ export default function handler(req, res) {
  * @param {Function} [deps.build=buildScalpContext] - injectable, for tests
  * @param {Function} [deps.record=recordServedCalls] - injectable, for tests
  */
-export async function handleScalpContext(req, res, { build = buildScalpContext, record = recordServedCalls } = {}) {
+/** The owner's stored trade locks (Telegram state blob), or null without a Blob token. */
+const defaultReadLocks = () => (process.env.BLOB_READ_WRITE_TOKEN ? readStoredLocks({ get: blobGet }) : Promise.resolve(null));
+
+export async function handleScalpContext(req, res, { build = buildScalpContext, record = recordServedCalls, readLocks = defaultReadLocks } = {}) {
   // /api/mcp is routed into this function because the project is at the Vercel
   // Hobby 12-function ceiling. It is dispatched before any REST logic runs and
   // shares nothing with it: no auth, status codes, or response shape below this
@@ -141,17 +146,24 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
       ...(wantsModel(include) ? { includeModel: true } : {})
     };
     const optBuild = Object.keys(buildOpts).length > 0 ? buildOpts : null;
+    // Trade locks (docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md): the stored list is read
+    // in parallel with the build (never throws, capped), then re-judged on this build below.
+    const storedLocksPromise = chartRequest ? Promise.resolve(null) : Promise.resolve().then(readLocks).catch(() => null);
     const payload = chartRequest
       ? await build({ ...buildOpts, chart: { ...chartRequest, onSeries: (s) => { chartSeries = s; } } })
       : await (optBuild ? build(optBuild) : build());
 
     // Query-param filtering (phase 5): parsed after auth, auth code above is untouched.
     // No params -> filterPayload is a no-op and the response is today's full payload.
-    const capped = capOptInSections(filterPayload(payload, {
+    const narrowed = filterPayload(payload, {
       symbols: parseListParam(req.query && req.query.symbols),
       include,
       compact: parseCompactParam(req.query && req.query.compact)
-    }));
+    });
+    // `locks` only when the store answered; added before the byte cap so opt-in model/bias
+    // sections drop before the owner's locks do. Never on the MCP path (dispatched above).
+    const locks = lockFeed(await storedLocksPromise, payload, Date.now());
+    const capped = capOptInSections(locks && narrowed && typeof narrowed === 'object' ? { ...narrowed, locks } : narrowed);
     const filtered = capped.payload;
     if (capped.dropped) console.log(`[ScalpContext] requestId=${requestId} optInDropped=true bytes=${capped.bytes}`);
 

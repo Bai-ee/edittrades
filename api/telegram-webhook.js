@@ -68,8 +68,11 @@ import {
   formatExecStatus, formatKilled, formatArmed, formatModeCard, putExecTicket, findExecTicket, takeExecTicket,
   parseRiskArgs, applyRiskPrefsChange, formatRiskStatus,
   stopFloorOf, stopFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, msgHeader, CHART_GRID_TIMEFRAMES,
-  PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal
+  PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal,
+  parseState, shortRef
 } from '../lib/telegram.js';
+import { applyLockChange, formatLockCard, formatLocksList, lockKeyboard, parseManualLock } from '../lib/telegramLock.js';
+import { createLock, evaluateLock, normalizeLocks, openLocks } from '../lib/tradeLock.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 // T-20 HTF-anchored entry (owner-approved "ships live-capable" 2026-09-27). Open resolves
 // through its OWN dedicated intent builder (orderIntentFromHtfPlan), never
@@ -1056,6 +1059,98 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
               tradeKeyboard(entry.symbol, entry.timeframe, entry.candidateId, { tracked: true }));
             await swapOriginal(parsed.ref, true);
           }
+        }
+      }
+    } else if (['lock', 'locks', 'unlock', 'lock_tap', 'lock_now', 'lock_took'].includes(cmd)) {
+      // Trade lock (docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md): levels freeze at the tap;
+      // every later answer judges those levels only (lib/tradeLock.js).
+      const ref = parsed.ref || (cmd === 'unlock' && /^[0-9a-f]{8}$/.test(String(parsed.args[0] || '')) ? parsed.args[0] : null);
+      const lockChange = (change) => writeState((text) => applyLockChange(text, change, now(), parseState));
+      /** Swap 🔒 Lock <-> 🔓 Unlock on the tapped message (best effort, callbacks only). */
+      const swapLockButton = async (r, locked) => {
+        const rows = cq && cq.message && cq.message.reply_markup && Array.isArray(cq.message.reply_markup.inline_keyboard) ? cq.message.reply_markup.inline_keyboard : null;
+        if (!rows || cq.message.message_id === undefined) return;
+        const from = locked ? `lock:${r}` : `unlock:${r}`;
+        if (!rows.some((row) => row.some((b) => b.callback_data === from))) return;
+        const inline = rows.map((row) => row.map((b) => (b.callback_data === from
+          ? { text: locked ? b.text.replace('🔒 Lock', '🔓 Unlock') : b.text.replace('🔓 Unlock', '🔒 Lock'), callback_data: locked ? `unlock:${r}` : `lock:${r}` }
+          : b)));
+        await bot.editMessageReplyMarkup(chatId, cq.message.message_id, { inline_keyboard: inline });
+      };
+      if (!hasStore) await reply('Lock store unavailable.');
+      else if (cmd === 'locks' || (cmd === 'lock' && !parsed.args.length)) {
+        const state = await readState();
+        const full = await build();
+        const syms = full && full.symbols ? full.symbols : {};
+        // Read-only re-judge for display; the cron owns the stored transitions.
+        const open = openLocks(normalizeLocks(state && state.locks, now())).map((l) => evaluateLock(l, syms[l.symbol], now()).lock);
+        if (!open.length) await reply(formatLocksList([], syms, now())[0]);
+        for (const l of open) await reply(formatLockCard(l, syms[l.symbol], now()), lockKeyboard(l) || menuKeyboard());
+      } else if (cmd === 'lock' || cmd === 'lock_tap') {
+        const full = await build();
+        const nowMs = now();
+        let symbol = null;
+        let snap = null;
+        let source = 'flag';
+        let usage = null;
+        if (cmd === 'lock') {
+          const m = parseManualLock(parsed.args, parseSymbol);
+          if (m.error) usage = m.error;
+          else ({ symbol, snap } = m);
+          source = 'manual';
+        } else {
+          const state = await readState();
+          const v = resolveRef(ref, filterPayload(full, { compact: true }), state);
+          snap = v ? (v.source === 'live' ? candidateSnapshot(v.symbol, v.s, v.candidateId) : v.snap) : null;
+          symbol = v ? v.symbol : null;
+          if (state && state.htf && state.htf.plans && state.htf.plans[ref]) source = 'htf';
+          else if (state && state.retest1h && state.retest1h.plans && state.retest1h.plans[ref]) source = 'retest1h';
+        }
+        const sym = full && full.symbols ? full.symbols[symbol] : null;
+        const lockRef = cmd === 'lock' ? (snap ? shortRef(snap.candidateId) : null) : ref;
+        const made = snap && sym ? createLock({ symbol, snap, timeframes: sym.timeframes, nowMs, source, ref: lockRef }) : { lock: null, error: 'no_setup' };
+        if (usage) await reply(escapeHtml(usage));
+        else if (!made.lock) await reply(made.error === 'bad_levels' ? 'Cannot lock: the levels are incomplete or on the wrong side (need entry, stop and a void on the losing side).' : EXPIRED_REPLY);
+        else if (['missed', 'invalidated'].includes(made.lock.status)) {
+          // Already past the cap or through the void: say so, store nothing (no chasing a stale setup).
+          await reply(formatLockCard(made.lock, sym, nowMs, `NOT LOCKED · ${made.lock.status.toUpperCase()}`));
+        } else {
+          const out = await lockChange({ action: 'lock', lock: made.lock });
+          if (!out) await reply('Lock could not be saved; try again in a minute.');
+          else if (out.result === 'full') await reply('You already have 5 open locks. Unlock one in /locks first.');
+          else {
+            const l = out.result === 'already' ? out.entry : made.lock;
+            await reply(formatLockCard(l, sym, nowMs, out.result === 'already' ? 'ALREADY LOCKED' : 'LOCKED'), lockKeyboard(l) || menuKeyboard());
+            await swapLockButton(lockRef, true);
+          }
+        }
+      } else if (!ref) await reply('Usage: /unlock &lt;ref&gt; (the ref is on each /locks card button).');
+      else if (cmd === 'unlock') {
+        const out = await lockChange({ action: 'unlock', ref });
+        if (!out) await reply('Lock could not be saved; try again in a minute.');
+        else {
+          await reply(out.result === 'unlocked' && out.entry ? `🔓 Unlocked ${fmtTag(out.entry.symbol, out.entry.timeframe, out.entry.direction)}.` : 'Not locked.');
+          await swapLockButton(ref, false);
+        }
+      } else if (cmd === 'lock_took') {
+        const full = await build();
+        const state = await readState();
+        const l0 = openLocks(normalizeLocks(state && state.locks, now())).find((l) => l.ref === ref);
+        const sym = l0 && full && full.symbols ? full.symbols[l0.symbol] : null;
+        const px = sym && sym.mark && sym.mark.status === 'ok' && typeof sym.mark.price === 'number' ? sym.mark.price : (sym && typeof sym.price === 'number' ? sym.price : null);
+        const out = l0 ? await lockChange({ action: 'fill', ref, price: px }) : { result: 'not_locked' };
+        if (!out) await reply('Lock could not be saved; try again in a minute.');
+        else if (out.result !== 'filled') await reply(out.result === 'not_locked' ? 'Not locked (or already closed).' : 'This lock is already in a trade or closed.');
+        else await reply(formatLockCard(out.entry, sym, now(), 'IN TRADE'), lockKeyboard(out.entry) || menuKeyboard());
+      } else {
+        const state = await readState();
+        const l0 = normalizeLocks(state && state.locks, now()).find((l) => l.ref === ref);
+        if (!l0) await reply('Not locked.');
+        else {
+          const full = await build();
+          const sym = full && full.symbols ? full.symbols[l0.symbol] : null;
+          const l = evaluateLock(l0, sym, now()).lock;
+          await reply(formatLockCard(l, sym, now(), 'NOW?'), lockKeyboard(l) || menuKeyboard());
         }
       }
     } else if (cmd === 'market') {

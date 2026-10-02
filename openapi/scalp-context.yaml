@@ -2258,6 +2258,15 @@ components:
           type: string
         account:
           $ref: "#/components/schemas/Account"
+        locks:
+          type: array
+          description: >-
+            The owner's trade locks (2026-10-02, docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md):
+            open locks plus locks closed in the last hour, re-judged on this build. Levels are
+            frozen at lock time and override the live plan for that setup. REST only (never
+            on MCP); absent when the lock store is unreadable.
+          items:
+            $ref: "#/components/schemas/TradeLock"
         warnings:
           type: array
           items:
@@ -2277,6 +2286,44 @@ components:
         - requestId
         - warnings
         - symbols
+    TradeLock:
+      type: object
+      properties:
+        ref: { type: string, description: 8-hex lock id (Telegram button ref) }
+        sym: { type: string }
+        tf: { type: string, enum: [1m, 3m, 5m, 15m, 1h, 4h, 1d], description: Trigger timeframe }
+        dir: { type: string, enum: [long, short] }
+        src: { type: string, enum: [flag, htf, retest1h, manual] }
+        st:
+          type: string
+          enum: [armed, confirmed, filled, missed, invalidated, expired, stopped, tp1, unlocked, ended]
+        verdict: { type: string, enum: [TAKE, WAIT, PASS, IN TRADE, DONE] }
+        why: { type: string, description: One plain sentence for the verdict; quote verbatim }
+        lv:
+          type: object
+          description: Frozen levels. cap = trigger +/- 1.5 ATR of the trigger timeframe, measured once at lock.
+          properties:
+            trg: { type: number }
+            inv: { type: number }
+            ent: { type: number }
+            sl: { type: number }
+            tp1: { type: number, nullable: true }
+            cap: { type: number }
+        at: { type: string, format: date-time }
+        exp: { type: string, format: date-time }
+        conf_at: { type: string, format: date-time, nullable: true }
+        fill: { type: number, nullable: true }
+        conf:
+          type: object
+          properties:
+            score: { type: string, nullable: true, description: "n/of timeframes marked with the trade" }
+            gate: { type: boolean, nullable: true }
+            tfs: { type: string, description: "Checklist, e.g. 1m✅ 3m✅ 5m⚠️ 15m✅ 1h❌ 4h✅ 1d✅" }
+            delta: { type: array, items: { type: string }, description: "Mark changes since the lock, e.g. 1h ✅→❌" }
+        thesis:
+          type: array
+          items: { type: string }
+          description: Timeframes above the trigger TF that closed on the wrong side of EMA200 since the lock (warning only)
     Account:
       type: object
       description: >-

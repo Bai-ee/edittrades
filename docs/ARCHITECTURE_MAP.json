@@ -854,6 +854,60 @@
           "schemaSince": "1.25.0"
         },
         {
+          "path": "lib/tradeLock.js",
+          "name": "tradeLock",
+          "role": "Owner trade lock: freezes a setup's trigger, void, entry, stop, TP1 and no-chase cap (1.5 ATR) at lock time, then judges only those levels on closed trigger-TF candles (armed, confirmed, filled, missed, invalidated, expired, stopped, tp1), raises an EMA200 thesis warning, scores a 1m-1D confluence checklist and gives TAKE / WAIT / PASS; pure, import-free.",
+          "publishes": [
+            "trade lock state",
+            "lock verdict"
+          ],
+          "consumes": [
+            "timeframes",
+            "candidateSetups",
+            "flagTradePlan"
+          ],
+          "tests": [
+            "test:lock",
+            "test:telegram"
+          ],
+          "since": "2026-10-02",
+          "schemaSince": null
+        },
+        {
+          "path": "lib/telegramLock.js",
+          "name": "telegramLock",
+          "role": "Telegram side of the trade lock: lock card (the 'now?' answer), Lock / Now? / I'm in / Unlock buttons, state.locks changes, the cron's per-tick lock diff on the full build, and suppression of a locked candidate's generic and Track alerts.",
+          "publishes": [
+            "lock alerts"
+          ],
+          "consumes": [
+            "trade lock state",
+            "timeframes"
+          ],
+          "tests": [
+            "test:telegram"
+          ],
+          "since": "2026-10-02",
+          "schemaSince": null
+        },
+        {
+          "path": "lib/lockFeed.js",
+          "name": "lockFeed",
+          "role": "Reads the owner's stored locks from the Telegram state blob in parallel with the REST build and re-judges them read-only for the bearer REST response (`locks`); never on MCP, never throws.",
+          "publishes": [
+            "locks"
+          ],
+          "consumes": [
+            "trade lock state",
+            "timeframes"
+          ],
+          "tests": [
+            "test:scalp"
+          ],
+          "since": "2026-10-02",
+          "schemaSince": null
+        },
+        {
           "path": "lib/telegramLog.js",
           "name": "telegramLog",
           "role": "Appends one line per sent Telegram alert and one per engine candidate state or plan-status change to Blob day files the tracker pulls.",
@@ -2155,7 +2209,8 @@
         "biasMatrix",
         "alignment",
         "decisionInputs",
-        "topDown"
+        "topDown",
+        "locks"
       ]
     },
     {

@@ -2228,6 +2228,24 @@ async function main() {
     };
 
     try {
+      await test('REST trade locks (2026-10-02): bearer response carries `locks` re-judged on this build; 401 and MCP never read the store', async () => {
+        const { createLock } = await import('./lib/tradeLock.js');
+        const { lock } = createLock({ symbol: 'BTC', snap: { candidateId: 'BTC:5m:long:t', timeframe: '5m', direction: 'long', breakoutLevel: 100, invalidation: 98, entry: 100, stop: 98, tp1: 104 }, timeframes: {}, nowMs: Date.now(), ref: 'abcdef12' });
+        let reads = 0;
+        const readLocks = async () => { reads++; return [lock]; };
+        const run = async (req) => { const res = mockRes(); await handleScalpContext({ on() {}, ...req }, res, { build, readLocks }); return res; };
+        const ok = await run({ method: 'GET', url: '/api/scalp-context', query: {}, headers: { authorization: `Bearer ${TEST_KEY}` } });
+        assertEqual(ok.statusCode, 200, 'status');
+        assert(Array.isArray(ok.body.locks) && ok.body.locks[0].ref === 'abcdef12' && ok.body.locks[0].lv.trg === 100 && typeof ok.body.locks[0].verdict === 'string', JSON.stringify(ok.body.locks));
+        const none = await (async () => { const res = mockRes(); await handleScalpContext({ method: 'GET', url: '/api/scalp-context', query: {}, headers: { authorization: `Bearer ${TEST_KEY}` }, on() {} }, res, { build, readLocks: async () => null }); return res; })();
+        assert(!('locks' in none.body), 'store unreadable -> no locks key');
+        reads = 0;
+        const denied = await run({ method: 'GET', url: '/api/scalp-context', query: {}, headers: {} });
+        assertEqual(`${denied.statusCode}|${reads}`, '401|0', 'no read before auth');
+        await run({ method: 'POST', url: '/api/mcp', query: { __mcp: '1' }, headers: {}, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+        assertEqual(reads, 0, 'MCP path never reads locks');
+      });
+
       await test('REST ?chart=BTC:1m with auth returns 200 image/png', async () => {
         buildCalls.length = 0;
         const res = await call({ chart: 'BTC:1m' });

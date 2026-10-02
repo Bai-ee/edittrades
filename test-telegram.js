@@ -42,6 +42,8 @@ import { handleTelegramWebhook, testAlertSample, sendFlagAlbums, resolveExecutor
 import { handleTelegramCron } from './api/telegram-cron.js';
 import { diffCandidates, stopFloorOf, stopFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, COST_PCT_BY_DIRECTION } from './lib/telegram.js';
 import { ENGINE_CONFIG } from './config/engine.js';
+import { focusRelated as focusRelatedForLock } from './lib/telegram.js';
+import { parseManualLock, suppressLocked } from './lib/telegramLock.js';
 import { buildClarity } from './lib/flagRecommendation.js';
 import { execLogLine, alertLogLine, verdictOf as logVerdictOf, textExcerpt, recordTelegramLogs, assertSafeRows, alertsDayPath, transitionsDayPath, ALERTS_MANIFEST_PATH, TRANSITIONS_MANIFEST_PATH } from './lib/telegramLog.js';
 import { findSensitiveKeys } from './scripts/tracker/records.js';
@@ -1144,15 +1146,15 @@ async function run() {
     assertEqual(JSON.stringify(ALLOWED_UPDATES), '["message","callback_query"]', 'allowed_updates');
   });
 
-  await test('every alert carries Plan · Thesis · Chart / Track · Took it · Skipped; /signals has two rows per symbol block with a flag', async () => {
+  await test('every alert carries Plan · Thesis · Chart / Track · Took it · Skipped / 🔒 Lock; /signals has three rows per symbol block with a flag', async () => {
     const d = diffAlerts(emptyState(), payload({ ETH: watchSym(setupEth) }), T0);
     const good = d.alerts.find((x) => x.kind === 'GOOD');
     const ref = shortRef('BTC:5m:long:2026-09-24T13:50:00.000Z');
     assertEqual(good.replyMarkup.inline_keyboard.map((row) => row.map((b) => `${b.text}=${b.callback_data}`).join(',')).join(' | '),
-      `Plan=plan:${ref},Thesis=thesis:${ref},Chart=chart:BTC:5m | Track=track:${ref},Took it=log:took:BTC:${ref},Skipped=log:skip:BTC:${ref}`, 'GOOD buttons');
+      `Plan=plan:${ref},Thesis=thesis:${ref},Chart=chart:BTC:5m | Track=track:${ref},Took it=log:took:BTC:${ref},Skipped=log:skip:BTC:${ref} | 🔒 Lock=lock:${ref}`, 'GOOD buttons');
     const setup = d.alerts.find((x) => x.kind === 'SETUP');
     const sref = shortRef(setupEth.candidateId);
-    assertEqual(allCallbackData(setup.replyMarkup).join(','), `plan:${sref},thesis:${sref},chart:ETH:3m,track:${sref},log:took:ETH:${sref},log:skip:ETH:${sref}`, 'SETUP buttons');
+    assertEqual(allCallbackData(setup.replyMarkup).join(','), `plan:${sref},thesis:${sref},chart:ETH:3m,track:${sref},log:took:ETH:${sref},log:skip:ETH:${sref},lock:${sref}`, 'SETUP buttons');
     const w = diffAlerts(withPrefs('watch'), payload({ BTC: formSym() }), T0).alerts.find((x) => x.kind === 'WATCH');
     assertEqual(allCallbackData(w.replyMarkup)[0], `plan:${shortRef('BTC:3m:long:2026-09-24T14:00:00.000Z')}`, 'WATCH buttons');
     assertEqual(d.state.buttons[ref].entry, 84600, 'plan snapshot stored');
@@ -1161,7 +1163,7 @@ async function run() {
     assertEqual(Object.keys(st.buttons).length, BUTTON_MEMORY, 'snapshots capped at 50');
     const kb = signalsKeyboard(payload());
     assertEqual(kb.inline_keyboard.map((r) => r.map((b) => b.text).join(',')).join(' | '),
-      'Plan BTC,Thesis BTC,Chart BTC 5m | Track BTC,Took it BTC,Skipped BTC | Why ETH,Chart ETH 5m | Plan SOL,Thesis SOL,Chart SOL 1m | Track SOL,Took it SOL,Skipped SOL', 'signals rows');
+      'Plan BTC,Thesis BTC,Chart BTC 5m | Track BTC,Took it BTC,Skipped BTC | 🔒 Lock BTC | Why ETH,Chart ETH 5m | Plan SOL,Thesis SOL,Chart SOL 1m | Track SOL,Took it SOL,Skipped SOL | 🔒 Lock SOL', 'signals rows');
     const sig = await hook({ text: '/signals' });
     assertEqual(JSON.stringify(sig.tg.calls[0].replyMarkup), JSON.stringify(kb), '/signals sends the inline rows');
     const tg = fakeTelegram();
@@ -1449,7 +1451,8 @@ async function run() {
     assertEqual(importsOf('api/telegram-webhook.js').filter((i) => i.includes('execution/')).join(), EXECUTOR_IMPORT, 'webhook: one lazy executor import');
     assert(!importsOf('api/telegram-cron.js').some((i) => i.includes('execution')), 'cron never imports execution');
     assert(!readFileSync(path.join(root, 'lib/telegram.js'), 'utf8').includes('TRADE_EXECUTION_ENABLED'), 'lib/telegram.js has no execution gate');
-    assertEqual(importsOf('lib/telegram.js').join(), './trackStory.js', 'lib/telegram.js imports only the pure story module');
+    assertEqual(importsOf('lib/telegram.js').join(), './trackStory.js,./tradeLock.js', 'lib/telegram.js imports only the pure story and trade-lock modules');
+    assertEqual(importsOf('lib/tradeLock.js').length, 0, 'lib/tradeLock.js is import-free');
     assertEqual(importsOf('lib/trackStory.js').length, 0, 'lib/trackStory.js is import-free');
   });
 
@@ -1522,7 +1525,7 @@ async function run() {
       assert(r.alerts[0].text.includes('<b>BE READY (5m)</b> — no chase; enter on a retest of 84,479.00'), r.alerts[0].text);
       assert(r.state.symbols.BTC.setupIds.includes('BTC:5m:long:2026-09-24T14:00:00.000Z'), `${level}: setup remembered`);
       const ref = shortRef('BTC:5m:long:2026-09-24T14:00:00.000Z');
-      assertEqual(allCallbackData(r.alerts[0].replyMarkup).join(), `plan:${ref},thesis:${ref},chart:BTC:5m,track:${ref},log:took:BTC:${ref},log:skip:BTC:${ref}`, `${level}: buttons`);
+      assertEqual(allCallbackData(r.alerts[0].replyMarkup).join(), `plan:${ref},thesis:${ref},chart:BTC:5m,track:${ref},log:took:BTC:${ref},log:skip:BTC:${ref},lock:${ref}`, `${level}: buttons`);
       assertEqual(`${r.state.buttons[ref].entry}|${r.state.buttons[ref].stop}|${r.state.buttons[ref].tp1}|${r.state.buttons[ref].reasonCode}`, '84479|84349.7|84985|chase', `${level}: Took it snapshot (candidate target when the plan has no tp1)`);
       const again = diffAlerts(r.state, payload({ BTC: chaseBtc(), ETH: watchSym(), SOL: watchSym(), closedThrough: '2026-09-24T14:10:00.000Z' }), T0 + 5 * MIN);
       assertEqual(again.alerts.length, 0, `${level}: next candle sends nothing`);
@@ -1540,7 +1543,7 @@ async function run() {
     const first = await cron({ blob, build });
     const b = first.tg.calls.filter((c) => c.method === 'sendMessage' && kindOf(c.text) === 'BREAKOUT');
     assertEqual(b.length, 2, 'two chats');
-    assert(b.every((c) => c.replyMarkup && c.replyMarkup.inline_keyboard.length === 2 && c.replyMarkup.inline_keyboard.every((row) => row.length === 3)), 'buttons');
+    assert(b.every((c) => c.replyMarkup && c.replyMarkup.inline_keyboard.length === 3 && c.replyMarkup.inline_keyboard.slice(0, 2).every((row) => row.length === 3) && c.replyMarkup.inline_keyboard[2][0].callback_data.startsWith('lock:')), 'buttons');
     const second = await cron({ blob, build, nowMs: T0 + MIN });
     assertEqual(second.tg.calls.filter((c) => kindOf(c.text) === 'BREAKOUT').length, 0, 'once');
   });
@@ -3247,6 +3250,113 @@ async function run() {
     const plain = await hook({ text: '/chart BTC 5m', render: rr.fn });
     assert(!rr.seen[rr.seen.length - 1].request.tradeOverlay, 'plain /chart unchanged');
     void plain;
+  });
+
+  console.log('\ntrade lock (owner decisions 2026-10-02)');
+
+  /** Every timeframe aligned long, plus 5m candles (20, last one opening at `lastOpenIso`) with the given closes. */
+  const lockTfs = (closes, lastOpenIso = '2026-09-24T14:00:00.000Z') => {
+    const tf = (over = {}) => ({ candles: [], ema21: 84500, ema200: 84300, priceVs21Pct: 0.1, priceVs200Pct: 0.3, stochRsi: { state: 'BULLISH' }, ...over });
+    const end = Date.parse(lastOpenIso);
+    const all = [...Array(20 - closes.length).fill(84560), ...closes];
+    const candles = all.map((c, i) => ({ t: new Date(end - (all.length - 1 - i) * 5 * MIN).toISOString(), o: c, h: c + 20, l: c - 20, c, v: 100 }));
+    return { '1m': tf(), '3m': tf(), '5m': tf({ candles }), '15m': tf(), '1h': tf(), '4h': tf(), '1d': tf() };
+  };
+  const BTC_ID = 'BTC:5m:long:2026-09-24T13:50:00.000Z';
+  const lref = shortRef(BTC_ID);
+  const lockSym = (closes, lastOpenIso, over = {}) => ({ ...goodSym(BTC_ID), timeframes: lockTfs(closes, lastOpenIso), ...over });
+  const lockBuild = (closes, lastOpenIso, over) => async () => payload({ BTC: lockSym(closes, lastOpenIso, over) });
+
+  await test('lock: 🔒 Lock tap freezes the levels (trigger 84,600 / void 84,390 / cap 1.5 ATR) and swaps the button to Unlock', async () => {
+    const blob = fakeBlob();
+    const markup = tradeKeyboard('BTC', '5m', BTC_ID);
+    const r = await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]), markup });
+    const card = r.tg.calls.find((c) => c.method === 'sendMessage');
+    assert(card && card.text.includes('🔒 LOCKED') && card.text.includes('<b>WAIT</b>') && card.text.includes('84,600'), card && card.text);
+    assertEqual(allCallbackData(card.replyMarkup).join(), `lnow:${lref},ltook:${lref},unlock:${lref},chart:BTC:5m`, 'lock keyboard');
+    const edit = r.tg.calls.find((c) => c.method === 'editMessageReplyMarkup');
+    assert(edit && allCallbackData(edit.replyMarkup).includes(`unlock:${lref}`) && !allCallbackData(edit.replyMarkup).includes(`lock:${lref}`), 'button swapped');
+    const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    assertEqual(st.locks.length, 1, 'one lock stored');
+    const l = st.locks[0];
+    assertEqual(`${l.status}|${l.levels.trigger}|${l.levels.invalidation}|${l.levels.stop}|${l.levels.tp1}|${l.capSource}`, 'armed|84600|84390|84390|85146|atr', 'frozen levels');
+    assert(l.levels.cap > 84600 && l.levels.cap < 84700, `cap ${l.levels.cap}`);
+    const again = await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
+    assert(again.tg.calls.some((c) => String(c.text).includes('ALREADY LOCKED')), 'second tap: already');
+  });
+
+  await test('lock: cron CONFIRMS on the frozen trigger even when the engine re-picks the plan; GOOD/TRACK for it are suppressed; card says TAKE', async () => {
+    const blob = fakeBlob();
+    await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
+    // Engine moved its plan (retest entry 84,520, new void) - the lock must not follow.
+    const moved = { flagTradePlan: { ...goodSym(BTC_ID).flagTradePlan, entry: 84520, stop: 84300, status: 'conditional' } };
+    const c = await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', moved) });
+    const sends = c.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto');
+    const lockMsgs = sends.filter((x) => String(x.text || x.caption).includes('LOCK · CONFIRMED'));
+    assertEqual(lockMsgs.length, 2, 'lock alert to both chats');
+    assert(lockMsgs[0].text.includes('<b>TAKE</b>') && lockMsgs[0].text.includes('84,600') && !lockMsgs[0].text.includes('84,520'), lockMsgs[0].text);
+    assert(!sends.some((x) => ['GOOD', 'BREAKOUT', 'SETUP'].includes(kindOf(x.text || x.caption))), `generic suppressed: ${sends.map((x) => kindOf(x.text || x.caption)).join()}`);
+    const l = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0];
+    assertEqual(`${l.status}|${l.levels.entry}|${l.levels.stop}`, 'confirmed|84600|84390', 'levels unchanged');
+    const quietRun = await cron({ blob, nowMs: T0 + 6 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', moved) });
+    assert(!quietRun.tg.calls.some((x) => String(x.text).includes('LOCK ·')), 'no repeat');
+  });
+
+  await test("lock: I'm in fills at the mark; Now? shows R now on the frozen levels; cron STOP HIT on the frozen stop; closed lock has no buttons", async () => {
+    const blob = fakeBlob();
+    await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
+    await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z') });
+    const took = await tap({ data: `ltook:${lref}`, blob, nowMs: T0 + 6 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z') });
+    const tc = took.tg.calls.find((x) => x.method === 'sendMessage');
+    assert(tc.text.includes('IN TRADE') && tc.text.includes('84,610.2'), tc.text);
+    assertEqual(allCallbackData(tc.replyMarkup).join(), `lnow:${lref},unlock:${lref},chart:BTC:5m`, 'filled keyboard');
+    const now = await tap({ data: `lnow:${lref}`, blob, nowMs: T0 + 7 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', { price: 84820, mark: { ...markOk, price: 84820 } }) });
+    const nc = now.tg.calls.find((x) => x.method === 'sendMessage');
+    assert(nc.text.includes('NOW?') && nc.text.includes('R now') && nc.text.includes('+0.95R'), nc.text);
+    const stop = await cron({ blob, nowMs: T0 + 10 * MIN, build: lockBuild([84590, 84640, 84380], '2026-09-24T14:10:00.000Z', { price: 84380, mark: { ...markOk, price: 84380 } }) });
+    const sm = stop.tg.calls.find((x) => String(x.text).includes('LOCK · STOP HIT'));
+    assert(sm && !sm.replyMarkup?.inline_keyboard?.flat().some((b) => b.callback_data.startsWith('lnow')), sm && sm.text);
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'stopped', 'stopped');
+  });
+
+  await test('lock: unfilled run past the cap -> MISSED once; lock tapped when already past the cap is NOT LOCKED and nothing is stored', async () => {
+    const blob = fakeBlob();
+    await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
+    const c = await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84900], '2026-09-24T14:05:00.000Z') });
+    const m = c.tg.calls.find((x) => String(x.text).includes('LOCK · MISSED'));
+    assert(m && m.text.includes('<b>PASS</b>') && m.text.includes('No chase'), m && m.text);
+    const late = fakeBlob();
+    const r = await tap({ data: `lock:${lref}`, blob: late, build: lockBuild([84590, 84900], '2026-09-24T14:05:00.000Z'), nowMs: T0 + 5 * MIN });
+    assert(r.tg.calls.some((x) => String(x.text).includes('NOT LOCKED · MISSED')), 'not locked');
+    assert(!late.files.get(TELEGRAM_STATE_PATH) || JSON.parse(late.files.get(TELEGRAM_STATE_PATH).text).locks.length === 0, 'nothing stored');
+  });
+
+  await test('lock: /lock manual levels, /locks lists open locks, /unlock <ref> ends it; 5-lock cap; usage on bad args', async () => {
+    const blob = fakeBlob();
+    const m = await hook({ text: '/lock BTC long 5m entry 84600 stop 84390 tp 85146', blob, build: lockBuild([84590]) });
+    assert(m.tg.calls.some((x) => String(x.text).includes('🔒 LOCKED')), 'manual locked');
+    const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    assertEqual(`${st.locks[0].source}|${st.locks[0].levels.trigger}`, 'manual|84600', 'manual source');
+    const list = await hook({ text: '/locks', blob, build: lockBuild([84590]) });
+    assertEqual(list.tg.calls.filter((x) => String(x.text).includes('🔒 LOCK · ARMED')).length, 1, '/locks card');
+    const u = await hook({ text: `/unlock ${st.locks[0].ref}`, blob, build: lockBuild([84590]) });
+    assert(u.tg.calls.some((x) => String(x.text).startsWith('🔓 Unlocked BTC 5m')), 'unlocked');
+    const none = await hook({ text: '/locks', blob, build: lockBuild([84590]) });
+    assert(none.tg.calls.some((x) => String(x.text).includes('[NO LOCKS]')), 'empty');
+    const bad = await hook({ text: '/lock BTC sideways 5m', blob });
+    assert(bad.tg.calls.some((x) => String(x.text).startsWith('Usage: /lock BTC long 5m')), 'usage');
+    for (let i = 0; i < 6; i++) await hook({ text: `/lock BTC long 5m entry ${84600 + i} stop 84390`, blob, build: lockBuild([84590]) });
+    const full = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks.filter((l) => l.status === 'armed');
+    assertEqual(full.length, 5, '5 open max');
+    assertEqual(parseManualLock(['eth', 'short', '1h', 'entry', '2,600', 'stop', '2620', 'void', '2615'], parseSymbol).snap.invalidation, 2615, 'void override');
+  });
+
+  await test('lock: LOCK alerts bypass focus mode; suppression only drops generic/TRACK kinds for locked ids', () => {
+    assert(focusRelatedForLock({ kind: 'LOCK', symbol: 'ETH' }, ['BTC']), 'LOCK always sends');
+    const kept = suppressLocked([{ kind: 'GOOD', candidateId: 'a' }, { kind: 'TRACK', candidateId: 'a' }, { kind: 'GOOD', candidateId: 'b' }, { kind: 'MARK', candidateId: 'a' }, { kind: 'LOCK', candidateId: 'a' }], new Set(['a']));
+    assertEqual(kept.map((x) => `${x.kind}:${x.candidateId}`).join(), 'GOOD:b,MARK:a,LOCK:a', 'suppression');
+    assertEqual(parseCallbackData(`ltook:${lref}`).cmd, 'lock_took', 'callback');
+    assertEqual(parseCallbackData('lock:zzzz'), null, 'bad ref');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

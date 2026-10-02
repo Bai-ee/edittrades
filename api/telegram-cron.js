@@ -74,6 +74,7 @@ import {
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES,
   livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, shortRef, tradeKeyboard, applyTrackedStopUpdates
 } from '../lib/telegram.js';
+import { diffLocks, suppressLocked } from '../lib/telegramLock.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
 // deps.importExecutor injection for tests). This cron never builds, signs or sends a
@@ -704,6 +705,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   let alerts = [];
   let transitions = [];
   let trackedIds = new Set();
+  let locksChanged = false;
   let prefs = null;
   let written = false;
   let resetReason = null;
@@ -721,7 +723,12 @@ export async function handleTelegramCron(req, res, deps = {}) {
         resetReason = 'diff_error';
         diff = diffAlerts({ prefs: m.state.prefs }, compact, nowMs);
       }
-      alerts = diff.alerts;
+      // Trade locks (docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md): judged on the FULL build
+      // (trigger-TF candles), levels never moved; a locked candidate's generic / Track alerts
+      // are dropped so its lock card is the one message about it.
+      const lk = diffLocks(diff.state, payload, nowMs);
+      locksChanged = lk.changed;
+      alerts = [...suppressLocked(diff.alerts, lk.lockedIds), ...lk.alerts];
       transitions = diff.transitions || [];
       trackedIds = new Set((Array.isArray(m.state.tracked) ? m.state.tracked : []).map((t) => t && t.candidateId).filter(Boolean));
       prefs = diff.state.prefs;
@@ -763,7 +770,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
         const { tracked: nextTracked, changed: tc } = applyTrackedStopUpdates(diff.state.tracked, trailResult.trackedStopUpdates);
         if (tc) { diff.state.tracked = nextTracked; trackedTrailChanged = true; }
       }
-      return diff.changed || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || predictionsChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
+      return diff.changed || locksChanged || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || predictionsChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
   } catch (err) {
