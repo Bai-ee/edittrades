@@ -2,6 +2,8 @@
 
 ## 2026-10-02 — One snapshot format for every flag and lock message (branch `flag-flow`)
 
+Follow-ups same day: a TP row (measured move) under Valid to; a one-line thesis under the status line ("1h bull flag above EMA21 & 200, MAs tight, volume up · 4h agrees", from the checklist); LOCK NOW goes out as one chart photo (the flag's own timeframe, entry / SL / TP drawn, RSI, snapshot as caption, Lock button; 4h added to the cron's chart window); rows indented under the ticker; GPT: every flag/lock reply opens with its SNAPSHOT, interpretation after; `forming` prints snapshots.
+
 Owner: "ALL alerts should follow the same format… fewest lines… dots… no TP2", then "number before label", "valid to under entry", "no symbols, just inset". Every Telegram flag / lock message and the `/signals` board use one snapshot: status line with a dot (🟢 lock now / take, 🟡 forming / breaking / locked waiting, ⚪ watching, 🔵 in, ✅ / 🔴 done), inset rows `<number>  Entry`, `Valid to`, `Invalidation`, `SL`, then `Checklist n/7` and one action line (⏱ Enter now · ~window, ⏳ Needs a close…, Hold to TP …, result). TP2 is no longer shown. Board: one header line with the pulse, short divider between flags (the 16-char rule wrapped in phone bubbles). Lock buttons only on LOCK NOW / FORMING flags. Pulse reads "since HH:MMZ" until a full day of data exists (it said "24h" from the first minute). GPT: SNAPSHOT block shared with Telegram for `signals`/`market`/`now?`, `plan <asset>` for the full layout, no field names / `[CALL]` / retest wording / TP2. All 49 suites green.
 
 ## 2026-10-02 — Flag flow phase 2: lock-opportunity alerts, TP2, one source of truth for ChatGPT (branch `flag-flow`)

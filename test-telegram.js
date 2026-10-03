@@ -3380,7 +3380,8 @@ async function run() {
     p.flagBoard = { BTC: [{ id, tf, dir: 'long', st, brk: 84600, inv: 84390, tgt: 85146, rr: 2.6, conf: 70, at: '2026-09-24T12:00:00.000Z', chase: false }], ETH: [], SOL: [] };
     return p;
   };
-  const flowSends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage');
+  // LOCK NOW goes out as one photo with the snapshot as its caption; read captions like texts.
+  const flowSends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto').map((x) => (x.method === 'sendPhoto' ? { ...x, text: x.caption } : x));
   const flowKinds = (r) => flowSends(r).map((x) => { const t = String(x.text); return t.includes('· BREAKING') ? 'BREAKING' : (t.includes('· FORMING') ? 'FOUND' : (t.includes('· LOCK NOW') ? 'OPP' : null)); }).filter(Boolean);
   const anySends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto');
   const stateOf = (blob) => JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
@@ -3415,8 +3416,9 @@ async function run() {
     const r2 = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(r2).join(), 'OPP,OPP', 'LOCK_OPPORTUNITY to both chats');
     const opp = flowSends(r2)[0];
+    assert(r2.tg.calls.some((x) => x.method === 'sendPhoto' && String(x.caption).includes('· LOCK NOW') && allCallbackData(x.replyMarkup).includes(`lock:${flowRef}`)), 'LOCK NOW goes out as one chart photo with the snapshot caption and the Lock button');
     assert(opp.text.includes('84,660.00  Valid to') && opp.text.endsWith('⏱ Enter now · ~6 h window'), `timing line: ${opp.text}`);
-    assert(opp.text.includes('· LOCK NOW') && opp.text.includes('84,600') && !opp.text.includes('TP2') && opp.text.includes('84,600.00  Entry') && opp.text.includes('84,390.00  SL') && opp.text.includes('Checklist 7/7') && !/[🔸🔻🔹]/u.test(opp.text) && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);
+    assert(opp.text.includes('· LOCK NOW') && opp.text.includes('84,600') && !opp.text.includes('TP2') && opp.text.includes('84,600.00  Entry') && opp.text.includes('85,146.00  TP') && opp.text.includes('84,390.00  SL') && opp.text.includes('Checklist 7/7') && !/[🔸🔻🔹]/u.test(opp.text) && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);
     const again = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(again).length, 0, 'not repeated');
     const conf = await cron({ blob, nowMs: T0 + 3 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });

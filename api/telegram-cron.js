@@ -644,7 +644,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const chartWindows = new Map();
   let payload;
   try {
-    payload = await build({ includeFlagBoard: true, chartWindow: { size: TRADE_CHART_CANDLES, timeframes: [...CHART_GRID_TIMEFRAMES], onWindow: (sym, tf, w) => chartWindows.set(`${sym}|${tf}`, w) } });
+    payload = await build({ includeFlagBoard: true, chartWindow: { size: TRADE_CHART_CANDLES, timeframes: [...CHART_GRID_TIMEFRAMES, '4h'], onWindow: (sym, tf, w) => chartWindows.set(`${sym}|${tf}`, w) } });
   } catch (err) {
     payload = { dataStatus: 'unavailable', closedThrough: null, symbols: {}, warnings: [`build failed: ${err && err.name ? err.name : 'Error'}`] };
   }

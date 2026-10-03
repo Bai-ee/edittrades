@@ -143,7 +143,9 @@ const snapRows = (t) => {
   assert(ie > 0 && ii > ie && is > ii, `rows Entry < Invalidation < SL: ${t}`);
   assert(iv === -1 || (iv === ie + 1), `Valid to sits right under Entry: ${t}`);
   assert(!/[🔸🔻🔹]/u.test(t), 'no row markers');
-  assert(!t.includes('TP2') && !lines.some((l) => /^<code>\s*TP /.test(l)), 'no TP row');
+  assert(!t.includes('TP2'), 'no TP2');
+  const it = rowIdx('TP');
+  assert(it === -1 || (it > ie && it < ii && (iv === -1 || it === iv + 1)), `TP sits under Valid to (or Entry), above Invalidation: ${t}`);
   const ci = lines.findIndex((l) => l.startsWith('Checklist '));
   assert(ci > 0 && ci === lines.length - 2, `checklist then foot last: ${t}`);
   return { lines, status: lines[0], check: lines[ci], foot: lines[lines.length - 1] };
