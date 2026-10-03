@@ -144,8 +144,8 @@ function boardCard(e, i) {
   return `<article class="hf-flag-card" id="live-board-card-${i + 1}" data-stage="${esc(e.stage || '')}">`
     + `<div class="hf-flag-top"><span class="hf-sym">${esc(e.sym || '')} ${esc(e.tf || '')} ${dir.startsWith('s') ? '▼' : '▲'}</span>`
     + `<span class="hf-chip ${st.cls}" id="live-board-card-${i + 1}-status">${st.icon} ${st.word}</span></div>`
-    + `<div class="hf-levels num">${row('hf-v-entry', lv.ent, 'Entry')}${row('hf-v-valid', lv.cap, 'Valid to')}${row('hf-v-tp', lv.tp1, 'TP')}${row('hf-v-inval', lv.inv, 'Invalidation')}${row('hf-v-sl', lv.stop, 'SL')}</div>`
-    + `<div class="hf-checklist">Checklist ${esc(e.score || dash)}</div>`
+    + `<div class="hf-levels num">${row('hf-v-entry', lv.ent, 'Entry')}${row('hf-v-valid', lv.cap, 'Valid')}${row('hf-v-tp', lv.tp1, 'TP')}${row('hf-v-inval', lv.inv, 'Inval')}${row('hf-v-sl', lv.stop, 'SL')}</div>`
+    + `<div class="hf-checklist">Checklist ${esc(e.score || dash)}${e.tfs ? ` · ${esc(e.tfs)}` : ''}</div>`
     + `<div class="hf-action">${actionLine(e, lv)}</div></article>`;
 }
 

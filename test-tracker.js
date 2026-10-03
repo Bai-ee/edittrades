@@ -4004,8 +4004,8 @@ async function run() {
     for (const id of ['live-board-section', 'live-board-grid', 'live-board-card-1', 'live-board-card-2', 'live-board-card-3']) assert(html.includes(`id="${id}"`), `missing #${id}`);
     assert(html.includes('🟢 LOCK NOW') && html.includes('🟡 FORMING') && html.includes('⚪ WATCHING'), 'status words');
     const c1 = html.slice(html.indexOf('id="live-board-card-1"'), html.indexOf('id="live-board-card-2"'));
-    const order = ['Entry', 'Valid to', 'TP<', 'Invalidation', 'SL<', 'Checklist 7/7', '⏱ Enter now'].map((w) => c1.indexOf(w));
-    assert(order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1])), `row order Entry, Valid to, TP, Invalidation, SL, Checklist, action (${order})`);
+    const order = ['>Entry<', '>Valid<', 'TP<', '>Inval<', 'SL<', 'Checklist 7/7', '⏱ Enter now'].map((w) => c1.indexOf(w));
+    assert(order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1])), `row order Entry, Valid, TP, Inval, SL, Checklist, action (${order})`);
     assert(c1.indexOf('86,400') < c1.indexOf('>Entry<') && c1.includes('hf-v-entry">86,400') && c1.includes('hf-v-valid">86,580') && c1.includes('hf-v-inval">86,100') && c1.includes('hf-v-sl">85,900') && c1.includes('hf-v-tp">87,600'), 'number before label; values colored by class');
     assert(!/TP2|88,100/.test(html), 'no TP2 anywhere');
     assert(html.includes('⏳ Needs a 15m close below 2,598') && html.includes('Not ready') && html.includes('updated 01:37Z'), 'found/watch action lines and as-of stamp');

@@ -3317,7 +3317,7 @@ async function run() {
     assertEqual(allCallbackData(tc.replyMarkup).join(), `lnow:${lref},unlock:${lref},chart:BTC:5m`, 'filled keyboard');
     const now = await tap({ data: `lnow:${lref}`, blob, nowMs: T0 + 7 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', { price: 84820, mark: { ...markOk, price: 84820 } }) });
     const nc = now.tg.calls.find((x) => x.method === 'sendMessage');
-    assert(nc.text.includes('NOW?') && nc.text.includes('IN · +') && nc.text.includes('+0.9R now') && nc.text.includes('84,390.00  Invalidation') && nc.text.includes('+0.9R'), nc.text);
+    assert(nc.text.includes('NOW?') && nc.text.includes('IN · +') && nc.text.includes('+0.9R now') && nc.text.includes('84,390.00  Inval') && nc.text.includes('+0.9R'), nc.text);
     const stop = await cron({ blob, nowMs: T0 + 10 * MIN, build: lockBuild([84590, 84640, 84380], '2026-09-24T14:10:00.000Z', { price: 84380, mark: { ...markOk, price: 84380 } }) });
     const sm = stop.tg.calls.find((x) => String(x.text).includes('DONE · STOPPED'));
     assert(sm && !sm.replyMarkup?.inline_keyboard?.flat().some((b) => b.callback_data.startsWith('lnow')), sm && sm.text);
@@ -3417,7 +3417,7 @@ async function run() {
     assertEqual(flowKinds(r2).join(), 'OPP,OPP', 'LOCK_OPPORTUNITY to both chats');
     const opp = flowSends(r2)[0];
     assert(r2.tg.calls.some((x) => x.method === 'sendPhoto' && String(x.caption).includes('· LOCK NOW') && allCallbackData(x.replyMarkup).includes(`lock:${flowRef}`)), 'LOCK NOW goes out as one chart photo with the snapshot caption and the Lock button');
-    assert(opp.text.includes('84,660.00  Valid to') && opp.text.endsWith('⏱ Enter now · ~6 h window'), `timing line: ${opp.text}`);
+    assert(opp.text.includes('84,660.00  Valid') && opp.text.endsWith('⏱ Enter now · ~6 h window'), `timing line: ${opp.text}`);
     assert(opp.text.includes('· LOCK NOW') && opp.text.includes('84,600') && !opp.text.includes('TP2') && opp.text.includes('84,600.00  Entry') && opp.text.includes('85,146.00  TP') && opp.text.includes('84,390.00  SL') && opp.text.includes('Checklist 7/7') && !/[🔸🔻🔹]/u.test(opp.text) && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);
     const again = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(again).length, 0, 'not repeated');

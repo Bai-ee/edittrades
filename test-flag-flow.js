@@ -139,13 +139,13 @@ const snapRows = (t) => {
   const lines = t.split('\n');
   // Rows: number first, then label, in the order Entry, Valid to (when known), Invalidation, SL.
   const rowIdx = (label) => lines.findIndex((l) => new RegExp(`^<code> +[0-9,.]+  ${label}</code>$`).test(l));
-  const [ie, iv, ii, is] = ['Entry', 'Valid to', 'Invalidation', 'SL'].map(rowIdx);
-  assert(ie > 0 && ii > ie && is > ii, `rows Entry < Invalidation < SL: ${t}`);
-  assert(iv === -1 || (iv === ie + 1), `Valid to sits right under Entry: ${t}`);
+  const [ie, iv, ii, is] = ['Entry', 'Valid', 'Inval', 'SL'].map(rowIdx);
+  assert(ie > 0 && ii > ie && is > ii, `rows Entry < Inval < SL: ${t}`);
+  assert(iv === -1 || (iv === ie + 1), `Valid sits right under Entry: ${t}`);
   assert(!/[🔸🔻🔹]/u.test(t), 'no row markers');
   assert(!t.includes('TP2'), 'no TP2');
   const it = rowIdx('TP');
-  assert(it === -1 || (it > ie && it < ii && (iv === -1 || it === iv + 1)), `TP sits under Valid to (or Entry), above Invalidation: ${t}`);
+  assert(it === -1 || (it > ie && it < ii && (iv === -1 || it === iv + 1)), `TP sits under Valid (or Entry), above Inval: ${t}`);
   const ci = lines.findIndex((l) => l.startsWith('Checklist '));
   assert(ci > 0 && ci === lines.length - 2, `checklist then foot last: ${t}`);
   return { lines, status: lines[0], check: lines[ci], foot: lines[lines.length - 1] };
@@ -157,7 +157,7 @@ await test('FOUND card: trigger level, checklist score, <= 600 chars', () => {
   const { status, lines, check, foot } = snapRows(t);
   assert(status.startsWith('🟡') && status.includes('BTC 1h') && status.includes('· FORMING'), status);
   assert(lines.some((l) => l.includes('Entry') && l.includes('86,400.00')) && !lines.some((l) => l.includes('Valid to') && false), 'entry value');
-  assert(check === `Checklist ${e.score}/${e.of}` && foot === '⏳ Needs a 1h close above 86,400.00', `${check} | ${foot}`);
+  assert(check.startsWith(`Checklist ${e.score}/${e.of} · ✅ `) && foot === '⏳ Needs a 1h close above 86,400.00', `${check} | ${foot}`);
   assert(t.length <= 600, `len ${t.length}`);
   assert(formatFoundCard(scoreFlag('BTC', cand(-1), timeframes(-1, 86400), 86400), T0).includes('close below'), 'short below');
 });
@@ -198,7 +198,7 @@ for (const dir of [1, -1]) {
       const t = formatOpportunityCard(e, T0);
       const { status, lines, foot } = snapRows(t);
       assert(status.startsWith('🟢') && status.includes('· LOCK NOW') && status.includes(dir === 1 ? '▲' : '▼'), status);
-      assert(lines.some((l) => l.includes(`${fmtLvl(e.levels.cap)}  Valid to</code>`)), 'valid to row');
+      assert(lines.some((l) => l.includes(`${fmtLvl(e.levels.cap)}  Valid</code>`)), 'valid to row');
       assert(!t.includes(fmtLvl(e.levels.tp2)) && !t.includes('R:R'), 'no TP2 / R:R');
       assert(foot === '⏱ Enter now · ~6 h window', foot);
       assert(!t.includes('%'), 'no percentages');
@@ -214,10 +214,10 @@ await test('board: entries, tags, cap of 3, empty state with pulse line', () => 
   const t = formatBoard(ranked, pulse, T0);
   const bl = t.split('\n');
   assert(bl[0].includes('FLAGS NOW') && bl[0].includes('24h: 12 found · 4 lock opps · 1 locked'), 'title/pulse');
-  assert(t.includes('· LOCK NOW') && t.includes('· FORMING') && t.includes('Invalidation') && !t.includes('TP2'), 'tags');
+  assert(t.includes('· LOCK NOW') && t.includes('· FORMING') && t.includes('  Inval</code>') && !t.includes('TP2'), 'tags');
   assert((t.match(/BTC 1h/g) || []).length === 3, 'three entries');
   assert(bl.filter((l) => l === SNAP_RULE).length === 3 && bl[1] === SNAP_RULE, 'rule between entries');
-  assert(bl.filter((l) => l.endsWith('  Invalidation</code>')).length === 3, 'three snapshots');
+  assert(bl.filter((l) => l.endsWith('  Inval</code>')).length === 3, 'three snapshots');
   const empty = formatBoard([], { found: 0, opps: 0, locked: 0 }, T0);
   assert(empty.includes('No flags passing the checklist right now.') && empty.split('\n')[0].includes('24h: 0 found') && empty.split('\n')[1] === SNAP_RULE, empty);
 });
@@ -268,6 +268,18 @@ await test('timing line + BREAKING: ENTER NOW with cap and window; 15m/1h/4h for
   assert(breakingOf({ ...e, dir: 'short', price: 86350, levels: { ...e.levels, entry: 86400 } }, T) !== null, 'short mirror');
   assert(breakingOf({ ...e, stage: 'lockable', st: 'triggering' }, T) === null, 'already an opportunity');
   assert(fmtWindow(90 * 60_000) === '1 h 30 min' && fmtWindow(4 * 86_400_000) === '4 d', 'fmtWindow');
+});
+
+await test('alignment: a gate-passing flag needs >= 5/7 timeframes with it to alert; 1/7 is watching; the checklist line names the timeframes', async () => {
+  const { checklistDetail } = await import('./lib/tradeLock.js');
+  const tfs = timeframes(1, 86400);
+  for (const tf of ['15m', '1h', '4h', '1d']) tfs[tf] = tfEntry(-1, tf, 86400);
+  const e = scoreFlag('BTC', cand(1, { st: 'triggering', tf: '5m' }), tfs, 86400);
+  assert(e.gate === true && e.score < 5 && e.stage === 'watch', `gate ${e.gate} score ${e.score}/${e.of} stage ${e.stage}`);
+  const ok = scoreFlag('BTC', cand(1, { st: 'triggering', tf: '5m' }), timeframes(1, 86400), 86400);
+  assert(ok.score >= 5 && ok.stage === 'lockable', `${ok.score}/${ok.of} ${ok.stage}`);
+  const line = checklistDetail({ score: 5, of: 7, rows: [{ tf: '1m', mark: '✅' }, { tf: '3m', mark: '✅' }, { tf: '5m', mark: '✅' }, { tf: '15m', mark: '✅' }, { tf: '1h', mark: '⚠️' }, { tf: '4h', mark: '✅' }, { tf: '1d', mark: '❌' }] });
+  assert(line === 'Checklist 5/7 · ✅ 1m 3m 5m 15m 4h · ⚠️ 1h · ❌ 1d', line);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
