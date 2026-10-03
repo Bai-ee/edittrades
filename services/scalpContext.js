@@ -1005,6 +1005,32 @@ export function capOptInSections(filtered, limitBytes = 95000) {
   return { payload: out, bytes: JSON.stringify(out).length, dropped: true };
 }
 
+const FLAG_BOARD_STATES = new Set(['proto', 'forming', 'triggering', 'confirmed']);
+
+/**
+ * Compact flagBoard rows from a symbol's final modelCandidateSetups: live flags only.
+ * @param {Array<Object>} candidates
+ * @returns {Array<Object>}
+ */
+function buildFlagBoardEntries(candidates) {
+  const num = (v) => (isFiniteNumber(v) ? round2(v) : null);
+  return (Array.isArray(candidates) ? candidates : [])
+    .filter((c) => c && c.type === 'flag' && FLAG_BOARD_STATES.has(c.state) && c.candidateId != null)
+    .map((c) => ({
+      id: c.candidateId,
+      tf: c.timeframe,
+      dir: c.direction,
+      st: c.state,
+      brk: num(c.breakoutLevel),
+      inv: num(c.invalidation),
+      tgt: num(c.measuredTarget),
+      rr: num(c.measuredRR),
+      conf: num(c.confidence),
+      at: c.firstDetectedAt ?? null,
+      chase: c.chaseRisk === true
+    }));
+}
+
 export function filterPayload(payload, opts = {}) {
   if (!payload || typeof payload !== 'object') return payload;
   const { symbols, include, compact } = opts || {};
@@ -1156,6 +1182,11 @@ function resolveSymbolProvider(providers, expectedCount, hadWarning) {
  *   "unavailable"` and no request, because a live mark beside historical candles is wrong.
  * @param {boolean} [options.includeBias=false] - phase 9b: attach biasMatrix, alignment and
  *   decisionInputs per symbol. decisionTrace.bias is always present.
+ * @param {boolean} [options.includeFlagBoard=false] - attach top-level `flagBoard`
+ *   `{ SYM: [{ id, tf, dir, st, brk, inv, tgt, rr, conf, at, chase }] }`: every symbol's live
+ *   flag candidates (proto|forming|triggering|confirmed) from the final modelCandidateSetups,
+ *   all timeframes. Absent unless true, so REST/MCP payloads are unchanged. A build fault is
+ *   console.warn only: never a warning, never dataStatus.
  * @param {boolean} [options.includeModel=false] - publish bulky model evidence (and the
  *   full recommendation record as model.recommendation). The compact flagRecommendation
  *   is always present.
@@ -1181,6 +1212,7 @@ export async function buildScalpContext(options = {}) {
     includeFailed = ENGINE_CONFIG.flag.includeFailed,
     includeBias = false,
     includeModel = false,
+    includeFlagBoard = false,
     slimFailed = true,
     chart = null,
     chartWindow = null
@@ -1262,6 +1294,7 @@ export async function buildScalpContext(options = {}) {
   const symbolsOut = {};
   const newest1mCloses = [];
   const symbolDurationsMs = {};
+  const flagBoard = {};
 
   for (const symbol of symbolList) {
     const symbolStartMs = Date.now();
@@ -1852,6 +1885,15 @@ export async function buildScalpContext(options = {}) {
       if (bias.topDown) symbolsOut[symbol].topDown = bias.topDown;
     }
 
+    if (includeFlagBoard === true) {
+      try {
+        flagBoard[symbol] = buildFlagBoardEntries(modelCandidateSetups);
+      } catch (err) {
+        console.warn(`[ScalpContext] ${symbol}: flagBoard failed - ${err.message}`);
+        flagBoard[symbol] = [];
+      }
+    }
+
     symbolDurationsMs[symbol] = Date.now() - symbolStartMs;
   }
 
@@ -1907,6 +1949,7 @@ export async function buildScalpContext(options = {}) {
     symbols: symbolsOut,
     warnings
   };
+  if (includeFlagBoard === true) payload.flagBoard = flagBoard;
 
   const normalized = normalizeJson(payload);
 

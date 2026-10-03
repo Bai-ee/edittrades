@@ -54,6 +54,7 @@
     "test:telegram": "node test-telegram.js",
     "test:story": "node test-track-story.js",
     "test:lock": "node test-trade-lock.js",
+    "test:flow": "node test-flag-flow.js",
     "test:execution": "node test-execution.js",
     "test:retest1h": "node test-retest1h-live.js",
     "test:htfrule": "node test-htf-entry-rule.js",

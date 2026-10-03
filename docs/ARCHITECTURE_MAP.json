@@ -854,6 +854,24 @@
           "schemaSince": "1.25.0"
         },
         {
+          "path": "lib/flagFlow.js",
+          "name": "flagFlow",
+          "role": "Flag flow (docs/PLAN_FLAG_FLOW.md): scores every flagBoard candidate (1m-4h) with the lock confluence checklist, stages it FOUND / READY / missed / watch on structural levels (entry = breakout, stop = invalidation, target = measured move, no-chase cap 1.5 ATR), ranks the board, and formats the FOUND / READY cards, the /signals board and the 24h pulse; pure.",
+          "publishes": [
+            "flag board ranking",
+            "flow cards"
+          ],
+          "consumes": [
+            "flagBoard",
+            "timeframes"
+          ],
+          "tests": [
+            "test:flow"
+          ],
+          "since": "2026-10-02",
+          "schemaSince": null
+        },
+        {
           "path": "lib/tradeLock.js",
           "name": "tradeLock",
           "role": "Owner trade lock: freezes a setup's trigger, void, entry, stop, TP1 and no-chase cap (1.5 ATR) at lock time, then judges only those levels on closed trigger-TF candles (armed, confirmed, filled, missed, invalidated, expired, stopped, tp1), raises an EMA200 thesis warning, scores a 1m-1D confluence checklist and gives TAKE / WAIT / PASS; pure, import-free.",

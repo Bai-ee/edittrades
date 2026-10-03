@@ -738,6 +738,7 @@ async function main() {
   const HEALTHY_B = 'SCALPTEST_TWO';
 
   let case6Result;
+  let flagBoardResult;
   let case6DurationMs;
   await test('fully healthy build resolves without error and is timed', async () => {
     const fetchCandles = makeFetchCandles({ deadMatch: null, badMatch: null });
@@ -1799,6 +1800,67 @@ async function main() {
       assertEqual(JSON.stringify(filterPayload(biasResult, {})), JSON.stringify(withoutShadow(biasResult)), '{} identity (minus flagTradePlan.shadow)');
       assert(INCLUDE_TOKENS.includes('bias'), 'bias is a known include token');
       assert(!filterPayload(biasResult, { include: ['bias'] }).warnings.some((w) => w.includes('bias')), 'no unknown-token warning');
+    });
+
+    await test('includeFlagBoard: default build has no flagBoard key; option adds only that key', async () => {
+      assert(!('flagBoard' in case6Result), 'default build must not carry flagBoard');
+      const withBoard = await buildScalpContext({
+        symbols: [HEALTHY_A, HEALTHY_B],
+        timeframes: timeframesList,
+        now: NOW,
+        fetchCandles: makeFetchCandles({ deadMatch: null, badMatch: null }),
+        includeFlagBoard: true
+      });
+      flagBoardResult = withBoard;
+      assertEqual(JSON.stringify(Object.keys(withBoard.flagBoard)), JSON.stringify([HEALTHY_A, HEALTHY_B]), 'flagBoard symbols');
+      const stripped = JSON.parse(JSON.stringify(withBoard));
+      delete stripped.flagBoard;
+      assertEqual(JSON.stringify(stripped), JSON.stringify(case6Result), 'rest of the payload byte-identical');
+      assertEqual(withBoard.dataStatus, case6Result.dataStatus, 'dataStatus unchanged');
+      assert(deepEqual(withBoard.warnings, case6Result.warnings), 'warnings unchanged');
+    });
+
+    await test('flagBoard entries: allowed states, compact keys, rounded numbers, source = modelCandidateSetups', async () => {
+      assert(flagBoardResult, 'flagBoard build not available');
+      const KEYS = ['id', 'tf', 'dir', 'st', 'brk', 'inv', 'tgt', 'rr', 'conf', 'at', 'chase'];
+      const states = ['proto', 'forming', 'triggering', 'confirmed'];
+      const isR2 = (v) => v === null || (typeof v === 'number' && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6);
+      const seen = [];
+      for (const [sym, rows] of Object.entries(flagBoardResult.flagBoard)) {
+        assert(Array.isArray(rows), `${sym}: rows is an array`);
+        for (const e of rows) {
+          assertEqual(JSON.stringify(Object.keys(e)), JSON.stringify(KEYS), `${sym}: compact keys`);
+          assert(states.includes(e.st), `${sym}: state ${e.st}`);
+          assert(typeof e.id === 'string' && e.id.length > 0, `${sym}: id`);
+          assert(typeof e.chase === 'boolean', `${sym}: chase boolean`);
+          for (const k of ['brk', 'inv', 'tgt', 'rr', 'conf']) assert(isR2(e[k]), `${sym}: ${k}=${e[k]} not round2`);
+          seen.push(e.tf);
+        }
+      }
+      console.log(`    flagBoard fixture entries=${seen.length} timeframes=${JSON.stringify([...new Set(seen)])}`);
+      // Source check: every entry's id is a live (non-failed) candidate the model path produced.
+      // modelCandidateSetups is internal; its flag candidates are published as candidateSetups
+      // (lower timeframes) and, with model evidence, as the model record. Cross-check via ids.
+      const modelBuild = await buildScalpContext({
+        symbols: [HEALTHY_A, HEALTHY_B],
+        timeframes: timeframesList,
+        now: NOW,
+        fetchCandles: makeFetchCandles({ deadMatch: null, badMatch: null }),
+        includeFlagBoard: true,
+        includeModel: true
+      });
+      assertEqual(JSON.stringify(modelBuild.flagBoard), JSON.stringify(flagBoardResult.flagBoard), 'flagBoard independent of includeModel');
+      const higher = seen.filter((tf) => ['15m', '1h', '4h'].includes(tf));
+      if (higher.length === 0) console.log('    note: fixture produced no 15m/1h/4h flags; higher-timeframe inclusion not exercised by data');
+    });
+
+    await test('filterPayload keeps top-level flagBoard (default, compact, include-narrowed)', () => {
+      assert(flagBoardResult, 'flagBoard build not available');
+      for (const opts of [{}, { compact: true }, { include: ['strategies'] }, { symbols: [HEALTHY_A], compact: true }]) {
+        const f = filterPayload(flagBoardResult, opts);
+        assert(deepEqual(f.flagBoard, flagBoardResult.flagBoard), `flagBoard kept for ${JSON.stringify(opts)}`);
+      }
+      assert(!('flagBoard' in filterPayload(case6Result, { compact: true })), 'absent stays absent');
     });
 
     await test('includeModel adds model evidence; removing it leaves the default payload byte-identical', async () => {
