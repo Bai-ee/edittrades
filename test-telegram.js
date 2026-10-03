@@ -3381,7 +3381,7 @@ async function run() {
     return p;
   };
   const flowSends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage');
-  const flowKinds = (r) => flowSends(r).map((x) => (String(x.text).includes('🔍 FOUND') ? 'FOUND' : (String(x.text).includes('🎯 READY') ? 'READY' : null))).filter(Boolean);
+  const flowKinds = (r) => flowSends(r).map((x) => (String(x.text).includes('🔍 FOUND') ? 'FOUND' : (String(x.text).includes('🎯 LOCK OPPORTUNITY') ? 'OPP' : null))).filter(Boolean);
   const anySends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto');
   const stateOf = (blob) => JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
 
@@ -3403,51 +3403,72 @@ async function run() {
     assert(formatHelp().includes('/mode flow|classic'), 'help line');
   });
 
-  await test('flow: cron sends FOUND once per candidateId, then READY once; classic alerts stay silent; button snapshot stored', async () => {
+  await test('flow: forming is never pushed (but counted in the pulse); triggering sends LOCK_OPPORTUNITY once per candidateId; snapshot stored', async () => {
     const blob = fakeBlob({ mode: null });
     const r1 = await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
-    assertEqual(flowKinds(r1).join(), 'FOUND,FOUND', 'FOUND to both chats');
-    const found = flowSends(r1)[0];
-    assert(found.text.includes('🔍 FOUND') && found.text.includes('84,600') && allCallbackData(found.replyMarkup).includes(`lock:${flowRef}`), found.text);
-    const again = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'forming' }) });
-    assertEqual(flowKinds(again).length, 0, 'FOUND not repeated');
-    const r2 = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
-    assertEqual(flowKinds(r2).join(), 'READY,READY', 'READY once');
-    assert(flowSends(r2)[0].text.includes('🎯 READY') && flowSends(r2)[0].text.includes('no-chase cap'), flowSends(r2)[0].text);
-    const r3 = await cron({ blob, nowMs: T0 + 3 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
-    assertEqual(flowKinds(r3).length, 0, 'READY not repeated');
+    assertEqual(flowKinds(r1).length, 0, 'forming: no push');
+    assert(stateOf(blob).flow.found[FLOW_ID] && !Object.keys(stateOf(blob).flow.opps).length, 'found recorded, no opps');
+    const r2 = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'triggering' }) });
+    assertEqual(flowKinds(r2).join(), 'OPP,OPP', 'LOCK_OPPORTUNITY to both chats');
+    const opp = flowSends(r2)[0];
+    assert(opp.text.includes('GO IN') && opp.text.includes('84,600') && opp.text.includes('TP2') && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);
+    const again = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'triggering' }) });
+    assertEqual(flowKinds(again).length, 0, 'not repeated');
+    const conf = await cron({ blob, nowMs: T0 + 3 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
+    assertEqual(flowKinds(conf).length, 0, 'confirmed after triggering: same candidateId, no second push');
     const st = stateOf(blob);
-    assert(st.flow.found[FLOW_ID] && st.flow.ready[FLOW_ID], 'state.flow');
+    assert(st.flow.found[FLOW_ID] && st.flow.opps[FLOW_ID], 'state.flow');
     assertEqual(`${st.buttons[flowRef].recClass}|${st.buttons[flowRef].entry}|${st.buttons[flowRef].stop}|${st.buttons[flowRef].tp1}`, 'FLOW|84600|84390|85146', 'snapshot');
+    assert(Number.isFinite(st.buttons[flowRef].tp2) && st.buttons[flowRef].tp2 > 85146, 'tp2 in snapshot');
   });
 
-  await test('flow: at most one FOUND per symbol+tf per cooldown (a new candidateId does not re-alert), then it can', async () => {
+  await test('flow: confirmed inside the cap pushes LOCK_OPPORTUNITY; confirmed past the cap is missed and not pushed; LOCK_OPPORTUNITY survives focus mode', async () => {
+    const inside = await cron({ blob: fakeBlob({ mode: null }), build: async () => flowPayload({ st: 'confirmed' }) });
+    assertEqual(flowKinds(inside).join(), 'OPP,OPP', 'inside cap');
+    assert(flowSends(inside)[0].text.includes('confirmed') && !flowSends(inside)[0].text.includes('close above'), 'confirmed card');
+    const past = await cron({ blob: fakeBlob({ mode: null }), build: async () => flowPayload({ st: 'confirmed', price: 90000 }) });
+    assertEqual(flowKinds(past).length, 0, 'past cap');
+    assert(focusRelatedForLock({ kind: 'LOCK_OPPORTUNITY', symbol: 'ETH' }, ['BTC']), 'focus mode keeps it');
+  });
+
+  await test('flow: at most one LOCK_OPPORTUNITY per symbol+tf per cooldown (a new candidateId does not re-alert), then it can', async () => {
     const blob = fakeBlob({ mode: null });
     const idB = 'BTC:1h:long:2026-09-24T13:00:00.000Z';
-    await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
-    const cool = await cron({ blob, nowMs: T0 + 5 * MIN, build: async () => flowPayload({ id: idB, st: 'forming' }) });
+    await cron({ blob, build: async () => flowPayload({ st: 'triggering' }) });
+    const cool = await cron({ blob, nowMs: T0 + 5 * MIN, build: async () => flowPayload({ id: idB, st: 'triggering' }) });
     assertEqual(flowKinds(cool).length, 0, 'cooling');
-    const later = await cron({ blob, nowMs: T0 + 16 * MIN, build: async () => flowPayload({ id: idB, st: 'forming' }) });
-    assertEqual(flowKinds(later).join(), 'FOUND,FOUND', 'after the cooldown');
+    const later = await cron({ blob, nowMs: T0 + 16 * MIN, build: async () => flowPayload({ id: idB, st: 'triggering' }) });
+    assertEqual(flowKinds(later).join(), 'OPP,OPP', 'after the cooldown');
   });
 
-  await test('flow: lock from a FOUND card uses its structural levels; a locked candidate gets no READY', async () => {
+  await test('flow: a previous deploy\'s state.flow.ready counts as opps (no re-alert)', async () => {
     const blob = fakeBlob({ mode: null });
     await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
+    const f = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+    f.flow = { found: { [FLOW_ID]: new Date(T0).toISOString() }, ready: { [FLOW_ID]: new Date(T0).toISOString() }, lastFoundAt: {} };
+    blob.files.set(TELEGRAM_STATE_PATH, { ...blob.files.get(TELEGRAM_STATE_PATH), text: JSON.stringify(f) });
+    const r = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'triggering' }) });
+    assertEqual(flowKinds(r).length, 0, 'migrated ready = already alerted');
+    assert(stateOf(blob).flow.opps[FLOW_ID], 'opps populated');
+  });
+
+  await test('flow: Lock tap on a forming-time board snapshot locks the structural levels; a locked candidate gets no opportunity', async () => {
+    const blob = fakeBlob({ mode: null });
+    await hook({ text: '/signals', blob, build: async () => flowPayload({ st: 'forming' }) });
     const t = await tap({ data: `lock:${flowRef}`, blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'forming' }) });
     assert(flowSends(t)[0].text.includes('🔒 LOCKED'), flowSends(t)[0].text);
     const l = stateOf(blob).locks[0];
     assertEqual(`${l.timeframe}|${l.levels.trigger}|${l.levels.entry}|${l.levels.stop}|${l.levels.invalidation}|${l.levels.tp1}|${l.candidateId}`, `1h|84600|84600|84390|84390|85146|${FLOW_ID}`, 'structural levels frozen');
-    const r = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
-    assert(!flowKinds(r).includes('READY') && !flowKinds(r).includes('FOUND'), `locked: ${flowKinds(r).join()}`);
+    const r = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'triggering' }) });
+    assertEqual(flowKinds(r).length, 0, 'locked: no opportunity');
   });
 
-  await test('flow: Lock tap on a 1h READY (candidate only in flagBoard) creates a lock with entry=brk, stop=inv, tp1=tgt', async () => {
+  await test('flow: Lock tap on a LOCK_OPPORTUNITY (candidate only in flagBoard) creates a lock with entry=brk, stop=inv, tp1=tgt as shown', async () => {
     const blob = fakeBlob({ mode: null });
-    const ready = await cron({ blob, build: async () => flowPayload({ st: 'confirmed' }) });
-    assertEqual(flowKinds(ready).join(), 'READY,READY', 'READY sent');
+    const opp = await cron({ blob, build: async () => flowPayload({ st: 'triggering' }) });
+    assertEqual(flowKinds(opp).join(), 'OPP,OPP', 'opportunity sent');
     assert(!(flowPayload().symbols.BTC.candidateSetups || []).length, 'fixture: not in candidateSetups');
-    const t = await tap({ data: `lock:${flowRef}`, blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'confirmed' }) });
+    const t = await tap({ data: `lock:${flowRef}`, blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assert(flowSends(t)[0].text.includes('🔒 LOCKED'), flowSends(t)[0].text);
     const l = stateOf(blob).locks[0];
     assertEqual(`${l.source}|${l.levels.entry}|${l.levels.stop}|${l.levels.tp1}`, 'flag|84600|84390|85146', 'levels');

@@ -2267,6 +2267,29 @@ components:
             on MCP); absent when the lock store is unreadable.
           items:
             $ref: "#/components/schemas/TradeLock"
+        board:
+          type: array
+          maxItems: 3
+          description: >-
+            Top 3 flags right now (flag flow, docs/PLAN_FLAG_FLOW.md), ranked by the same
+            logic and shown with the same levels as the Telegram board. Always present on a
+            bearer REST response; empty when nothing ranks. REST only (never on MCP). Levels
+            are structural: entry = breakout level, stop = flag invalidation, TP1 = measured
+            move, TP2 = next higher-timeframe level or 1.5x the measured move. Quote them as
+            given; do not re-derive.
+          items:
+            $ref: "#/components/schemas/FlagBoardEntry"
+        pulse:
+          type: object
+          description: >-
+            24h flag-flow counts from the Telegram state store (flags found, opportunities,
+            locks created, window start). REST only; absent when the store is unreadable.
+          additionalProperties: true
+          properties:
+            found: { type: integer }
+            opps: { type: integer, description: Flags that reached the lock-opportunity stage in 24h }
+            locked: { type: integer }
+            since: { type: string, format: date-time }
         warnings:
           type: array
           items:
@@ -2286,6 +2309,30 @@ components:
         - requestId
         - warnings
         - symbols
+    FlagBoardEntry:
+      type: object
+      description: One ranked flag. Same levels as the Telegram card.
+      properties:
+        ref: { type: string, description: Short flag ref (Telegram button ref) }
+        sym: { type: string }
+        tf: { type: string, description: Flag timeframe (1m-4h) }
+        dir: { type: string, enum: [long, short] }
+        stage: { type: string, description: "Flow stage, verbatim from the engine (watch, found, or the lock-ready stage)" }
+        st: { type: string, description: "Flag state (proto, forming, triggering, confirmed)" }
+        lv:
+          type: object
+          properties:
+            ent: { type: number, nullable: true, description: Breakout level (entry) }
+            stop: { type: number, nullable: true, description: Flag invalidation }
+            inv: { type: number, nullable: true, description: Same as stop (invalidation) }
+            tp1: { type: number, nullable: true, description: Measured move }
+            tp2: { type: number, nullable: true, description: Next higher-timeframe level or 1.5x measured move }
+            tp2src: { type: string, nullable: true, description: What TP2 came from }
+            rr: { type: number, nullable: true }
+            cap: { type: number, nullable: true, description: No-chase cap }
+        score: { type: string, description: 'Checklist score, e.g. "6/7"' }
+        gate: { type: boolean, description: Confluence gate passed }
+        tfs: { type: string, description: 'One-line timeframe checklist, e.g. "1m✅ 3m✅ 5m⚠️"' }
     TradeLock:
       type: object
       properties:

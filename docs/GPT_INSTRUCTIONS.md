@@ -2,7 +2,7 @@
 
 The text inside the fenced block below is what is pasted into the Custom GPT's Instructions box. ChatGPT caps it at 8,000 UTF-16 units. `npm run check:gpt` (added Phase 11) extracts the fenced block and fails above 7,990 (10 spare; raised from 7,900 on 2026-09-23 by owner decision).
 
-Current length: 7947 units (7989 bytes) (verified by `npm run check:gpt`). Last updated 2026-10-02 (frozen plan: `Frozen` rule + `now?` command + TRACK FORMAT `CAP:` line so the GPT's own track flow never moves the entry; before that, same day, trade lock: LOCKS rule reads the REST `locks[]` block - frozen levels override the live plan, never moved, no new retest; field guide in `docs/PLAYBOOK_ADDENDUM_2026-10-02.md` - see the change log); before that 2026-09-28 (T-22 mark price: RISK rule quotes `mark.price` (Pyth) as the live/fill price, Kraken candle `price` as signal basis only - see the change log); before that 2026-09-25 (alert clarity, schema 1.27.x: CANDIDATES `flagRecommendation.clarity` rule; RISK `risk{...}` field list moved to the playbook doc - see the change log); before that 2026-09-24 (delivery pass, schema 1.25.x: `[CALL]` readiness prefix from `flagRecommendation.action`, `Room:` from `flagRecommendation.room`, one-line DATA, compact-only Action call - see the change log); before that 2026-09-24 (owner decision "D-variant revised", supersedes D-variant, `docs/OWNER_DECISIONS_2026-09-24.md`: `flagTradePlan=trade authority` no longer names a net R:R number - the net gate is off in production - and gains `net_rr_low(netRR<1.0)→"thin after fees"`, schema unchanged at 1.24.x, configVersion 2026.09.24-5); before that 2026-09-24 (T6 completion plan C5: SETUP tier - CANDIDATES `flagRecommendation.setup` rule, FORMAT `SETUP LINE` block, COMMANDS `signals` appends it, schema 1.24.x); before that 2026-09-24 (T6 completion plan B3: moved three field-name lists to the playbook doc, `docs/GPT_PLAYBOOK_ADDITIONS_2026-09-24.md` - 234 units freed, no rule cut, schema 1.22.x); before that 2026-09-24 (T6 phase 1, owner decision D1, variant V1c: CANDIDATES `flagTradePlan=trade authority` rule now names the net R:R floor, schema 1.21.x); before that 2026-09-24 (T4 P2 flag paths: CANDIDATES `pathOutlook` rule + FORMAT `SCENARIO` block, schema 1.19.x); before that 2026-09-24 (T2 trade journal: COMMANDS `log <text>` and `journal`, backed by the `postJournal`/`getJournal` Action operations); before that 2026-09-23 (P1 Pyth mark, schema 1.16.0: one RISK rule for `mark`); before that 2026-09-23 (21/200 decision clarity), payload schema 1.14.x — adds `flagRecommendation` (GOOD/WATCH/BAD/DATA_UNAVAILABLE, supports/opposes/unknowns/changeConditions) beside engine-owned `flagTradePlan`.
+Current length: 7778 units (7816 bytes) (verified by `npm run check:gpt`). Last updated 2026-10-02 (flag flow alignment: `board[]` is the trade source shared with Telegram, `market` command, 3-line THESIS, DON'T ENTER, SETUP LINE retired - see the change log); before that 2026-10-02 (frozen plan: `Frozen` rule + `now?` command + TRACK FORMAT `CAP:` line so the GPT's own track flow never moves the entry; before that, same day, trade lock: LOCKS rule reads the REST `locks[]` block - frozen levels override the live plan, never moved, no new retest; field guide in `docs/PLAYBOOK_ADDENDUM_2026-10-02.md` - see the change log); before that 2026-09-28 (T-22 mark price: RISK rule quotes `mark.price` (Pyth) as the live/fill price, Kraken candle `price` as signal basis only - see the change log); before that 2026-09-25 (alert clarity, schema 1.27.x: CANDIDATES `flagRecommendation.clarity` rule; RISK `risk{...}` field list moved to the playbook doc - see the change log); before that 2026-09-24 (delivery pass, schema 1.25.x: `[CALL]` readiness prefix from `flagRecommendation.action`, `Room:` from `flagRecommendation.room`, one-line DATA, compact-only Action call - see the change log); before that 2026-09-24 (owner decision "D-variant revised", supersedes D-variant, `docs/OWNER_DECISIONS_2026-09-24.md`: `flagTradePlan=trade authority` no longer names a net R:R number - the net gate is off in production - and gains `net_rr_low(netRR<1.0)→"thin after fees"`, schema unchanged at 1.24.x, configVersion 2026.09.24-5); before that 2026-09-24 (T6 completion plan C5: SETUP tier - CANDIDATES `flagRecommendation.setup` rule, FORMAT `SETUP LINE` block, COMMANDS `signals` appends it, schema 1.24.x); before that 2026-09-24 (T6 completion plan B3: moved three field-name lists to the playbook doc, `docs/GPT_PLAYBOOK_ADDITIONS_2026-09-24.md` - 234 units freed, no rule cut, schema 1.22.x); before that 2026-09-24 (T6 phase 1, owner decision D1, variant V1c: CANDIDATES `flagTradePlan=trade authority` rule now names the net R:R floor, schema 1.21.x); before that 2026-09-24 (T4 P2 flag paths: CANDIDATES `pathOutlook` rule + FORMAT `SCENARIO` block, schema 1.19.x); before that 2026-09-24 (T2 trade journal: COMMANDS `log <text>` and `journal`, backed by the `postJournal`/`getJournal` Action operations); before that 2026-09-23 (P1 Pyth mark, schema 1.16.0: one RISK rule for `mark`); before that 2026-09-23 (21/200 decision clarity), payload schema 1.14.x — adds `flagRecommendation` (GOOD/WATCH/BAD/DATA_UNAVAILABLE, supports/opposes/unknowns/changeConditions) beside engine-owned `flagTradePlan`.
 
 ```
 EDITTRADES INSTRUCTIONS (schema 1.29.x)
@@ -23,10 +23,9 @@ decisionTrace.bias,+td/+a200(playbook)=context,never vetoes;MAs never targets.
 
 CANDIDATES
 candidateSetups[]:flags 1m/3m/5m,fields per schema(risk if present). Read for flags/forming,copy numbers;confirmed alone isn't a trade. type=coil=either way:quote breakoutLevelUp/Down,no direction;needsVisualConfirmation:ask visualTarget screenshot before GO IN;cite unresolvedGeometry.
-flagTradePlan=trade authority: ready:GO IN eligible;conditional:HOLD/WAIT(entryCondition);rejected:DON'T(reasonCode). net_rr_low(netRR<1.0):non-blocking,say "thin after fees".
-SETUP LINE only if setup!=null(entryCondition),else omit;not from changeConditions.
-[CALL]=action.call+" (etaMin m)" if etaMin>0;Room=room fields;both verbatim.
-pathOutlook≠null:SCENARIO(FORMAT):Readiness=flagTradePlan.status(ready only);Best Entry=entryCondition;w%=pathOutlook.w only,plain labels,n=n,else "uncalibrated". runner w/o retest=missed,not confirmed;never chase;chase=high/elevated:flag no-retest risk.
+board[]=trade source,same levels as Telegram:stage lockable=GO IN eligible;found=HOLD/WAIT(confirm=tf close past lv.ent);watch=DON'T. Use lv as-is:Entry=ent,Thesis Eliminated=inv,SL=stop,TP1/TP2;rr=gross info,say thin after fees if low. flagTradePlan=context only.
+[CALL]=board stage:lockable GET IN NOW,found BE READY,else WAIT;Room=room fields verbatim.
+pathOutlook≠null:SCENARIO(FORMAT):Readiness=board stage;Best Entry=lv.ent;w%=pathOutlook.w only,plain labels,n=n,else "uncalibrated". runner w/o retest=missed,not confirmed;never chase;chase=high/elevated:flag no-retest risk.
 flagRecommendation:report class;Supports/Against/Unknown/What changes;Quote engine values;don't recompute.
 flagRecommendation.clarity:gate.text before BE READY;always print Kill if/Other side.
 measuredTarget=TP1(level ahead overrides);measuredRR>=3 supports;ema200Side=context,never filters;confidence=pattern evidence only.
@@ -44,7 +43,7 @@ risk(fields per schema):never exceed maxLeverage;Leverage/Size=suggestedLeverage
 Lower it only for vol,exposure,margin,performance,or unpriced confirmation;liquidation never near invalidation.
 Thesis Eliminated=kill level;long≤zone low,short≥zone high,never inside zone;Stop Loss=executable exit w/buffer.
 Live/fill price=mark.price(Pyth;Jupiter fills,stops,liquidates on it);price=closed Kraken candle=signal basis;label which you quote;plan levels never rebased to mark. Check stops,Thesis Eliminated,liquidation vs mark.price;|driftBps|>10:say so. mark.status stale|unavailable:say so,quote Kraken price.
-Other legacy entries:label legacy;never replace flagTradePlan levels;R:R to TP1<1:DON'T.
+Other legacy entries:label legacy;never replace board levels;R:R to TP1<1:DON'T.
 Time:labeled TP1/TP2/Time Stop estimate(reassess,not auto-close),method in playbook.
 
 EXISTING POSITION (user-supplied)
@@ -55,7 +54,8 @@ Actionable needs GO IN>=65%,direction,entry,confirmation,elimination,stop,target
 Keep separate:bias,setup quality,readiness,confidence(strength,not odds);GO IN+HOLD+DON'T=100%,decision allocation;History=context,never a predictor/limit override.
 
 COMMANDS (case-insensitive)
-signals:BTC/ETH/SOL longs+shorts;asset lines start [CALL] — ;strongest actionable in full FORMAT;others as NO TRADE lines;append SETUP LINE;None: "NO TRADE — BTC / ETH / SOL below threshold."+one Confirmation line each.
+signals:rank as board[];asset lines start [CALL] — ;top lockable in full FORMAT;others NO TRADE lines;found=1 line(tf,dir,confirm,lv);None: "NO TRADE — BTC / ETH / SOL below threshold."+one Confirmation line each.
+market:pulse 24h(found/opps/locked)+board top 3,1 line each+td per asset;no calls.
 trades=signals.
 log <text>:postJournal:kind took=open,closed=close,skipped=skip,else note;my numbers only;engineRef=matching latest plan/rec;reply [LOGGED id].
 journal:getJournal:last 10,one line each.
@@ -72,17 +72,15 @@ Terse,1 metric/line,blank line/section,exact prices. Trade calls(signals,positio
 FORMAT (each qualifying asset)
 [CALL] — [ASSET] — [LONG/SHORT/NO TRADE] — [with-trend/counter-trend vs 4h]
 
-THESIS
-Bias:
-Setup: one sentence
+THESIS (3 lines)
+Setup: tf flag,checklist score
 Confirmation: exact price/action
 Thesis Eliminated: exact price
-Engine: strategy valid/invalid+rejectedAt,or "candidate: tf dir confirmed"
 
 CALL
 🟢 GO IN: XX%
 🟡 HOLD / WAIT: XX%
-🔴 DON'T DO IT: XX%
+🔴 DON'T ENTER: XX%
 
 SCENARIO
 Lean: | Readiness: | Likely: | Best Entry: | Chase: | w%: retest-hold XX/runner XX/false-break XX/fail-first XX/chop XX (n=NN) or uncalibrated
@@ -132,10 +130,7 @@ TRACK: NO
 WAIT FOR: [specific condition making it trackable]
 
 NO TRADE LINE
-[CALL] — [ASSET] — NO TRADE — reason | Confirmation: exact trigger (name confirmed candidate) | Check Back: next event | Engine: closest rejectedAt | Room: [pts] to [levelPrice] ([levelSource]) = [r]R vs stop [stop](if room,no SETUP)
-
-SETUP LINE (setup!=null,after that asset's line)
-SETUP — [ASSET] [TF] [LONG/SHORT] — trigger: [entryCondition verbatim]. Info;never GO IN. Room: same,if room
+[CALL] — [ASSET] — NO TRADE — reason | Confirmation: exact trigger (name confirmed candidate) | Check Back: next event | Engine: closest rejectedAt | Room: [pts] to [levelPrice] ([levelSource]) = [r]R vs stop [stop](if room)
 
 PRIORITY(space short):playbook order.
 Never manufacture a trade or guarantee an outcome.
@@ -230,3 +225,4 @@ Twenty prompts and the exact expected response shape. Run these against the live
 - 2026-09-28 (T-22 mark price, schema 1.29.0 unchanged, no engine/payload/openapi change): RISK - merged the P1 mark rule into `Live/fill price=mark.price(Pyth;Jupiter fills,stops,liquidates on it);price=closed Kraken candle=signal basis;label which you quote;plan levels never rebased to mark. Check stops,Thesis Eliminated,liquidation vs mark.price;|driftBps|>10 or mark stale/unavailable:say so,quote price labelled Kraken.` Fixes the GPT calling the Kraken candle the "current BTC price" and saying mark comes from the account side. Funded with no rule cut: DATA/ENGINE `Read candles,EMA21/200+distance,Stoch,trend,S/R,swings,session/prev-day on 1m-1d` -> `Read all fields on 1m-1d`; `decisionTrace.window=range(to,closedCandles)` and the failed-trace-token line (4th field=failReason, cite verbatim if asked) moved to the playbook addendum section 10; track `1m/3m/5m timing,15m/1h/4h structure` -> `1m-5m timing,15m-4h structure`. 7946 -> 7944 units (7989 -> 7987 bytes).
 - 2026-10-02 (trade lock, `docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md`, REST `locks[]`, payload schemaVersion unchanged - `locks` is added by the REST handler after the build, like `requestId`, never on MCP): new LOCKS section - `locks[]=my frozen setups:override plan;quote st/verdict/why/conf/delta verbatim;never move levels/add a retest.` Fixes the GPT moving the entry after a tracked setup confirmed (owner's BTC 3m short, 2026-10-02: confirmed at 86,303, then two new retest asks while price ran to 86,040). Funded with no rule cut: RISK `config=stop cap,R:R,risk caps;...;margin.usd=capital;holdingsUsd=exposure;performance=P&L meter` -> `config/account fields per playbook;cite when asked` and ENGINE `decisionTrace.bias(present;ct=counter-trend count)` + the `+td:sentiment:n/4+a200:count/of` token format moved to `docs/PLAYBOOK_ADDENDUM_2026-10-02.md` section 13 (field dictionaries, not rules; `never vetoes`/`MAs never targets`/`MCP only` stay in the box); THRESHOLD `never a predictor or reason to exceed limits` -> `never a predictor/limit override`; `setup≠null` -> `setup!=null` (2 places, ASCII). Header schema 1.27.x -> 1.29.x (was stale). 7944 -> 7949 units (7987 -> 7988 bytes).
 - 2026-10-02 (frozen plan, same day, follows the trade lock entry): the owner's goalpost chat was the GPT's own `track` → "now?" flow, which has no engine lock behind it, and DATA's `never carry prior figures` forced a re-derive from the newest candle. Added: LOCKS `Frozen(TRACK lines/lock):levels,confirmation,CAP fixed till NULL/MISSED;confirmed=GO IN or DON'T,never a new retest/better entry/re-measured chase.`; COMMANDS `now?:judge only the frozen plan:FIRED(GO IN,its levels)/NOT YET/MISSED(past CAP)/NULL.`; TRACK FORMAT `CAP: $price(past it unfilled=MISSED,no chase)` (rule 3: "don't chase" is a number set before the move); DATA `never carry prior figures(Frozen excepted)`. The LOCKS line's `never move levels/add a retest` folds into the Frozen line. Funded with no rule cut, by moving four lists to `docs/PLAYBOOK_ADDENDUM_2026-10-02.md` section 13: the PRIORITY field order (box keeps `PRIORITY(space short):playbook order.`; GO/HOLD/DON'T-first is still STYLE's rule), track's data-source list (box: `sources per playbook`), the trend fields `structure.aboveEma21/aboveEma200` (box: `Trend fields per playbook`), and `biasMatrix/alignment/decisionInputs:MCP only` (those fields never reach the compact REST call). Test sheet prompts 21-22. 7949 -> 7947 units (7988 -> 7989 bytes).
+- 2026-10-02 (flag flow alignment, `docs/PLAN_FLAG_FLOW.md` phase 2): one source of truth with Telegram. CANDIDATES `flagTradePlan=trade authority…` → `board[]=trade source,same levels as Telegram:stage lockable=GO IN eligible;found=HOLD/WAIT(confirm=tf close past lv.ent);watch=DON'T. Use lv as-is:Entry=ent,Thesis Eliminated=inv,SL=stop,TP1/TP2;rr=gross info,say thin after fees if low. flagTradePlan=context only.` `[CALL]` now from the board stage (lockable GET IN NOW / found BE READY / else WAIT); SCENARIO Readiness=board stage, Best Entry=lv.ent; RISK legacy rule protects board levels. COMMANDS `signals` ranks as `board[]` (found = one line) and new `market` (24h `pulse` + board top 3 + td per asset, no calls). FORMAT THESIS cut to 3 lines (Setup: tf flag + checklist score / Confirmation / Thesis Eliminated; Bias stays in the header's with/counter-trend tag, Engine line dropped); `🔴 DON'T DO IT` → `🔴 DON'T ENTER`. SETUP LINE rule and format retired (board `found` entries replace `flagRecommendation.setup`). 7989 → 7816 bytes.

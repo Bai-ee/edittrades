@@ -2308,6 +2308,33 @@ async function main() {
         assertEqual(reads, 0, 'MCP path never reads locks');
       });
 
+      await test('REST board + pulse (flag flow E): compact top 3, no flagBoard, pulse only when the store answered; MCP never sees them', async () => {
+        const mk = (id, brk, extra = {}) => ({ id: `BTC:${id}`, tf: '5m', dir: 'long', st: 'forming', brk, inv: brk - 2, tgt: brk + 4, rr: 2, ...extra });
+        const flagPayload = { ...restPayload, flagBoard: { BTC: [mk('a', 100), mk('b', 101), mk('c', 102), mk('d', 103)] } };
+        let storeReads = 0;
+        const flagBuild = async () => JSON.parse(JSON.stringify(flagPayload));
+        const run = async (req, readLocks) => { const res = mockRes(); await handleScalpContext({ on() {}, ...req }, res, { build: flagBuild, readLocks }); return res; };
+        const bearer = { method: 'GET', url: '/api/scalp-context', query: {}, headers: { authorization: `Bearer ${TEST_KEY}` } };
+        const nowIso = new Date().toISOString();
+        const withState = await run(bearer, async () => { storeReads++; return { locks: [], flow: { found: { x: nowIso, y: nowIso }, ready: { x: nowIso } } }; });
+        assert(Array.isArray(withState.body.board) && withState.body.board.length === 3, `board ${JSON.stringify(withState.body.board)}`);
+        const keys = Object.keys(withState.body.board[0]).sort().join(',');
+        assertEqual(keys, 'dir,gate,lv,ref,score,st,stage,sym,tf,tfs', 'compact entry keys');
+        assertEqual(Object.keys(withState.body.board[0].lv).sort().join(','), 'cap,ent,inv,rr,stop,tp1,tp2,tp2src', 'lv keys');
+        assert(/^\d+\/\d+$/.test(withState.body.board[0].score), 'score is "n/m"');
+        assert(!('flagBoard' in withState.body), 'flagBoard removed from the response');
+        assert(withState.body.pulse && withState.body.pulse.found === 2 && withState.body.pulse.locked === 0 && typeof withState.body.pulse.since === 'string', JSON.stringify(withState.body.pulse));
+        const noStore = await run(bearer, async () => null);
+        assert(Array.isArray(noStore.body.board) && !('pulse' in noStore.body) && !('flagBoard' in noStore.body), 'null store -> board, no pulse');
+        const chartlessBytes = Buffer.byteLength(JSON.stringify(restPayload));
+        console.log(`  REST fixture bytes: before=${chartlessBytes} after(no store)=${Buffer.byteLength(JSON.stringify(noStore.body))} after(with 3-entry board + pulse)=${Buffer.byteLength(JSON.stringify(withState.body))}`);
+        storeReads = 0;
+        const mcp = await run({ method: 'POST', url: '/api/mcp', query: { __mcp: '1' }, headers: {}, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) }, async () => { storeReads++; return { locks: [], flow: {} }; });
+        assertEqual(storeReads, 0, 'MCP never reads the store');
+        const mcpText = JSON.stringify(mcp.body);
+        assert(!/"board"|"pulse"|"flagBoard"/.test(mcpText), 'MCP output has no board/pulse/flagBoard');
+      });
+
       await test('REST ?chart=BTC:1m with auth returns 200 image/png', async () => {
         buildCalls.length = 0;
         const res = await call({ chart: 'BTC:1m' });
@@ -2343,30 +2370,31 @@ async function main() {
         });
       }
 
-      await test('REST without chart is the normal JSON response, build() called with no arguments', async () => {
+      await test('REST without chart is the normal JSON response; build asks only for includeFlagBoard, body = build + board', async () => {
         buildCalls.length = 0;
         const res = await call({});
         assertEqual(res.statusCode, 200, 'status');
-        assertEqual(buildCalls[0].length, 0, 'build() must be called exactly as before phase 8b');
+        assert(deepEqual(buildCalls[0][0], { includeFlagBoard: true }), `build args ${JSON.stringify(buildCalls[0])}`);
         assert(res.body && res.body.symbols && res.body.symbols.BTC, 'JSON payload');
-        const { requestId, ...rest } = res.body;
+        const { requestId, board, ...rest } = res.body;
         assert(typeof requestId === 'string', 'requestId');
-        assertEqual(JSON.stringify(rest), JSON.stringify(restPayload), 'body identical to the unfiltered build');
+        assert(Array.isArray(board) && board.length === 0, 'board is an empty array when nothing ranks');
+        assertEqual(JSON.stringify(rest), JSON.stringify(restPayload), 'body otherwise identical to the unfiltered build');
       });
 
-      await test('REST ?include=bias/model builds with opt-in flags; any other include keeps build() argument-free', async () => {
+      await test('REST ?include=bias/model builds with opt-in flags; any other include adds only includeFlagBoard', async () => {
         buildCalls.length = 0;
         await call({ include: 'strategies,bias' });
-        assert(deepEqual(buildCalls[0][0], { includeBias: true }), `build args ${JSON.stringify(buildCalls[0])}`);
+        assert(deepEqual(buildCalls[0][0], { includeBias: true, includeFlagBoard: true }), `build args ${JSON.stringify(buildCalls[0])}`);
         buildCalls.length = 0;
         await call({ include: 'strategies,model' });
-        assert(deepEqual(buildCalls[0][0], { includeModel: true }), `model build args ${JSON.stringify(buildCalls[0])}`);
+        assert(deepEqual(buildCalls[0][0], { includeModel: true, includeFlagBoard: true }), `model build args ${JSON.stringify(buildCalls[0])}`);
         buildCalls.length = 0;
         await call({ include: 'bias,model' });
-        assert(deepEqual(buildCalls[0][0], { includeBias: true, includeModel: true }), `combined build args ${JSON.stringify(buildCalls[0])}`);
+        assert(deepEqual(buildCalls[0][0], { includeBias: true, includeModel: true, includeFlagBoard: true }), `combined build args ${JSON.stringify(buildCalls[0])}`);
         buildCalls.length = 0;
         await call({ include: 'strategies' });
-        assertEqual(buildCalls[0].length, 0, 'no bias requested → build()');
+        assert(deepEqual(buildCalls[0][0], { includeFlagBoard: true }), 'no bias requested → only includeFlagBoard');
       });
     } finally {
       if (savedKey === undefined) delete process.env.SCALP_CONTEXT_API_KEY;

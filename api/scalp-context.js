@@ -18,7 +18,7 @@ import { buildScalpContext, filterPayload, wantsBias, wantsModel, capOptInSectio
 import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { recordServedCalls } from '../lib/servedCalls.js';
-import { readStoredLocks, lockFeed } from '../lib/lockFeed.js';
+import { readStoredState, asStoredState, lockFeed, pulseFeed, boardFeed } from '../lib/lockFeed.js';
 import { get as blobGet } from '@vercel/blob';
 import crypto from 'crypto';
 
@@ -73,8 +73,8 @@ export default function handler(req, res) {
  * @param {Function} [deps.build=buildScalpContext] - injectable, for tests
  * @param {Function} [deps.record=recordServedCalls] - injectable, for tests
  */
-/** The owner's stored trade locks (Telegram state blob), or null without a Blob token. */
-const defaultReadLocks = () => (process.env.BLOB_READ_WRITE_TOKEN ? readStoredLocks({ get: blobGet }) : Promise.resolve(null));
+/** The owner's stored Telegram state ({locks, flow}; Blob), or null without a Blob token. A test may inject a reader that returns a bare locks array. */
+const defaultReadLocks = () => (process.env.BLOB_READ_WRITE_TOKEN ? readStoredState({ get: blobGet }) : Promise.resolve(null));
 
 export async function handleScalpContext(req, res, { build = buildScalpContext, record = recordServedCalls, readLocks = defaultReadLocks } = {}) {
   // /api/mcp is routed into this function because the project is at the Vercel
@@ -145,7 +145,10 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
       ...(wantsBias(include) ? { includeBias: true } : {}),
       ...(wantsModel(include) ? { includeModel: true } : {})
     };
-    const optBuild = Object.keys(buildOpts).length > 0 ? buildOpts : null;
+    // Flag board (docs/PLAN_FLAG_FLOW.md E): REST builds `flagBoard` only to rank the compact
+    // `board` below, then drops it. Chart requests keep their build options unchanged.
+    const restBuildOpts = chartRequest ? buildOpts : { ...buildOpts, includeFlagBoard: true };
+    const optBuild = Object.keys(restBuildOpts).length > 0 ? restBuildOpts : null;
     // Trade locks (docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md): the stored list is read
     // in parallel with the build (never throws, capped), then re-judged on this build below.
     const storedLocksPromise = chartRequest ? Promise.resolve(null) : Promise.resolve().then(readLocks).catch(() => null);
@@ -162,8 +165,17 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
     });
     // `locks` only when the store answered; added before the byte cap so opt-in model/bias
     // sections drop before the owner's locks do. Never on the MCP path (dispatched above).
-    const locks = lockFeed(await storedLocksPromise, payload, Date.now());
-    const capped = capOptInSections(locks && narrowed && typeof narrowed === 'object' ? { ...narrowed, locks } : narrowed);
+    // `board` (always an array) and `pulse` (only when the store answered) ride the same way.
+    const nowMs = Date.now();
+    const stored = asStoredState(await storedLocksPromise);
+    const locks = lockFeed(stored && stored.locks, payload, nowMs);
+    const pulse = pulseFeed(stored, nowMs);
+    let withRest = narrowed;
+    if (narrowed && typeof narrowed === 'object' && !Array.isArray(narrowed) && !chartRequest) {
+      const { flagBoard: _flagBoard, ...rest } = narrowed;
+      withRest = { ...rest, board: boardFeed(payload), ...(locks ? { locks } : {}), ...(pulse ? { pulse } : {}) };
+    }
+    const capped = capOptInSections(withRest);
     const filtered = capped.payload;
     if (capped.dropped) console.log(`[ScalpContext] requestId=${requestId} optInDropped=true bytes=${capped.bytes}`);
 

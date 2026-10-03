@@ -503,7 +503,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         const out = await writeState((text) => applyPrefsChange(text, { mode: alertModeArg }));
         await reply(!out ? 'Mode could not be saved; try again in a minute.'
           : alertModeArg === 'flow'
-            ? 'Mode: <b>FLOW</b> — alerts are 🔍 FOUND, 🎯 READY, 🔒 lock updates and ✅/❌ DONE. /signals shows the top flags. /mode classic restores every original alert kind.'
+            ? 'Mode: <b>FLOW</b> — alerts are 🎯 LOCK OPPORTUNITY, 🔒 lock updates and ✅/❌ DONE. /signals shows the top flags. /mode classic restores every original alert kind.'
             : 'Mode: <b>CLASSIC</b> — every original alert kind (WATCH, BREAKOUT, SETUP, GOOD, TRACK, …) plus lock updates. /mode flow returns to the four-step flow.');
       }
     } else if (parsed.known && EXEC_CMDS.has(cmd) && !ex) {
@@ -1132,7 +1132,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           const v = resolveRef(ref, filterPayload(full, { compact: true }), state);
           snap = v ? (v.source === 'live' ? candidateSnapshot(v.symbol, v.s, v.candidateId) : v.snap) : null;
           symbol = v ? v.symbol : null;
-          // A FOUND / READY / board button locks the structural levels it showed (flag flow snapshot).
+          // A LOCK OPPORTUNITY / board button locks the structural levels it showed (flag flow snapshot).
           const flowSnap = state && state.buttons && state.buttons[ref];
           if (flowSnap && flowSnap.recClass === 'FLOW' && flowSnap.symbol && flowSnap.candidateId) { snap = flowSnap; symbol = flowSnap.symbol; }
           if (state && state.htf && state.htf.plans && state.htf.plans[ref]) source = 'htf';

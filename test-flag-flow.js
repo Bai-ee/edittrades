@@ -1,12 +1,13 @@
 /**
- * lib/flagFlow.js: stage rules (found / ready / missed / watch, long and short), ATR cap,
- * ranking, snapshot -> lock levels, FOUND / READY / board cards, keyboard, 24h pulse.
+ * lib/flagFlow.js: stage rules (found / lockable / missed / watch, long and short), ATR cap,
+ * ranking, snapshot -> lock levels, opportunity / FOUND / board cards, keyboard, 24h pulse.
  */
 import {
-  scoreFlag, rankFlags, snapshotOf, formatFoundCard, formatReadyCard, formatBoard, flowKeyboard,
+  scoreFlag, rankFlags, snapshotOf, formatFoundCard, formatOpportunityCard, tp2For, formatBoard, flowKeyboard,
   pulseOf, pulseLine, FLOW_DEFAULTS, FLOW_STATE_RANK
 } from './lib/flagFlow.js';
 import { createLock, lockLevels } from './lib/tradeLock.js';
+import { fmtLvl } from './lib/telegram.js';
 
 let passed = 0;
 let failed = 0;
@@ -42,17 +43,21 @@ console.log('\nflagFlow');
 for (const dir of [1, -1]) {
   const side = dir === 1 ? 'long' : 'short';
   const tfs = timeframes(dir, 86400);
-  await test(`${side}: forming + gate -> found; proto/triggering too`, () => {
-    for (const st of ['forming', 'proto', 'triggering']) assert(scoreFlag('BTC', cand(dir, { st }), tfs, 86400).stage === 'found', st);
+  await test(`${side}: forming/proto + gate -> found (not lockable)`, () => {
+    for (const st of ['forming', 'proto']) assert(scoreFlag('BTC', cand(dir, { st }), tfs, 86400).stage === 'found', st);
   });
-  await test(`${side}: confirmed + gate inside cap -> ready`, () => {
+  await test(`${side}: triggering + gate -> lockable; confirmed inside cap -> lockable`, () => {
+    assert(scoreFlag('BTC', cand(dir, { st: 'triggering' }), tfs, 86400).stage === 'lockable', 'triggering');
     const e = scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, 86400 + dir * 5);
-    assert(e.stage === 'ready', e.stage);
+    assert(e.stage === 'lockable', e.stage);
+  });
+  await test(`${side}: lockable needs a target; no target -> found`, () => {
+    assert(scoreFlag('BTC', cand(dir, { st: 'triggering', tgt: null }), tfs, 86400).stage === 'found', 'no target');
   });
   await test(`${side}: confirmed past cap -> missed; at the cap is not missed`, () => {
     const cap = scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, 86400).levels.cap;
     assert(scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, cap + dir * 1).stage === 'missed', 'past');
-    assert(scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, cap).stage === 'ready', 'at cap');
+    assert(scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, cap).stage === 'lockable', 'at cap');
   });
   await test(`${side}: gate not met -> watch (forming and confirmed)`, () => {
     const bad = timeframes(dir, 86400, false);
@@ -79,7 +84,7 @@ await test('entry shape: ref, levels, null target kept null', () => {
 
 const board = (list, tfs) => ({ board: { BTC: list }, symbols: { BTC: { price: 86400, timeframes: tfs } } });
 
-await test('rankFlags: ready > found > watch, missed dropped', () => {
+await test('rankFlags: lockable > found > watch, missed dropped', () => {
   const good = timeframes(1, 86400);
   const { board: b, symbols } = board([
     cand(1, { id: 'w', st: 'forming', tf: '4h' }),
@@ -90,9 +95,9 @@ await test('rankFlags: ready > found > watch, missed dropped', () => {
   // make 'w' watch: gate fails for 4h by breaking the 4h entry
   symbols.BTC.timeframes = { ...good, '4h': tfEntry(-1, '4h', 86400) };
   const out = rankFlags(b, symbols);
-  assert(out.map((e) => `${e.id}:${e.stage}`).join() === 'r:ready,f:found,w:watch', out.map((e) => `${e.id}:${e.stage}`).join());
+  assert(out.map((e) => `${e.id}:${e.stage}`).join() === 'r:lockable,f:found,w:watch', out.map((e) => `${e.id}:${e.stage}`).join());
   assert(!out.some((e) => e.id === 'm'), 'missed dropped');
-  assert(out[0].stage === 'ready', 'ready first');
+  assert(out[0].stage === 'lockable', 'lockable first');
 });
 
 await test('rankFlags: score, then state rank, then higher TF, then rr', () => {
@@ -121,7 +126,7 @@ for (const dir of [1, -1]) {
     assert(s.candidateId === e.id && s.timeframe === '1h' && s.direction === e.dir && s.state === 'confirmed', 'ids');
     assert(s.entry === 86400 && s.breakoutLevel === 86400 && s.stop === e.levels.stop && s.invalidation === e.levels.stop, 'entry/stop');
     assert(s.tp1 === e.levels.target && s.measuredTarget === s.tp1 && s.measuredRR === 2.4, 'target');
-    assert(s.recClass === 'FLOW' && s.planStatus === 'ready', 'class/status');
+    assert(s.recClass === 'FLOW' && s.planStatus === 'lockable' && s.tp2 === e.levels.tp2, 'class/status');
     assert(lockLevels(s) !== null, 'lockLevels');
     const { lock, error } = createLock({ symbol: 'BTC', snap: s, timeframes: tfs, nowMs: T0 + 3600_000, ref: e.ref });
     assert(!error && lock.levels.entry === 86400 && lock.levels.stop === e.levels.stop, `createLock ${error}`);
@@ -137,24 +142,59 @@ await test('FOUND card: trigger level, checklist score, <= 600 chars', () => {
   assert(formatFoundCard(scoreFlag('BTC', cand(-1), timeframes(-1, 86400), 86400), T0).includes('close below'), 'short below');
 });
 
-await test('READY card: entry/stop/target/R:R/cap and the Lock prompt, <= 600 chars', () => {
-  const e = scoreFlag('BTC', cand(1, { st: 'confirmed' }), timeframes(1, 86400), 86400);
-  const t = formatReadyCard(e, T0);
-  assert(t.includes('READY') && t.includes('Trigger hit'), 'head');
-  for (const k of ['entry', 'stop', 'target', 'R:R', 'no-chase cap', '2.4R', '85,900', '87,600']) assert(t.includes(k), `missing ${k}`);
-  assert(t.includes('Tap 🔒 Lock to freeze these levels.'), 'prompt');
-  assert(t.length <= 600, `len ${t.length}`);
-});
+for (const dir of [1, -1]) {
+  const side = dir === 1 ? 'long' : 'short';
+  const geo = (resLow, supHigh) => ({
+    '1h': { horizontalResistanceZones: resLow === null ? [] : [{ low: resLow, high: resLow + 20 }], horizontalSupportZones: supHigh === null ? [] : [{ low: supHigh - 20, high: supHigh }], confluenceZones: [] },
+    '15m': { horizontalResistanceZones: [{ low: 87700, high: 87720 }], horizontalSupportZones: [{ low: 85080, high: 85100 }], confluenceZones: [] } // nearer than the 1h level but below the flag's tf
+  });
+  const c1 = cand(dir, { tgt: 86400 + dir * 1200 }); // TP1 = 86400 +/- 1200
+  await test(`${side}: TP2 = nearest zone edge beyond TP1 on timeframes >= the flag's; lower-TF levels ignored`, () => {
+    const beyond = dir === 1 ? 88000 : 84800; // beyond TP1 (87600 / 85200)
+    const e = scoreFlag('BTC', c1, timeframes(dir, 86400), 86400, {}, geo(dir === 1 ? beyond : null, dir === -1 ? beyond : null));
+    assert(e.levels.tp2 === beyond && e.levels.tp2Source === 'level', `${e.levels.tp2} ${e.levels.tp2Source}`);
+  });
+  await test(`${side}: TP2 picks confluence zone edge when nearer; ignores levels at or before TP1`, () => {
+    const g = {
+      '4h': { horizontalResistanceZones: [{ low: 90000, high: 90100 }], horizontalSupportZones: [{ low: 82000, high: 82100 }],
+        confluenceZones: [{ low: dir === 1 ? 88500 : 83900, high: dir === 1 ? 88600 : 84000, components: ['a', 'b'], score: 2 }] },
+      '1h': { horizontalResistanceZones: [{ low: 87600, high: 87700 }], horizontalSupportZones: [{ low: 85100, high: 85200 }], confluenceZones: [] }
+    };
+    const e = scoreFlag('BTC', c1, timeframes(dir, 86400), 86400, {}, g);
+    const want = dir === 1 ? 88500 : 84000;
+    assert(e.levels.tp2 === want && e.levels.tp2Source === 'level', `${e.levels.tp2}`);
+  });
+  await test(`${side}: no level beyond TP1 -> 1.5x fallback; no geometry -> 1.5x`, () => {
+    const want = 86400 + dir * 1800;
+    const a = scoreFlag('BTC', c1, timeframes(dir, 86400), 86400, {}, geo(null, null));
+    const b = scoreFlag('BTC', c1, timeframes(dir, 86400), 86400);
+    assert(a.levels.tp2 === want && a.levels.tp2Source === '1.5x', `${a.levels.tp2}`);
+    assert(b.levels.tp2 === want && b.levels.tp2Source === '1.5x', 'no geometry');
+    assert(tp2For(cand(dir, { tgt: null }), null).tp2 === null, 'no target -> null');
+  });
+  await test(`${side}: opportunity card has the call format fields, no percentages, <= 700 chars`, () => {
+    for (const st of ['triggering', 'confirmed']) {
+      const e = scoreFlag('BTC', cand(dir, { st }), timeframes(dir, 86400), 86400);
+      const t = formatOpportunityCard(e, T0);
+      assert(t.includes('LOCK OPPORTUNITY') && t.includes('GO IN') && t.includes(`flag ${st}`), 'head');
+      for (const k of ['entry', 'confirm', 'invalidation', 'stop', 'TP1', 'TP2', 'R:R', 'no-chase cap', '2.4R', '86,400', fmtLvl(e.levels.tp2)]) assert(t.includes(k), `missing ${k} (${st})`);
+      assert(st === 'confirmed' ? !t.includes('close above') && !t.includes('close below') : t.includes(`1h close ${dir === 1 ? 'above' : 'below'} 86,400`), 'confirm row');
+      assert(t.includes('Tap 🔒 Lock to freeze these levels.'), 'prompt');
+      assert(!t.includes('%'), 'no percentages');
+      assert(t.length <= 700, `len ${t.length}`);
+    }
+  });
+}
 
 await test('board: entries, tags, cap of 3, empty state with pulse line', () => {
   const tfs = timeframes(1, 86400);
   const ranked = rankFlags({ BTC: ['a', 'b', 'c', 'd'].map((id, i) => cand(1, { id, st: i === 0 ? 'confirmed' : 'forming' })) }, { BTC: { price: 86400, timeframes: tfs } });
-  const pulse = { found: 12, ready: 4, locked: 1 };
+  const pulse = { found: 12, opps: 4, locked: 1 };
   const t = formatBoard(ranked, pulse, T0);
-  assert(t.includes('FLAGS NOW') && t.includes('24h: 12 flags found · 4 ready · 1 locked'), 'title/pulse');
-  assert(t.includes('🎯 READY') && t.includes('🔍 FOUND'), 'tags');
+  assert(t.includes('FLAGS NOW') && t.includes('24h: 12 flags found · 4 lock opportunities · 1 locked'), 'title/pulse');
+  assert(t.includes('🎯 LOCK') && t.includes('🔍 FOUND') && t.includes('TP1') && t.includes('TP2'), 'tags');
   assert((t.match(/BTC 1h/g) || []).length === 3, 'three entries');
-  const empty = formatBoard([], { found: 0, ready: 0, locked: 0 }, T0);
+  const empty = formatBoard([], { found: 0, opps: 0, locked: 0 }, T0);
   assert(empty.includes('No flags passing the checklist right now.') && empty.includes('24h: 0 flags found'), empty);
 });
 
@@ -168,12 +208,12 @@ await test('flowKeyboard: lock:<8hex>, chart:SYM:TF, <= 64 bytes', () => {
 
 await test('pulseOf counts only the last 24h; pulseLine formats', () => {
   const h = (n) => iso(T0 - n * 3_600_000);
-  const p = pulseOf({ found: { a: h(1), b: h(23), c: h(25) }, ready: { a: h(2), c: h(30) }, locked: [h(3), h(50)] }, T0);
-  assert(p.found === 2 && p.ready === 1 && p.locked === 1, JSON.stringify(p));
+  const p = pulseOf({ found: { a: h(1), b: h(23), c: h(25) }, opps: { a: h(2), c: h(30) }, locked: [h(3), h(50)] }, T0);
+  assert(p.found === 2 && p.opps === 1 && p.locked === 1, JSON.stringify(p));
   assert(p.since === h(24), 'since');
-  assert(pulseLine(p) === '24h: 2 flags found · 1 ready · 1 locked', pulseLine(p));
+  assert(pulseLine(p) === '24h: 2 flags found · 1 lock opportunity · 1 locked', pulseLine(p));
   const z = pulseOf(undefined, T0);
-  assert(z.found === 0 && z.ready === 0 && z.locked === 0, 'empty');
+  assert(z.found === 0 && z.opps === 0 && z.locked === 0, 'empty');
   assert(pulseOf({ locked: 2 }, T0).locked === 2, 'numeric locked');
 });
 

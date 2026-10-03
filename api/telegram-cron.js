@@ -733,7 +733,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
       locksChanged = lk.changed;
       alerts = [...suppressLocked(diff.alerts, lk.lockedIds), ...lk.alerts];
       // Flag flow (docs/PLAN_FLAG_FLOW.md): the classic diff above still ran for its bookkeeping;
-      // in flow mode its sends are dropped and FOUND / READY (diffFlow) replace them. Classic mode: untouched.
+      // in flow mode its sends are dropped and LOCK_OPPORTUNITY (diffFlow) replaces them. Classic mode: untouched.
       flowMode = diff.state.prefs.mode !== 'classic';
       flowChanged = false;
       if (flowMode) {

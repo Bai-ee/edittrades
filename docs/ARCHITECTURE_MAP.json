@@ -931,9 +931,11 @@
         {
           "path": "lib/lockFeed.js",
           "name": "lockFeed",
-          "role": "Reads the owner's stored locks from the Telegram state blob in parallel with the REST build and re-judges them read-only for the bearer REST response (`locks`); never on MCP, never throws.",
+          "role": "Reads the owner's stored locks from the Telegram state blob in parallel with the REST build and re-judges them read-only for the bearer REST response (`locks`), computes the 24h flow `pulse` from the same blob, and builds the compact top-3 `board` from rankFlags; never on MCP, never throws.",
           "publishes": [
-            "locks"
+            "locks",
+            "board",
+            "pulse"
           ],
           "consumes": [
             "trade lock state",
@@ -2248,7 +2250,9 @@
         "alignment",
         "decisionInputs",
         "topDown",
-        "locks"
+        "locks",
+        "board",
+        "pulse"
       ]
     },
     {

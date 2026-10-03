@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-02 — Flag flow phase 2: lock-opportunity alerts, TP2, one source of truth for ChatGPT (branch `flag-flow`)
+
+Owner: "alignment first" and "alert me when there is a legitimate locking-in opportunity".
+- Telegram pushes one actionable alert, **🎯 LOCK OPPORTUNITY**: a flag (1m–4h) triggering or confirmed, checklist gate passing, measured-move target present, price inside the 1.5 ATR no-chase cap. Card in the shared call format (GO IN, entry, confirm, invalidation, stop, TP1, TP2, R:R, cap, checklist, Lock prompt; no percentages). FOUND is board-only (counted in the pulse, no push). TP2 = nearest higher-timeframe resistance/support or confluence zone beyond TP1, else 1.5× the measured move. LOCK_OPPORTUNITY bypasses focus mode. `test:flow` 31, `test:telegram` 177.
+- REST (bearer only, never MCP): top-level `board` (the same top-3 ranking Telegram shows, structural levels incl. TP2) and `pulse` (24h found / lock opportunities / locked); bot-only `flagBoard` is stripped. OpenAPI `FlagBoardEntry`. `test:scalp` 127.
+- GPT: `board[]` is the trade source (same levels as Telegram), `[CALL]` from the board stage, new `market` command, THESIS 3 lines, `DON'T ENTER`, SETUP LINE retired. 7,816 bytes.
+
 ## 2026-10-02 — Flag flow: four-step Telegram UX, flags on 1m–4h (branch `flag-flow`, `docs/PLAN_FLAG_FLOW.md`)
 
 Owner: "I just want an easy to follow setup." Default Telegram mode is now **flow**: 🔍 FOUND (a flag passing the confluence gate, any timeframe 1m–4h) → 🎯 READY (confirmed, inside the 1.5 ATR no-chase cap; entry = breakout, stop = invalidation, target = pure measured move) → 🔒 lock → ✅/❌ DONE. `/signals` = top-3 board + 24h pulse; `/signals all` and `/mode classic` keep every original alert kind. Engine signals, plans, REST and MCP payloads unchanged.
