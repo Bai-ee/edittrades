@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-03 — Fix: I'm in right after Lock said "Not locked"
+
+Live: BTC 3m, Lock tapped 18:06:12Z, I'm in 18:06:21Z -> "Not locked (or already closed)." The webhook's `readState` used a plain Blob `get`, which can serve the copy from before the last write for up to 60 s (cacheControlMaxAge), so the lock saved 9 s earlier was not there. `readState` now uses `readBlobFresh` (head ETag check, fresh body on a mismatch; plain `get` only if that cannot be resolved), the read the guarded writer and the kill switch already use. The webhook store also passes its fetch to `updateBlob`'s fresh-body path. Test: `test:telegram` 178 (stale-get regression: fails on the old read).
+
 ## 2026-10-03 — Fee line on every card, /mytrades journal for manual entries
 
 Owner: trades are entered by hand off the alerts, so (1) show whether fees eat the trade before entering, and (2) score the owner's own picks against the alerts. Display and bookkeeping only: no alert rule, stage, level or engine change.

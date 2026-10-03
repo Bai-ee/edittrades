@@ -3324,6 +3324,37 @@ async function run() {
     assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'stopped', 'stopped');
   });
 
+  await test("lock: I'm in right after Lock works when the Blob get is stale (CDN copy from before the lock; head + fresh body win)", async () => {
+    const blob = fakeBlob();
+    // `get` serves the copy from before the last write (regional cache); head / the URL are current.
+    let cached = null;
+    const realGet = blob.get;
+    blob.get = async (p) => (p === TELEGRAM_STATE_PATH && cached ? { statusCode: 200, stream: new Response(cached.text).body, blob: { etag: cached.etag, url: `${BASE}/${p}` } } : realGet(p));
+    blob.head = async (p) => { const f = blob.files.get(p); return f ? { etag: f.etag, url: `${BASE}/${p}` } : null; };
+    const tg = fakeTelegram();
+    const fetchImpl = async (url, init) => {
+      const m = String(url).match(new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/([^?]+)`));
+      if (m && blob.files.get(m[1])) return new Response(blob.files.get(m[1]).text);
+      return tg.fetchImpl(url, init);
+    };
+    const run = async (data, nowMs, build) => {
+      const update = { update_id: updateSeq++, callback_query: { id: `cbq${updateSeq}`, from: { id: OWNER }, message: { message_id: 9, chat: { id: OWNER, type: 'private' } }, data } };
+      const req = { method: 'POST', headers: { 'x-telegram-bot-api-secret-token': SECRET }, body: JSON.stringify(update) };
+      await quiet(() => handleTelegramWebhook(req, mockRes(), { build, put: blob.put, get: blob.get, head: blob.head, fetchImpl, render: fakeRender, now: () => nowMs, env: ENV }));
+    };
+    cached = { text: JSON.stringify({ prefs: { mode: 'classic' } }), etag: '"e0"' }; // the copy before the Lock tap
+    await run(`lock:${lref}`, T0, lockBuild([84590]));
+    // Before the fix the plain get still showed no lock here.
+    const stale = JSON.parse(await new Response((await blob.get(TELEGRAM_STATE_PATH)).stream).text());
+    assertEqual((stale.locks || []).length, 0, 'get is stale in this setup');
+    const before = tg.calls.length;
+    await run(`ltook:${lref}`, T0 + MIN, lockBuild([84590]));
+    const replies = tg.calls.slice(before).filter((x) => x.method === 'sendMessage').map((x) => String(x.text));
+    assert(!replies.some((t) => t.includes('Not locked')), replies.join('\n---\n'));
+    assert(replies.some((t) => t.includes('🔒 IN')), replies.join('\n---\n'));
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'filled', 'filled');
+  });
+
   await test('lock: unfilled run past the cap -> MISSED once; lock tapped when already past the cap is NOT LOCKED and nothing is stored', async () => {
     const blob = fakeBlob();
     await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });

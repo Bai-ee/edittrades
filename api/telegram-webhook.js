@@ -271,13 +271,20 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   // Every plain reply re-sends the persistent menu keyboard; inline pickers replace it.
   const reply = (text, markup = menuKeyboard()) => bot.sendMessage(chatId, text, { replyMarkup: markup });
   const hasStore = Boolean(deps.put || deps.get || env.BLOB_READ_WRITE_TOKEN);
-  const store = { put, get, head };
+  const store = { put, get, head, fetchImpl };
   const secrets = [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.BLOB_READ_WRITE_TOKEN];
   const errMsg = (err) => ` reason=state_read_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`;
   /** State from Blob; never throws (read failure -> null, logged). Logs a reset/migration. */
   const readState = async () => {
     try {
-      const blob = await readBlob(get, TELEGRAM_STATE_PATH);
+      // Fresh read (head ETag check): a plain `get` can serve the pre-write copy for up to 60 s, so a
+      // button tapped right after a Lock saw no lock (2026-10-03: I'm in -> "Not locked"). If the fresh
+      // read cannot be resolved, fall back to `get`.
+      let blob;
+      try { blob = await readBlobFresh({ get, head, fetchImpl }, TELEGRAM_STATE_PATH); } catch (err) {
+        if (!err || err.name !== 'BlobStaleRead') throw err;
+        blob = await readBlob(get, TELEGRAM_STATE_PATH);
+      }
       const m = migrateState(blob ? blob.text : null);
       if (m.reset) log('state', ` reason=state_reset cause=${m.reason}`);
       return m.state;
