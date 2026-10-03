@@ -147,7 +147,9 @@ const snapRows = (t) => {
   const it = rowIdx('TP');
   assert(it === -1 || (it > ie && it < ii && (iv === -1 || it === iv + 1)), `TP sits under Valid (or Entry), above Inval: ${t}`);
   const ci = lines.findIndex((l) => l.startsWith('Checklist '));
-  assert(ci > 0 && ci === lines.length - 2, `checklist then foot last: ${t}`);
+  // Checklist, then the optional fee line (owner 2026-10-03), then the foot last.
+  const fi = lines.findIndex((l) => l.startsWith('Fees '));
+  assert(ci > 0 && (fi === -1 ? ci === lines.length - 2 : (fi === ci + 1 && fi === lines.length - 2)), `checklist then fees then foot last: ${t}`);
   return { lines, status: lines[0], check: lines[ci], foot: lines[lines.length - 1] };
 };
 

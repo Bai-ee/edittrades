@@ -872,6 +872,23 @@
           "schemaSince": null
         },
         {
+          "path": "lib/myTrades.js",
+          "name": "myTrades",
+          "role": "Owner trade journal (2026-10-03): every lock the owner took (I'm in) that closed (target, stop, time, or Unlock at the mark) becomes a state.myTrades row with gross R, fees in R and net R; /mytrades summarizes net R per trade, win rate, avg win/loss and compares with the 200-day backtest of every alert on the same timeframes; pure.",
+          "publishes": [
+            "my trades"
+          ],
+          "consumes": [
+            "trade lock state"
+          ],
+          "tests": [
+            "test:mytrades",
+            "test:telegram"
+          ],
+          "since": "2026-10-03",
+          "schemaSince": null
+        },
+        {
           "path": "lib/tradeLock.js",
           "name": "tradeLock",
           "role": "Owner trade lock: freezes a setup's trigger, void, entry, stop, TP1 and no-chase cap (1.5 ATR) at lock time, then judges only those levels on closed trigger-TF candles (armed, confirmed, filled, missed, invalidated, expired, stopped, tp1), raises an EMA200 thesis warning, scores a 1m-1D confluence checklist and gives TAKE / WAIT / PASS; pure, import-free.",

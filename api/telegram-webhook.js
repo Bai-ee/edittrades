@@ -71,6 +71,7 @@ import {
   PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal,
   parseState, shortRef, ALERT_MODES
 } from '../lib/telegram.js';
+import { formatMyTrades } from '../lib/myTrades.js';
 import { applyLockChange, formatLockCard, formatLocksList, lockKeyboard, parseManualLock } from '../lib/telegramLock.js';
 import { flowBoardMessage } from '../lib/telegramFlow.js';
 import { createLock, evaluateLock, normalizeLocks, openLocks } from '../lib/tradeLock.js';
@@ -1158,10 +1159,20 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         }
       } else if (!ref) await reply('Usage: /unlock &lt;ref&gt; (the ref is on each /locks card button).');
       else if (cmd === 'unlock') {
-        const out = await lockChange({ action: 'unlock', ref });
+        // Unlocking a taken trade = you exited: keep the live mark as the exit for /mytrades.
+        const s0 = await readState();
+        const l0 = openLocks(normalizeLocks(s0 && s0.locks, now())).find((l) => l.ref === ref);
+        let px = null;
+        if (l0 && l0.status === 'filled') {
+          const full = await build();
+          const sym = full && full.symbols ? full.symbols[l0.symbol] : null;
+          px = sym && sym.mark && sym.mark.status === 'ok' && typeof sym.mark.price === 'number' ? sym.mark.price : (sym && typeof sym.price === 'number' ? sym.price : null);
+        }
+        const out = await lockChange({ action: 'unlock', ref, price: px });
         if (!out) await reply('Lock could not be saved; try again in a minute.');
         else {
-          await reply(out.result === 'unlocked' && out.entry ? `🔓 Unlocked ${fmtTag(out.entry.symbol, out.entry.timeframe, out.entry.direction)}.` : 'Not locked.');
+          if (out.result === 'unlocked' && out.entry && out.entry.filledAt) await reply(formatLockCard(out.entry, null, now(), null), menuKeyboard());
+          else await reply(out.result === 'unlocked' && out.entry ? `🔓 Unlocked ${fmtTag(out.entry.symbol, out.entry.timeframe, out.entry.direction)}.` : 'Not locked.');
           await swapLockButton(ref, false);
         }
       } else if (cmd === 'lock_took') {
@@ -1190,6 +1201,10 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       const payload = await build({ includeBias: true });
       const state = hasStore ? await readState() : null;
       await reply(formatMarket(payload, state, now()));
+    } else if (cmd === 'mytrades') {
+      const state = hasStore ? await readState() : null;
+      if (!state) await reply('Trade store unavailable.');
+      else await reply(escapeHtml(formatMyTrades(state.myTrades)), menuKeyboard());
     } else if (cmd === 'tracking') {
       const state = hasStore ? await readState() : null;
       if (!state) await reply('Tracking store unavailable.');

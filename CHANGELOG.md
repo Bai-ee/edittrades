@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-03 — Fee line on every card, /mytrades journal for manual entries
+
+Owner: trades are entered by hand off the alerts, so (1) show whether fees eat the trade before entering, and (2) score the owner's own picks against the alerts. Display and bookkeeping only: no alert rule, stage, level or engine change.
+- Fee line: every flag snapshot (LOCK NOW / BREAKING / FORMING / board) and every open lock card carries `Fees 0.12R of risk` — the round-trip cost (`config/engine.json risk.costBpsByDirection`, 0.34% long / 0.14% short) as a share of the stop distance — with `· stop too tight, skip` above `FEE_MAX_R` 0.25R (`lib/flagFlow.js feeR / feeLine`). The 200-day flag-flow backtest loses on every timeframe because fees averaged 1.55R per trade (docs/FLAG_FLOW_BACKTEST_2026-10-03.md).
+- `/mytrades` (`lib/myTrades.js`, new, pure): every lock the owner took (I'm in) that closed (target, stop, max-hold end, or Unlock) is written once to `state.myTrades` (max 300) with gross R from the fill, fees in R and net R. Unlocking a taken lock now keeps the live mark as the exit (`unlockLock(lock, nowMs, price)`); the reply is the closed card with `Net +x.xxR after y.yyR fees`. Summary: net R per trade, total, win rate, avg win / loss, avg fees, per timeframe, and the backtest's net R for every alert on the same timeframes; under 30 trades it says the sample is small.
+- Tests: `test:mytrades` 13 (new); `test:flow` card-order assertion allows the fee line between the checklist and the foot. Architecture map: `myTrades`.
+
 ## 2026-10-03 — Flag flow alignment: next timeframe up instead of 5/7
 
 Owner: "5/7 is too restrictive, do 2/7 or just the 1 tf ahead". LOCK NOW / BREAKING now need the flag's own timeframe gate AND the next timeframe up with the trade (✅) — at least 2/7 (`FLOW_DEFAULTS.minScore` 2/7, `requireNextTf`). `flowRules` gains `align`; site and GPT wording updated. Backtest context: next-timeframe-agrees scored 49.6% from the alert price (docs/FLAG_FLOW_BACKTEST_2026-10-03.md), so expect more alerts at a similar hit rate.
