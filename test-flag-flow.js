@@ -93,8 +93,8 @@ await test('rankFlags: lockable > found > watch, missed dropped', () => {
     cand(1, { id: 'r', st: 'confirmed' }),
     cand(1, { id: 'm', st: 'confirmed', brk: 80000, inv: 79500 })
   ], good);
-  // make 'w' watch: gate fails for 4h by breaking the 4h entry
-  symbols.BTC.timeframes = { ...good, '4h': tfEntry(-1, '4h', 86400) };
+  // make 'w' (4h) watch: its next timeframe up (1d) turns against it
+  symbols.BTC.timeframes = { ...good, '1d': tfEntry(-1, '1d', 86400) };
   const out = rankFlags(b, symbols);
   assert(out.map((e) => `${e.id}:${e.stage}`).join() === 'r:lockable,f:found,w:watch', out.map((e) => `${e.id}:${e.stage}`).join());
   assert(!out.some((e) => e.id === 'm'), 'missed dropped');
@@ -270,7 +270,7 @@ await test('timing line + BREAKING: ENTER NOW with cap and window; 15m/1h/4h for
   assert(fmtWindow(90 * 60_000) === '1 h 30 min' && fmtWindow(4 * 86_400_000) === '4 d', 'fmtWindow');
 });
 
-await test('alignment: a gate-passing flag needs >= 5/7 timeframes with it to alert; 1/7 is watching; the checklist line names the timeframes', async () => {
+await test('alignment: a gate-passing flag whose next timeframe up is against it is watching; the checklist line names the timeframes', async () => {
   const { checklistDetail } = await import('./lib/tradeLock.js');
   const tfs = timeframes(1, 86400);
   for (const tf of ['15m', '1h', '4h', '1d']) tfs[tf] = tfEntry(-1, tf, 86400);
@@ -280,6 +280,16 @@ await test('alignment: a gate-passing flag needs >= 5/7 timeframes with it to al
   assert(ok.score >= 5 && ok.stage === 'lockable', `${ok.score}/${ok.of} ${ok.stage}`);
   const line = checklistDetail({ score: 5, of: 7, rows: [{ tf: '1m', mark: '✅' }, { tf: '3m', mark: '✅' }, { tf: '5m', mark: '✅' }, { tf: '15m', mark: '✅' }, { tf: '1h', mark: '⚠️' }, { tf: '4h', mark: '✅' }, { tf: '1d', mark: '❌' }] });
   assert(line === 'Checklist 5/7 · ✅ 1m 3m 5m 15m 4h · ⚠️ 1h · ❌ 1d', line);
+});
+
+await test('alignment (owner 2026-10-03): next timeframe up must agree; low total score is fine when it does', () => {
+  const tfs = timeframes(1, 86400);
+  for (const tf of ['1h', '4h', '1d', '1m', '3m']) tfs[tf] = tfEntry(-1, tf, 86400);
+  const ok = scoreFlag('BTC', cand(1, { st: 'triggering', tf: '5m' }), tfs, 86400);
+  assert(ok.score === 2 && ok.stage === 'lockable', `5m + 15m with it (2/7) -> lockable: ${ok.score}/${ok.of} ${ok.stage}`);
+  tfs['15m'] = tfEntry(-1, '15m', 86400);
+  const no = scoreFlag('BTC', cand(1, { st: 'triggering', tf: '5m' }), tfs, 86400);
+  assert(no.stage === 'watch', `next timeframe against -> watching: ${no.stage}`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

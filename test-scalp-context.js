@@ -2377,7 +2377,7 @@ async function main() {
         assert(deepEqual(buildCalls[0][0], { includeFlagBoard: true }), `build args ${JSON.stringify(buildCalls[0])}`);
         assert(res.body && res.body.symbols && res.body.symbols.BTC, 'JSON payload');
         const { requestId, board, flowRules, ...rest } = res.body;
-        assert(flowRules && flowRules.minScore === '5/7' && flowRules.capAtr === 1.5 && /1x ATR/.test(flowRules.scoring), `flowRules ${JSON.stringify(flowRules)}`);
+        assert(flowRules && flowRules.minScore === '2/7' && /next timeframe up/.test(flowRules.align) && flowRules.capAtr === 1.5 && /1x ATR/.test(flowRules.scoring), `flowRules ${JSON.stringify(flowRules)}`);
         assert(typeof requestId === 'string', 'requestId');
         assert(Array.isArray(board) && board.length === 0, 'board is an empty array when nothing ranks');
         assertEqual(JSON.stringify(rest), JSON.stringify(restPayload), 'body otherwise identical to the unfiltered build');

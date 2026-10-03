@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-03 — Flag flow alignment: next timeframe up instead of 5/7
+
+Owner: "5/7 is too restrictive, do 2/7 or just the 1 tf ahead". LOCK NOW / BREAKING now need the flag's own timeframe gate AND the next timeframe up with the trade (✅) — at least 2/7 (`FLOW_DEFAULTS.minScore` 2/7, `requireNextTf`). `flowRules` gains `align`; site and GPT wording updated. Backtest context: next-timeframe-agrees scored 49.6% from the alert price (docs/FLAG_FLOW_BACKTEST_2026-10-03.md), so expect more alerts at a similar hit rate.
+
 ## 2026-10-02 — One snapshot format for every flag and lock message (branch `flag-flow`)
 
 Live feedback (ETH 1m/3m LOCK NOW fired at checklist 1/7): LOCK NOW / BREAKING now need the checklist gate AND at least 5/7 timeframes with the trade (`FLOW_DEFAULTS.minScore`); below that a flag stays on the board as watching. Checklist line names the timeframes ("Checklist 6/7 · ✅ 1m 3m 5m 15m 1h 4h · ❌ 1d") on flag and lock cards. Labels shortened to `Valid` / `Inval` (wrapped on phones). Lock cards carry the thesis saved at lock time. Tracker homepage: called-flags card, live board, engine stats (data/called-flags.json scorer, data/board.json).

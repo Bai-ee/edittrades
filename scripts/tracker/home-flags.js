@@ -191,7 +191,7 @@ export function liveBoardSection(board) {
 // ---------------------------------------------------------------- how it works
 
 const DEFAULT_RULES = {
-  minScore: '5/7', timeframes: ['1m', '3m', '5m', '15m', '30m', '1h', '4h'], capAtr: 1.5, windowCandles: 6,
+  minScore: '2/7', align: 'the next timeframe up must agree', timeframes: ['1m', '3m', '5m', '15m', '1h', '4h'], capAtr: 1.5, windowCandles: 6,
   scoring: '1x ATR in the called direction before 1x ATR against, within 12 candles of the flag timeframe'
 };
 const ruleNum = (v, d) => (isNum(v) ? v : d);
@@ -208,7 +208,7 @@ export function howItWorksSection(board) {
     ['data', 'Data', 'Closed candles from Kraken, 1m to 1D, for BTC, ETH and SOL. Live price from Pyth.'],
     ['indicators', 'Indicators', 'EMA21, EMA200, Stoch RSI and volume, computed on every timeframe.'],
     ['flag-finder', 'Flag finder', 'An impulse move, then a tight pause riding the EMA21, on 1m to 4h.'],
-    ['checklist', 'Checklist', `Seven timeframes are checked. A flag needs ${minScore} aligned to go out with the trade.`],
+    ['checklist', 'Checklist', `Seven timeframes are checked. A flag needs ${minScore} aligned${ruleStr(fr.align, DEFAULT_RULES.align) ? `, and ${ruleStr(fr.align, DEFAULT_RULES.align)},` : ''} to go out with the trade.`],
     ['lock-now', 'Lock now', `Entry is the breakout, stop is where the flag is invalid, target is the measured move. Valid until price is ${capAtr} ATR past entry, for ${candles} candles.`],
     ['scoring', 'Scoring', `Every call is scored: ${scoring}.`]
   ];

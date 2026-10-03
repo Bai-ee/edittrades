@@ -4083,7 +4083,7 @@ async function run() {
     assert(live.includes('needs 6/7 aligned') && live.includes('2 ATR past entry, for 8 candles') && live.includes('1x ATR first, within 12 candles'), 'flowRules numbers used');
     assert(live.includes('Kraken') && live.includes('Pyth') && live.includes('EMA21, EMA200, Stoch RSI'), 'data and indicators steps');
     for (const html of [howItWorksSection(null), howItWorksSection({ board: [] })]) {
-      assert(html.includes('needs 5/7 aligned') && html.includes('1.5 ATR past entry, for 6 candles') && (html.match(/<li class="hf-step"/g) || []).length === 6, 'defaults when flowRules absent');
+      assert(html.includes('needs 2/7 aligned, and the next timeframe up must agree,') && html.includes('1.5 ATR past entry, for 6 candles') && (html.match(/<li class="hf-step"/g) || []).length === 6, 'defaults when flowRules absent');
     }
   });
 

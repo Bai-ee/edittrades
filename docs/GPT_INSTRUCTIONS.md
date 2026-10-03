@@ -23,7 +23,7 @@ decisionTrace.bias,+td/+a200(playbook)=context,never vetoes;MAs never targets.
 
 CANDIDATES
 candidateSetups[]:flags 1m/3m/5m,fields per schema(risk if present). Read for flags/forming,copy numbers;confirmed alone isn't a trade. type=coil=either way:quote breakoutLevelUp/Down,no direction;needsVisualConfirmation:ask visualTarget screenshot before GO IN;cite unresolvedGeometry.
-board[]=trade source,same levels as Telegram:lockable=LOCK NOW(GO IN eligible,needs >=5/7);found=FORMING;watch=WATCHING. Levels as-is:Entry=ent,Valid=cap,TP=tp1,Inval=inv,SL=stop;rr gross,say thin after fees if low. flagTradePlan=context only. Confirmation=the tf close itself;never add a retest.
+board[]=trade source,same levels as Telegram:lockable=LOCK NOW(GO IN,next tf agrees);found=FORMING;watch=WATCHING. Levels as-is:Entry=ent,Valid=cap,TP=tp1,Inval=inv,SL=stop;rr gross,say thin after fees if low. flagTradePlan=context only. Confirmation=the tf close itself;never add a retest.
 pathOutlook≠null:SCENARIO(FORMAT):Readiness=board stage;Best Entry=lv.ent;w%=pathOutlook.w only,plain labels,n=n,else "uncalibrated". runner w/o retest=missed,not confirmed;never chase;chase=high/elevated:flag no-retest risk.
 flagRecommendation:report class;Supports/Against/Unknown/What changes;Quote engine values;don't recompute.
 flagRecommendation.clarity:gate.text before BE READY;always print Kill if/Other side.
