@@ -136,3 +136,51 @@ Card copy (short, ≤ 600 chars each, mobile-first):
 
 Scorecard (win % target-before-stop, ghost R:R), rolling DONE counts for unlocked flags, GPT
 changes, public site. The pulse line counts found / ready / locked only.
+
+## Phase 2 — alignment + actionable alerts (owner 2026-10-02: "alignment first"; "alert me when there is a legitimate locking-in opportunity")
+
+### D. Alert rule, TP2, call-format card (lib/flagFlow.js, lib/telegramFlow.js, tests)
+
+- New stage **`lockable`** replaces `ready` as the only pushed stage: `st` in `triggering | confirmed`,
+  `gate` true, a `target` exists, and price NOT past the cap (dir-aware; null cap counts as inside).
+  `found` (proto/forming + gate) stays a board-only stage — **no push**. `missed`/`watch` unchanged.
+  Ranking: lockable > found > watch.
+- Alert kind **`LOCK_OPPORTUNITY`** (once per candidateId; replaces both FOUND and READY sends; keep
+  the per symbol+tf cooldown for safety). state.flow keeps `found` (board-seen, for the pulse) and
+  adds `opps:{id:atIso}`; pulse = `{found, opps, locked}` → `"24h: 12 flags found · 4 lock opportunities · 1 locked"`.
+- **TP2** on every scored entry: the nearest geometry level strictly beyond TP1 in the trade direction,
+  read from `symbols[SYM].geometryContext` on timeframes ≥ the flag's timeframe (15m/1h/4h zones,
+  confluence zones, diagonals — whatever lib/patternLifecycle.js `geometryPricesFor`-style helpers or
+  the geometry shape expose; keep it simple: zone edges + confluence zone edges); else
+  `entry + dir * 1.5 * |target - entry|`. Field `levels.tp2`, plus `levels.tp2Source: 'level'|'1.5x'`.
+  The measured move stays TP1 (`levels.target`).
+- **Card (`formatOpportunityCard`)**, ≤ 700 chars, the shared call format:
+  header `🎯 LOCK OPPORTUNITY` (msgHeader) →
+  `<b>GO IN</b> — 1h flag triggering, checklist 6/7.` (confirmed: "confirmed") →
+  code block: entry / confirm (`1h close above 86,400` for triggering; `confirmed` for confirmed) /
+  invalidation / stop / TP1 / TP2 / R:R (to TP1) / no-chase cap →
+  checklist line → `Tap 🔒 Lock to freeze these levels.`
+  No percentages on Telegram (the engine has no odds; percentages are the GPT's decision split).
+  formatFoundCard stays exported (board/tests) but is no longer pushed.
+- Board (`formatBoard`): tag `🎯 LOCK` for lockable, `🔍 FOUND`, `· watching`; each block shows entry/stop/TP1/TP2/R:R on one line.
+- snapshotOf adds `tp2`. Tests updated: triggering+gate → lockable; past cap → missed; forming → found
+  (not pushed); diffFlow pushes LOCK_OPPORTUNITY once, never FOUND; TP2 level vs 1.5x fallback, long
+  and short mirrored.
+
+### E. One source of truth for ChatGPT (api/scalp-context.js, lib/lockFeed.js, openapi, tests)
+
+- Bearer REST responses gain top-level **`board`** (compact top 3, REST only, never MCP), built from
+  the same `rankFlags` over the same build: REST builds with `includeFlagBoard:true`, computes the
+  board, then deletes `flagBoard` from the response so the payload otherwise stays byte-identical.
+  Entry shape: `{ref, sym, tf, dir, stage, st, lv:{ent, stop, inv, tp1, tp2, tp2src, rr, cap}, score: "6/7", gate, tfs}`
+  (`tfs` = checklistLine). Empty array when nothing ranks.
+- **`pulse`** (REST only): from the Telegram state blob already read for locks (extend
+  lib/lockFeed.js readStoredLocks → readStoredState returning `{locks, flow}`), `{found, opps, locked, since}`
+  over 24h, via lib/flagFlow.js pulseOf. Absent when the store is unreadable (same rule as `locks`).
+- Both added before `capOptInSections`. OpenAPI: `FlagBoardEntry` schema + top-level `board`, `pulse`.
+- Tests: board present + shape on bearer REST; MCP never reads/has board, pulse, flagBoard; default
+  REST without the store has board but no pulse; payload byte size reported.
+
+### G. GPT instructions (main thread)
+signals ranks from `board[]` with the shared call format; THESIS 3 lines; `market` command from
+`pulse` + board; vocabulary FOUND → LOCK OPPORTUNITY (GO IN) → LOCKED → IN → DONE.
