@@ -21,18 +21,14 @@ const WINDOWS = [['24h', '24H', 'last 24 hours'], ['7d', '7D', 'last 7 days'], [
 const DEFAULT_WINDOW = '30d';
 export const TARGET_RATE = 70;
 
-// Owner to supply: the Telegram bot and Custom GPT public links. Until set (https://…), the buttons are hidden.
+// Owner to supply: the Telegram bot and Custom GPT public links (placeholders until then).
 export const TELEGRAM_CTA_HREF = '#';
 export const GPT_CTA_HREF = '#';
 
-/** The hero buttons: each renders only once its real link is set (a dead button is worse than none). */
+/** The hero buttons. Placeholder href ('#') until the owner supplies the real links. */
 function ctaRow() {
-  const live = (href) => typeof href === 'string' && /^https?:\/\//.test(href);
-  const btns = [
-    live(TELEGRAM_CTA_HREF) ? `<a class="hf-btn" id="home-hero-telegram-cta" href="${TELEGRAM_CTA_HREF}">Get alerts in Telegram</a>` : '',
-    live(GPT_CTA_HREF) ? `<a class="hf-btn ghost" id="home-hero-gpt-cta" href="${GPT_CTA_HREF}">Ask the GPT</a>` : ''
-  ].join('');
-  return btns ? `<div id="home-hero-ctas">${btns}</div>` : '';
+  return `<div id="home-hero-ctas"><a class="hf-btn" id="home-hero-telegram-cta" href="${TELEGRAM_CTA_HREF}">Get alerts in Telegram</a>`
+    + `<a class="hf-btn ghost" id="home-hero-gpt-cta" href="${GPT_CTA_HREF}">Ask the GPT</a></div>`;
 }
 
 const timeZ = (iso) => {
