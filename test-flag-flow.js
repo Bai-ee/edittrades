@@ -58,6 +58,7 @@ for (const dir of [1, -1]) {
     const cap = scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, 86400).levels.cap;
     assert(scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, cap + dir * 1).stage === 'missed', 'past');
     assert(scoreFlag('BTC', cand(dir, { st: 'confirmed' }), tfs, cap).stage === 'lockable', 'at cap');
+    assert(scoreFlag('BTC', cand(dir, { st: 'triggering' }), tfs, cap + dir * 1).stage === 'missed', 'triggering past cap is missed too (never a late GO IN)');
   });
   await test(`${side}: gate not met -> watch (forming and confirmed)`, () => {
     const bad = timeframes(dir, 86400, false);
@@ -215,6 +216,22 @@ await test('pulseOf counts only the last 24h; pulseLine formats', () => {
   const z = pulseOf(undefined, T0);
   assert(z.found === 0 && z.opps === 0 && z.locked === 0, 'empty');
   assert(pulseOf({ locked: 2 }, T0).locked === 2, 'numeric locked');
+});
+
+await test('timing line + BREAKING: ENTER NOW with cap and window; 15m/1h/4h forming past trigger breaks, 5m or not-past does not; triggering past cap is missed', async () => {
+  const { timingLine, breakingOf, formatBreakingCard, fmtWindow } = await import('./lib/flagFlow.js');
+  const e = { symbol: 'BTC', tf: '1h', dir: 'long', st: 'forming', stage: 'found', price: 86450, levels: { entry: 86400, stop: 85900, target: 87600, cap: 86580 }, check: { rows: [] }, score: 6, of: 7 };
+  assert(timingLine({ ...e, st: 'triggering' }) === '⏱ ENTER NOW · valid until price passes 86,580.00 · ~6 h window (6 × 1h candles)', timingLine(e));
+  assert(timingLine({ ...e, tf: '5m', levels: { ...e.levels, cap: null } }).endsWith('~30 min window (6 × 5m candles)'), 'no cap, 5m');
+  const T = Date.parse('2026-10-02T14:48:00Z');
+  const b = breakingOf(e, T);
+  assert(b && b.closeInMs === 12 * 60_000, JSON.stringify(b));
+  assert(formatBreakingCard(e, T).includes('close in 12 min') && formatBreakingCard(e, T).includes('Not an entry yet'), 'card');
+  assert(breakingOf({ ...e, tf: '5m' }, T) === null, '5m never breaks');
+  assert(breakingOf({ ...e, price: 86390 }, T) === null, 'not past trigger');
+  assert(breakingOf({ ...e, dir: 'short', price: 86350, levels: { ...e.levels, entry: 86400 } }, T) !== null, 'short mirror');
+  assert(breakingOf({ ...e, stage: 'lockable', st: 'triggering' }, T) === null, 'already an opportunity');
+  assert(fmtWindow(90 * 60_000) === '1 h 30 min' && fmtWindow(4 * 86_400_000) === '4 d', 'fmtWindow');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

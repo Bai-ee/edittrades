@@ -3381,7 +3381,7 @@ async function run() {
     return p;
   };
   const flowSends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage');
-  const flowKinds = (r) => flowSends(r).map((x) => (String(x.text).includes('🔍 FOUND') ? 'FOUND' : (String(x.text).includes('🎯 LOCK OPPORTUNITY') ? 'OPP' : null))).filter(Boolean);
+  const flowKinds = (r) => flowSends(r).map((x) => { const t = String(x.text); return t.includes('⏳ BREAKING') ? 'BREAKING' : (t.includes('🔍 FOUND') ? 'FOUND' : (t.includes('· 🎯 LOCK OPPORTUNITY') ? 'OPP' : null)); }).filter(Boolean);
   const anySends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto');
   const stateOf = (blob) => JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
 
@@ -3406,11 +3406,16 @@ async function run() {
   await test('flow: forming is never pushed (but counted in the pulse); triggering sends LOCK_OPPORTUNITY once per candidateId; snapshot stored', async () => {
     const blob = fakeBlob({ mode: null });
     const r1 = await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
-    assertEqual(flowKinds(r1).length, 0, 'forming: no push');
+    // Forming is never an opportunity; a 15m/1h/4h forming flag already past its trigger gets ONE ⏳ BREAKING heads-up (no Lock button).
+    const r1k = flowKinds(r1);
+    assert(r1k.every((k) => k === 'BREAKING') && !flowSends(r1).some((x) => allCallbackData(x.replyMarkup).some((d) => d.startsWith('lock:'))), `forming: no opportunity, no Lock: ${r1k.join()}`);
+    const r1b = await cron({ blob, nowMs: T0 + 30_000, build: async () => flowPayload({ st: 'forming' }) });
+    assertEqual(flowKinds(r1b).length, 0, 'BREAKING / forming not repeated');
     assert(stateOf(blob).flow.found[FLOW_ID] && !Object.keys(stateOf(blob).flow.opps).length, 'found recorded, no opps');
     const r2 = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(r2).join(), 'OPP,OPP', 'LOCK_OPPORTUNITY to both chats');
     const opp = flowSends(r2)[0];
+    assert(opp.text.includes('⏱ ENTER NOW') && opp.text.includes('window ('), `timing line: ${opp.text}`);
     assert(opp.text.includes('GO IN') && opp.text.includes('84,600') && opp.text.includes('TP2') && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);
     const again = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(again).length, 0, 'not repeated');
