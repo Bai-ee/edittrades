@@ -75,6 +75,7 @@ import {
   livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, shortRef, tradeKeyboard, applyTrackedStopUpdates
 } from '../lib/telegram.js';
 import { diffLocks, suppressLocked } from '../lib/telegramLock.js';
+import { diffFlow, dropClassicAlerts } from '../lib/telegramFlow.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
 // deps.importExecutor injection for tests). This cron never builds, signs or sends a
@@ -643,7 +644,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const chartWindows = new Map();
   let payload;
   try {
-    payload = await build({ chartWindow: { size: TRADE_CHART_CANDLES, timeframes: [...CHART_GRID_TIMEFRAMES], onWindow: (sym, tf, w) => chartWindows.set(`${sym}|${tf}`, w) } });
+    payload = await build({ includeFlagBoard: true, chartWindow: { size: TRADE_CHART_CANDLES, timeframes: [...CHART_GRID_TIMEFRAMES], onWindow: (sym, tf, w) => chartWindows.set(`${sym}|${tf}`, w) } });
   } catch (err) {
     payload = { dataStatus: 'unavailable', closedThrough: null, symbols: {}, warnings: [`build failed: ${err && err.name ? err.name : 'Error'}`] };
   }
@@ -706,6 +707,8 @@ export async function handleTelegramCron(req, res, deps = {}) {
   let transitions = [];
   let trackedIds = new Set();
   let locksChanged = false;
+  let flowMode = false;
+  let flowChanged = false;
   let prefs = null;
   let written = false;
   let resetReason = null;
@@ -729,6 +732,15 @@ export async function handleTelegramCron(req, res, deps = {}) {
       const lk = diffLocks(diff.state, payload, nowMs);
       locksChanged = lk.changed;
       alerts = [...suppressLocked(diff.alerts, lk.lockedIds), ...lk.alerts];
+      // Flag flow (docs/PLAN_FLAG_FLOW.md): the classic diff above still ran for its bookkeeping;
+      // in flow mode its sends are dropped and FOUND / READY (diffFlow) replace them. Classic mode: untouched.
+      flowMode = diff.state.prefs.mode !== 'classic';
+      flowChanged = false;
+      if (flowMode) {
+        const fl = diffFlow(diff.state, payload, nowMs);
+        flowChanged = fl.changed;
+        alerts = [...dropClassicAlerts(alerts), ...fl.alerts];
+      }
       transitions = diff.transitions || [];
       trackedIds = new Set((Array.isArray(m.state.tracked) ? m.state.tracked : []).map((t) => t && t.candidateId).filter(Boolean));
       prefs = diff.state.prefs;
@@ -770,7 +782,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
         const { tracked: nextTracked, changed: tc } = applyTrackedStopUpdates(diff.state.tracked, trailResult.trackedStopUpdates);
         if (tc) { diff.state.tracked = nextTracked; trackedTrailChanged = true; }
       }
-      return diff.changed || locksChanged || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || predictionsChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
+      return diff.changed || locksChanged || flowChanged || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || predictionsChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
   } catch (err) {
@@ -787,7 +799,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   // Live retest-1h + slow-trend spot alerts (computed before the state transaction above):
   // merged into the normal alert pipeline so they get the same focus-mode filtering, Open
   // button attachment (retest-1h only) and send/log treatment as every other alert kind.
-  alerts = alerts.concat(retest1hResult.alerts, slowTrendResult.alerts, htfResult.alerts);
+  alerts = alerts.concat(flowMode ? dropClassicAlerts([...retest1hResult.alerts, ...slowTrendResult.alerts, ...htfResult.alerts]) : [...retest1hResult.alerts, ...slowTrendResult.alerts, ...htfResult.alerts]);
 
   // T-15 trail failure alerts (throttled to once per position per hour, computed inside
   // applyTrailingStops): sent regardless of whether the state write above succeeded, since

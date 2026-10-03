@@ -909,6 +909,26 @@
           "schemaSince": null
         },
         {
+          "path": "lib/telegramFlow.js",
+          "name": "telegramFlow",
+          "role": "Telegram side of the flag flow: the cron's FOUND / READY diff over the build's flagBoard (once per candidateId, per-symbol+tf FOUND cooldown, none for a locked candidate), the classic-kind drop list for flow mode, the /signals board message and the 24h pulse inputs.",
+          "publishes": [
+            "FOUND alerts",
+            "READY alerts",
+            "flag board message"
+          ],
+          "consumes": [
+            "flagBoard",
+            "trade lock state",
+            "timeframes"
+          ],
+          "tests": [
+            "test:telegram"
+          ],
+          "since": "2026-10-02",
+          "schemaSince": null
+        },
+        {
           "path": "lib/lockFeed.js",
           "name": "lockFeed",
           "role": "Reads the owner's stored locks from the Telegram state blob in parallel with the REST build and re-judges them read-only for the bearer REST response (`locks`); never on MCP, never throws.",

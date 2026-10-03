@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-02 — Flag flow: four-step Telegram UX, flags on 1m–4h (branch `flag-flow`, `docs/PLAN_FLAG_FLOW.md`)
+
+Owner: "I just want an easy to follow setup." Default Telegram mode is now **flow**: 🔍 FOUND (a flag passing the confluence gate, any timeframe 1m–4h) → 🎯 READY (confirmed, inside the 1.5 ATR no-chase cap; entry = breakout, stop = invalidation, target = pure measured move) → 🔒 lock → ✅/❌ DONE. `/signals` = top-3 board + 24h pulse; `/signals all` and `/mode classic` keep every original alert kind. Engine signals, plans, REST and MCP payloads unchanged.
+
+- `services/scalpContext.js`: `buildScalpContext({includeFlagBoard})` → top-level `flagBoard` (every flag 1m–4h from `modelCandidateSetups`, compact keys); bot-only, absent on REST/MCP. `test:scalp` 126.
+- `lib/flagFlow.js` (new, pure): checklist scoring, staging, ranking, FOUND/READY/board cards, pulse. `test:flow` 22.
+- `lib/telegramFlow.js` (new): cron `diffFlow` (FOUND once per flag, 15-min cooldown per symbol+tf; READY once; none for a locked flag), classic sends dropped in flow mode (bookkeeping still runs), board message. `lib/telegram.js`: `prefs.mode` flow|classic (default flow, also for migrated states), `/mode flow|classic` (bare `/mode` stays the execution card). Lock taps on a FOUND/READY/board button lock the structural levels shown. `lib/telegramLock.js`: DONE vocabulary (✅ DONE · TARGET HIT, ❌ DONE · STOPPED / MISSED / INVALIDATED, ⚪ DONE · EXPIRED, 🔒 IN). `test:telegram` 175; retest1h/htflive harnesses pinned to classic mode.
+
 ## 2026-10-02 — Trade lock: lock a setup, its levels never move (branch `trade-lock`, `docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md`)
 
 Owner, 2026-10-02: tracked entries confirm, then "now?" gets a new retest or a better entry while price runs ("it's how the trade is managed at time of entry that's killing the UX"). Owner interview decisions D1–D12 recorded in the decisions doc. No engine signal, plan, chase or retest rule changed; `configVersion` and payload `schemaVersion` unchanged.

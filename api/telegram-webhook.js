@@ -69,9 +69,10 @@ import {
   parseRiskArgs, applyRiskPrefsChange, formatRiskStatus,
   stopFloorOf, stopFloorLine, tradeLevelsOf, tradeOverlayFor, approachBlock, fitCaption, msgHeader, CHART_GRID_TIMEFRAMES,
   PROFILE_NAMES, DEFAULT_PROFILE_NAME, riskProfileKeyboard, formatProfileSwitchPrompt, formatProfileSwitched, normalizeRiskGoal,
-  parseState, shortRef
+  parseState, shortRef, ALERT_MODES
 } from '../lib/telegram.js';
 import { applyLockChange, formatLockCard, formatLocksList, lockKeyboard, parseManualLock } from '../lib/telegramLock.js';
+import { flowBoardMessage } from '../lib/telegramFlow.js';
 import { createLock, evaluateLock, normalizeLocks, openLocks } from '../lib/tradeLock.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 // T-20 HTF-anchored entry (owner-approved "ships live-capable" 2026-09-27). Open resolves
@@ -320,9 +321,17 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   }
   const cmd = parsed ? parsed.cmd : null;
   const via = cq ? 'cb:' : '';
+  // `/mode flow|classic` is the alert mode (docs/PLAN_FLAG_FLOW.md); bare `/mode` stays the execution mode card.
+  const alertModeArg = cmd === 'mode' && !cq && parsed.args.length === 1 && ALERT_MODES.includes(parsed.args[0].toLowerCase()) ? parsed.args[0].toLowerCase() : null;
 
   // ---- execution helpers (only used by execution commands and /positions, /plan)
-  const ex = parsed && parsed.known && (EXEC_CMDS.has(cmd) || cmd === 'positions' || cmd === 'plan') ? await resolveExecutor(env, deps) : null;
+  // /signals: flow board unless the owner chose classic mode or asked `/signals all`.
+  let signalsFlow = false;
+  if (cmd === 'signals' && String(parsed.args[0] || '').toLowerCase() !== 'all') {
+    const st = hasStore ? await readState() : null;
+    signalsFlow = !st || st.prefs.mode !== 'classic';
+  }
+  const ex = parsed && parsed.known && !alertModeArg && (EXEC_CMDS.has(cmd) || cmd === 'positions' || cmd === 'plan') ? await resolveExecutor(env, deps) : null;
   const ctx = (extra = {}) => ({ source: 'telegram', userId: String(fromId), chatId: String(chatId), nowMs: now(), requestId, ...extra });
   /** T-8: the owner's stored /risk overrides (state.prefs.risk), or undefined with no store / a read failure. */
   const currentRiskPrefs = async () => {
@@ -488,6 +497,15 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   try {
     if (!parsed) {
       await reply(cq ? 'That button is no longer valid. Send /menu.' : 'Send /help for the command list.');
+    } else if (alertModeArg) {
+      if (!hasStore) await reply('Alert settings store unavailable.');
+      else {
+        const out = await writeState((text) => applyPrefsChange(text, { mode: alertModeArg }));
+        await reply(!out ? 'Mode could not be saved; try again in a minute.'
+          : alertModeArg === 'flow'
+            ? 'Mode: <b>FLOW</b> — alerts are 🔍 FOUND, 🎯 READY, 🔒 lock updates and ✅/❌ DONE. /signals shows the top flags. /mode classic restores every original alert kind.'
+            : 'Mode: <b>CLASSIC</b> — every original alert kind (WATCH, BREAKOUT, SETUP, GOOD, TRACK, …) plus lock updates. /mode flow returns to the four-step flow.');
+      }
     } else if (parsed.known && EXEC_CMDS.has(cmd) && !ex) {
       if ((cmd === 'confirm' || cmd === 'arm') && parsed.args.length) await deleteOwn();
       await execSend(EXEC_OFF_REPLY, null, { event: 'off' });
@@ -822,6 +840,17 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       await reply('Menu is on the keyboard below.');
     } else if (cmd === 'charts') {
       await reply('Pick a chart:', chartsKeyboard());
+    } else if (signalsFlow) {
+      // Flow mode (default): the board of the top flags + the 24h pulse. `/signals all` = the classic list.
+      const full = await build({ includeFlagBoard: true });
+      if (!full || full.dataStatus === 'unavailable') {
+        await reply(formatSignals(filterPayload(full || {}, { compact: true }), now()), menuKeyboard());
+      } else {
+        const state = hasStore ? await readState() : null;
+        const board = flowBoardMessage(full, state || {}, now());
+        await reply(board.text, board.replyMarkup || menuKeyboard());
+        if (hasStore && board.snaps.length) await writeState((text) => applyButtonSnapshots(text, board.snaps, now()));
+      }
     } else if (cmd === 'signals') {
       const payload = filterPayload(await build(), { compact: true });
       const state = hasStore ? await readState() : null;
@@ -1103,6 +1132,9 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           const v = resolveRef(ref, filterPayload(full, { compact: true }), state);
           snap = v ? (v.source === 'live' ? candidateSnapshot(v.symbol, v.s, v.candidateId) : v.snap) : null;
           symbol = v ? v.symbol : null;
+          // A FOUND / READY / board button locks the structural levels it showed (flag flow snapshot).
+          const flowSnap = state && state.buttons && state.buttons[ref];
+          if (flowSnap && flowSnap.recClass === 'FLOW' && flowSnap.symbol && flowSnap.candidateId) { snap = flowSnap; symbol = flowSnap.symbol; }
           if (state && state.htf && state.htf.plans && state.htf.plans[ref]) source = 'htf';
           else if (state && state.retest1h && state.retest1h.plans && state.retest1h.plans[ref]) source = 'retest1h';
         }

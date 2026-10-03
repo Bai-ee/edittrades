@@ -137,7 +137,7 @@ function formSym(cands = [cand('BTC:3m:long:2026-09-24T14:00:00.000Z')], setup =
   const w = watchSym(setup);
   return { ...w, candidateSetups: cands, flagRecommendation: { ...w.flagRecommendation, ...TD_REC } };
 }
-const withPrefs = (level, quiet = { ...DEFAULT_QUIET_HOURS }) => ({ ...emptyState(), prefs: { level, quiet } });
+const withPrefs = (level, quiet = { ...DEFAULT_QUIET_HOURS }) => ({ ...emptyState(), prefs: { level, quiet, mode: 'classic' } });
 
 function payload({ BTC = goodSym(), ETH = watchSym(), SOL = badSym(), closedThrough = '2026-09-24T14:05:00.000Z', dataStatus = 'complete' } = {}) {
   return {
@@ -148,13 +148,17 @@ function payload({ BTC = goodSym(), ETH = watchSym(), SOL = badSym(), closedThro
 }
 
 /** In-memory Vercel Blob with ETags, same semantics as test-journal.js's fake. */
-function fakeBlob() {
+// Flag flow (docs/PLAN_FLAG_FLOW.md) made `flow` the default alert mode. The classic-era tests below
+// assume classic, so a blob with no state file serves a virtual one that only pins prefs.mode='classic'
+// (never stored; the first write replaces it). `fakeBlob({ mode: null })` is the true first-run blob.
+function fakeBlob({ mode = 'classic' } = {}) {
   const files = new Map();
   let n = 0;
   const state = { files, puts: 0 };
+  const virtualState = () => (mode ? { text: JSON.stringify({ prefs: { mode } }), etag: '"e0"' } : null);
   state.get = async (pathname) => {
     await Promise.resolve();
-    const f = files.get(pathname);
+    const f = files.get(pathname) || (pathname === TELEGRAM_STATE_PATH ? virtualState() : null);
     if (!f) return null;
     return { statusCode: 200, stream: new Response(f.text).body, blob: { etag: f.etag, url: `${BASE}/${pathname}` } };
   };
@@ -162,7 +166,8 @@ function fakeBlob() {
     await Promise.resolve();
     state.puts++;
     const cur = files.get(pathname);
-    if (opts.ifMatch && (!cur || cur.etag !== opts.ifMatch)) { const e = new Error('Precondition failed'); e.name = 'BlobPreconditionFailedError'; throw e; }
+    if (opts.ifMatch && !cur && pathname === TELEGRAM_STATE_PATH && mode && opts.ifMatch === '"e0"') { /* virtual seed */ }
+    else if (opts.ifMatch && (!cur || cur.etag !== opts.ifMatch)) { const e = new Error('Precondition failed'); e.name = 'BlobPreconditionFailedError'; throw e; }
     if (!opts.ifMatch && opts.allowOverwrite === false && cur) { const e = new Error('This blob already exists'); e.name = 'BlobAccessError'; throw e; }
     files.set(pathname, { text: String(body), etag: `"e${++n}"` });
     return { url: `${BASE}/${pathname}`, pathname };
@@ -905,7 +910,7 @@ async function run() {
   });
 
   await test('prefs persist in state: normalize, apply, parseState keeps off, diffAlerts carries prefs', () => {
-    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'garbage -> defaults');
+    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"flow","risk":{}}', 'garbage -> defaults');
     assertEqual(normalizePrefs({ focus: 'off' }).focus, 'off', 'focus off is kept');
     assertEqual(normalizePrefs({ focus: 'bogus' }).focus, 'auto', 'unknown focus -> auto');
     const off = parseState(applyPrefsChange(null, { quiet: null }));
@@ -913,7 +918,7 @@ async function run() {
     const lv = parseState(applyPrefsChange(JSON.stringify({ ...emptyState(), symbols: { BTC: { goodIds: ['k'] } } }), { level: 'watch' }));
     assertEqual(`${lv.prefs.level}|${lv.symbols.BTC.goodIds[0]}`, 'watch|k', 'level saved, alert memory kept');
     const d = diffAlerts(withPrefs('good', null), payload(), T0);
-    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'diff keeps prefs');
+    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{}}', 'diff keeps prefs');
     assert(formatAlertPrefs(d.state.prefs).includes('Alert level: <b>good</b>') && formatAlertPrefs(d.state.prefs).includes('Quiet hours: off'), 'prefs text');
   });
 
@@ -925,7 +930,7 @@ async function run() {
     assert(set.tg.calls[0].text.startsWith('Saved.') && set.tg.calls[0].text.includes('<b>watch</b>'), set.tg.calls[0].text);
     await hook({ text: '/alerts quiet 22-06', blob });
     let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
-    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'persisted');
+    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{}}', 'persisted');
     const q = await hook({ text: '/alerts quiet', blob });
     assertEqual(q.tg.calls[0].text, 'Quiet hours: 22:00–06:00 America/Chicago, every day (alerts arrive silently)', 'quiet show');
     await hook({ text: '/alerts quiet off', blob });
@@ -1216,7 +1221,7 @@ async function run() {
     const blob = fakeBlob();
     await tap({ data: 'alerts:watch', blob });
     await tap({ data: 'alerts:quiet:off', blob });
-    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","risk":{}}', 'level + off');
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{}}', 'level + off');
     const on = await tap({ data: 'alerts:quiet:on', blob });
     assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.quiet), '{"start":1,"end":5}', 'on = default');
     assert(on.tg.calls[1].replyMarkup.inline_keyboard, 'alerts buttons again');
@@ -1302,7 +1307,7 @@ async function run() {
     const v1 = toV1(first);
     const m = migrateState(JSON.stringify(v1));
     assertEqual(`${m.fromVersion}|${m.migrated}|${m.reset}|${m.state.stateVersion}`, `1|true|false|${STATE_VERSION}`, 'migration flags');
-    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', trail: 'on', risk: {} }), 'default prefs');
+    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', trail: 'on', mode: 'flow', risk: {} }), 'default prefs');
     assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
     const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
     const fromV1 = diffAlerts(m.state, next, T0 + MIN);
@@ -1785,7 +1790,7 @@ async function run() {
     assert(edit && allCallbackData(edit.replyMarkup).includes(`untrack:${SOL_REF}`) && !allCallbackData(edit.replyMarkup).includes(`track:${SOL_REF}`), 'button becomes Untrack');
     let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
     assertEqual(`${st.tracked.length}|${st.tracked[0].lastState}|${st.tracked[0].took}`, '1|forming|false', 'tracked');
-    st.prefs = { level: 'good', quiet: null }; // tracked transitions ignore the alert level
+    st.prefs = { level: 'good', quiet: null, mode: 'classic' }; // tracked transitions ignore the alert level
     const step = (sym, m) => { const r = diffAlerts(st, solPayload(sym), T0 + m * MIN); st = r.state; return r.alerts.filter((a) => a.kind === 'TRACK'); };
     const intro = step(solSym({ state: 'forming', plan: null }), 1);
     assert(intro.length === 1 && intro[0].text.includes('TRACK · UPDATE') && ['📍', '⏳', '🚫'].every((k) => intro[0].text.includes(k)), 'first tick: plain story update');
@@ -1823,7 +1828,7 @@ async function run() {
 
   await test('Track: void (close through invalidation), gone, 6 h expiry; max 10 (Took it evicts the oldest untaken)', () => {
     const snap = candidateSnapshot('SOL', solSym({ state: 'forming', plan: null }), SOL_ID);
-    const base = { ...emptyState(), tracked: [trackEntry(snap, T0)] };
+    const base = { ...emptyState(), prefs: { ...emptyState().prefs, mode: 'classic' }, tracked: [trackEntry(snap, T0)] };
     const v = diffAlerts(base, solPayload(solSym({ state: 'forming', plan: null, price: 117.2 })), T0 + MIN);
     assert(v.alerts.some((a) => a.kind === 'TRACK' && a.text.startsWith('🔴 ◎ <b>SOL 3m ▼ SHORT</b> · TRACK · VOID') && a.text.includes('Price closed above 117.10, the line that had to hold. The short idea is dead.')) && v.state.tracked.length === 0, 'void');
     const g = diffAlerts(base, solPayload({ ...watchSym(), price: 116.7 }), T0 + MIN);
@@ -1842,7 +1847,7 @@ async function run() {
   });
 
   await test('TP1 / stop on the mark (Kraken close when the mark is not ok), long + short, R at exit; untaken plan ends; taken keeps with Closed here / Partial / Still in; one nudge after 10 min', () => {
-    const run = (sym, entry, m, symbol = 'SOL') => diffAlerts({ ...emptyState(), tracked: [entry] }, payload({ BTC: watchSym(), ETH: watchSym(), SOL: watchSym(), [symbol]: sym }), T0 + m * MIN);
+    const run = (sym, entry, m, symbol = 'SOL') => diffAlerts({ ...emptyState(), prefs: { ...emptyState().prefs, mode: 'classic' }, tracked: [entry] }, payload({ BTC: watchSym(), ETH: watchSym(), SOL: watchSym(), [symbol]: sym }), T0 + m * MIN);
     const short = trackEntry({ symbol: 'SOL', candidateId: SOL_ID, timeframe: '3m', direction: 'short', entry: 116.77, stop: 117.1, tp1: 115.9 }, T0, { took: true });
     const tp = run({ ...watchSym(), price: 116.2, mark: { price: 115.88, driftBps: 2, status: 'ok' } }, short, 1);
     const a = tp.alerts.find((x) => x.kind === 'TRACK');
@@ -1879,7 +1884,7 @@ async function run() {
 
   await test('T-16: a taken trade\'s own TRACK update carries the chart - ENTRY at when it was taken, current SL/TP', () => {
     const short = trackEntry({ symbol: 'SOL', candidateId: SOL_ID, timeframe: '3m', direction: 'short', entry: 116.77, stop: 117.1, tp1: 115.9 }, T0, { took: true });
-    const r = diffAlerts({ ...emptyState(), tracked: [short] }, payload({ BTC: watchSym(), ETH: watchSym(), SOL: { ...watchSym(), price: 116.5, mark: { price: 116.4, driftBps: 1, status: 'ok' } } }), T0 + MIN);
+    const r = diffAlerts({ ...emptyState(), prefs: { ...emptyState().prefs, mode: 'classic' }, tracked: [short] }, payload({ BTC: watchSym(), ETH: watchSym(), SOL: { ...watchSym(), price: 116.5, mark: { price: 116.4, driftBps: 1, status: 'ok' } } }), T0 + MIN);
     const upd = r.alerts.find((a) => a.kind === 'TRACK' && /TRACK · (UPDATE|CHECK-IN)/.test(a.text));
     assert(upd, `no update alert: ${r.alerts.map((a) => `${a.kind}:${(a.text || '').slice(0, 40)}`).join(', ')}`);
     assert(upd.chart, 'chart attached to the update');
@@ -1981,9 +1986,9 @@ async function run() {
     const entry = { ...trackEntry({ symbol: 'SOL', candidateId: SOL_ID, timeframe: '3m', direction: 'short', entry: 116.77, stop: 117.1, tp1: 115.9 }, T0 - 20 * MIN, { took: true }), hit: { kind: 'tp1', price: 115.88, src: 'mark', r: 2.7, at: hitAt, nudged: false } };
     const seeded = async (withClose) => {
       const blob = fakeBlob();
-      await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), tracked: [entry] }), { allowOverwrite: true });
+      await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), prefs: { ...emptyState().prefs, mode: 'classic' }, tracked: [entry] }), { allowOverwrite: true });
       await tap({ data: `log:took:SOL:${SOL_REF}`, blob, build: async () => solPayload(solSym()), nowMs: T0 - 20 * MIN });
-      await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), tracked: [entry] }), { allowOverwrite: true });
+      await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), prefs: { ...emptyState().prefs, mode: 'classic' }, tracked: [entry] }), { allowOverwrite: true });
       if (withClose) await hook({ text: '/log closed SOL short at 115.9', blob });
       return cron({ blob, build: async () => solPayload(solSym({ price: 116.2, mark: { price: 115.8, status: 'ok', driftBps: 1 } })) });
     };
@@ -2247,7 +2252,7 @@ async function run() {
     // A tracked flag turning ready: TRACK · GET IN NOW carries Open too (never an in-trade update).
     const tblob = fakeBlob();
     const tsnap = candidateSnapshot('BTC', goodRiskSym(), GOOD_ID);
-    await tblob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), tracked: [{ ...trackEntry(tsnap, T0), lastState: 'confirmed', setupSeen: true }] }), { allowOverwrite: true });
+    await tblob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), prefs: { ...emptyState().prefs, mode: 'classic' }, tracked: [{ ...trackEntry(tsnap, T0), lastState: 'confirmed', setupSeen: true }] }), { allowOverwrite: true });
     const c3 = await cron({ env: XENV, blob: tblob, build: async () => xpayload(), executor: ex });
     const tgo = c3.tg.calls.find((c) => String(c.text || c.caption).includes('TRACK · GET IN NOW'));
     assert(tgo && allCallbackData(tgo.replyMarkup)[0] === `open:${GOOD_REF}`, 'tracked GET IN NOW has Open');
@@ -2914,7 +2919,7 @@ async function run() {
   await test('focus off: every alert sends regardless of an open position', async () => {
     const ex = mockExecutor({ positions: [solPos] });
     const blob = fakeBlob();
-    await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), prefs: { ...emptyState().prefs, focus: 'off' } }), { allowOverwrite: true });
+    await blob.put(TELEGRAM_STATE_PATH, JSON.stringify({ ...emptyState(), prefs: { ...emptyState().prefs, focus: 'off', mode: 'classic' } }), { allowOverwrite: true });
     const build = async () => payload({ BTC: goodSym(), ETH: watchSym(), SOL: setupSolSym() });
     const r = await cron({ env: XENV, blob, build, executor: ex });
     const sent = r.tg.calls.filter((c) => c.method === 'sendMessage' || c.method === 'sendPhoto').map((c) => kindOf(c.text || c.caption));
@@ -3308,13 +3313,13 @@ async function run() {
     await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z') });
     const took = await tap({ data: `ltook:${lref}`, blob, nowMs: T0 + 6 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z') });
     const tc = took.tg.calls.find((x) => x.method === 'sendMessage');
-    assert(tc.text.includes('IN TRADE') && tc.text.includes('84,610.2'), tc.text);
+    assert(tc.text.includes('🔒 IN') && tc.text.includes('84,610.2'), tc.text);
     assertEqual(allCallbackData(tc.replyMarkup).join(), `lnow:${lref},unlock:${lref},chart:BTC:5m`, 'filled keyboard');
     const now = await tap({ data: `lnow:${lref}`, blob, nowMs: T0 + 7 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', { price: 84820, mark: { ...markOk, price: 84820 } }) });
     const nc = now.tg.calls.find((x) => x.method === 'sendMessage');
     assert(nc.text.includes('NOW?') && nc.text.includes('R now') && nc.text.includes('+0.95R'), nc.text);
     const stop = await cron({ blob, nowMs: T0 + 10 * MIN, build: lockBuild([84590, 84640, 84380], '2026-09-24T14:10:00.000Z', { price: 84380, mark: { ...markOk, price: 84380 } }) });
-    const sm = stop.tg.calls.find((x) => String(x.text).includes('LOCK · STOP HIT'));
+    const sm = stop.tg.calls.find((x) => String(x.text).includes('DONE · STOPPED'));
     assert(sm && !sm.replyMarkup?.inline_keyboard?.flat().some((b) => b.callback_data.startsWith('lnow')), sm && sm.text);
     assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'stopped', 'stopped');
   });
@@ -3323,7 +3328,7 @@ async function run() {
     const blob = fakeBlob();
     await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
     const c = await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84900], '2026-09-24T14:05:00.000Z') });
-    const m = c.tg.calls.find((x) => String(x.text).includes('LOCK · MISSED'));
+    const m = c.tg.calls.find((x) => String(x.text).includes('DONE · MISSED'));
     assert(m && m.text.includes('<b>PASS</b>') && m.text.includes('No chase'), m && m.text);
     const late = fakeBlob();
     const r = await tap({ data: `lock:${lref}`, blob: late, build: lockBuild([84590, 84900], '2026-09-24T14:05:00.000Z'), nowMs: T0 + 5 * MIN });
@@ -3357,6 +3362,124 @@ async function run() {
     assertEqual(kept.map((x) => `${x.kind}:${x.candidateId}`).join(), 'GOOD:b,MARK:a,LOCK:a', 'suppression');
     assertEqual(parseCallbackData(`ltook:${lref}`).cmd, 'lock_took', 'callback');
     assertEqual(parseCallbackData('lock:zzzz'), null, 'bad ref');
+  });
+
+  console.log('\nflag flow (docs/PLAN_FLAG_FLOW.md)');
+
+  const FLOW_ID = 'BTC:1h:long:2026-09-24T12:00:00.000Z';
+  const flowRef = shortRef(FLOW_ID);
+  /** BTC 1h flag only in `flagBoard` (not in candidateSetups), every timeframe aligned long with candles. */
+  const flowPayload = ({ id = FLOW_ID, st = 'forming', tf = '1h', price = 84610.2 } = {}) => {
+    const mk = (over = {}) => ({ candles: [], ema21: 84500, ema200: 84300, priceVs21Pct: 0.1, priceVs200Pct: 0.3, stochRsi: { state: 'BULLISH' }, ...over });
+    const ms = { '1m': MIN, '3m': 3 * MIN, '5m': 5 * MIN, '15m': 15 * MIN, '1h': 60 * MIN, '4h': 240 * MIN }[tf];
+    const end = Date.parse('2026-09-24T13:00:00.000Z');
+    const candles = Array.from({ length: 21 }, (_, i) => ({ t: new Date(end - (20 - i) * ms).toISOString(), o: 84560, h: 84580, l: 84540, c: 84560, v: i === 20 ? 300 : 100 }));
+    const timeframes = Object.fromEntries(['1m', '3m', '5m', '15m', '1h', '4h', '1d'].map((k) => [k, mk(k === tf ? { candles } : {})]));
+    const btc = { ...watchSym(), price, mark: { ...markOk, price }, timeframes };
+    const p = payload({ BTC: btc });
+    p.flagBoard = { BTC: [{ id, tf, dir: 'long', st, brk: 84600, inv: 84390, tgt: 85146, rr: 2.6, conf: 70, at: '2026-09-24T12:00:00.000Z', chase: false }], ETH: [], SOL: [] };
+    return p;
+  };
+  const flowSends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage');
+  const flowKinds = (r) => flowSends(r).map((x) => (String(x.text).includes('🔍 FOUND') ? 'FOUND' : (String(x.text).includes('🎯 READY') ? 'READY' : null))).filter(Boolean);
+  const anySends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto');
+  const stateOf = (blob) => JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
+
+  await test('flow: mode defaults to flow (new, migrated, garbage); /mode classic and /mode flow persist; bare /mode stays the execution card', async () => {
+    assertEqual(migrateState(null).state.prefs.mode, 'flow', 'new state');
+    assertEqual(migrateState(JSON.stringify({ prefs: { level: 'watch' } })).state.prefs.mode, 'flow', 'migrated state without mode');
+    assertEqual(normalizePrefs({ mode: 'bogus' }).mode, 'flow', 'garbage');
+    assertEqual(normalizePrefs({ mode: 'classic' }).mode, 'classic', 'classic kept');
+    assert(COMMANDS.includes('mode'), 'mode command');
+    const blob = fakeBlob({ mode: null });
+    const c = await hook({ text: '/mode classic', blob });
+    assert(flowSends(c)[0].text.includes('<b>CLASSIC</b>'), flowSends(c)[0].text);
+    assertEqual(stateOf(blob).prefs.mode, 'classic', 'classic persisted');
+    const f = await hook({ text: '/MODE flow', blob });
+    assert(flowSends(f)[0].text.includes('<b>FLOW</b>'), flowSends(f)[0].text);
+    assertEqual(stateOf(blob).prefs.mode, 'flow', 'flow persisted');
+    const bare = await hook({ text: '/mode', blob });
+    assert(flowSends(bare)[0].text.includes('Execution off'), 'bare /mode is the execution path');
+    assert(formatHelp().includes('/mode flow|classic'), 'help line');
+  });
+
+  await test('flow: cron sends FOUND once per candidateId, then READY once; classic alerts stay silent; button snapshot stored', async () => {
+    const blob = fakeBlob({ mode: null });
+    const r1 = await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
+    assertEqual(flowKinds(r1).join(), 'FOUND,FOUND', 'FOUND to both chats');
+    const found = flowSends(r1)[0];
+    assert(found.text.includes('🔍 FOUND') && found.text.includes('84,600') && allCallbackData(found.replyMarkup).includes(`lock:${flowRef}`), found.text);
+    const again = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'forming' }) });
+    assertEqual(flowKinds(again).length, 0, 'FOUND not repeated');
+    const r2 = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
+    assertEqual(flowKinds(r2).join(), 'READY,READY', 'READY once');
+    assert(flowSends(r2)[0].text.includes('🎯 READY') && flowSends(r2)[0].text.includes('no-chase cap'), flowSends(r2)[0].text);
+    const r3 = await cron({ blob, nowMs: T0 + 3 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
+    assertEqual(flowKinds(r3).length, 0, 'READY not repeated');
+    const st = stateOf(blob);
+    assert(st.flow.found[FLOW_ID] && st.flow.ready[FLOW_ID], 'state.flow');
+    assertEqual(`${st.buttons[flowRef].recClass}|${st.buttons[flowRef].entry}|${st.buttons[flowRef].stop}|${st.buttons[flowRef].tp1}`, 'FLOW|84600|84390|85146', 'snapshot');
+  });
+
+  await test('flow: at most one FOUND per symbol+tf per cooldown (a new candidateId does not re-alert), then it can', async () => {
+    const blob = fakeBlob({ mode: null });
+    const idB = 'BTC:1h:long:2026-09-24T13:00:00.000Z';
+    await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
+    const cool = await cron({ blob, nowMs: T0 + 5 * MIN, build: async () => flowPayload({ id: idB, st: 'forming' }) });
+    assertEqual(flowKinds(cool).length, 0, 'cooling');
+    const later = await cron({ blob, nowMs: T0 + 16 * MIN, build: async () => flowPayload({ id: idB, st: 'forming' }) });
+    assertEqual(flowKinds(later).join(), 'FOUND,FOUND', 'after the cooldown');
+  });
+
+  await test('flow: lock from a FOUND card uses its structural levels; a locked candidate gets no READY', async () => {
+    const blob = fakeBlob({ mode: null });
+    await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
+    const t = await tap({ data: `lock:${flowRef}`, blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'forming' }) });
+    assert(flowSends(t)[0].text.includes('🔒 LOCKED'), flowSends(t)[0].text);
+    const l = stateOf(blob).locks[0];
+    assertEqual(`${l.timeframe}|${l.levels.trigger}|${l.levels.entry}|${l.levels.stop}|${l.levels.invalidation}|${l.levels.tp1}|${l.candidateId}`, `1h|84600|84600|84390|84390|85146|${FLOW_ID}`, 'structural levels frozen');
+    const r = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
+    assert(!flowKinds(r).includes('READY') && !flowKinds(r).includes('FOUND'), `locked: ${flowKinds(r).join()}`);
+  });
+
+  await test('flow: Lock tap on a 1h READY (candidate only in flagBoard) creates a lock with entry=brk, stop=inv, tp1=tgt', async () => {
+    const blob = fakeBlob({ mode: null });
+    const ready = await cron({ blob, build: async () => flowPayload({ st: 'confirmed' }) });
+    assertEqual(flowKinds(ready).join(), 'READY,READY', 'READY sent');
+    assert(!(flowPayload().symbols.BTC.candidateSetups || []).length, 'fixture: not in candidateSetups');
+    const t = await tap({ data: `lock:${flowRef}`, blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'confirmed' }) });
+    assert(flowSends(t)[0].text.includes('🔒 LOCKED'), flowSends(t)[0].text);
+    const l = stateOf(blob).locks[0];
+    assertEqual(`${l.source}|${l.levels.entry}|${l.levels.stop}|${l.levels.tp1}`, 'flag|84600|84390|85146', 'levels');
+  });
+
+  await test('flow: classic kinds (GOOD) are dropped in flow mode and sent in classic mode; MARK/DATA-type health kinds still send', async () => {
+    const flow = await cron({ blob: fakeBlob({ mode: null }) });
+    assert(!anySends(flow).some((x) => kindOf(x.text || x.caption) === 'GOOD'), 'no GOOD in flow');
+    const classic = await cron({ blob: fakeBlob({ mode: 'classic' }) });
+    assert(anySends(classic).some((x) => kindOf(x.text || x.caption) === 'GOOD'), 'GOOD in classic');
+    const bad = payload({ BTC: { ...goodSym(), mark: { status: 'unavailable', price: null } } });
+    const blobM = fakeBlob({ mode: null });
+    await cron({ blob: blobM, build: async () => bad });
+    const m = await cron({ blob: blobM, nowMs: T0 + HEALTH_PERSIST_MS + MIN, build: async () => bad });
+    assert(flowSends(m).some((x) => String(x.text).includes('MARK')), 'MARK still sends in flow mode');
+  });
+
+  await test('flow: /signals is the board in flow mode (top flags, 24h line, stacked Lock rows, snapshots stored); classic list in classic and for /signals all', async () => {
+    const blob = fakeBlob({ mode: null });
+    await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
+    const r = await hook({ text: '/signals', blob, build: async () => flowPayload({ st: 'forming' }) });
+    const msg = flowSends(r)[0];
+    assert(msg.text.includes('FLAGS NOW') && msg.text.includes('BTC 1h') && msg.text.includes('24h: 1 flag found') && !msg.text.includes('GET IN NOW'), msg.text);
+    assertEqual(allCallbackData(msg.replyMarkup).join(), `lock:${flowRef},chart:BTC:1h`, 'stacked row');
+    assertEqual(stateOf(blob).buttons[flowRef].recClass, 'FLOW', 'snapshot stored');
+    const all = await hook({ text: '/signals all', blob });
+    assert(flowSends(all)[0].text.includes('<b>GET IN NOW</b> · BTC'), 'classic list for all');
+    const cb = fakeBlob({ mode: 'classic' });
+    const c = await hook({ text: '/signals', blob: cb });
+    assert(flowSends(c)[0].text.includes('<b>GET IN NOW</b> · BTC') && !flowSends(c)[0].text.includes('FLAGS NOW'), 'classic mode list');
+    const empty = await hook({ text: '/signals', blob: fakeBlob({ mode: null }), build: async () => { const p = flowPayload(); p.flagBoard = { BTC: [] }; return p; } });
+    assert(flowSends(empty)[0].text.includes('No flags passing the checklist right now.'), 'empty board');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

@@ -238,9 +238,12 @@ function fixtureFetch(candlesByTf) {
 // Minimal in-memory Blob + Telegram fakes (same semantics as test-telegram.js's own)
 // ---------------------------------------------------------------------------
 
-function fakeBlob() {
+function fakeBlob({ mode = 'classic' } = {}) {
   const files = new Map();
   let n = 0;
+  // Flag flow (2026-10-02) is the default Telegram mode and mutes HTF/RETEST/SLOW_TREND sends;
+  // these suites exercise the classic alerts, so the state starts in classic mode.
+  if (mode) files.set(TELEGRAM_STATE_PATH, { text: JSON.stringify({ prefs: { mode } }), etag: '"e0"' });
   return {
     files,
     get: async (pathname) => {
