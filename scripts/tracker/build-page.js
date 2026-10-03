@@ -38,7 +38,7 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, ensureDir, readJsonl, readJson, readWallet, latestCallPerSymbol, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile } from './store.js';
+import { parseArgs, ensureDir, readJsonl, readJson, readWallet, latestCallPerSymbol, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile, calledFlagsFile, boardFile } from './store.js';
 import { aggregateDataDir, computeAlertAggregates, READY_WITHIN_MIN } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
@@ -52,7 +52,8 @@ import {
 } from './charts.js';
 import { PAGE_CSS } from './page-style.js';
 import { tile, zone, sub, jumpNav, jumpNavScript } from './bento.js';
-import { homeHero, homeHeroScript, HOME_HERO_CSS } from './home-hero.js';
+import { homeSecondaryBoards, homeHeroScript, HOME_HERO_CSS } from './home-hero.js';
+import { homeFlagHero, liveBoardSection, processSection, homeFlagsScript, HOME_FLAGS_CSS } from './home-flags.js';
 import { LIVE_BOARD_CSS } from './live-board.js';
 import { renderHowTo } from './how-to-page.js';
 import { renderRisk } from './risk-page.js';
@@ -969,10 +970,13 @@ export function renderHtml(agg, data = {}) {
   // (aggregate.js computeAggregates) - this note is the visible label for that.
   const flagEpochNote = agg.epochs && agg.epochs.flag ? ` · since ${String(agg.epochs.flag.epochIso).slice(0, 10)} (net floor)` : '';
 
-  // Top edge, homepage hero (home-hero.js), then the sticky jump nav.
+  // Top edge, flag-finder sections (home-flags.js), the earlier boards (home-hero.js), then the sticky jump nav.
   const topStrip = `<header class="edge-strip" id="tracker-top-edge-strip"><span id="tracker-page-title">EDITTRADES / CALL TRACKER</span>`
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
-    + homeHero(Array.isArray(data.liveRows) ? data.liveRows : [], agg.generatedAt, agg)
+    + homeFlagHero(data.calledFlags || null)
+    + liveBoardSection(data.board || null)
+    + processSection(data.board || null)
+    + homeSecondaryBoards(data.liveRows, agg.generatedAt, agg)
     + jumpNav('tracker-jump-nav', [
       ['#zone-system', 'Status'], ['#zone-performance', 'Performance'], ['#zone-charts', 'Charts'], ['#zone-you', 'Engine vs you'],
       ['#zone-wallet-strategies', 'Strategies'],
@@ -1237,7 +1241,7 @@ export function renderHtml(agg, data = {}) {
 <title>EditTrades Call Tracker</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Doto:wght@700&family=Space+Grotesk:wght@400;500&family=Space+Mono:wght@400&display=swap">
 <style>
-${PAGE_CSS}${HOME_HERO_CSS}${LIVE_BOARD_CSS}${CHART_CSS}${PREDICTIONS_CSS}
+${PAGE_CSS}${HOME_HERO_CSS}${HOME_FLAGS_CSS}${LIVE_BOARD_CSS}${CHART_CSS}${PREDICTIONS_CSS}
 </style>
 </head>
 <body>
@@ -1249,7 +1253,7 @@ ${bottomStrip}
 </main>
 <script type="application/json" id="tracker-calls-data">${jsonForScript({ now: agg.generatedAt, dims: FILTER_DIMS, rows: eqRows, you: youRows, setup: setupRows })}</script>
 <script type="application/json" id="tracker-wallet-data">${jsonForScript({ now: agg.generatedAt, range: DEFAULT_WALLET_RANGE, rows: walletRows, good: goods, marks })}</script>
-<script>${chartScript()}${statusScript()}${homeHeroScript()}${jumpNavScript()}</script>
+<script>${chartScript()}${statusScript()}${homeHeroScript()}${homeFlagsScript()}${jumpNavScript()}</script>
 </body>
 </html>
 `;
@@ -1335,6 +1339,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const profileCurves = computeProfileCurves({ journalRecords: journal, journalOutcomes, callOutcomes: outcomes });
   writeFileSync(htmlFile, renderHtml(agg, {
     liveRows: latestCallPerSymbol(dataDir),
+    calledFlags: readJson(calledFlagsFile(dataDir), null), board: readJson(boardFile(dataDir), null),
     outcomes, wallet: readWallet(dataDir),
     journal, journalOutcomes,
     telegram,

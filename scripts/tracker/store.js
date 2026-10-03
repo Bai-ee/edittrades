@@ -432,3 +432,15 @@ export function readPredictions(dataDir) {
 export function appendPredictions(dataDir, rows) {
   return appendDayDir(predictionsDir(dataDir), rows, 'closedAt', predictionRowKey);
 }
+
+// ---------------------------------------------------------------- homepage feeds
+
+/** data/board.json: the engine's live board + pulse, overwritten each collect run (collect.js saveBoard). */
+export function boardFile(dataDir) {
+  return path.join(dataDir, 'board.json');
+}
+
+/** data/called-flags.json: scored called-flag windows + recent strip (written by the scorer). */
+export function calledFlagsFile(dataDir) {
+  return path.join(dataDir, 'called-flags.json');
+}

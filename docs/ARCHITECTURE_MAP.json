@@ -1623,6 +1623,42 @@
           "schemaSince": "1.28.0"
         },
         {
+          "path": "scripts/tracker/called-flags.js",
+          "name": "calledFlags",
+          "role": "Scores every Telegram LOCK_OPPORTUNITY alert for the public homepage: right when price moved 1x ATR of the flag's timeframe in the called direction before 1x ATR against within 12 candles, wrong on the reverse, flat when neither; writes data/called-flag-outcomes.jsonl and data/called-flags.json (24h/7d/30d long/short counts, rate, last 20).",
+          "publishes": [
+            "called-flags.json"
+          ],
+          "consumes": [
+            "telegram-alerts",
+            "candles"
+          ],
+          "tests": [
+            "test:calledflags"
+          ],
+          "since": "2026-10-02",
+          "schemaSince": null
+        },
+        {
+          "path": "scripts/tracker/home-flags.js",
+          "name": "home-flags",
+          "role": "The flag-finder homepage sections: hero + called-flags scoreboard card, the \"Should I get in right now?\" board cards (data/board.json) and the what-we-watch stats.",
+          "publishes": [
+            "homeFlagHero",
+            "calledFlagsCard",
+            "liveBoardSection",
+            "processSection",
+            "homeFlagsScript",
+            "HOME_FLAGS_CSS"
+          ],
+          "consumes": [],
+          "tests": [
+            "test:tracker"
+          ],
+          "since": "2026-10-02",
+          "schemaSince": "1.28.0"
+        },
+        {
           "path": "scripts/tracker/live-board.js",
           "name": "live-board",
           "role": "The homepage live board card (capped at 40vh): flag radar, called direction, timeframe lean, path odds, gate and kill lines per symbol, from the newest capture row.",

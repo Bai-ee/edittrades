@@ -59,7 +59,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   parseArgs, appendCalls, appendServedCalls, appendCandles, appendWallet, appendJournal, readAllCalls, writeJson, telegramStatusFile, CANDLE_TIMEFRAMES,
-  appendTelegramAlerts, appendTransitions, readTelegramAlerts, readTransitions
+  appendTelegramAlerts, appendTransitions, readTelegramAlerts, readTransitions, boardFile
 } from './store.js';
 import { stripSensitive, findSensitiveKeys, recordsFromPayload, servedKey } from './records.js';
 import { pullPredictions } from './predictions.js';
@@ -710,6 +710,18 @@ export function htfExitTimesFromAlertLines(alertRows) {
   return exited;
 }
 
+/**
+ * Save the payload's top-level `board` (<= 3 entries) and `pulse` for the homepage "Should I get in
+ * right now?" section. Overwrites data/board.json each run; silently skips when the payload has no board.
+ * @returns {boolean} whether a file was written
+ */
+export function saveBoard(dataDir, payload) {
+  if (!payload || !Array.isArray(payload.board)) return false;
+  const pulse = payload.pulse && typeof payload.pulse === 'object' ? payload.pulse : null;
+  writeJson(boardFile(dataDir), { closedThrough: payload.closedThrough ?? null, board: payload.board.slice(0, 3), pulse });
+  return true;
+}
+
 /** Write one payload's calls and candles into `dataDir`. */
 export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   const rows = recordsFromPayload(payload, capturedAtMs);
@@ -719,6 +731,7 @@ export function ingestPayload(dataDir, payload, capturedAtMs = Date.now()) {
   for (const tf of CANDLE_TIMEFRAMES) candles[tf] = appendCandles(dataDir, tf, byTf[tf]);
   const walletRow = walletRowFromPayload(payload);
   const wallet = appendWallet(dataDir, walletRow);
+  saveBoard(dataDir, payload);
   return { symbols: rows.map((r) => r.symbol), closedThrough: payload.closedThrough ?? null, calls, candles, wallet, walletStatus: walletRow ? walletRow.status : null };
 }
 

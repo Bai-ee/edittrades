@@ -265,6 +265,16 @@ export function homeHero(liveRows, generatedAt, agg) {
   return `<div class="home-hero" id="home-hero-shell" data-section="home-hero-shell" role="region" aria-labelledby="home-hero-title">${headline}${column}</div>`;
 }
 
+/**
+ * Secondary homepage block (below the flag-finder sections, above the jump nav): the earlier
+ * prediction panel + per-coin live board, unchanged. Replaces homeHero() on the page.
+ */
+export function homeSecondaryBoards(liveRows, generatedAt, agg) {
+  const rows = Array.isArray(liveRows) ? liveRows : [];
+  return `<div class="home-secondary-boards" id="home-secondary-boards" data-section="home-secondary-boards">`
+    + `<div class="home-hero-side-column" id="home-hero-side-column">${predictionsPanelHtml(agg)}${liveBoard(rows, generatedAt, agg)}</div></div>`;
+}
+
 export const HOME_HERO_CSS = `
 /* home hero: EditTrax headline + net-R card. Type sizes track each column (cqi):
    the widest headline line is ~5.5em, a six-glyph figure (+10.25R) ~3.6em. */

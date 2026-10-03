@@ -15,7 +15,7 @@ import path from 'node:path';
 import {
   isSensitiveKey, stripSensitive, findSensitiveKeys, recordsFromPayload, candlesFromPayload, ingestPayload,
   candlesFromKraken, walletRowFromPayload, WALLET_KEYS, pullJournal, blobBaseFromToken, resolveJournalBase, journalRecordsFromLines,
-  pullServed, servedRowsFromLines, servedKey, slimCandidate
+  pullServed, servedRowsFromLines, servedKey, slimCandidate, saveBoard
 } from './scripts/tracker/collect.js';
 import { runAlerts, findNewGood, alertKey, alertsFile, chartTimeframe, saveChart, ALERT_MAX_AGE_MIN } from './scripts/tracker/alerts.js';
 import {
@@ -57,6 +57,7 @@ import { esc } from './scripts/tracker/bento.js';
 import { liveBoard, parseBias } from './scripts/tracker/live-board.js';
 import { parseBiasString, buildHeadline, buildLede, rightNowCards, homeHero, HOME_HERO_CSS } from './scripts/tracker/home-hero.js';
 import { latestCallPerSymbol } from './scripts/tracker/store.js';
+import { calledFlagsCard, liveBoardSection, processSection, homeFlagsScript, HOME_FLAGS_CSS } from './scripts/tracker/home-flags.js';
 import { computeProfileCurves, computeProfileCurvesDataDir, BOT_WALLET_START_EQUITY_USD } from './scripts/tracker/profiles.js';
 import { renderStrategies } from './scripts/tracker/strategies-page.js';
 import { PROFILES as VENDORED_PROFILES, PROFILE_KEYS as VENDORED_PROFILE_KEYS, tieredPolicyConfig as vendoredTieredPolicyConfig } from './scripts/tracker/profileConfig.js';
@@ -983,16 +984,16 @@ async function run() {
     const agg = computeAggregates(out, rows, candleSet, T0 + 2 * 60 * MIN, { phaseStartMs: T0 - 60 * MIN });
     const html = renderHtml(agg, { liveRows: LIVE_ROWS });
     for (const id of [
-      'home-hero-shell', 'home-hero-headline-panel', 'home-hero-title', 'home-hero-lede',
-      'home-hero-side-column', 'home-hero-prediction-panel',
+      'home-hero-shell', 'home-hero-title', 'home-hero-lede', 'called-flags-card',
+      'home-secondary-boards', 'home-hero-side-column', 'home-hero-prediction-panel',
       'live-board-card', 'live-board-tabs', 'live-board-panel-all', 'live-board-panel-eth', 'live-board-panel-btc', 'live-board-asof-line'
     ]) {
       assert(html.includes(`id="${id}"`), `missing #${id}`);
     }
     assert(!html.includes('id="home-hero-result-card"') && !html.includes('id="home-hero-net-r"'), 'performance card is gone from the hero');
-    assert(html.includes(`id="home-hero-title">${esc(buildHeadline(LIVE_ROWS))}</h1>`), 'headline is the data-driven sentence, server-rendered (T-23)');
-    assert(!html.includes('id="home-hero-title-data"'), 'no client-side title-rotation payload any more (headline is data-driven, not stacked words)');
-    assert(html.includes(`id="home-hero-lede">${esc(buildLede(LIVE_ROWS))}</p>`), 'lede states the data-as-of time from the latest closed candle');
+    assert(html.includes('id="home-hero-title">We find the flag, call the direction, and count every call.</h1>'), 'flag-finder hero headline (owner-approved mockup copy)');
+    assert(!html.includes('id="home-hero-title-data"'), 'no client-side title-rotation payload');
+    assert(html.indexOf('id="home-hero-shell"') < html.indexOf('id="live-board-section"') && html.indexOf('id="live-board-section"') < html.indexOf('id="process-section"') && html.indexOf('id="process-section"') < html.indexOf('id="home-secondary-boards"'), 'new sections lead; the earlier prediction panel + live board are secondary below them');
     assert(!html.includes('id="home-hero-right-now"') && !html.includes('id="home-hero-now-btc"'), 'no per-coin Right-now cards on the homepage (owner 2026-09-29)');
     assert(html.indexOf('id="home-hero-prediction-panel"') < html.indexOf('id="live-board-card"'), 'prediction panel sits above the live board in the side column');
     assert(html.indexOf('id="tracker-top-edge-strip"') < html.indexOf('id="home-hero-shell"'), 'hero follows the top edge');
@@ -3615,7 +3616,7 @@ async function run() {
     const spot = readFileSync(spotFile, 'utf8');
     const product = readFileSync(productFile, 'utf8');
     assert(/<a[^>]*href="product\.html"[^>]*id="tracker-product-link"/.test(index), 'index links to product');
-    assert(/<a[^>]*id="home-hero-product-link"[^>]*href="product\.html"/.test(index), 'home hero links to product');
+    assert(/<a[^>]*id="home-page-link-product"[^>]*href="product\.html"/.test(index), 'homepage existing-pages grid links to product');
     assert(/<a[^>]*href="product\.html"[^>]*id="howto-nav-product-link"/.test(howTo), 'how-to nav links to product');
     assert(howTo.includes('id="howto-product-pointer"') && howTo.includes('href="product.html"'), 'how-to has a top-of-page Learn more pointer to product.html');
     assert(/<a[^>]*href="product\.html"[^>]*id="risk-nav-product-link"/.test(risk), 'risk links to product');
@@ -3944,6 +3945,110 @@ async function run() {
     assert(full.includes('id="predictions-overall-table"'), 'overall + during-GOOD table');
     assert(full.includes('id="predictions-last-table"'), 'last-50 results table');
     assert(full.includes('id="predictions-back-link"') && full.includes('href="index.html"'), 'links back to the tracker');
+  });
+
+  // ---- flag-finder homepage (home-flags.js): called-flags card, live board cards, process stats ----
+  const CALLED_SAMPLE = {
+    rule: 'Right means price moved one ATR in the called direction first.',
+    since: '2026-09-20T00:00:00.000Z',
+    windows: {
+      '24h': { long: { called: 4, right: 3, wrong: 1, flat: 0, open: 0 }, short: { called: 3, right: 2, wrong: 1, flat: 0, open: 0 }, total: { called: 7, right: 5, wrong: 2, flat: 0, open: 0 }, rate: 71 },
+      '7d': { long: { called: 15, right: 11, wrong: 4, flat: 0, open: 0 }, short: { called: 9, right: 6, wrong: 3, flat: 0, open: 0 }, total: { called: 24, right: 17, wrong: 7, flat: 0, open: 0 }, rate: 71 },
+      '30d': { long: { called: 41, right: 30, wrong: 10, flat: 1, open: 0 }, short: { called: 22, right: 15, wrong: 5, flat: 1, open: 1 }, total: { called: 63, right: 45, wrong: 15, flat: 2, open: 1 }, rate: 75 }
+    },
+    recent: [
+      { calledAt: '2026-09-30T02:00:00Z', symbol: 'ETH', timeframe: '15m', direction: 'short', outcome: 'wrong' },
+      { calledAt: '2026-09-30T01:00:00Z', symbol: 'BTC', timeframe: '1h', direction: 'long', outcome: 'right' },
+      { calledAt: '2026-09-30T03:00:00Z', symbol: 'SOL', timeframe: '5m', direction: 'long', outcome: 'open' }
+    ]
+  };
+  const BOARD_SAMPLE = {
+    closedThrough: '2026-10-01T01:37:00.000Z',
+    pulse: { found: 142, opps: 9, locked: 2, since: '2026-10-01T00:30:00.000Z', partial: false },
+    board: [
+      { ref: 'a', sym: 'BTC', tf: '1h', dir: 'long', stage: 'lockable', st: 'x', lv: { ent: 86400, stop: 85900, inv: 86100, tp1: 87600, tp2: 88100, tp2src: 'x', rr: 2.4, cap: 86580 }, score: '7/7', gate: 'ok', tfs: '' },
+      { ref: 'b', sym: 'ETH', tf: '15m', dir: 'short', stage: 'found', st: 'x', lv: { ent: 2598, stop: 2621, inv: 2610, tp1: 2551, tp2: 2530, cap: 2590 }, score: '4/7' },
+      { ref: 'c', sym: 'SOL', tf: '5m', dir: 'long', stage: 'watch', st: 'x', lv: { ent: 151.2, stop: 150.1, inv: 150.5, tp1: 153.4, cap: 151.9 }, score: '2/7' }
+    ]
+  };
+
+  await test('home flags: called-flags card renders rate, long/short split, tally, recent strip and rule from called-flags.json (30D default)', () => {
+    const html = calledFlagsCard(CALLED_SAMPLE);
+    for (const id of ['called-flags-card', 'called-flags-long', 'called-flags-short', 'called-flags-tally', 'recent-strip', 'called-flags-rule', 'win-24h', 'win-7d', 'win-30d']) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    assert(html.includes('id="rate-val">75</span>') && html.includes('45 of 60 resolved calls'), 'rate and resolved count from the 30d window');
+    assert(html.includes('id="long-pct">75%') && html.includes('30 called' ) === false && html.includes('41 called · 30 right'), 'long split: 30/(30+10) = 75%, line shows called · right');
+    assert(html.includes('id="short-pct">75%') && html.includes('22 called · 15 right'), 'short split');
+    assert(html.includes('id="t-called">63<') && html.includes('id="t-right">45<') && html.includes('id="t-wrong">15<') && html.includes('id="t-flat">2<'), 'tally from total');
+    assert(html.includes('Right means price moved one ATR in the called direction first.'), 'rule text from the file');
+    assert(html.includes('aria-pressed="true">30D') && html.includes('aria-pressed="false">24H'), '30D is the default toggle');
+    const strip = html.slice(html.indexOf('id="recent-strip"'), html.indexOf('id="recent-legend"'));
+    assert((strip.match(/class="hf-dot /g) || []).length === 3, 'one dot per recent call');
+    assert(strip.indexOf('wrong') < strip.indexOf('hf-dot open') && strip.indexOf('hf-dot right') < strip.indexOf('hf-dot wrong'), 'oldest left, newest right');
+    assert(html.includes('id="called-flags-data"') && JSON.parse(html.match(/id="called-flags-data">([^<]*)</)[1]).windows['24h'].rate === 71, 'embedded JSON drives the client-side toggle');
+    assert(homeFlagsScript().includes('localStorage') && homeFlagsScript().includes('try{') && !/fetch\(|XMLHttpRequest/.test(homeFlagsScript()), 'toggle script: localStorage in try/catch, no network');
+  });
+
+  await test('home flags: called-flags card shows an honest empty state with no file or zero calls, never fake numbers', () => {
+    for (const html of [calledFlagsCard(null), calledFlagsCard({ rule: 'r', since: null, windows: { '24h': { total: { called: 0 } }, '7d': { total: { called: 0 } }, '30d': { total: { called: 0 } } }, recent: [] })]) {
+      assert(html.includes('id="called-flags-empty">No called flags yet — counting started today'), 'empty copy');
+      assert(!html.includes('id="rate-val"') && !html.includes('id="recent-strip"'), 'no numbers rendered');
+    }
+    assert(calledFlagsCard({ since: '2026-09-20T00:00:00.000Z', windows: {}, recent: [] }).includes('counting started 2026-09-20'), 'since date shown when known');
+    const dir = tmp();
+    const empty = readFileSync(buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0).htmlFile, 'utf8');
+    assert(empty.includes('id="called-flags-empty"') && empty.includes('id="live-board-empty">No flags passing the checklist right now.'), 'page with no files shows both empty states');
+  });
+
+  await test('home flags: live board cards follow the snapshot order, wording, value color classes; no TP2', () => {
+    const html = liveBoardSection(BOARD_SAMPLE);
+    for (const id of ['live-board-section', 'live-board-grid', 'live-board-card-1', 'live-board-card-2', 'live-board-card-3']) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    assert(html.includes('🟢 LOCK NOW') && html.includes('🟡 FORMING') && html.includes('⚪ WATCHING'), 'status words');
+    const c1 = html.slice(html.indexOf('id="live-board-card-1"'), html.indexOf('id="live-board-card-2"'));
+    const order = ['Entry', 'Valid to', 'TP<', 'Invalidation', 'SL<', 'Checklist 7/7', '⏱ Enter now'].map((w) => c1.indexOf(w));
+    assert(order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1])), `row order Entry, Valid to, TP, Invalidation, SL, Checklist, action (${order})`);
+    assert(c1.indexOf('86,400') < c1.indexOf('>Entry<') && c1.includes('hf-v-entry">86,400') && c1.includes('hf-v-valid">86,580') && c1.includes('hf-v-inval">86,100') && c1.includes('hf-v-sl">85,900') && c1.includes('hf-v-tp">87,600'), 'number before label; values colored by class');
+    assert(!/TP2|88,100/.test(html), 'no TP2 anywhere');
+    assert(html.includes('⏳ Needs a 15m close below 2,598') && html.includes('Not ready') && html.includes('updated 01:37Z'), 'found/watch action lines and as-of stamp');
+    assert(HOME_FLAGS_CSS.includes('--hf-entry') && HOME_FLAGS_CSS.includes(':root[data-theme="dark"]{--hf-entry'), 'value colors defined for both themes');
+    const emptyBoard = liveBoardSection({ board: [] });
+    assert(emptyBoard.includes('No flags passing the checklist right now.') && !emptyBoard.includes('live-board-card-1'), 'empty board state');
+  });
+
+  await test('home flags: process stats use pulse numbers (since HH:MMZ when partial) plus static facts; existing pages stay linked', () => {
+    const full = processSection(BOARD_SAMPLE);
+    assert(full.includes('id="process-stats"') && full.includes('>142<') && full.includes('>9<') && full.includes('Flags found 24h') && full.includes('>1,440<'), 'pulse + static facts');
+    const partial = processSection({ pulse: { found: 5, opps: 1, locked: 0, since: '2026-10-01T00:30:00.000Z', partial: true } });
+    assert(partial.includes('Flags found since 00:30Z') && partial.includes('Locked since 00:30Z'), 'partial window label');
+    assert(processSection(null).includes('Flags found 24h'), 'no board file still renders');
+    const dir = tmp();
+    const index = readFileSync(buildPage(path.join(dir, 'data'), path.join(dir, 'docs'), T0).htmlFile, 'utf8');
+    assert(index.includes('id="existing-pages"'), 'existing-pages grid');
+    for (const f of ['strategies', 'predictions', 'risk', 'spot', 'product', 'how-to', 'changelog']) assert(index.includes(`href="${f}.html"`), `nav link to ${f}.html`);
+    assert(index.includes('id="zone-system"') && index.includes('id="tracker-jump-nav"'), 'existing zones and jump nav still render');
+  });
+
+  await test('home flags: buildPage renders the card and board from data/called-flags.json + data/board.json', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    writeJson(path.join(dataDir, 'called-flags.json'), CALLED_SAMPLE);
+    writeJson(path.join(dataDir, 'board.json'), BOARD_SAMPLE);
+    const html = readFileSync(buildPage(dataDir, path.join(dir, 'docs'), T0).htmlFile, 'utf8');
+    assert(html.includes('id="rate-val">75</span>') && html.includes('id="live-board-card-3"') && html.includes('Flags found 24h'), 'files drive the sections');
+    assert(!html.includes('MOCKUP'), 'no mockup flag');
+  });
+
+  await test('collect: saveBoard writes data/board.json from a fetched payload (board capped at 3) and skips when absent', () => {
+    const dir = tmp();
+    const payload = { closedThrough: '2026-10-01T01:37:00.000Z', board: [...BOARD_SAMPLE.board, BOARD_SAMPLE.board[0]], pulse: BOARD_SAMPLE.pulse };
+    ingestPayload(dir, { ...payloadWithSecrets(), ...payload }, T0);
+    const saved = JSON.parse(readFileSync(path.join(dir, 'board.json'), 'utf8'));
+    assertEqual(saved.board.length, 3, 'board capped at 3');
+    assertEqual(saved.pulse.found, 142, 'pulse saved');
+    assertEqual(saved.closedThrough, '2026-10-01T01:37:00.000Z', 'closedThrough saved');
+    const dir2 = tmp();
+    ingestPayload(dir2, payloadWithSecrets(), T0);
+    assert(!existsSync(path.join(dir2, 'board.json')), 'no board in the payload: no file, no error');
+    assertEqual(saveBoard(dir2, null), false, 'null payload skipped silently');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);
