@@ -3277,7 +3277,7 @@ async function run() {
     const markup = tradeKeyboard('BTC', '5m', BTC_ID);
     const r = await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]), markup });
     const card = r.tg.calls.find((c) => c.method === 'sendMessage');
-    assert(card && card.text.includes('🔒 LOCKED') && card.text.includes('<b>WAIT</b>') && card.text.includes('84,600'), card && card.text);
+    assert(card && card.text.includes('🔒 LOCKED · WAIT') && card.text.includes('84,600'), card && card.text);
     assertEqual(allCallbackData(card.replyMarkup).join(), `lnow:${lref},ltook:${lref},unlock:${lref},chart:BTC:5m`, 'lock keyboard');
     const edit = r.tg.calls.find((c) => c.method === 'editMessageReplyMarkup');
     assert(edit && allCallbackData(edit.replyMarkup).includes(`unlock:${lref}`) && !allCallbackData(edit.replyMarkup).includes(`lock:${lref}`), 'button swapped');
@@ -3297,14 +3297,14 @@ async function run() {
     const moved = { flagTradePlan: { ...goodSym(BTC_ID).flagTradePlan, entry: 84520, stop: 84300, status: 'conditional' } };
     const c = await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', moved) });
     const sends = c.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto');
-    const lockMsgs = sends.filter((x) => String(x.text || x.caption).includes('LOCK · CONFIRMED'));
+    const lockMsgs = sends.filter((x) => String(x.text || x.caption).includes('🔒 LOCKED · TAKE'));
     assertEqual(lockMsgs.length, 2, 'lock alert to both chats');
-    assert(lockMsgs[0].text.includes('<b>TAKE</b>') && lockMsgs[0].text.includes('84,600') && !lockMsgs[0].text.includes('84,520'), lockMsgs[0].text);
+    assert(lockMsgs[0].text.includes('84,600') && !lockMsgs[0].text.includes('84,520'), lockMsgs[0].text);
     assert(!sends.some((x) => ['GOOD', 'BREAKOUT', 'SETUP'].includes(kindOf(x.text || x.caption))), `generic suppressed: ${sends.map((x) => kindOf(x.text || x.caption)).join()}`);
     const l = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0];
     assertEqual(`${l.status}|${l.levels.entry}|${l.levels.stop}`, 'confirmed|84600|84390', 'levels unchanged');
     const quietRun = await cron({ blob, nowMs: T0 + 6 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', moved) });
-    assert(!quietRun.tg.calls.some((x) => String(x.text).includes('LOCK ·')), 'no repeat');
+    assert(!quietRun.tg.calls.some((x) => String(x.text).includes('🔒 LOCKED · TAKE')), 'no repeat');
   });
 
   await test("lock: I'm in fills at the mark; Now? shows R now on the frozen levels; cron STOP HIT on the frozen stop; closed lock has no buttons", async () => {
@@ -3313,11 +3313,11 @@ async function run() {
     await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z') });
     const took = await tap({ data: `ltook:${lref}`, blob, nowMs: T0 + 6 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z') });
     const tc = took.tg.calls.find((x) => x.method === 'sendMessage');
-    assert(tc.text.includes('🔒 IN') && tc.text.includes('84,610.2'), tc.text);
+    assert(tc.text.includes('🔒 IN · +0.0R') && tc.text.includes('84,600.00  Entry'), tc.text);
     assertEqual(allCallbackData(tc.replyMarkup).join(), `lnow:${lref},unlock:${lref},chart:BTC:5m`, 'filled keyboard');
     const now = await tap({ data: `lnow:${lref}`, blob, nowMs: T0 + 7 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', { price: 84820, mark: { ...markOk, price: 84820 } }) });
     const nc = now.tg.calls.find((x) => x.method === 'sendMessage');
-    assert(nc.text.includes('NOW?') && nc.text.includes('R now') && nc.text.includes('+0.95R'), nc.text);
+    assert(nc.text.includes('NOW?') && nc.text.includes('IN · +') && nc.text.includes('+0.9R now') && nc.text.includes('84,390.00  Invalidation') && nc.text.includes('+0.9R'), nc.text);
     const stop = await cron({ blob, nowMs: T0 + 10 * MIN, build: lockBuild([84590, 84640, 84380], '2026-09-24T14:10:00.000Z', { price: 84380, mark: { ...markOk, price: 84380 } }) });
     const sm = stop.tg.calls.find((x) => String(x.text).includes('DONE · STOPPED'));
     assert(sm && !sm.replyMarkup?.inline_keyboard?.flat().some((b) => b.callback_data.startsWith('lnow')), sm && sm.text);
@@ -3329,10 +3329,10 @@ async function run() {
     await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
     const c = await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84900], '2026-09-24T14:05:00.000Z') });
     const m = c.tg.calls.find((x) => String(x.text).includes('DONE · MISSED'));
-    assert(m && m.text.includes('<b>PASS</b>') && m.text.includes('No chase'), m && m.text);
+    assert(m && m.text.includes('no chase'), m && m.text);
     const late = fakeBlob();
     const r = await tap({ data: `lock:${lref}`, blob: late, build: lockBuild([84590, 84900], '2026-09-24T14:05:00.000Z'), nowMs: T0 + 5 * MIN });
-    assert(r.tg.calls.some((x) => String(x.text).includes('NOT LOCKED · MISSED')), 'not locked');
+    assert(r.tg.calls.some((x) => String(x.text).includes('NOT LOCKED')), 'not locked');
     assert(!late.files.get(TELEGRAM_STATE_PATH) || JSON.parse(late.files.get(TELEGRAM_STATE_PATH).text).locks.length === 0, 'nothing stored');
   });
 
@@ -3343,7 +3343,7 @@ async function run() {
     const st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
     assertEqual(`${st.locks[0].source}|${st.locks[0].levels.trigger}`, 'manual|84600', 'manual source');
     const list = await hook({ text: '/locks', blob, build: lockBuild([84590]) });
-    assertEqual(list.tg.calls.filter((x) => String(x.text).includes('🔒 LOCK · ARMED')).length, 1, '/locks card');
+    assertEqual(list.tg.calls.filter((x) => String(x.text).includes('🔒 LOCKED · WAIT')).length, 1, '/locks card');
     const u = await hook({ text: `/unlock ${st.locks[0].ref}`, blob, build: lockBuild([84590]) });
     assert(u.tg.calls.some((x) => String(x.text).startsWith('🔓 Unlocked BTC 5m')), 'unlocked');
     const none = await hook({ text: '/locks', blob, build: lockBuild([84590]) });
@@ -3381,7 +3381,7 @@ async function run() {
     return p;
   };
   const flowSends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage');
-  const flowKinds = (r) => flowSends(r).map((x) => { const t = String(x.text); return t.includes('⏳ BREAKING') ? 'BREAKING' : (t.includes('🔍 FOUND') ? 'FOUND' : (t.includes('· 🎯 LOCK OPPORTUNITY') ? 'OPP' : null)); }).filter(Boolean);
+  const flowKinds = (r) => flowSends(r).map((x) => { const t = String(x.text); return t.includes('· BREAKING') ? 'BREAKING' : (t.includes('· FORMING') ? 'FOUND' : (t.includes('· LOCK NOW') ? 'OPP' : null)); }).filter(Boolean);
   const anySends = (r) => r.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto');
   const stateOf = (blob) => JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
 
@@ -3415,8 +3415,8 @@ async function run() {
     const r2 = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(r2).join(), 'OPP,OPP', 'LOCK_OPPORTUNITY to both chats');
     const opp = flowSends(r2)[0];
-    assert(opp.text.includes('⏱ ENTER NOW') && opp.text.includes('window ('), `timing line: ${opp.text}`);
-    assert(opp.text.includes('GO IN') && opp.text.includes('84,600') && opp.text.includes('TP2') && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);
+    assert(opp.text.includes('84,660.00  Valid to') && opp.text.endsWith('⏱ Enter now · ~6 h window'), `timing line: ${opp.text}`);
+    assert(opp.text.includes('· LOCK NOW') && opp.text.includes('84,600') && !opp.text.includes('TP2') && opp.text.includes('84,600.00  Entry') && opp.text.includes('84,390.00  SL') && opp.text.includes('Checklist 7/7') && !/[🔸🔻🔹]/u.test(opp.text) && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);
     const again = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(again).length, 0, 'not repeated');
     const conf = await cron({ blob, nowMs: T0 + 3 * MIN, build: async () => flowPayload({ st: 'confirmed' }) });
@@ -3430,7 +3430,7 @@ async function run() {
   await test('flow: confirmed inside the cap pushes LOCK_OPPORTUNITY; confirmed past the cap is missed and not pushed; LOCK_OPPORTUNITY survives focus mode', async () => {
     const inside = await cron({ blob: fakeBlob({ mode: null }), build: async () => flowPayload({ st: 'confirmed' }) });
     assertEqual(flowKinds(inside).join(), 'OPP,OPP', 'inside cap');
-    assert(flowSends(inside)[0].text.includes('confirmed') && !flowSends(inside)[0].text.includes('close above'), 'confirmed card');
+    assert(flowSends(inside)[0].text.includes('· LOCK NOW') && !flowSends(inside)[0].text.includes('close above'), 'confirmed card');
     const past = await cron({ blob: fakeBlob({ mode: null }), build: async () => flowPayload({ st: 'confirmed', price: 90000 }) });
     assertEqual(flowKinds(past).length, 0, 'past cap');
     assert(focusRelatedForLock({ kind: 'LOCK_OPPORTUNITY', symbol: 'ETH' }, ['BTC']), 'focus mode keeps it');
@@ -3496,7 +3496,7 @@ async function run() {
     await cron({ blob, build: async () => flowPayload({ st: 'forming' }) });
     const r = await hook({ text: '/signals', blob, build: async () => flowPayload({ st: 'forming' }) });
     const msg = flowSends(r)[0];
-    assert(msg.text.includes('FLAGS NOW') && msg.text.includes('BTC 1h') && msg.text.includes('24h: 1 flag found') && !msg.text.includes('GET IN NOW'), msg.text);
+    assert(msg.text.includes('FLAGS NOW') && msg.text.includes('BTC 1h') && /(24h|since \d\d:\d\dZ): 1 found/.test(msg.text) && !msg.text.includes('GET IN NOW'), msg.text);
     assertEqual(allCallbackData(msg.replyMarkup).join(), `lock:${flowRef},chart:BTC:1h`, 'stacked row');
     assertEqual(stateOf(blob).buttons[flowRef].recClass, 'FLOW', 'snapshot stored');
     const all = await hook({ text: '/signals all', blob });

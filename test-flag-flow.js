@@ -4,7 +4,7 @@
  */
 import {
   scoreFlag, rankFlags, snapshotOf, formatFoundCard, formatOpportunityCard, tp2For, formatBoard, flowKeyboard,
-  pulseOf, pulseLine, FLOW_DEFAULTS, FLOW_STATE_RANK
+  pulseOf, pulseLine, SNAP_RULE, FLOW_DEFAULTS, FLOW_STATE_RANK
 } from './lib/flagFlow.js';
 import { createLock, lockLevels } from './lib/tradeLock.js';
 import { fmtLvl } from './lib/telegram.js';
@@ -134,11 +134,28 @@ for (const dir of [1, -1]) {
   });
 }
 
+// Line-item snapshot: status line first, inset Entry / Invalidation / SL rows (no markers), Checklist line, foot last.
+const snapRows = (t) => {
+  const lines = t.split('\n');
+  // Rows: number first, then label, in the order Entry, Valid to (when known), Invalidation, SL.
+  const rowIdx = (label) => lines.findIndex((l) => new RegExp(`^<code> +[0-9,.]+  ${label}</code>$`).test(l));
+  const [ie, iv, ii, is] = ['Entry', 'Valid to', 'Invalidation', 'SL'].map(rowIdx);
+  assert(ie > 0 && ii > ie && is > ii, `rows Entry < Invalidation < SL: ${t}`);
+  assert(iv === -1 || (iv === ie + 1), `Valid to sits right under Entry: ${t}`);
+  assert(!/[🔸🔻🔹]/u.test(t), 'no row markers');
+  assert(!t.includes('TP2') && !lines.some((l) => /^<code>\s*TP /.test(l)), 'no TP row');
+  const ci = lines.findIndex((l) => l.startsWith('Checklist '));
+  assert(ci > 0 && ci === lines.length - 2, `checklist then foot last: ${t}`);
+  return { lines, status: lines[0], check: lines[ci], foot: lines[lines.length - 1] };
+};
+
 await test('FOUND card: trigger level, checklist score, <= 600 chars', () => {
   const e = scoreFlag('BTC', cand(1), timeframes(1, 86400), 86400);
   const t = formatFoundCard(e, T0);
-  assert(t.includes('FOUND') && t.includes('Trigger on a 1h close above') && t.includes('86,400'), t);
-  assert(t.includes(`checklist ${e.score}/${e.of}`) && t.includes('1m✅'), 'score/checklist');
+  const { status, lines, check, foot } = snapRows(t);
+  assert(status.startsWith('🟡') && status.includes('BTC 1h') && status.includes('· FORMING'), status);
+  assert(lines.some((l) => l.includes('Entry') && l.includes('86,400.00')) && !lines.some((l) => l.includes('Valid to') && false), 'entry value');
+  assert(check === `Checklist ${e.score}/${e.of}` && foot === '⏳ Needs a 1h close above 86,400.00', `${check} | ${foot}`);
   assert(t.length <= 600, `len ${t.length}`);
   assert(formatFoundCard(scoreFlag('BTC', cand(-1), timeframes(-1, 86400), 86400), T0).includes('close below'), 'short below');
 });
@@ -173,14 +190,15 @@ for (const dir of [1, -1]) {
     assert(b.levels.tp2 === want && b.levels.tp2Source === '1.5x', 'no geometry');
     assert(tp2For(cand(dir, { tgt: null }), null).tp2 === null, 'no target -> null');
   });
-  await test(`${side}: opportunity card has the call format fields, no percentages, <= 700 chars`, () => {
+  await test(`${side}: opportunity card is a line-item LOCK NOW snapshot, no TP2, no percentages`, () => {
     for (const st of ['triggering', 'confirmed']) {
       const e = scoreFlag('BTC', cand(dir, { st }), timeframes(dir, 86400), 86400);
       const t = formatOpportunityCard(e, T0);
-      assert(t.includes('LOCK OPPORTUNITY') && t.includes('GO IN') && t.includes(`flag ${st}`), 'head');
-      for (const k of ['entry', 'confirm', 'invalidation', 'stop', 'TP1', 'TP2', 'R:R', 'no-chase cap', '2.4R', '86,400', fmtLvl(e.levels.tp2)]) assert(t.includes(k), `missing ${k} (${st})`);
-      assert(st === 'confirmed' ? !t.includes('close above') && !t.includes('close below') : t.includes(`1h close ${dir === 1 ? 'above' : 'below'} 86,400`), 'confirm row');
-      assert(t.includes('Tap 🔒 Lock to freeze these levels.'), 'prompt');
+      const { status, lines, foot } = snapRows(t);
+      assert(status.startsWith('🟢') && status.includes('· LOCK NOW') && status.includes(dir === 1 ? '▲' : '▼'), status);
+      assert(lines.some((l) => l.includes(`${fmtLvl(e.levels.cap)}  Valid to</code>`)), 'valid to row');
+      assert(!t.includes(fmtLvl(e.levels.tp2)) && !t.includes('R:R'), 'no TP2 / R:R');
+      assert(foot === '⏱ Enter now · ~6 h window', foot);
       assert(!t.includes('%'), 'no percentages');
       assert(t.length <= 700, `len ${t.length}`);
     }
@@ -192,11 +210,14 @@ await test('board: entries, tags, cap of 3, empty state with pulse line', () => 
   const ranked = rankFlags({ BTC: ['a', 'b', 'c', 'd'].map((id, i) => cand(1, { id, st: i === 0 ? 'confirmed' : 'forming' })) }, { BTC: { price: 86400, timeframes: tfs } });
   const pulse = { found: 12, opps: 4, locked: 1 };
   const t = formatBoard(ranked, pulse, T0);
-  assert(t.includes('FLAGS NOW') && t.includes('24h: 12 flags found · 4 lock opportunities · 1 locked'), 'title/pulse');
-  assert(t.includes('🎯 LOCK') && t.includes('🔍 FOUND') && t.includes('TP1') && t.includes('TP2'), 'tags');
+  const bl = t.split('\n');
+  assert(bl[0].includes('FLAGS NOW') && bl[0].includes('24h: 12 found · 4 lock opps · 1 locked'), 'title/pulse');
+  assert(t.includes('· LOCK NOW') && t.includes('· FORMING') && t.includes('Invalidation') && !t.includes('TP2'), 'tags');
   assert((t.match(/BTC 1h/g) || []).length === 3, 'three entries');
+  assert(bl.filter((l) => l === SNAP_RULE).length === 3 && bl[1] === SNAP_RULE, 'rule between entries');
+  assert(bl.filter((l) => l.endsWith('  Invalidation</code>')).length === 3, 'three snapshots');
   const empty = formatBoard([], { found: 0, opps: 0, locked: 0 }, T0);
-  assert(empty.includes('No flags passing the checklist right now.') && empty.includes('24h: 0 flags found'), empty);
+  assert(empty.includes('No flags passing the checklist right now.') && empty.split('\n')[0].includes('24h: 0 found') && empty.split('\n')[1] === SNAP_RULE, empty);
 });
 
 await test('flowKeyboard: lock:<8hex>, chart:SYM:TF, <= 64 bytes', () => {
@@ -205,6 +226,12 @@ await test('flowKeyboard: lock:<8hex>, chart:SYM:TF, <= 64 bytes', () => {
   assert(/^lock:[0-9a-f]{8}$/.test(row[0].callback_data) && row[0].text.includes('Lock'), row[0].callback_data);
   assert(row[1].callback_data === 'chart:SOL:15m', row[1].callback_data);
   assert(row.every((b) => Buffer.byteLength(b.callback_data) <= 64), 'bytes');
+  const found = flowKeyboard({ ...e, stage: 'found' }).inline_keyboard[0];
+  assert(found.length === 2 && found[0].callback_data.startsWith('lock:'), 'found has lock');
+  for (const stage of ['watch', 'missed']) {
+    const r = flowKeyboard({ ...e, stage }).inline_keyboard[0];
+    assert(r.length === 1 && r[0].callback_data === 'chart:SOL:15m', `${stage}: chart only`);
+  }
 });
 
 await test('pulseOf counts only the last 24h; pulseLine formats', () => {
@@ -212,7 +239,12 @@ await test('pulseOf counts only the last 24h; pulseLine formats', () => {
   const p = pulseOf({ found: { a: h(1), b: h(23), c: h(25) }, opps: { a: h(2), c: h(30) }, locked: [h(3), h(50)] }, T0);
   assert(p.found === 2 && p.opps === 1 && p.locked === 1, JSON.stringify(p));
   assert(p.since === h(24), 'since');
-  assert(pulseLine(p) === '24h: 2 flags found · 1 lock opportunity · 1 locked', pulseLine(p));
+  assert(p.partial === false, 'full day');
+  assert(pulseLine(p) === '24h: 2 found · 1 lock opp · 1 locked', pulseLine(p));
+  const part = pulseOf({ since: h(5), found: { a: h(1) }, opps: { a: h(2) }, locked: [h(3)] }, T0);
+  assert(part.partial === true && part.since === h(5), 'partial');
+  assert(pulseLine(part) === `since ${h(5).slice(11, 16)}Z: 1 found · 1 lock opp · 1 locked`, pulseLine(part));
+  assert(pulseOf({ since: h(30) }, T0).partial === false, 'older since is a full day');
   const z = pulseOf(undefined, T0);
   assert(z.found === 0 && z.opps === 0 && z.locked === 0, 'empty');
   assert(pulseOf({ locked: 2 }, T0).locked === 2, 'numeric locked');
@@ -226,7 +258,9 @@ await test('timing line + BREAKING: ENTER NOW with cap and window; 15m/1h/4h for
   const T = Date.parse('2026-10-02T14:48:00Z');
   const b = breakingOf(e, T);
   assert(b && b.closeInMs === 12 * 60_000, JSON.stringify(b));
-  assert(formatBreakingCard(e, T).includes('close in 12 min') && formatBreakingCard(e, T).includes('Not an entry yet'), 'card');
+  const bc = formatBreakingCard(e, T).split('\n');
+  assert(bc[0].startsWith('🟡') && bc[0].includes('· BREAKING'), bc[0]);
+  assert(bc[bc.length - 1] === '⏳ 1h close in 12 min decides it · not an entry yet', bc[bc.length - 1]);
   assert(breakingOf({ ...e, tf: '5m' }, T) === null, '5m never breaks');
   assert(breakingOf({ ...e, price: 86390 }, T) === null, 'not past trigger');
   assert(breakingOf({ ...e, dir: 'short', price: 86350, levels: { ...e.levels, entry: 86400 } }, T) !== null, 'short mirror');
