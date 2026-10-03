@@ -1956,8 +1956,10 @@ export async function buildScalpContext(options = {}) {
   // Payload size guard (phase 5, item D): logged on every build so growth is visible
   // before geometry (phase 7/8) adds bulk. 80 KB is a soft warning, not a rejection -
   // filterPayload's compact/include options are how a caller brings it back down.
-  const payloadBytes = Buffer.byteLength(JSON.stringify(normalized), 'utf8');
-  console.log(`[ScalpContext] payload bytes=${payloadBytes}`);
+  // The bot-only flagBoard never reaches a REST/MCP caller, so the guard measures the payload without it.
+  const { flagBoard: _botOnly, ...served } = normalized;
+  const payloadBytes = Buffer.byteLength(JSON.stringify(served), 'utf8');
+  console.log(`[ScalpContext] payload bytes=${payloadBytes}${_botOnly ? ` (+flagBoard ${Buffer.byteLength(JSON.stringify(_botOnly), 'utf8')})` : ''}`);
   if (payloadBytes > 80 * 1024) {
     console.warn(`[ScalpContext] payload size ${payloadBytes} bytes exceeds the 80KB guard`);
   }

@@ -81,6 +81,7 @@ import {
   goodCallsFromAlertLines, goodCallsFromCaptureRows, mergeGoodCalls, goodEndedTimesFromAlertLines, retestCallsFromAlertLines, retestExitTimesFromAlertLines,
   htfCallsFromAlertLines, htfExitTimesFromAlertLines
 } from './collect.js';
+import { scoreCalledFlagsDataDir, calledFlagsSummaryFile } from './called-flags.js';
 
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 const MINUTE = 60_000;
@@ -875,6 +876,8 @@ function main() {
   console.log(`[tracker:score] ${retestCalls.length} RETEST_1H call(s) (1-min log) -> ${retestCallOutcomesFile(opts.data)}`);
   const htfCalls = scoreHtfCallsDataDir(opts.data, nowMs);
   console.log(`[tracker:score] ${htfCalls.length} HTF_1M call(s) (1-min log) -> ${htfCallOutcomesFile(opts.data)}`);
+  const calledFlags = scoreCalledFlagsDataDir(opts.data, nowMs);
+  console.log(`[tracker:score] ${calledFlags.length} called flag(s) (LOCK_OPPORTUNITY) -> ${calledFlagsSummaryFile(opts.data)}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

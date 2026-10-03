@@ -223,5 +223,15 @@ await test('delta since lock + compact payload shape + unlock + normalize', () =
   assert(!fillLock(u.lock, T0).ok, 'cannot fill an unlocked lock');
 });
 
+await test('thesis: saved at lock time from the full checklist, survives the fill, mirrored for shorts', async () => {
+  const { thesisText } = await import('./lib/tradeLock.js');
+  const { lock } = createLock({ symbol: 'ETH', snap: longSnap, timeframes: longTfs(base, T0), nowMs: T0 + 5 * MIN, ref: 'bbbbbbbb' });
+  assert(/^5m bull flag above EMA21 & 200/.test(lock.thesisText) && lock.thesisText.endsWith('· 15m agrees'), lock.thesisText);
+  assert(fillLock(lock, T0 + 6 * MIN, 100).lock.thesisText === lock.thesisText, 'kept through the fill');
+  const short = thesisText(confluenceChecklist(allAligned(-1), 'short', '1h'), 'short', '1h');
+  assert(short.startsWith('1h bear flag below EMA21 & 200') && short.endsWith('· 4h agrees'), short);
+  assert(thesisText(confluenceChecklist(allAligned(1), 'long', '1d'), 'long', '1d').indexOf('·') === -1, '1d has no timeframe above');
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
