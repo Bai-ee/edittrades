@@ -147,9 +147,12 @@ const snapRows = (t) => {
   const it = rowIdx('TP');
   assert(it === -1 || (it > ie && it < ii && (iv === -1 || it === iv + 1)), `TP sits under Valid (or Entry), above Inval: ${t}`);
   const ci = lines.findIndex((l) => l.startsWith('Checklist '));
-  // Checklist, then the optional fee line (owner 2026-10-03), then the foot last.
+  // Checklist, then the optional fee line (owner 2026-10-03), then on trade alerts (LOCK NOW / BREAKING)
+  // the 📊 volume and 📈 momentum lines, then the foot last.
   const fi = lines.findIndex((l) => l.startsWith('Fees '));
-  assert(ci > 0 && (fi === -1 ? ci === lines.length - 2 : (fi === ci + 1 && fi === lines.length - 2)), `checklist then fees then foot last: ${t}`);
+  const evCount = lines.slice(ci + 1, -1).filter((l) => l.startsWith('📊 ') || l.startsWith('📈 ')).length;
+  const tail = (fi === -1 ? 0 : 1) + evCount;
+  assert(ci > 0 && (fi === -1 || fi === ci + 1) && ci === lines.length - 2 - tail, `checklist, fees, evidence, foot last: ${t}`);
   return { lines, status: lines[0], check: lines[ci], foot: lines[lines.length - 1] };
 };
 
@@ -160,6 +163,7 @@ await test('FOUND card: trigger level, checklist score, <= 600 chars', () => {
   assert(status.startsWith('🟡') && status.includes('BTC 1h') && status.includes('· FORMING'), status);
   assert(lines.some((l) => l.includes('Entry') && l.includes('86,400.00')) && !lines.some((l) => l.includes('Valid to') && false), 'entry value');
   assert(check.startsWith(`Checklist ${e.score}/${e.of} · ✅ `) && foot === '⏳ Needs a 1h close above 86,400.00', `${check} | ${foot}`);
+  assert(!lines.some((l) => l.startsWith('📊 ')), 'FORMING card has no volume line (trade alerts only)');
   assert(t.length <= 600, `len ${t.length}`);
   assert(formatFoundCard(scoreFlag('BTC', cand(-1), timeframes(-1, 86400), 86400), T0).includes('close below'), 'short below');
 });
@@ -203,6 +207,7 @@ for (const dir of [1, -1]) {
       assert(lines.some((l) => l.includes(`${fmtLvl(e.levels.cap)}  Valid</code>`)), 'valid to row');
       assert(!t.includes(fmtLvl(e.levels.tp2)) && !t.includes('R:R'), 'no TP2 / R:R');
       assert(foot === '⏱ Enter now · ~6 h window', foot);
+      assert(lines.some((l) => l.startsWith('📊 Volume ')) && lines.some((l) => l.startsWith('📈 RSI')), `volume + momentum lines: ${t}`);
       assert(!t.includes('%'), 'no percentages');
       assert(t.length <= 700, `len ${t.length}`);
     }

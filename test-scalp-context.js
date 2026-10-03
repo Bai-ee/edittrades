@@ -1822,7 +1822,7 @@ async function main() {
 
     await test('flagBoard entries: allowed states, compact keys, rounded numbers, source = modelCandidateSetups', async () => {
       assert(flagBoardResult, 'flagBoard build not available');
-      const KEYS = ['id', 'tf', 'dir', 'st', 'brk', 'inv', 'tgt', 'rr', 'conf', 'at', 'chase'];
+      const KEYS = ['id', 'tf', 'dir', 'st', 'brk', 'inv', 'tgt', 'rr', 'conf', 'at', 'chase', 'ev'];
       const states = ['proto', 'forming', 'triggering', 'confirmed'];
       const isR2 = (v) => v === null || (typeof v === 'number' && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6);
       const seen = [];
@@ -2319,7 +2319,7 @@ async function main() {
         const withState = await run(bearer, async () => { storeReads++; return { locks: [], flow: { found: { x: nowIso, y: nowIso }, ready: { x: nowIso } } }; });
         assert(Array.isArray(withState.body.board) && withState.body.board.length === 3, `board ${JSON.stringify(withState.body.board)}`);
         const keys = Object.keys(withState.body.board[0]).sort().join(',');
-        assertEqual(keys, 'dir,gate,lv,ref,score,st,stage,sym,tf,tfs', 'compact entry keys');
+        assertEqual(keys, 'dir,ev,gate,lv,ref,score,st,stage,sym,tf,tfs', 'compact entry keys');
         assertEqual(Object.keys(withState.body.board[0].lv).sort().join(','), 'cap,ent,inv,rr,stop,tp1,tp2,tp2src', 'lv keys');
         assert(/^\d+\/\d+$/.test(withState.body.board[0].score), 'score is "n/m"');
         assert(!('flagBoard' in withState.body), 'flagBoard removed from the response');

@@ -350,19 +350,27 @@ export async function pullTelegramStatus(dataDir, base, fetchImpl = fetch, nowMs
 
 /** The only fields a stored sent-alert line keeps (lib/telegramLog.js alertLogLine), in order. */
 export const TELEGRAM_ALERT_FIELDS = Object.freeze(['id', 'sentAt', 'kind', 'event', 'symbol', 'timeframe', 'direction', 'candidateId', 'signature', 'verdict', 'etaMin',
-  'breakout', 'invalidation', 'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'silent', 'level', 'tracked', 'delivered', 'text']);
+  'breakout', 'invalidation', 'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'silent', 'level', 'tracked', 'delivered', 'text', 'flow']);
 /** The only fields a stored transition line keeps (lib/telegram.js diffCandidates), in order. */
 export const TRANSITION_FIELDS = Object.freeze(['at', 'closedThrough', 'symbol', 'timeframe', 'direction', 'candidateId', 'from', 'to', 'planStatus', 'planFrom',
   'reasonCode', 'class', 'breakout', 'invalidation', 'measuredRR']);
 
 const scalarOrNull = (v) => (v === null || v === undefined ? null : typeof v === 'string' || typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v)) ? v : null);
 
+/** Flag-flow detail (lib/telegramLog.js `flow`): a flat object of scalars, else null. */
+const flowOrNull = (v) => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const out = {};
+  for (const [k, x] of Object.entries(v)) if (scalarOrNull(x) !== null) out[k] = x;
+  return Object.keys(out).length ? out : null;
+};
+
 function whitelistRows(rows, fields, required, what) {
   const out = [];
   for (const r of rows || []) {
     if (!r || typeof r !== 'object' || Array.isArray(r) || required.some((k) => r[k] === undefined || r[k] === null)) continue;
     const row = {};
-    for (const k of fields) row[k] = scalarOrNull(r[k]);
+    for (const k of fields) row[k] = k === 'flow' ? flowOrNull(r[k]) : scalarOrNull(r[k]);
     if (typeof row.text === 'string') row.text = row.text.slice(0, 200);
     const clean = stripSensitive(row);
     if (findSensitiveKeys(clean).length) throw new Error(`refusing to write: sensitive keys survived strip in a ${what} line`);

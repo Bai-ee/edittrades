@@ -7,6 +7,7 @@
  * corresponding slice of the payload is emitted with nulls/empties instead.
  */
 
+import { flowEvidence } from '../lib/flowEvidence.js';
 import * as marketData from './marketData.js';
 import * as indicatorService from './indicators.js';
 import strategyService from './strategy.js';
@@ -1009,10 +1010,26 @@ const FLAG_BOARD_STATES = new Set(['proto', 'forming', 'triggering', 'confirmed'
 
 /**
  * Compact flagBoard rows from a symbol's final modelCandidateSetups: live flags only.
+ * `ev` = volume / RSI / Stoch RSI / divergence read on the flag's timeframe from the full closed
+ * history (the published candles are trimmed to 20, too short for a 20-bar volume average).
  * @param {Array<Object>} candidates
+ * @param {Object} [closedByTf] - closed candles per timeframe (fetch shape)
  * @returns {Array<Object>}
  */
-function buildFlagBoardEntries(candidates) {
+const FLAG_EVIDENCE_CANDLES = 120;
+
+/** flowEvidence on the last FLAG_EVIDENCE_CANDLES closed candles; null when missing or on error. */
+function flagEvidence(closed, direction) {
+  if (!Array.isArray(closed) || !closed.length) return null;
+  try {
+    const candles = closed.slice(-FLAG_EVIDENCE_CANDLES).map((k) => ({ openMs: k.timestamp, o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume }));
+    return flowEvidence(candles, direction);
+  } catch {
+    return null;
+  }
+}
+
+function buildFlagBoardEntries(candidates, closedByTf = {}) {
   const num = (v) => (isFiniteNumber(v) ? round2(v) : null);
   return (Array.isArray(candidates) ? candidates : [])
     .filter((c) => c && c.type === 'flag' && FLAG_BOARD_STATES.has(c.state) && c.candidateId != null)
@@ -1027,7 +1044,8 @@ function buildFlagBoardEntries(candidates) {
       rr: num(c.measuredRR),
       conf: num(c.confidence),
       at: c.firstDetectedAt ?? null,
-      chase: c.chaseRisk === true
+      chase: c.chaseRisk === true,
+      ev: flagEvidence(closedByTf && closedByTf[c.timeframe], c.direction)
     }));
 }
 
@@ -1887,7 +1905,7 @@ export async function buildScalpContext(options = {}) {
 
     if (includeFlagBoard === true) {
       try {
-        flagBoard[symbol] = buildFlagBoardEntries(modelCandidateSetups);
+        flagBoard[symbol] = buildFlagBoardEntries(modelCandidateSetups, closedByTf);
       } catch (err) {
         console.warn(`[ScalpContext] ${symbol}: flagBoard failed - ${err.message}`);
         flagBoard[symbol] = [];

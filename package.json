@@ -59,6 +59,7 @@
     "test:lock": "node test-trade-lock.js",
     "test:flow": "node test-flag-flow.js",
     "test:mytrades": "node test-my-trades.js",
+    "test:flowevidence": "node test-flow-evidence.js",
     "test:execution": "node test-execution.js",
     "test:retest1h": "node test-retest1h-live.js",
     "test:htfrule": "node test-htf-entry-rule.js",

@@ -889,6 +889,22 @@
           "schemaSince": null
         },
         {
+          "path": "lib/flowEvidence.js",
+          "name": "flowEvidence",
+          "role": "Trade-alert evidence on the flag's own timeframe: volume quality (breakout candle vs 20-bar average, quiet flag) with a GO / STAY OUT verdict, RSI 14, Stoch RSI state, regular bull/bear divergence, and an overall GO / CAUTION / STAY OUT read; shown on LOCK NOW / BREAKING cards, never a gate; pure.",
+          "publishes": [
+            "flag evidence"
+          ],
+          "consumes": [
+            "closed candles"
+          ],
+          "tests": [
+            "test:flowevidence"
+          ],
+          "since": "2026-10-03",
+          "schemaSince": null
+        },
+        {
           "path": "lib/tradeLock.js",
           "name": "tradeLock",
           "role": "Owner trade lock: freezes a setup's trigger, void, entry, stop, TP1 and no-chase cap (1.5 ATR) at lock time, then judges only those levels on closed trigger-TF candles (armed, confirmed, filled, missed, invalidated, expired, stopped, tp1), raises an EMA200 thesis warning, scores a 1m-1D confluence checklist and gives TAKE / WAIT / PASS; pure, import-free.",

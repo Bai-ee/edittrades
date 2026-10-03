@@ -53,7 +53,7 @@ Actionable needs GO IN>=65%,direction,entry,confirmation,elimination,stop,target
 Keep separate:bias,setup quality,readiness,confidence(strength,not odds);GO IN+HOLD+DON'T=100%,decision allocation;History=context,never a predictor/limit override.
 
 COMMANDS (case-insensitive)
-signals:pulse line,then each board[] entry as SNAPSHOT,─── between;none:"No flags passing the checklist right now." plan <asset>:full FORMAT for its top flag.
+signals:pulse line,then each board[] entry as SNAPSHOT,─── between;none:"No flags passing the checklist." plan <asset>:full FORMAT for its top flag.
 market:pulse 24h(found/opps/locked)+board top 3,1 line each+td per asset;no calls.
 trades=signals.
 log <text>:postJournal:kind took=open,closed=close,skipped=skip,else note;my numbers only;engineRef=matching latest plan/rec;reply [LOGGED id].
@@ -135,6 +135,8 @@ SNAPSHOT (same as Telegram;every flag/lock reply opens with it,your read only af
   $  Inval
   $  SL
 Checklist n/7 · ✅/⚠️/❌ tfs
+[ev.vol]
+[ev.mom]
 [LOCK NOW:⏱ Enter now · ~window;FORMING:⏳ Needs a [tf] close above/below $;WATCHING:Not ready;IN:Hold to TP or SL;DONE:result]
 🟢 lock now/take 🟡 forming/wait ⚪ watching 🔵 in ✅/🔴 done
 

@@ -47,6 +47,20 @@ export function flowOf(f) {
   };
 }
 
+/**
+ * Flow fields read back from a stored alert's text, for lines stored before the collector kept
+ * `flow` (snapshot: thesis "... · 3m agrees", "Checklist 5/7"). R:R from the alert's own levels.
+ */
+export function flowFromText(r) {
+  const text = r && typeof r.text === 'string' ? r.text : '';
+  const m = /Checklist (\d+)\/(\d+)/.exec(text);
+  if (!m) return null;
+  const next = /\b(agrees|mixed|disagrees)\b/.exec(text);
+  const risk = isFiniteNumber(r.entry) && isFiniteNumber(r.stop) ? Math.abs(r.entry - r.stop) : null;
+  const rr = risk && isFiniteNumber(r.tp1) ? Math.round((Math.abs(r.tp1 - r.entry) / risk) * 100) / 100 : null;
+  return flowOf({ score: Number(m[1]), of: Number(m[2]), rr, nextTf: next ? next[1] : null });
+}
+
 /** One call per symbol+candidateId from LOCK_OPPORTUNITY alert lines (earliest sentAt wins). */
 export function calledFlagsFromAlerts(alertRows) {
   const byKey = new Map();
@@ -63,7 +77,7 @@ export function calledFlagsFromAlerts(alertRows) {
       callId: `flag|${key}`, calledAt: new Date(at).toISOString(), symbol: r.symbol, candidateId: r.candidateId || null,
       timeframe: r.timeframe, direction: r.direction, entry: r.entry,
       stop: isFiniteNumber(r.stop) ? r.stop : null, tp1: isFiniteNumber(r.tp1) ? r.tp1 : null,
-      flow: flowOf(r.flow)
+      flow: flowOf(r.flow) || flowFromText(r)
     });
   }
   return [...byKey.values()].sort((a, b) => Date.parse(a.calledAt) - Date.parse(b.calledAt));

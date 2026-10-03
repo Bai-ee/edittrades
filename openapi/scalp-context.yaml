@@ -2342,6 +2342,14 @@ components:
         score: { type: string, description: 'Checklist score, e.g. "6/7"' }
         gate: { type: boolean, description: Confluence gate passed }
         tfs: { type: string, description: 'One-line timeframe checklist, e.g. "1m✅ 3m✅ 5m⚠️"' }
+        ev:
+          type: object
+          nullable: true
+          description: Volume / momentum read on the flag timeframe (shown on LOCK NOW / BREAKING, never a gate)
+          properties:
+            verdict: { type: string, enum: [GO, CAUTION, STAY OUT, NO DATA] }
+            vol: { type: string, description: 'Print as-is, e.g. "Volume STRONG · 1.8x avg · quiet flag → GO"' }
+            mom: { type: string, description: 'Print as-is, e.g. "RSI 58 · Stoch 34/22 rising · no divergence"' }
     TradeLock:
       type: object
       properties:
