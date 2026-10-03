@@ -19,6 +19,7 @@ import { handleMcpRequest, isMcpRequest } from '../lib/mcpHttp.js';
 import { parseChartArg, renderContextChart, ChartRequestError } from '../lib/chartRender.js';
 import { recordServedCalls } from '../lib/servedCalls.js';
 import { readStoredState, asStoredState, lockFeed, pulseFeed, boardFeed } from '../lib/lockFeed.js';
+import { flowRules } from '../lib/flagFlow.js';
 import { get as blobGet } from '@vercel/blob';
 import crypto from 'crypto';
 
@@ -173,7 +174,7 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
     let withRest = narrowed;
     if (narrowed && typeof narrowed === 'object' && !Array.isArray(narrowed) && !chartRequest) {
       const { flagBoard: _flagBoard, ...rest } = narrowed;
-      withRest = { ...rest, board: boardFeed(payload), ...(locks ? { locks } : {}), ...(pulse ? { pulse } : {}) };
+      withRest = { ...rest, board: boardFeed(payload), flowRules: flowRules(), ...(locks ? { locks } : {}), ...(pulse ? { pulse } : {}) };
     }
     const capped = capOptInSections(withRest);
     const filtered = capped.payload;

@@ -3042,7 +3042,7 @@ async function run() {
   console.log('\nsent-alert + transition logs');
 
   const ALERT_LINE_KEYS = ['id', 'sentAt', 'kind', 'event', 'symbol', 'timeframe', 'direction', 'candidateId', 'signature', 'verdict', 'etaMin', 'breakout', 'invalidation',
-    'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'closedThrough', 'configVersion', 'silent', 'level', 'tracked', 'delivered', 'suppressed', 'text'];
+    'entry', 'stop', 'tp1', 'grossRR', 'netRR', 'roomR', 'flow', 'closedThrough', 'configVersion', 'silent', 'level', 'tracked', 'delivered', 'suppressed', 'text'];
 
   await test('alert log line: field list, verdict + eta, levels from the plan, no sensitive keys, sizing rows cut from the text', () => {
     const p = payload();
@@ -3416,6 +3416,10 @@ async function run() {
     const r2 = await cron({ blob, nowMs: T0 + MIN, build: async () => flowPayload({ st: 'triggering' }) });
     assertEqual(flowKinds(r2).join(), 'OPP,OPP', 'LOCK_OPPORTUNITY to both chats');
     const opp = flowSends(r2)[0];
+    // The alert log keeps the card's own structural levels and the checklist detail (not the engine plan's floored stop / capped TP).
+    const logDay = [...blob.files.keys()].find((f) => f.startsWith('telegram/alerts/2') && f.endsWith('.jsonl'));
+    const logged = logDay ? blob.files.get(logDay).text.trim().split('\n').map((l) => JSON.parse(l)).find((l) => l.kind === 'LOCK_OPPORTUNITY') : null;
+    assert(logged && logged.entry === 84600 && logged.stop === 84390 && logged.tp1 === 85146 && logged.flow && logged.flow.score === 7 && logged.flow.stage === 'lockable' && typeof logged.flow.tfs === 'string', JSON.stringify(logged));
     assert(r2.tg.calls.some((x) => x.method === 'sendPhoto' && String(x.caption).includes('· LOCK NOW') && allCallbackData(x.replyMarkup).includes(`lock:${flowRef}`)), 'LOCK NOW goes out as one chart photo with the snapshot caption and the Lock button');
     assert(opp.text.includes('84,660.00  Valid') && opp.text.endsWith('⏱ Enter now · ~6 h window'), `timing line: ${opp.text}`);
     assert(opp.text.includes('· LOCK NOW') && opp.text.includes('84,600') && !opp.text.includes('TP2') && opp.text.includes('84,600.00  Entry') && opp.text.includes('85,146.00  TP') && opp.text.includes('84,390.00  SL') && opp.text.includes('Checklist 7/7') && !/[🔸🔻🔹]/u.test(opp.text) && opp.text.length <= 700 && allCallbackData(opp.replyMarkup).includes(`lock:${flowRef}`), opp.text);

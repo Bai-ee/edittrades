@@ -2258,6 +2258,15 @@ components:
           type: string
         account:
           $ref: "#/components/schemas/Account"
+        flowRules:
+          type: object
+          description: The live flag-flow alert rules (REST only) - minimum checklist score, timeframes, no-chase cap in ATR, opportunity window in candles, and how called flags are scored.
+          properties:
+            minScore: { type: string }
+            timeframes: { type: array, items: { type: string } }
+            capAtr: { type: number }
+            windowCandles: { type: number }
+            scoring: { type: string }
         locks:
           type: array
           description: >-
