@@ -32,6 +32,8 @@
     "test:mark": "node test-pyth-mark.js",
     "test:tracker": "node test-tracker.js",
     "test:calledflags": "node test-called-flags.js",
+    "test:replayflow": "node test-replay-flag-flow.js",
+    "test:replaypayoff": "node test-replay-payoff.js",
     "test:predlive": "node test-prediction-live.js",
     "replay": "node scripts/replay.js",
     "replay:metrics": "node scripts/replay-metrics.js",
