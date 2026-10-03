@@ -6,7 +6,9 @@
  * (one per symbol+candidateId). Owner's success rule (fixed):
  *   RIGHT = price moves 1x ATR(14) of the flag's own timeframe in the called direction BEFORE
  *           it moves 1x ATR against, within 12 candles of that timeframe, measured from the
- *           entry level at the alert time.
+ *           price when the alert was sent (open of the first 1m candle at/after the alert; else
+ *           the last 1m close before it). `entryOffsetAtr` records how far past the entry level
+ *           that price already was, in the trade direction.
  *   WRONG = -1 ATR first (a single 1m candle touching both bands counts WRONG).
  *   FLAT  = neither within 12 candles (shown, excluded from the rate).
  *   OPEN  = window not finished yet.   no_data = window ended with no candles / no ATR.
@@ -27,7 +29,7 @@ export const CALLED_FLAG_KIND = 'LOCK_OPPORTUNITY';
 export const ATR_PERIOD = 14;
 export const WINDOW_CANDLES = 12;
 export const FINAL_CALLED_OUTCOMES = new Set(['right', 'wrong', 'flat', 'no_data']);
-export const RULE_TEXT = 'A flag is right if price moves 1 ATR (14) of its own timeframe in the called direction before moving 1 ATR against it, within 12 candles of that timeframe; flat if neither happens (excluded from the rate).';
+export const RULE_TEXT = 'A flag is right if price moves 1 ATR (14) of its own timeframe in the called direction before moving 1 ATR against it, within 12 candles of that timeframe, measured from the price when the alert was sent; flat if neither happens (excluded from the rate).';
 const TF_MS = { '1m': 60_000, '3m': 180_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000, '1h': 3_600_000, '2h': 7_200_000, '4h': 14_400_000 };
 const DAY = 86_400_000;
 
@@ -101,7 +103,7 @@ export function atrOf(bars, period = ATR_PERIOD) {
 
 /** Score one call. candles1m ascending, {timestamp, open, high, low, close}. */
 export function scoreCalledFlag(call, candles1m, nowMs = Date.now()) {
-  const empty = (outcome, extra = {}) => ({ outcome, atr: null, resolvedAt: null, maxFavorableAtr: null, maxAdverseAtr: null, ...extra });
+  const empty = (outcome, extra = {}) => ({ outcome, atr: null, anchor: null, entryOffsetAtr: null, resolvedAt: null, maxFavorableAtr: null, maxAdverseAtr: null, ...extra });
   const tfMs = TF_MS[call.timeframe];
   const calledMs = Date.parse(call.calledAt);
   if (!tfMs || !Number.isFinite(calledMs) || !isFiniteNumber(call.entry) || (call.direction !== 'long' && call.direction !== 'short')) return empty('no_data');
@@ -110,8 +112,16 @@ export function scoreCalledFlag(call, candles1m, nowMs = Date.now()) {
   const atr = atrOf(bucketCandles(candles1m, tfMs, calledMs));
   if (atr === null) return empty(ended ? 'no_data' : 'open');
   const sign = call.direction === 'long' ? 1 : -1;
-  const up = call.entry + sign * atr;
-  const down = call.entry - sign * atr;
+  // Anchor = the alert price: open of the first 1m candle at/after the alert, else the last 1m close before it.
+  let anchor = null;
+  for (const c of candles1m || []) { if (c.timestamp >= calledMs) { anchor = c.open; break; } }
+  if (!isFiniteNumber(anchor)) {
+    for (let k = (candles1m || []).length - 1; k >= 0; k--) { if (candles1m[k].timestamp < calledMs) { anchor = candles1m[k].close; break; } }
+  }
+  if (!isFiniteNumber(anchor)) return empty(ended ? 'no_data' : 'open', { atr: round(atr, 6) });
+  const entryOffsetAtr = round(((anchor - call.entry) * sign) / atr, 3);
+  const up = anchor + sign * atr;
+  const down = anchor - sign * atr;
   let fav = 0;
   let adv = 0;
   let seen = 0;
@@ -119,17 +129,17 @@ export function scoreCalledFlag(call, candles1m, nowMs = Date.now()) {
     if (c.timestamp < calledMs) continue;
     if (c.timestamp >= windowEnd || c.timestamp >= nowMs) break;
     seen++;
-    const best = sign === 1 ? c.high - call.entry : call.entry - c.low;
-    const worst = sign === 1 ? call.entry - c.low : c.high - call.entry;
+    const best = sign === 1 ? c.high - anchor : anchor - c.low;
+    const worst = sign === 1 ? anchor - c.low : c.high - anchor;
     fav = Math.max(fav, best / atr);
     adv = Math.max(adv, worst / atr);
     const hitAgainst = sign === 1 ? c.low <= down : c.high >= down;
     const hitFor = sign === 1 ? c.high >= up : c.low <= up;
     if (hitAgainst || hitFor) {
-      return { outcome: hitAgainst ? 'wrong' : 'right', atr: round(atr, 6), resolvedAt: new Date(c.timestamp + 60_000).toISOString(), maxFavorableAtr: round(fav, 3), maxAdverseAtr: round(adv, 3) };
+      return { outcome: hitAgainst ? 'wrong' : 'right', atr: round(atr, 6), anchor: round(anchor, 6), entryOffsetAtr, resolvedAt: new Date(c.timestamp + 60_000).toISOString(), maxFavorableAtr: round(fav, 3), maxAdverseAtr: round(adv, 3) };
     }
   }
-  const base = { atr: round(atr, 6), resolvedAt: null, maxFavorableAtr: round(fav, 3), maxAdverseAtr: round(adv, 3) };
+  const base = { atr: round(atr, 6), anchor: round(anchor, 6), entryOffsetAtr, resolvedAt: null, maxFavorableAtr: round(fav, 3), maxAdverseAtr: round(adv, 3) };
   if (!ended) return { outcome: 'open', ...base };
   return { outcome: seen ? 'flat' : 'no_data', ...base, resolvedAt: seen ? new Date(windowEnd).toISOString() : null };
 }
@@ -143,8 +153,9 @@ export function scoreCalledFlags(calls, candlesBySymbol, previous = [], nowMs = 
     if (!call || !call.symbol) continue;
     const callId = call.callId || calledFlagId(call);
     const prev = prevById.get(callId);
-    const result = prev && FINAL_CALLED_OUTCOMES.has(prev.outcome)
-      ? { outcome: prev.outcome, atr: prev.atr, resolvedAt: prev.resolvedAt, maxFavorableAtr: prev.maxFavorableAtr, maxAdverseAtr: prev.maxAdverseAtr }
+    // A final kept from before the alert-price rule (no `anchor`) is re-scored once under it.
+    const result = prev && FINAL_CALLED_OUTCOMES.has(prev.outcome) && prev.anchor != null
+      ? { outcome: prev.outcome, atr: prev.atr, anchor: prev.anchor ?? null, entryOffsetAtr: prev.entryOffsetAtr ?? null, resolvedAt: prev.resolvedAt, maxFavorableAtr: prev.maxFavorableAtr, maxAdverseAtr: prev.maxAdverseAtr }
       : scoreCalledFlag(call, (candlesBySymbol || {})[call.symbol] || [], nowMs);
     const row = { callId, calledAt: call.calledAt, symbol: call.symbol, candidateId: call.candidateId ?? null, timeframe: call.timeframe, direction: call.direction, entry: call.entry, stop: call.stop ?? null, tp1: call.tp1 ?? null, flow: flowOf(call.flow), ...result };
     row.scoredAt = prev && prev.scoredAt && JSON.stringify({ ...prev, scoredAt: 0 }) === JSON.stringify({ ...row, scoredAt: 0 }) ? prev.scoredAt : nowIso;
@@ -219,9 +230,9 @@ function ruleText(rule) {
     (rule.minRR !== null ? ` with R:R \u2265 ${rule.minRR}` : '') + (rule.nextTf ? `${rule.minRR !== null ? ' and' : ' with'} the next timeframe agreeing` : '');
 }
 
-/** Pure. rows = outcome rows; only flow calls inside the rolling 30 days are used. */
-export function calibrateCalledFlags(rows, nowMs = Date.now(), { target = 70, minN = 30 } = {}) {
-  const inWin = (rows || []).filter((r) => r && Number.isFinite(Date.parse(r.calledAt)) && Date.parse(r.calledAt) > nowMs - 30 * DAY);
+/** Pure. rows = outcome rows; only flow calls inside the rolling `windowDays` (default 30) are used. */
+export function calibrateCalledFlags(rows, nowMs = Date.now(), { target = 70, minN = 30, windowDays = 30 } = {}) {
+  const inWin = (rows || []).filter((r) => r && Number.isFinite(Date.parse(r.calledAt)) && Date.parse(r.calledAt) > nowMs - windowDays * DAY);
   const flowRows = inWin.filter((r) => r.flow);
   const legacyCount = inWin.length - flowRows.length;
   const decided = flowRows.filter((r) => r.outcome === 'right' || r.outcome === 'wrong');

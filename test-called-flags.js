@@ -103,6 +103,38 @@ await test('not enough history: open inside the window, no_data after; empty can
   assert(scoreCalledFlag(call('long'), history(), afterWindow).outcome === 'no_data', 'no_data walk');
 });
 
+await test('anchor = open of the first 1m candle at/after the alert; entryOffsetAtr is signed in the trade direction', () => {
+  const cs = [...history(), ...forward(60).map((c, i) => (i === 0 ? { ...c, open: 103, high: 103.5, low: 102.5, close: 103 } : c))];
+  const l = scoreCalledFlag(call('long'), cs, afterWindow);
+  assert(l.anchor === 103 && l.entryOffsetAtr === 0.3, JSON.stringify(l));
+  const s = scoreCalledFlag(call('short'), cs, afterWindow);
+  assert(s.anchor === 103 && s.entryOffsetAtr === -0.3, JSON.stringify(s));
+});
+
+await test('anchor falls back to the last 1m close before the alert when the first candle opens later', () => {
+  const hist = history().map((c, i, a) => (i === a.length - 1 ? { ...c, close: 101 } : c));
+  const r = scoreCalledFlag(call('long'), [...hist, ...forward(60).slice(1)], afterWindow);
+  assert(r.anchor === 100 || r.anchor === 100.0, JSON.stringify(r)); // first candle at/after the alert (T0+1m) opens at 100
+  const gap = scoreCalledFlag(call('long'), hist, afterWindow);
+  assert(gap.outcome === 'no_data', 'no candle after the alert -> no_data');
+});
+
+await test('alerted 1 ATR past entry: judged from the alert price, not auto-right (long and short mirror)', () => {
+  const pastLong = forward(60).map((c) => ({ ...c, open: 110, high: 110, low: 110, close: 110 }));
+  pastLong[2] = { ...pastLong[2], high: 110, low: 100 }; // -1 ATR from the 110 anchor first
+  const l = scoreCalledFlag(call('long'), [...history(), ...pastLong], afterWindow);
+  assert(l.outcome === 'wrong' && l.entryOffsetAtr === 1 && l.anchor === 110, JSON.stringify(l));
+  const pastShort = forward(60).map((c) => ({ ...c, open: 90, high: 90, low: 90, close: 90 }));
+  pastShort[2] = { ...pastShort[2], high: 100, low: 90 };
+  const s = scoreCalledFlag(call('short'), [...history(), ...pastShort], afterWindow);
+  assert(s.outcome === 'wrong' && s.entryOffsetAtr === 1 && s.anchor === 90, JSON.stringify(s));
+  const rightLong = forward(60).map((c) => ({ ...c, open: 110, high: 110, low: 110, close: 110 }));
+  rightLong[3] = { ...rightLong[3], high: 120, low: 110 };
+  assert(scoreCalledFlag(call('long'), [...history(), ...rightLong], afterWindow).outcome === 'right', 'needs a real +1 ATR from 110');
+  const flat = scoreCalledFlag(call('long'), [...history(), ...forward(60).map((c) => ({ ...c, open: 110, high: 110, low: 110, close: 110 }))], afterWindow);
+  assert(flat.outcome === 'flat', `a call already at +1 ATR over entry with no further move is flat: ${flat.outcome}`);
+});
+
 await test('dedupe by symbol+candidateId; only LOCK_OPPORTUNITY with usable levels', () => {
   const row = (id, extra = {}) => ({ id, kind: 'LOCK_OPPORTUNITY', sentAt: iso(T0), symbol: 'BTC', timeframe: '5m', direction: 'long', candidateId: 'x1', entry: 100, stop: 95, tp1: 110, ...extra });
   const calls = calledFlagsFromAlerts([
@@ -240,6 +272,17 @@ await test('calibration uses only the rolling 30 days and counts legacy separate
   const legacy = mkRows(2, 0).map((r) => ({ ...r, flow: null }));
   const c = calibrateCalledFlags([...mkRows(3, 0), ...old, ...legacy], NOWC);
   assert(c.scored === 3 && c.legacyCount === 2, `${c.scored} ${c.legacyCount}`);
+});
+
+await test('a final scored before the alert-price rule (no anchor) is re-scored; one with an anchor is kept', async () => {
+  const { scoreCalledFlags } = await import('./scripts/tracker/called-flags.js');
+  const call = { callId: 'flag|BTC|x', calledAt: '2026-10-01T00:00:00.000Z', symbol: 'BTC', timeframe: '1m', direction: 'long', entry: 100 };
+  const old = { ...call, outcome: 'right', atr: 1, resolvedAt: '2026-10-01T00:05:00.000Z' };
+  const kept = { ...old, anchor: 100.5 };
+  const reScored = scoreCalledFlags([call], { BTC: [] }, [old], Date.parse('2026-10-01T00:30:00.000Z'))[0];
+  assert(reScored.outcome !== 'right', `legacy final re-scored: ${reScored.outcome}`);
+  const same = scoreCalledFlags([call], { BTC: [] }, [kept], Date.parse('2026-10-01T00:30:00.000Z'))[0];
+  assert(same.outcome === 'right' && same.anchor === 100.5, 'anchored final kept');
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
