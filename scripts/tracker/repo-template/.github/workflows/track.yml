@@ -2,8 +2,10 @@ name: track
 
 # Captures every 10 min (dispatched by the keeper workflow; this schedule is a best-effort
 # backup). The page redeploys only on the :07 / :37 runs: other commits carry
-# "[skip deploy]", which vercel.json's ignoreCommand skips, keeping Vercel Hobby under
-# its daily deployment cap.
+# "[skip deploy]". The Vercel project (edittrades-tracker) only redirects to the
+# live GitHub Pages site; git deployments are disabled there
+# (vercel.json git.deploymentEnabled=false), so these commits never trigger a
+# Vercel build regardless of this flag.
 
 on:
   schedule:
