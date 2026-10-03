@@ -21,9 +21,19 @@ const WINDOWS = [['24h', '24H', 'last 24 hours'], ['7d', '7D', 'last 7 days'], [
 const DEFAULT_WINDOW = '30d';
 export const TARGET_RATE = 70;
 
-// TODO(owner): the Telegram bot and Custom GPT public links are not defined anywhere in the tracker yet; set both.
+// Owner to supply: the Telegram bot and Custom GPT public links. Until set (https://…), the buttons are hidden.
 export const TELEGRAM_CTA_HREF = '#';
 export const GPT_CTA_HREF = '#';
+
+/** The hero buttons: each renders only once its real link is set (a dead button is worse than none). */
+function ctaRow() {
+  const live = (href) => typeof href === 'string' && /^https?:\/\//.test(href);
+  const btns = [
+    live(TELEGRAM_CTA_HREF) ? `<a class="hf-btn" id="home-hero-telegram-cta" href="${TELEGRAM_CTA_HREF}">Get alerts in Telegram</a>` : '',
+    live(GPT_CTA_HREF) ? `<a class="hf-btn ghost" id="home-hero-gpt-cta" href="${GPT_CTA_HREF}">Ask the GPT</a>` : ''
+  ].join('');
+  return btns ? `<div id="home-hero-ctas">${btns}</div>` : '';
+}
 
 const timeZ = (iso) => {
   const t = new Date(iso);
@@ -134,8 +144,8 @@ export function homeFlagHero(called) {
     + `<div id="home-hero-copy"><span class="label">BTC · ETH · SOL · 1m to 4h</span>`
     + `<h1 id="home-hero-title">We find the flag, call the direction, and count every call.</h1>`
     + `<p id="home-hero-lede">When a flag passes the checklist and breaks, we send it as a lock opportunity: long or short, with entry, stop and targets. This card is the scoreboard for those calls.</p>`
-    + `<div id="home-hero-ctas"><a class="hf-btn" id="home-hero-telegram-cta" href="${TELEGRAM_CTA_HREF}">Get alerts in Telegram</a>`
-    + `<a class="hf-btn ghost" id="home-hero-gpt-cta" href="${GPT_CTA_HREF}">Ask the GPT</a></div></div>`
+    + ctaRow()
+    + `</div>`
     + calledFlagsCard(called)
     + `</div>`;
 }
