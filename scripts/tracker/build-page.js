@@ -38,7 +38,7 @@
 import path from 'node:path';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, ensureDir, readJsonl, readJson, readWallet, latestCallPerSymbol, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile, calledFlagsFile, boardFile } from './store.js';
+import { parseArgs, ensureDir, readJsonl, readJson, readWallet, latestCallPerSymbol, outcomesFile, readJournal, journalOutcomesFile, telegramStatusFile, calledFlagsFile, boardFile, flagCalibrationFile } from './store.js';
 import { aggregateDataDir, computeAlertAggregates, READY_WITHIN_MIN } from './aggregate.js';
 import { pathsFile, pathsSummary } from './paths.js';
 import { calibrationFile } from './calibration.js';
@@ -53,7 +53,7 @@ import {
 import { PAGE_CSS } from './page-style.js';
 import { tile, zone, sub, jumpNav, jumpNavScript } from './bento.js';
 import { homeSecondaryBoards, homeHeroScript, HOME_HERO_CSS } from './home-hero.js';
-import { homeFlagHero, liveBoardSection, processSection, homeFlagsScript, HOME_FLAGS_CSS } from './home-flags.js';
+import { homeFlagHero, liveBoardSection, howItWorksSection, tuningSection, processSection, homeFlagsScript, HOME_FLAGS_CSS } from './home-flags.js';
 import { LIVE_BOARD_CSS } from './live-board.js';
 import { renderHowTo } from './how-to-page.js';
 import { renderRisk } from './risk-page.js';
@@ -975,6 +975,8 @@ export function renderHtml(agg, data = {}) {
     + `<span id="tile-last-capture">LAST CAPTURE ${esc(ageText(t.lastCapture, agg.generatedAt))}</span></header>`
     + homeFlagHero(data.calledFlags || null)
     + liveBoardSection(data.board || null)
+    + howItWorksSection(data.board || null)
+    + tuningSection(data.board || null, data.flagCalibration || null)
     + processSection(data.board || null)
     + homeSecondaryBoards(data.liveRows, agg.generatedAt, agg)
     + jumpNav('tracker-jump-nav', [
@@ -1339,7 +1341,7 @@ export function buildPage(dataDir, outDir, nowMs = Date.now()) {
   const profileCurves = computeProfileCurves({ journalRecords: journal, journalOutcomes, callOutcomes: outcomes });
   writeFileSync(htmlFile, renderHtml(agg, {
     liveRows: latestCallPerSymbol(dataDir),
-    calledFlags: readJson(calledFlagsFile(dataDir), null), board: readJson(boardFile(dataDir), null),
+    calledFlags: readJson(calledFlagsFile(dataDir), null), board: readJson(boardFile(dataDir), null), flagCalibration: readJson(flagCalibrationFile(dataDir), null),
     outcomes, wallet: readWallet(dataDir),
     journal, journalOutcomes,
     telegram,

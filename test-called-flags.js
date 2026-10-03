@@ -2,7 +2,7 @@
  * scripts/tracker/called-flags.js: called-flag scoring (1 ATR(14) of own timeframe, 12 candles).
  */
 import {
-  calledFlagsFromAlerts, scoreCalledFlag, scoreCalledFlags, summarizeCalledFlags, bucketCandles, atrOf
+  calledFlagsFromAlerts, scoreCalledFlag, scoreCalledFlags, summarizeCalledFlags, calibrateCalledFlags, bucketCandles, atrOf
 } from './scripts/tracker/called-flags.js';
 
 let passed = 0;
@@ -129,7 +129,8 @@ await test('idempotent: final outcomes are kept even if candles change; open is 
 
 await test('summary: windows, per-direction counts, rate excludes flat/open', () => {
   const NOW = T0 + 40 * 86_400_000;
-  const mk = (daysAgo, direction, outcome, i) => ({ calledAt: iso(NOW - daysAgo * 86_400_000 - i), symbol: 'BTC', timeframe: '5m', direction, outcome });
+  const FLOW = { score: 6, of: 7, rr: 1.5, nextTf: 'agrees' };
+  const mk = (daysAgo, direction, outcome, i) => ({ calledAt: iso(NOW - daysAgo * 86_400_000 - i), symbol: 'BTC', timeframe: '5m', direction, outcome, flow: FLOW });
   const rows = [
     mk(0.5, 'long', 'right', 1), mk(0.4, 'long', 'wrong', 2), mk(0.3, 'short', 'right', 3), mk(0.2, 'short', 'flat', 4), mk(0.1, 'long', 'open', 5),
     mk(3, 'short', 'wrong', 6), mk(20, 'long', 'right', 7), mk(35, 'long', 'wrong', 8)
@@ -144,7 +145,7 @@ await test('summary: windows, per-direction counts, rate excludes flat/open', ()
 });
 
 await test('recent keeps the newest 20, newest last', () => {
-  const rows = Array.from({ length: 25 }, (_, i) => ({ calledAt: iso(T0 + i * MIN), symbol: 'ETH', timeframe: '1h', direction: 'long', outcome: 'open' }));
+  const rows = Array.from({ length: 25 }, (_, i) => ({ calledAt: iso(T0 + i * MIN), symbol: 'ETH', timeframe: '1h', direction: 'long', outcome: 'open', flow: { score: 5, of: 7, rr: 1, nextTf: null } }));
   const s = summarizeCalledFlags(rows, T0 + 30 * MIN);
   assert(s.recent.length === 20 && s.recent[19].calledAt === rows[24].calledAt && s.recent[0].calledAt === rows[5].calledAt, 'recent');
   assert(Object.keys(s.recent[0]).join() === 'calledAt,symbol,timeframe,direction,outcome', 'recent keys');
@@ -158,6 +159,87 @@ await test('empty input -> zeros, null rate, null since', () => {
     assert(w.rate === null && w.total.called === 0 && w.long.right === 0 && w.short.open === 0, k);
   }
   assert(calledFlagsFromAlerts([]).length === 0 && calledFlagsFromAlerts(undefined).length === 0, 'calls empty');
+});
+
+const FLOW6 = { score: 6, of: 7, rr: 1.5, nextTf: 'agrees' };
+const NOWC = T0;
+/** n outcome rows (resolved right/wrong) sharing a flow/tf/symbol; callers spread overrides. */
+const mkRows = (right, wrong, extra = {}) => [
+  ...Array.from({ length: right }, (_, i) => ({ calledAt: iso(NOWC - (i + 1) * MIN), symbol: 'BTC', timeframe: '15m', direction: 'long', flow: FLOW6, outcome: 'right', ...extra })),
+  ...Array.from({ length: wrong }, (_, i) => ({ calledAt: iso(NOWC - (i + 100) * MIN), symbol: 'BTC', timeframe: '15m', direction: 'long', flow: FLOW6, outcome: 'wrong', ...extra }))
+];
+
+await test('flow fields carried onto outcome rows; legacy -> null', () => {
+  const alert = (id, flow) => ({ id, kind: 'LOCK_OPPORTUNITY', sentAt: iso(T0), symbol: 'BTC', timeframe: '5m', direction: 'long', candidateId: id, entry: 100, stop: 95, tp1: 110, ...(flow ? { flow } : {}) });
+  const calls = calledFlagsFromAlerts([alert('f', { score: 6, of: 7, rr: 1.8, nextTf: 'mixed', stage: 'x', tfs: [] }), alert('l')]);
+  const rows = scoreCalledFlags(calls, { BTC: [...history(), ...forward(60)] }, [], afterWindow);
+  const f = rows.find((r) => r.candidateId === 'f');
+  assert(JSON.stringify(f.flow) === JSON.stringify({ score: 6, of: 7, rr: 1.8, nextTf: 'mixed' }), JSON.stringify(f.flow));
+  assert(rows.find((r) => r.candidateId === 'l').flow === null, 'legacy null');
+});
+
+await test('headline excludes legacy; legacy counted separately', () => {
+  const legacy = [{ calledAt: iso(T0 - MIN), symbol: 'BTC', timeframe: '5m', direction: 'long', outcome: 'wrong', flow: null }, { calledAt: iso(T0 - 2 * MIN), symbol: 'BTC', timeframe: '5m', direction: 'long', outcome: 'right', flow: null }, { calledAt: iso(T0 - 3 * MIN), symbol: 'BTC', timeframe: '5m', direction: 'long', outcome: 'right' }, { calledAt: iso(T0 - 4 * MIN), symbol: 'BTC', timeframe: '5m', direction: 'long', outcome: 'open' }];
+  const s = summarizeCalledFlags([...mkRows(1, 0), ...legacy], T0);
+  assert(s.windows['24h'].total.called === 1 && s.windows['24h'].rate === 100 && s.recent.length === 1, JSON.stringify(s.windows['24h']));
+  assert(JSON.stringify(s.legacy) === JSON.stringify({ called: 4, right: 2, wrong: 1, flat: 0, open: 1, rate: 67 }), JSON.stringify(s.legacy));
+  assert(summarizeCalledFlags([], T0).legacy.rate === null, 'empty legacy');
+});
+
+await test('buckets: counts, rate, thin below minN, meets/below at minN', () => {
+  const rows = [...mkRows(21, 9), ...mkRows(3, 1, { symbol: 'SOL', timeframe: '1h', direction: 'short', flow: { score: 7, of: 7, rr: 0.5, nextTf: 'disagrees' } }), { ...mkRows(1, 0)[0], outcome: 'flat' }];
+  const c = calibrateCalledFlags(rows, NOWC);
+  const get = (g, k) => c.buckets[g].find((b) => b.key === k);
+  assert(c.scored === 34 && c.legacyCount === 0, `scored ${c.scored}`);
+  const s6 = get('score', '6/7');
+  assert(s6.n === 30 && s6.right === 21 && s6.wrong === 9 && s6.flat === 1 && s6.rate === 70 && s6.status === 'meets', JSON.stringify(s6));
+  const s7 = get('score', '7/7');
+  assert(s7.n === 4 && s7.rate === 75 && s7.status === 'thin', JSON.stringify(s7));
+  assert(get('score', '5/7').rate === null && get('score', '5/7').status === 'thin', '5/7 empty');
+  assert(get('symbol', 'SOL').n === 4 && get('direction', 'short').n === 4 && get('timeframe', '1h').n === 4 && get('nextTf', 'disagrees').n === 4, 'groups');
+  assert(c.buckets.timeframe.length === 8 && c.buckets.rr.length === 3 && c.buckets.nextTf.length === 3, 'fixed keys');
+  const below = calibrateCalledFlags(mkRows(10, 20), NOWC).buckets.score.find((b) => b.key === '6/7');
+  assert(below.status === 'below' && below.rate === 33, JSON.stringify(below));
+});
+
+await test('rr bucket edges: 1 -> 1-2R, 2 -> 2R+, just under -> lower', () => {
+  const rr = (v) => mkRows(1, 0, { flow: { ...FLOW6, rr: v } });
+  const c = calibrateCalledFlags([...rr(0.99), ...rr(1), ...rr(1.99), ...rr(2), ...rr(null)], NOWC);
+  const n = (k) => c.buckets.rr.find((b) => b.key === k).n;
+  assert(n('<1R') === 1 && n('1-2R') === 2 && n('2R+') === 1, JSON.stringify(c.buckets.rr.map((b) => [b.key, b.n])));
+});
+
+await test('optimizer picks the max-n rule meeting target', () => {
+  // 40 calls at 6/7 (30R/10W = 75%), plus 10 calls at 5/7 (all wrong) -> minScore 6 meets, minScore 5 does not
+  const rows = [...mkRows(30, 10), ...mkRows(0, 10, { flow: { ...FLOW6, score: 5 }, symbol: 'ETH' }).map((r, i) => ({ ...r, calledAt: iso(NOWC - (i + 500) * MIN) }))];
+  const c = calibrateCalledFlags(rows, NOWC);
+  const r = c.recommended;
+  assert(r.status === 'meets' && r.rule.minScore === '6/7' && r.rule.minRR === null && r.rule.nextTf === null && r.rule.timeframes.length === 8, JSON.stringify(r));
+  assert(r.projected.n === 40 && r.projected.rate === 75, JSON.stringify(r.projected));
+  assert(r.reason === '6/7+ on 1m\u20134h hit 75% over 40 calls.', r.reason);
+  assert(c.candidates.length === 5 && c.candidates[0].reason === r.reason && !('status' in c.candidates[0]), 'candidates');
+});
+
+await test('optimizer falls back to best rate when none meet target', () => {
+  const c = calibrateCalledFlags(mkRows(12, 28), NOWC);
+  assert(c.recommended.status === 'below' && c.recommended.projected.n === 40 && c.recommended.projected.rate === 30, JSON.stringify(c.recommended));
+  assert(/below the 70% target/.test(c.recommended.reason), c.recommended.reason);
+});
+
+await test('needs_data when every rule is thin; empty input safe', () => {
+  const c = calibrateCalledFlags(mkRows(7, 2), NOWC);
+  assert(c.recommended.status === 'needs_data' && c.recommended.reason === 'Not enough data yet: best rule has 9 calls; needs 30.', JSON.stringify(c.recommended));
+  const e = calibrateCalledFlags([], NOWC);
+  assert(e.scored === 0 && e.recommended.status === 'needs_data' && e.recommended.projected.rate === null && e.candidates.length === 5, JSON.stringify(e.recommended));
+  assert(e.buckets.symbol.length === 0 && e.buckets.score.every((b) => b.n === 0 && b.status === 'thin'), 'empty buckets');
+  assert(calibrateCalledFlags(undefined, NOWC).scored === 0, 'undefined');
+});
+
+await test('calibration uses only the rolling 30 days and counts legacy separately', () => {
+  const old = mkRows(5, 0).map((r) => ({ ...r, calledAt: iso(NOWC - 31 * 86_400_000) }));
+  const legacy = mkRows(2, 0).map((r) => ({ ...r, flow: null }));
+  const c = calibrateCalledFlags([...mkRows(3, 0), ...old, ...legacy], NOWC);
+  assert(c.scored === 3 && c.legacyCount === 2, `${c.scored} ${c.legacyCount}`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -444,3 +444,8 @@ export function boardFile(dataDir) {
 export function calledFlagsFile(dataDir) {
   return path.join(dataDir, 'called-flags.json');
 }
+
+/** data/flag-calibration.json: bucket hit rates + recommended rule toward the 70% target (written by the scorer). */
+export function flagCalibrationFile(dataDir) {
+  return path.join(dataDir, 'flag-calibration.json');
+}

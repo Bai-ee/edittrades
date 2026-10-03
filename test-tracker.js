@@ -57,7 +57,7 @@ import { esc } from './scripts/tracker/bento.js';
 import { liveBoard, parseBias } from './scripts/tracker/live-board.js';
 import { parseBiasString, buildHeadline, buildLede, rightNowCards, homeHero, HOME_HERO_CSS } from './scripts/tracker/home-hero.js';
 import { latestCallPerSymbol } from './scripts/tracker/store.js';
-import { calledFlagsCard, liveBoardSection, processSection, homeFlagsScript, HOME_FLAGS_CSS } from './scripts/tracker/home-flags.js';
+import { calledFlagsCard, liveBoardSection, howItWorksSection, tuningSection, processSection, homeFlagsScript, HOME_FLAGS_CSS } from './scripts/tracker/home-flags.js';
 import { computeProfileCurves, computeProfileCurvesDataDir, BOT_WALLET_START_EQUITY_USD } from './scripts/tracker/profiles.js';
 import { renderStrategies } from './scripts/tracker/strategies-page.js';
 import { PROFILES as VENDORED_PROFILES, PROFILE_KEYS as VENDORED_PROFILE_KEYS, tieredPolicyConfig as vendoredTieredPolicyConfig } from './scripts/tracker/profileConfig.js';
@@ -4049,6 +4049,76 @@ async function run() {
     ingestPayload(dir2, payloadWithSecrets(), T0);
     assert(!existsSync(path.join(dir2, 'board.json')), 'no board in the payload: no file, no error');
     assertEqual(saveBoard(dir2, null), false, 'null payload skipped silently');
+  });
+
+
+  const FLOW_RULES = { minScore: '6/7', timeframes: ['5m', '15m', '1h'], capAtr: 2, windowCandles: 8, scoring: '1x ATR first, within 12 candles' };
+  const CAL_SAMPLE = {
+    generatedAt: '2026-10-02T00:00:00Z', target: 70, minN: 30, scored: 88, legacyCount: 12,
+    buckets: {
+      score: [{ key: '7/7', n: 40, right: 31, wrong: 9, flat: 0, rate: 78, status: 'meets' }, { key: '5/7', n: 45, right: 27, wrong: 18, flat: 0, rate: 60, status: 'below' }, { key: '6/7', n: 3, right: 2, wrong: 1, flat: 0, rate: null, status: 'thin' }],
+      timeframe: [{ key: '15m', n: 50, right: 36, wrong: 14, flat: 0, rate: 72, status: 'meets' }],
+      rr: [{ key: '>=2', n: 31, right: 23, wrong: 8, flat: 0, rate: 74, status: 'meets' }],
+      nextTf: [{ key: 'agrees', n: 33, right: 24, wrong: 9, flat: 0, rate: 73, status: 'meets' }]
+    },
+    recommended: { status: 'below', rule: { minScore: '6/7', timeframes: ['15m', '1h'], minRR: 2, nextTf: 'agrees' }, projected: { n: 52, right: 35, wrong: 17, rate: 67 }, reason: 'Best rule found is still under 70%.' },
+    candidates: []
+  };
+
+  await test('home flags: target meter shows rate vs 70% with state, n, and legacy line only when there were earlier calls', () => {
+    const above = calledFlagsCard({ ...CALLED_SAMPLE, legacy: { called: 12, right: 5, wrong: 6, flat: 1, open: 0, rate: 45 } });
+    assert(above.includes('data-state="meets"') && above.includes('id="target-rate">75%') && above.includes('target 70%') && above.includes('on target'), 'above target');
+    assert(above.includes('id="target-tick" style="left:70%"') && above.includes('id="target-fill" style="width:75%"'), 'meter fill and 70% tick');
+    assert(above.includes('n=60 resolved') && !above.includes('small sample'), 'n shown, no small-sample note at 60');
+    assert(above.includes('id="called-flags-legacy">Earlier calls (before the checklist rule): 12 · 45% right'), 'legacy line shown');
+    const below = calledFlagsCard({ ...CALLED_SAMPLE, legacy: { called: 0 }, windows: { ...CALLED_SAMPLE.windows, '30d': { ...CALLED_SAMPLE.windows['30d'], rate: 66, total: { called: 3, right: 2, wrong: 1, flat: 0, open: 0 } } } });
+    assert(below.includes('data-state="below"') && below.includes('below target') && below.includes('n=3 resolved · small sample, not proof yet'), 'below target with small sample note');
+    assert(!below.includes('id="called-flags-legacy"') && !calledFlagsCard(CALLED_SAMPLE).includes('called-flags-legacy'), 'legacy hidden when 0 or absent');
+    assert(homeFlagsScript().includes('target-fill'), 'toggle script updates the meter');
+  });
+
+  await test('home flags: how-it-works renders 6 ordered steps with flowRules numbers, and falls back to defaults', () => {
+    const live = howItWorksSection({ flowRules: FLOW_RULES });
+    assert(live.includes('id="how-it-works-section"') && live.includes('<ol id="how-it-works-steps">') && (live.match(/<li class="hf-step"/g) || []).length === 6, 'six steps in an ordered list');
+    assert(live.includes('needs 6/7 aligned') && live.includes('2 ATR past entry, for 8 candles') && live.includes('1x ATR first, within 12 candles'), 'flowRules numbers used');
+    assert(live.includes('Kraken') && live.includes('Pyth') && live.includes('EMA21, EMA200, Stoch RSI'), 'data and indicators steps');
+    for (const html of [howItWorksSection(null), howItWorksSection({ board: [] })]) {
+      assert(html.includes('needs 5/7 aligned') && html.includes('1.5 ATR past entry, for 6 candles') && (html.match(/<li class="hf-step"/g) || []).length === 6, 'defaults when flowRules absent');
+    }
+  });
+
+  await test('home flags: tuning shows live vs recommended, statuses, thin buckets muted, and an empty state', () => {
+    const html = tuningSection({ flowRules: FLOW_RULES }, CAL_SAMPLE);
+    for (const id of ['tuning-section', 'tuning-live-rule', 'tuning-recommended-rule', 'tuning-bucket-score', 'tuning-bucket-timeframe', 'tuning-bucket-rr', 'tuning-bucket-nextTf'.toLowerCase()]) assert(html.includes(`id="${id}"`), `missing #${id}`);
+    assert(html.includes('checklist 6/7 · timeframes 5m, 15m, 1h') && html.includes('Projected on past calls: 67% right, n=52') && html.includes('Best rule found is still under 70%.'), 'live vs recommended content');
+    assert(html.includes('at least 30 resolved calls') && html.includes('Target: 70%'), 'plain explanatory line');
+    assert(html.includes('hf-pill meets') && html.includes('hf-pill below') && html.includes('data-status="below"'), 'status pills');
+    assert(html.includes('<tr class="hf-bucket thin">') && html.includes('needs 30'), 'thin bucket muted with needs 30');
+    assert(tuningSection(null, { ...CAL_SAMPLE, recommended: { status: 'meets', rule: {}, projected: { n: 40, rate: 75 }, reason: 'ok' } }).includes('data-status="meets"'), 'meets status');
+    const nd = tuningSection(null, { ...CAL_SAMPLE, recommended: { status: 'needs_data', rule: {}, projected: { n: 0 }, reason: 'Too few calls.' } });
+    assert(nd.includes('data-status="needs_data"') && nd.includes('needs data') && nd.includes('Projected rate: not enough resolved calls'), 'needs_data status');
+    for (const empty of [tuningSection(null, null), tuningSection(null, {})]) assert(empty.includes('id="tuning-empty"') && !empty.includes('tuning-bucket-'), 'empty state');
+  });
+
+  await test('home flags: buildPage renders how-it-works and tuning from board.json flowRules + flag-calibration.json', () => {
+    const dir = tmp();
+    const dataDir = path.join(dir, 'data');
+    writeJson(path.join(dataDir, 'board.json'), { ...BOARD_SAMPLE, flowRules: FLOW_RULES });
+    writeJson(path.join(dataDir, 'flag-calibration.json'), CAL_SAMPLE);
+    const html = readFileSync(buildPage(dataDir, path.join(dir, 'docs'), T0).htmlFile, 'utf8');
+    assert(html.includes('id="how-it-works-section"') && html.includes('needs 6/7 aligned') && html.includes('id="tuning-recommended-rule"') && html.includes('id="tuning-bucket-score"'), 'files drive both sections');
+    const bare = readFileSync(buildPage(path.join(tmp(), 'data'), path.join(dir, 'docs2'), T0).htmlFile, 'utf8');
+    assert(bare.includes('id="tuning-empty"') && bare.includes('id="how-it-works-section"'), 'no files: empty tuning, default how-it-works');
+    assert(html.indexOf('id="live-board-section"') < html.indexOf('id="how-it-works-section"') && html.indexOf('id="tuning-section"') < html.indexOf('id="process-section"'), 'section order');
+  });
+
+  await test('collect: saveBoard stores flowRules when present and omits it otherwise', () => {
+    const dir = tmp();
+    saveBoard(dir, { board: [], flowRules: FLOW_RULES });
+    assertEqual(JSON.parse(readFileSync(path.join(dir, 'board.json'), 'utf8')).flowRules.minScore, '6/7', 'flowRules saved');
+    const dir2 = tmp();
+    saveBoard(dir2, { board: [] });
+    assert(!('flowRules' in JSON.parse(readFileSync(path.join(dir2, 'board.json'), 'utf8'))), 'absent when payload lacks it');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

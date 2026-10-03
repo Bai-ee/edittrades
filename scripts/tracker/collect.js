@@ -711,14 +711,16 @@ export function htfExitTimesFromAlertLines(alertRows) {
 }
 
 /**
- * Save the payload's top-level `board` (<= 3 entries) and `pulse` for the homepage "Should I get in
+ * Save the payload's top-level `board` (<= 3 entries), `pulse` and `flowRules` (when present) for the homepage "Should I get in
  * right now?" section. Overwrites data/board.json each run; silently skips when the payload has no board.
  * @returns {boolean} whether a file was written
  */
 export function saveBoard(dataDir, payload) {
   if (!payload || !Array.isArray(payload.board)) return false;
   const pulse = payload.pulse && typeof payload.pulse === 'object' ? payload.pulse : null;
-  writeJson(boardFile(dataDir), { closedThrough: payload.closedThrough ?? null, board: payload.board.slice(0, 3), pulse });
+  const out = { closedThrough: payload.closedThrough ?? null, board: payload.board.slice(0, 3), pulse };
+  if (payload.flowRules && typeof payload.flowRules === 'object') out.flowRules = payload.flowRules;
+  writeJson(boardFile(dataDir), out);
   return true;
 }
 
