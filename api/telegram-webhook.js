@@ -50,7 +50,7 @@ import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError, TRADE_CHART_CANDLES, CHART_TIMEFRAMES } from '../lib/chartRender.js';
 import { validateJournalEntry } from '../lib/journalSchema.js';
 import { classifyTier } from '../lib/tier.js';
-import { readBlob, readBlobFresh, updateBlob } from '../lib/blobJsonl.js';
+import { readBlob, readBlobFresh, readBlobOrigin, updateBlob } from '../lib/blobJsonl.js';
 import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
@@ -277,14 +277,11 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   /** State from Blob; never throws (read failure -> null, logged). Logs a reset/migration. */
   const readState = async () => {
     try {
-      // Fresh read (head ETag check): a plain `get` can serve the pre-write copy for up to 60 s, so a
-      // button tapped right after a Lock saw no lock (2026-10-03: I'm in -> "Not locked"). If the fresh
-      // read cannot be resolved, fall back to `get`.
-      let blob;
-      try { blob = await readBlobFresh({ get, head, fetchImpl }, TELEGRAM_STATE_PATH); } catch (err) {
-        if (!err || err.name !== 'BlobStaleRead') throw err;
-        blob = await readBlob(get, TELEGRAM_STATE_PATH);
-      }
+      // Origin read (body + ETag past the CDN): a plain public `get` can serve the copy from
+      // before the last write for up to 60 s, so a button tapped right after Lock saw no lock
+      // (2026-10-03 / 10-04: I'm in / Now? -> "Not locked"). Falls back to `get` on failure.
+      const blob = await readBlobOrigin({ get, head, fetchImpl }, TELEGRAM_STATE_PATH);
+      if (blob && blob.source !== 'origin' && typeof head === 'function') log('state', ' reason=state_read_fallback_get');
       const m = migrateState(blob ? blob.text : null);
       if (m.reset) log('state', ` reason=state_reset cause=${m.reason}`);
       return m.state;

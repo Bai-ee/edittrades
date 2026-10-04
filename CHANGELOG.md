@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-04 — Fix (2nd): button taps read the Telegram state from the origin, not the CDN
+
+Live 04:17Z: ETH 1h Lock saved, Now? 18 s later -> "Not locked." The first fix (`readBlobFresh`, head ETag check) was not enough: `@vercel/blob` 2.8 `get(..., {useCache:false})` only bypasses the cache for PRIVATE blobs, and this store is public, so `get` (and here `head` too) could still describe the pre-write copy. New `readBlobOrigin` (lib/blobJsonl.js) fetches the blob URL with a unique query and takes the body and ETag from that one response; the webhook's `readState` uses it (falls back to `get`, logged `state_read_fallback_get`). `updateBlob` now also starts from the origin body + ETag when a real store is attached, so a guarded write can no longer land on a CDN copy and drop the previous writer's change (falls back to the old head check if the origin fetch fails). Test: `test:telegram` 178, the stale-read regression now has `get` AND `head` stale (fails on the first fix).
+
 ## 2026-10-03 — Fix: I'm in right after Lock said "Not locked"
 
 Live: BTC 3m, Lock tapped 18:06:12Z, I'm in 18:06:21Z -> "Not locked (or already closed)." The webhook's `readState` used a plain Blob `get`, which can serve the copy from before the last write for up to 60 s (cacheControlMaxAge), so the lock saved 9 s earlier was not there. `readState` now uses `readBlobFresh` (head ETag check, fresh body on a mismatch; plain `get` only if that cannot be resolved), the read the guarded writer and the kill switch already use. The webhook store also passes its fetch to `updateBlob`'s fresh-body path. Test: `test:telegram` 178 (stale-get regression: fails on the old read).

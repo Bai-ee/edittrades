@@ -3324,17 +3324,18 @@ async function run() {
     assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'stopped', 'stopped');
   });
 
-  await test("lock: I'm in right after Lock works when the Blob get is stale (CDN copy from before the lock; head + fresh body win)", async () => {
+  await test("lock: I'm in right after Lock works when the Blob get AND head are stale (CDN copy from before the lock; the origin read wins)", async () => {
     const blob = fakeBlob();
     // `get` serves the copy from before the last write (regional cache); head / the URL are current.
     let cached = null;
     const realGet = blob.get;
     blob.get = async (p) => (p === TELEGRAM_STATE_PATH && cached ? { statusCode: 200, stream: new Response(cached.text).body, blob: { etag: cached.etag, url: `${BASE}/${p}` } } : realGet(p));
-    blob.head = async (p) => { const f = blob.files.get(p); return f ? { etag: f.etag, url: `${BASE}/${p}` } : null; };
+    // head is stale too (same cached ETag as get), so only the origin body + ETag can see the lock.
+    blob.head = async (p) => { const f = p === TELEGRAM_STATE_PATH && cached ? cached : blob.files.get(p); return f ? { etag: f.etag, url: `${BASE}/${p}` } : null; };
     const tg = fakeTelegram();
     const fetchImpl = async (url, init) => {
       const m = String(url).match(new RegExp(`^${BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/([^?]+)`));
-      if (m && blob.files.get(m[1])) return new Response(blob.files.get(m[1]).text);
+      if (m && blob.files.get(m[1])) return new Response(blob.files.get(m[1]).text, { headers: { etag: blob.files.get(m[1]).etag } });
       return tg.fetchImpl(url, init);
     };
     const run = async (data, nowMs, build) => {
