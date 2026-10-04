@@ -288,10 +288,28 @@ async function run() {
     assertEqual(forced, 1, 'then exactly one unguarded overwrite');
     assertEqual(out.forced, true, 'result flags the forced write');
     const head = async () => ({ etag: '"fresh"' });
-    let seen = null;
-    const put2 = async (_p, _b, opts) => { seen = opts.ifMatch; return { url: 'u' }; };
-    await updateBlob({ get, put: put2, head }, 'x.json', 'application/json', (text) => text + '\n');
+    let seen = null; let body = null;
+    const put2 = async (_p, b, opts) => { seen = opts.ifMatch; body = b; return { url: 'u' }; };
+    const freshFetch = async () => new Response('{"a":2}', { headers: { etag: '"fresh"' } });
+    await updateBlob({ get, put: put2, head, fetchImpl: freshFetch }, 'x.json', 'application/json', (text) => text + '\n');
     assertEqual(seen, '"fresh"', 'head etag wins over the get etag');
+    assertEqual(body, '{"a":2}\n', 'change applied to the fresh body');
+  });
+
+  await test('lost update (2026-10-03 locks vanished): a cache-busted body still at the OLD version is never written under the new ETag', async () => {
+    const get = async () => ({ stream: new Response('{"locks":[]}').body, blob: { etag: '"old"', url: 'u' } });
+    const head = async () => ({ etag: '"new"' });
+    // The CDN keeps serving the old copy even with ?nocache (its own ETag says so).
+    const staleFetch = async () => new Response('{"locks":[]}', { headers: { etag: '"old"' } });
+    const puts = [];
+    const put = async (_p, b, opts) => {
+      puts.push({ b, opts });
+      if (opts.ifMatch && opts.ifMatch !== '"new"') { const e = new Error('Vercel Blob: Precondition failed: ETag mismatch.'); e.name = 'BlobPreconditionFailedError'; throw e; }
+      return { url: 'u' };
+    };
+    await assertRejects(() => updateBlob({ get, put, head, fetchImpl: staleFetch }, 's.json', 'application/json', (t) => t.replace('[]', '["x"]')), /stale|fresh body/i);
+    assert(puts.every((p) => p.opts.ifMatch === '"old"'), `guarded writes only under the old etag: ${JSON.stringify(puts.map((p) => p.opts.ifMatch))}`);
+    assert(!puts.some((p) => !p.opts.ifMatch), 'no unguarded overwrite on a stale body');
   });
 
   await test('stale body guard: when head() etag differs from get() etag, the body is re-fetched from the blob URL before change() runs', async () => {

@@ -74,6 +74,7 @@ import {
 import { formatMyTrades } from '../lib/myTrades.js';
 import { applyLockChange, formatLockCard, formatLocksList, lockKeyboard, parseManualLock } from '../lib/telegramLock.js';
 import { flowBoardMessage } from '../lib/telegramFlow.js';
+import { rankFlags, snapshotOf } from '../lib/flagFlow.js';
 import { createLock, evaluateLock, normalizeLocks, openLocks } from '../lib/tradeLock.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 // T-20 HTF-anchored entry (owner-approved "ships live-capable" 2026-09-27). Open resolves
@@ -326,6 +327,8 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   }
   const cmd = parsed ? parsed.cmd : null;
   const via = cq ? 'cb:' : '';
+  // Lock actions record their outcome here for the request log (diagnosis of failed Lock / I'm in taps).
+  let lockOutcome = null;
   // `/mode flow|classic` is the alert mode (docs/PLAN_FLAG_FLOW.md); bare `/mode` stays the execution mode card.
   const alertModeArg = cmd === 'mode' && !cq && parsed.args.length === 1 && ALERT_MODES.includes(parsed.args[0].toLowerCase()) ? parsed.args[0].toLowerCase() : null;
 
@@ -1121,7 +1124,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         if (!open.length) await reply(formatLocksList([], syms, now())[0]);
         for (const l of open) await reply(formatLockCard(l, syms[l.symbol], now()), lockKeyboard(l) || menuKeyboard());
       } else if (cmd === 'lock' || cmd === 'lock_tap') {
-        const full = await build();
+        const full = await build({ includeFlagBoard: true });
         const nowMs = now();
         let symbol = null;
         let snap = null;
@@ -1140,12 +1143,19 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           // A LOCK OPPORTUNITY / board button locks the structural levels it showed (flag flow snapshot).
           const flowSnap = state && state.buttons && state.buttons[ref];
           if (flowSnap && flowSnap.recClass === 'FLOW' && flowSnap.symbol && flowSnap.candidateId) { snap = flowSnap; symbol = flowSnap.symbol; }
+          // Button memory missing (state write lost, or a 15m-4h flag the classic resolver cannot see):
+          // the same flag on the live board still locks at the levels its card showed.
+          else if (!snap) {
+            const live = rankFlags(full && full.flagBoard, full && full.symbols).find((e) => e.ref === ref);
+            if (live) { snap = snapshotOf(live); symbol = live.symbol; }
+          }
           if (state && state.htf && state.htf.plans && state.htf.plans[ref]) source = 'htf';
           else if (state && state.retest1h && state.retest1h.plans && state.retest1h.plans[ref]) source = 'retest1h';
         }
         const sym = full && full.symbols ? full.symbols[symbol] : null;
         const lockRef = cmd === 'lock' ? (snap ? shortRef(snap.candidateId) : null) : ref;
         const made = snap && sym ? createLock({ symbol, snap, timeframes: sym.timeframes, nowMs, source, ref: lockRef }) : { lock: null, error: 'no_setup' };
+        lockOutcome = usage ? 'usage' : (made.lock ? made.lock.status : (made.error || 'no_setup'));
         if (usage) await reply(escapeHtml(usage));
         else if (!made.lock) await reply(made.error === 'bad_levels' ? 'Cannot lock: the levels are incomplete or on the wrong side (need entry, stop and a void on the losing side).' : EXPIRED_REPLY);
         else if (['missed', 'invalidated'].includes(made.lock.status)) {
@@ -1153,6 +1163,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
           await reply(formatLockCard(made.lock, sym, nowMs, `NOT LOCKED · ${made.lock.status.toUpperCase()}`));
         } else {
           const out = await lockChange({ action: 'lock', lock: made.lock });
+          lockOutcome = out ? `${made.lock.status}:${out.result}` : 'write_failed';
           if (!out) await reply('Lock could not be saved; try again in a minute.');
           else if (out.result === 'full') await reply('You already have 5 open locks. Unlock one in /locks first.');
           else {
@@ -1181,13 +1192,16 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         }
       } else if (cmd === 'lock_took') {
         const full = await build();
-        const state = await readState();
-        const l0 = openLocks(normalizeLocks(state && state.locks, now())).find((l) => l.ref === ref);
-        const sym = l0 && full && full.symbols ? full.symbols[l0.symbol] : null;
-        const px = sym && sym.mark && sym.mark.status === 'ok' && typeof sym.mark.price === 'number' ? sym.mark.price : (sym && typeof sym.price === 'number' ? sym.price : null);
-        const out = l0 ? await lockChange({ action: 'fill', ref, price: px }) : { result: 'not_locked' };
+        const markOf = (s) => (s && s.mark && s.mark.status === 'ok' && typeof s.mark.price === 'number' ? s.mark.price : (s && typeof s.price === 'number' ? s.price : null));
+        const priceBySymbol = Object.fromEntries(Object.entries((full && full.symbols) || {}).map(([k, s]) => [k, markOf(s)]));
+        // Straight to the guarded write (fresh state inside updateBlob): a separate pre-read could be the
+        // cached copy from before the Lock and answer "Not locked" for a lock that exists.
+        const out = await lockChange({ action: 'fill', ref, priceBySymbol });
+        const sym = out && out.entry && full && full.symbols ? full.symbols[out.entry.symbol] : null;
+        lockOutcome = out ? `took:${out.result}${out.entry && out.result === 'not_locked' ? `:${out.entry.status}` : ''}` : 'took:write_failed';
         if (!out) await reply('Lock could not be saved; try again in a minute.');
-        else if (out.result !== 'filled') await reply(out.result === 'not_locked' ? 'Not locked (or already closed).' : 'This lock is already in a trade or closed.');
+        else if (out.result === 'not_locked' && out.entry) await reply(formatLockCard(out.entry, sym, now()), menuKeyboard()); // card reads DONE · <how it ended>
+        else if (out.result !== 'filled') await reply(out.result === 'not_locked' ? 'Not locked: tap 🔒 Lock on the alert first.' : 'This lock is already in a trade or closed.');
         else await reply(formatLockCard(out.entry, sym, now(), 'IN TRADE'), lockKeyboard(out.entry) || menuKeyboard());
       } else {
         const state = await readState();
@@ -1301,7 +1315,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         await reply(`TEST chart unavailable: ${escapeHtml(err.message)}`);
       }
     }
-    log(200, ` cmd=${via}${cmd || 'none'}`);
+    log(200, ` cmd=${via}${cmd || 'none'}${lockOutcome ? ` lock=${lockOutcome}` : ''}`);
   } catch (err) {
     log(200, ` cmd=${via}${cmd || 'none'} error=${JSON.stringify(String(err && err.name ? err.name : 'Error'))} msg=${JSON.stringify(errText(err, secrets))}`);
     await reply('Something failed on the server; try again in a minute.');

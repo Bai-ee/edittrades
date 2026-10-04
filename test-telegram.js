@@ -3356,6 +3356,16 @@ async function run() {
     assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'filled', 'filled');
   });
 
+  await test("lock: I'm in on a lock that already ended shows the closed card (DONE · EXPIRED), not a bare 'Not locked'", async () => {
+    const blob = fakeBlob();
+    await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
+    await cron({ blob, nowMs: T0 + 40 * MIN, build: lockBuild([84590]) });
+    assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'expired', 'expired after 6 x 5m');
+    const took = await tap({ data: `ltook:${lref}`, blob, nowMs: T0 + 41 * MIN, build: lockBuild([84590]) });
+    const m = took.tg.calls.find((x) => x.method === 'sendMessage');
+    assert(m && m.text.includes('DONE · EXPIRED') && !m.text.includes('Not locked'), m && m.text);
+  });
+
   await test('lock: unfilled run past the cap -> MISSED once; lock tapped when already past the cap is NOT LOCKED and nothing is stored', async () => {
     const blob = fakeBlob();
     await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
