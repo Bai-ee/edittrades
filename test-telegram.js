@@ -3358,6 +3358,21 @@ async function run() {
     assertEqual(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).locks[0].status, 'filled', 'filled');
   });
 
+  await test("trade focus: in a taken lock only its own updates send; other alerts are held; one resume line when it closes", async () => {
+    const blob = fakeBlob();
+    await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
+    await tap({ data: `ltook:${lref}`, blob, nowMs: T0 + MIN, build: lockBuild([84590]) });
+    // Another symbol's GOOD would normally send (classic mode fake); in the taken trade it is held.
+    const other = await cron({ blob, nowMs: T0 + 2 * MIN, build: async () => payload({ BTC: lockSym([84590]), ETH: goodSym('ETH:5m:long:2026-09-24T13:50:00.000Z') }) });
+    const sent = other.tg.calls.filter((x) => x.method === 'sendMessage' || x.method === 'sendPhoto').map((x) => String(x.text || x.caption));
+    assert(!sent.some((t) => t.includes('ETH')), `ETH alert held: ${sent.join(' | ')}`);
+    // The trade stops out: its DONE card sends and focus resumes.
+    const done = await cron({ blob, nowMs: T0 + 10 * MIN, build: lockBuild([84590, 84640, 84380], '2026-09-24T14:10:00.000Z', { price: 84380, mark: { ...markOk, price: 84380 } }) });
+    const texts = done.tg.calls.map((x) => String(x.text || x.caption));
+    assert(texts.some((t) => t.includes('DONE · STOPPED')), texts.join(' | '));
+    assert(texts.some((t) => t.includes('Focus off — trade closed')), texts.join(' | '));
+  });
+
   await test("lock: I'm in on a lock that already ended shows the closed card (DONE · EXPIRED), not a bare 'Not locked'", async () => {
     const blob = fakeBlob();
     await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });

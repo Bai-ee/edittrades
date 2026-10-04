@@ -74,7 +74,7 @@ import {
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES,
   livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, shortRef, tradeKeyboard, applyTrackedStopUpdates
 } from '../lib/telegram.js';
-import { diffLocks, suppressLocked } from '../lib/telegramLock.js';
+import { diffLocks, suppressLocked, takenLocks, tradeFocusFilter } from '../lib/telegramLock.js';
 import { diffFlow, dropClassicAlerts } from '../lib/telegramFlow.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
@@ -711,6 +711,8 @@ export async function handleTelegramCron(req, res, deps = {}) {
   let flowChanged = false;
   let prefs = null;
   let written = false;
+  let takenNow = [];
+  let takenBefore = [];
   let stateSnap = 0;
   let resetReason = null;
   let migratedFrom = null;
@@ -730,8 +732,10 @@ export async function handleTelegramCron(req, res, deps = {}) {
       // Trade locks (docs/OWNER_DECISIONS_2026-10-02_TRADE_LOCK.md): judged on the FULL build
       // (trigger-TF candles), levels never moved; a locked candidate's generic / Track alerts
       // are dropped so its lock card is the one message about it.
+      takenBefore = takenLocks(m.state.locks, nowMs);
       const lk = diffLocks(diff.state, payload, nowMs);
       locksChanged = lk.changed;
+      takenNow = takenLocks(diff.state.locks, nowMs);
       alerts = [...suppressLocked(diff.alerts, lk.lockedIds), ...lk.alerts];
       // Flag flow (docs/PLAN_FLAG_FLOW.md): the classic diff above still ran for its bookkeeping;
       // in flow mode its sends are dropped and LOCK_OPPORTUNITY (diffFlow) replaces them. Classic mode: untouched.
@@ -838,6 +842,18 @@ export async function handleTelegramCron(req, res, deps = {}) {
     }
     alerts = kept;
   }
+  // Trade focus (owner 2026-10-04): in a taken lock (I'm in), only that trade's lock updates and
+  // health/data alerts send; the rest is logged as suppressed 'focus'. One resume line when it closes.
+  if (takenNow.length && prefs && prefs.focus !== 'off') {
+    const { kept, held } = tradeFocusFilter(alerts, takenNow);
+    for (const [i, a] of held.entries()) {
+      try {
+        focusSuppressed.push(alertLogLine(a, { payload: compact, id: `${new Date(nowMs).toISOString()}#t${i}`, sentAtMs: nowMs, silent, level: prefs && prefs.level, trackedIds, delivered: false, suppressed: 'focus' }));
+      } catch { /* best effort */ }
+    }
+    alerts = kept;
+  }
+  if (takenBefore.length && !takenNow.length) alerts.push({ kind: 'FOCUS', symbol: null, text: '🔎 Focus off — trade closed, all alerts resumed.' });
 
   // Open (T-3, extended T-7): a ready GOOD/GET IN NOW plan gets "Open @ plan"; a SETUP,
   // BREAKOUT or tracked-setup alert with entry/stop/TP1 on file (never WATCH/TRIGGERING)

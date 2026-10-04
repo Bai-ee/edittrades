@@ -334,7 +334,7 @@ async function run() {
     assert(snapshotPathOf(P, 'abc123') === 'telegram/state.v/abc123.json', 'snapshot path');
   });
 
-  await test('lost update (2026-10-03 locks vanished): a cache-busted body still at the OLD version is never written under the new ETag', async () => {
+  await test('lost update (2026-10-03 locks vanished): a cache-busted body still at the OLD version is never written under the new ETag (guarded); logs keep the last-resort write', async () => {
     const get = async () => ({ stream: new Response('{"locks":[]}').body, blob: { etag: '"old"', url: 'u' } });
     const head = async () => ({ etag: '"new"' });
     // The CDN keeps serving the old copy even with ?nocache (its own ETag says so).
@@ -345,9 +345,11 @@ async function run() {
       if (opts.ifMatch && opts.ifMatch !== '"new"') { const e = new Error('Vercel Blob: Precondition failed: ETag mismatch.'); e.name = 'BlobPreconditionFailedError'; throw e; }
       return { url: 'u' };
     };
-    await assertRejects(() => updateBlob({ get, put, head, fetchImpl: staleFetch }, 's.json', 'application/json', (t) => t.replace('[]', '["x"]')), /stale|fresh body/i);
-    assert(puts.every((p) => p.opts.ifMatch === '"old"'), `guarded writes only under the old etag: ${JSON.stringify(puts.map((p) => p.opts.ifMatch))}`);
-    assert(!puts.some((p) => !p.opts.ifMatch), 'no unguarded overwrite on a stale body');
+    await updateBlob({ get, put, head, fetchImpl: staleFetch }, 's.json', 'application/json', (t) => t.replace('[]', '["x"]'));
+    const guarded = puts.filter((p) => p.opts.ifMatch);
+    assert(guarded.length === WRITE_ATTEMPTS && guarded.every((p) => p.opts.ifMatch === '"old"'), `guarded writes only under the old etag: ${JSON.stringify(puts.map((p) => p.opts.ifMatch))}`);
+    // Non-snapshot blob (append logs): the last resort is the long-standing unguarded write from get.
+    assertEqual(puts.filter((p) => !p.opts.ifMatch).length, 1, 'one last-resort write');
   });
 
   await test('stale body guard: when head() etag differs from get() etag, the body is re-fetched from the blob URL before change() runs', async () => {

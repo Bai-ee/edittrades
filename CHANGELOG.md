@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-04 — Trade focus; alert log keeps writing
+
+Owner: "locked in on a taken trade I don't see the focus setting where I don't get bothered". Focus (`/alerts focus auto`, the default) only counted on-chain positions. Now a taken lock (I'm in) also focuses: only that trade's LOCK updates and health/data alerts send; LOCK NOW, BREAKING, other locks and classic alerts are held (logged `suppressed:focus` for the tracker). When the trade closes: "🔎 Focus off — trade closed, all alerts resumed." Focus off still sends everything. Also: the append-only alert log is not snapshot-addressed, and the strict stale check had it skipping lines (`logSkipped=error:BlobStaleRead`); it keeps its long-standing last-resort write again. Tests: telegram trade-focus case, journal.
+
 ## 2026-10-04 — Fix (3rd): "Lock could not be saved" — snapshot-addressed Telegram state
 
 Live 05:33Z after the 2nd/own fixes: every Lock tap failed (`state_write_BlobStaleRead`): on this public Blob store the cache-busted fetch of the fixed state path still returns the previous version (CDN ignores the query), so no fresh body was ever available and the strict check refused to write. Now every state write also stores its body at a never-requested path `telegram/state.v/<id>.json` and names it in the fixed blob's contentType (`application/json; snap=<id>`); `head` (API) gives the id, the snapshot URL gives the exact body (`readBlobSnapshot`). Guarded writes start from that, the previous snapshot is deleted. Cron and webhook (all state writes + readState) use it; first write bootstraps from `get` once. Cron log adds `stateSnap=1|0`. Test: journal snapshot case (fixed path always stale), telegram overlapping-runs console restore.
