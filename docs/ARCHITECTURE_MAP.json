@@ -891,7 +891,7 @@
         {
           "path": "lib/tradeUpdate.js",
           "name": "tradeUpdate",
-          "role": "In-trade updates for a taken lock (I'm in): one per candle of the lock timeframe (5-60 min), % and R since entry, TP / SL distance, and a 0-100 confidence (checklist share, next timeframe, EMA21 side, Stoch, divergence, RSI) read as HOLD / WATCH / EXIT?; also the Now? reply in a trade; display only; pure.",
+          "role": "In-trade updates for a taken lock (I'm in): four per candle of the lock timeframe (5-30 min), % and R since entry, TP / SL distance, and a 0-100 confidence (checklist share, next timeframe, EMA21 side, Stoch, divergence, RSI) read as HOLD / WATCH / EXIT?; also the Now? reply in a trade; display only; pure.",
           "publishes": [
             "trade updates"
           ],

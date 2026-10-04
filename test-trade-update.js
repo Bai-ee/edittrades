@@ -25,14 +25,14 @@ const badEv = { rsi: 80, stoch: { k: 90, d: 88, state: 'overbought', favors: fal
 
 console.log('trade update');
 
-test('interval = one candle of the lock timeframe, clamped to 5-60 min', () => {
-  assert(updateIntervalMs('1m') === 5 * MIN && updateIntervalMs('3m') === 5 * MIN && updateIntervalMs('5m') === 5 * MIN, 'fast tfs -> 5 min');
-  assert(updateIntervalMs('15m') === 15 * MIN && updateIntervalMs('1h') === 60 * MIN && updateIntervalMs('4h') === 60 * MIN, '15m / 1h / 4h');
+test('interval = four per candle of the lock timeframe, clamped to 5-30 min', () => {
+  assert(['1m', '3m', '5m', '15m'].every((tf) => updateIntervalMs(tf) === 5 * MIN), '1m-15m -> 5 min');
+  assert(updateIntervalMs('1h') === 15 * MIN && updateIntervalMs('4h') === 30 * MIN && updateIntervalMs('1d') === 30 * MIN, '1h 15 / 4h 30 / 1d 30');
 });
 
 test('due one interval after the fill, then after the last update; never for an unfilled lock', () => {
-  assert(!updateDue(lock(), T0 + 59 * MIN) && updateDue(lock(), T0 + 60 * MIN), 'first after the fill');
-  assert(!updateDue(lock({ updAt: new Date(T0 + 60 * MIN).toISOString() }), T0 + 100 * MIN), 'spaced from the last');
+  assert(!updateDue(lock(), T0 + 14 * MIN) && updateDue(lock(), T0 + 15 * MIN), 'first a quarter hour after the fill (1h)');
+  assert(!updateDue(lock({ updAt: new Date(T0 + 15 * MIN).toISOString() }), T0 + 29 * MIN), 'spaced from the last');
   assert(!updateDue(lock({ status: 'confirmed' }), T0 + 120 * MIN), 'not filled');
 });
 
