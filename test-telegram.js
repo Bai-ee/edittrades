@@ -3309,7 +3309,7 @@ async function run() {
     assert(!quietRun.tg.calls.some((x) => String(x.text).includes('🔒 LOCKED · TAKE')), 'no repeat');
   });
 
-  await test("lock: I'm in fills at the mark; Now? shows R now on the frozen levels; cron STOP HIT on the frozen stop; closed lock has no buttons", async () => {
+  await test("lock: I'm in fills at the mark; Now? shows % / R since entry + confidence; cron STOP HIT on the frozen stop; closed lock has no buttons", async () => {
     const blob = fakeBlob();
     await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
     await cron({ blob, nowMs: T0 + 5 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z') });
@@ -3319,7 +3319,8 @@ async function run() {
     assertEqual(allCallbackData(tc.replyMarkup).join(), `lnow:${lref},unlock:${lref},chart:BTC:5m`, 'filled keyboard');
     const now = await tap({ data: `lnow:${lref}`, blob, nowMs: T0 + 7 * MIN, build: lockBuild([84590, 84640], '2026-09-24T14:05:00.000Z', { price: 84820, mark: { ...markOk, price: 84820 } }) });
     const nc = now.tg.calls.find((x) => x.method === 'sendMessage');
-    assert(nc.text.includes('NOW?') && nc.text.includes('IN · +') && nc.text.includes('+0.9R now') && nc.text.includes('84,390.00  Inval') && nc.text.includes('+0.9R'), nc.text);
+    // In a taken trade Now? reads like the in-trade update: % and R since entry, TP/SL distance, confidence.
+    assert(nc.text.includes('IN · <b>+0.25%</b>') && nc.text.includes('+0.95R') && nc.text.includes('SL 84,390.00') && nc.text.includes('Confidence'), nc.text);
     const stop = await cron({ blob, nowMs: T0 + 10 * MIN, build: lockBuild([84590, 84640, 84380], '2026-09-24T14:10:00.000Z', { price: 84380, mark: { ...markOk, price: 84380 } }) });
     const sm = stop.tg.calls.find((x) => String(x.text).includes('DONE · STOPPED'));
     assert(sm && !sm.replyMarkup?.inline_keyboard?.flat().some((b) => b.callback_data.startsWith('lnow')), sm && sm.text);
@@ -3377,6 +3378,20 @@ async function run() {
     const texts = done.tg.calls.map((x) => String(x.text || x.caption));
     assert(texts.some((t) => t.includes('DONE · STOPPED')), texts.join(' | '));
     assert(texts.some((t) => t.includes('Focus off — trade closed')), texts.join(' | '));
+  });
+
+  await test('in-trade update: a taken 5m lock gets one % / confidence update per 5 min, passing focus', async () => {
+    const blob = fakeBlob();
+    await tap({ data: `lock:${lref}`, blob, build: lockBuild([84590]) });
+    await tap({ data: `ltook:${lref}`, blob, nowMs: T0 + MIN, build: lockBuild([84590]) });
+    const early = await cron({ blob, nowMs: T0 + 3 * MIN, build: lockBuild([84590]) });
+    assert(!early.tg.calls.some((x) => String(x.text).includes('Confidence')), 'not before 5 min');
+    const due = await cron({ blob, nowMs: T0 + 6 * MIN, build: lockBuild([84590]) });
+    const up = due.tg.calls.filter((x) => String(x.text).includes('Confidence'));
+    assertEqual(up.length, 2, 'one update per chat');
+    assert(up[0].text.includes('BTC 5m ▲') && up[0].text.includes(' in') && up[0].text.includes('SL 84,390.00'), up[0].text);
+    const again = await cron({ blob, nowMs: T0 + 7 * MIN, build: lockBuild([84590]) });
+    assert(!again.tg.calls.some((x) => String(x.text).includes('Confidence')), 'not again within the interval');
   });
 
   await test("lock: I'm in on a lock that already ended shows the closed card (DONE · EXPIRED), not a bare 'Not locked'", async () => {

@@ -1802,7 +1802,7 @@ async function main() {
       assert(!filterPayload(biasResult, { include: ['bias'] }).warnings.some((w) => w.includes('bias')), 'no unknown-token warning');
     });
 
-    await test('includeFlagBoard: default build has no flagBoard key; option adds only that key', async () => {
+    await test('includeFlagBoard: default build has no flagBoard key; option adds only flagBoard + tfEvidence', async () => {
       assert(!('flagBoard' in case6Result), 'default build must not carry flagBoard');
       const withBoard = await buildScalpContext({
         symbols: [HEALTHY_A, HEALTHY_B],
@@ -1814,7 +1814,9 @@ async function main() {
       flagBoardResult = withBoard;
       assertEqual(JSON.stringify(Object.keys(withBoard.flagBoard)), JSON.stringify([HEALTHY_A, HEALTHY_B]), 'flagBoard symbols');
       const stripped = JSON.parse(JSON.stringify(withBoard));
+      assert(withBoard.tfEvidence && withBoard.tfEvidence[HEALTHY_A] && withBoard.tfEvidence[HEALTHY_A]['5m'] && 'long' in withBoard.tfEvidence[HEALTHY_A]['5m'], 'bot-only tfEvidence rides with flagBoard');
       delete stripped.flagBoard;
+      delete stripped.tfEvidence;
       assertEqual(JSON.stringify(stripped), JSON.stringify(case6Result), 'rest of the payload byte-identical');
       assertEqual(withBoard.dataStatus, case6Result.dataStatus, 'dataStatus unchanged');
       assert(deepEqual(withBoard.warnings, case6Result.warnings), 'warnings unchanged');

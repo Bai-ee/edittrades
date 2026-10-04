@@ -173,7 +173,7 @@ export async function handleScalpContext(req, res, { build = buildScalpContext, 
     const pulse = pulseFeed(stored, nowMs);
     let withRest = narrowed;
     if (narrowed && typeof narrowed === 'object' && !Array.isArray(narrowed) && !chartRequest) {
-      const { flagBoard: _flagBoard, ...rest } = narrowed;
+      const { flagBoard: _flagBoard, tfEvidence: _tfEvidence, ...rest } = narrowed;
       withRest = { ...rest, board: boardFeed(payload), flowRules: flowRules(), ...(locks ? { locks } : {}), ...(pulse ? { pulse } : {}) };
     }
     const capped = capOptInSections(withRest);

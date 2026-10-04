@@ -74,7 +74,8 @@ import {
   TELEGRAM_HEALTH_PATH, parseHealth, nextCronHealth, errText, openPositions, positionRef, fitCaption, CHART_GRID_TIMEFRAMES,
   livePrice, TRAIL_MIN_INTERVAL_MS, TRAIL_ALERT_THROTTLE_MS, shortRef, tradeKeyboard, applyTrackedStopUpdates
 } from '../lib/telegram.js';
-import { diffLocks, suppressLocked, takenLocks, tradeFocusFilter } from '../lib/telegramLock.js';
+import { diffLocks, suppressLocked, takenLocks, tradeFocusFilter, lockKeyboard } from '../lib/telegramLock.js';
+import { updateDue, formatTradeUpdate, lockEvidence } from '../lib/tradeUpdate.js';
 import { diffFlow, dropClassicAlerts } from '../lib/telegramFlow.js';
 // Read-only door to the executor's live position read (T-7 focus mode): the same
 // resolveExecutor factory the webhook uses (TRADE_EXECUTION_ENABLED gate, deps.executor /
@@ -736,7 +737,18 @@ export async function handleTelegramCron(req, res, deps = {}) {
       const lk = diffLocks(diff.state, payload, nowMs);
       locksChanged = lk.changed;
       takenNow = takenLocks(diff.state.locks, nowMs);
-      alerts = [...suppressLocked(diff.alerts, lk.lockedIds), ...lk.alerts];
+      // In-trade updates (lib/tradeUpdate.js): a taken lock gets % since entry + confidence once per
+      // candle of its timeframe (5-60 min), unless it already has a lock alert this tick.
+      const alerted = new Set(lk.alerts.map((a) => a.ref));
+      const syms = payload && payload.symbols ? payload.symbols : {};
+      const updates = [];
+      for (const l of Array.isArray(diff.state.locks) ? diff.state.locks : []) {
+        if (alerted.has(l.ref) || !updateDue(l, nowMs) || !syms[l.symbol]) continue;
+        updates.push({ kind: 'LOCK', event: 'update', symbol: l.symbol, candidateId: l.candidateId, ref: l.ref, text: formatTradeUpdate(l, syms[l.symbol], lockEvidence(payload, l), nowMs), ...(lockKeyboard(l) ? { replyMarkup: lockKeyboard(l) } : {}) });
+        l.updAt = new Date(nowMs).toISOString();
+        locksChanged = true;
+      }
+      alerts = [...suppressLocked(diff.alerts, lk.lockedIds), ...lk.alerts, ...updates];
       // Flag flow (docs/PLAN_FLAG_FLOW.md): the classic diff above still ran for its bookkeeping;
       // in flow mode its sends are dropped and LOCK_OPPORTUNITY (diffFlow) replaces them. Classic mode: untouched.
       flowMode = diff.state.prefs.mode !== 'classic';

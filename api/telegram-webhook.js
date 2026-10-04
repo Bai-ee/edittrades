@@ -75,6 +75,7 @@ import { formatMyTrades } from '../lib/myTrades.js';
 import { applyLockChange, formatLockCard, formatLocksList, formatTakenLocks, lockKeyboard, parseManualLock } from '../lib/telegramLock.js';
 import { flowBoardMessage } from '../lib/telegramFlow.js';
 import { rankFlags, snapshotOf } from '../lib/flagFlow.js';
+import { formatTradeUpdate, lockEvidence } from '../lib/tradeUpdate.js';
 import { createLock, evaluateLock, normalizeLocks, openLocks } from '../lib/tradeLock.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 // T-20 HTF-anchored entry (owner-approved "ships live-capable" 2026-09-27). Open resolves
@@ -1211,10 +1212,12 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         const l0 = normalizeLocks(state && state.locks, now()).find((l) => l.ref === ref);
         if (!l0) await reply('Not locked.');
         else {
-          const full = await build();
+          const full = await build({ includeFlagBoard: true });
           const sym = full && full.symbols ? full.symbols[l0.symbol] : null;
           const l = evaluateLock(l0, sym, now()).lock;
-          await reply(formatLockCard(l, sym, now(), 'NOW?'), lockKeyboard(l) || menuKeyboard());
+          // In a taken trade, Now? answers like the in-trade update: % since entry + confidence.
+          if (l.status === 'filled') await reply(formatTradeUpdate(l, sym, lockEvidence(full, l), now()), lockKeyboard(l) || menuKeyboard());
+          else await reply(formatLockCard(l, sym, now(), 'NOW?'), lockKeyboard(l) || menuKeyboard());
         }
       }
     } else if (cmd === 'market') {

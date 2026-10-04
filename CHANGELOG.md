@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-04 — In-trade updates: % since entry + confidence
+
+Owner: "when locked in I want regular updates on intervals related to the tf… more about % up or down since entry and confidence in the trade from that point on". New `lib/tradeUpdate.js`: a taken lock (I'm in) gets one update per candle of its timeframe (clamped 5-60 min: 1m/3m/5m every 5 min, 15m every 15, 1h/4h hourly): % and R since the fill, time in, TP / SL distance in %, and a 0-100 confidence (checklist share 30, next timeframe 15, EMA21 side 15, Stoch 15, no divergence against 15, RSI not stretched 10) read as 🟢 HOLD (>=65) / 🟡 WATCH / 🔴 consider exit (<45), with what costs points and the volume context. Now? in a taken trade answers the same way. Updates are the trade's own LOCK alerts, so trade focus lets them through. Display only. Bot-only `tfEvidence` (per-timeframe volume / RSI / Stoch / divergence from full history, both directions) rides beside `flagBoard` and is stripped from REST / MCP. Tests: test:tradeupdate 6 (new), telegram cadence case.
+
 ## 2026-10-04 — Taken locks show in Focus and /positions
 
 Owner screenshot: ETH 1h locked and taken (🔒 IN), but Focus read "auto (no position)" and /positions "[NO OPEN TRADES]" (both only knew on-chain positions and the journal). Focus status now reads "auto (in ETH 1h · only its updates send)" while a taken lock is open (Focus button, /alerts, /status, /exec); /positions shows a "🔒 LOCKED TRADES" block (live R, entry, SL, TP) above the journal. Test: telegram trade-focus case.

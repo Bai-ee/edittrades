@@ -889,6 +889,24 @@
           "schemaSince": null
         },
         {
+          "path": "lib/tradeUpdate.js",
+          "name": "tradeUpdate",
+          "role": "In-trade updates for a taken lock (I'm in): one per candle of the lock timeframe (5-60 min), % and R since entry, TP / SL distance, and a 0-100 confidence (checklist share, next timeframe, EMA21 side, Stoch, divergence, RSI) read as HOLD / WATCH / EXIT?; also the Now? reply in a trade; display only; pure.",
+          "publishes": [
+            "trade updates"
+          ],
+          "consumes": [
+            "trade lock state",
+            "tfEvidence"
+          ],
+          "tests": [
+            "test:tradeupdate",
+            "test:telegram"
+          ],
+          "since": "2026-10-04",
+          "schemaSince": null
+        },
+        {
           "path": "lib/flowEvidence.js",
           "name": "flowEvidence",
           "role": "Trade-alert evidence on the flag's own timeframe: volume quality (breakout candle vs 20-bar average, quiet flag) with a GO / STAY OUT verdict, RSI 14, Stoch RSI state, regular bull/bear divergence, and an overall GO / CAUTION / STAY OUT read; shown on LOCK NOW / BREAKING cards, never a gate; pure.",

@@ -1313,6 +1313,9 @@ export async function buildScalpContext(options = {}) {
   const newest1mCloses = [];
   const symbolDurationsMs = {};
   const flagBoard = {};
+  // Bot-only, beside flagBoard: per-timeframe volume / RSI / Stoch / divergence read from full history
+  // for both directions (lib/tradeUpdate.js in-trade updates). Never served to REST / MCP.
+  const tfEvidence = {};
 
   for (const symbol of symbolList) {
     const symbolStartMs = Date.now();
@@ -1906,6 +1909,7 @@ export async function buildScalpContext(options = {}) {
     if (includeFlagBoard === true) {
       try {
         flagBoard[symbol] = buildFlagBoardEntries(modelCandidateSetups, closedByTf);
+        tfEvidence[symbol] = Object.fromEntries(Object.keys(closedByTf || {}).map((tf) => [tf, { long: flagEvidence(closedByTf[tf], 'long'), short: flagEvidence(closedByTf[tf], 'short') }]));
       } catch (err) {
         console.warn(`[ScalpContext] ${symbol}: flagBoard failed - ${err.message}`);
         flagBoard[symbol] = [];
@@ -1967,7 +1971,7 @@ export async function buildScalpContext(options = {}) {
     symbols: symbolsOut,
     warnings
   };
-  if (includeFlagBoard === true) payload.flagBoard = flagBoard;
+  if (includeFlagBoard === true) { payload.flagBoard = flagBoard; payload.tfEvidence = tfEvidence; }
 
   const normalized = normalizeJson(payload);
 
@@ -1975,7 +1979,7 @@ export async function buildScalpContext(options = {}) {
   // before geometry (phase 7/8) adds bulk. 80 KB is a soft warning, not a rejection -
   // filterPayload's compact/include options are how a caller brings it back down.
   // The bot-only flagBoard never reaches a REST/MCP caller, so the guard measures the payload without it.
-  const { flagBoard: _botOnly, ...served } = normalized;
+  const { flagBoard: _botOnly, tfEvidence: _botEvidence, ...served } = normalized;
   const payloadBytes = Buffer.byteLength(JSON.stringify(served), 'utf8');
   console.log(`[ScalpContext] payload bytes=${payloadBytes}${_botOnly ? ` (+flagBoard ${Buffer.byteLength(JSON.stringify(_botOnly), 'utf8')})` : ''}`);
   if (payloadBytes > 80 * 1024) {
