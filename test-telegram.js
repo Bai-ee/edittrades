@@ -1275,7 +1275,9 @@ async function run() {
   await test('cron: overlapping runs claim a transition once (ETag on state)', async () => {
     const blob = fakeBlob();
     const tg = fakeTelegram();
-    await Promise.all([cron({ blob, tg }), cron({ blob, tg }), cron({ blob, tg })]);
+    // Overlapping quiet() wrappers restore console in finish order; put the real one back after.
+    const [log, warn] = [console.log, console.warn];
+    try { await Promise.all([cron({ blob, tg }), cron({ blob, tg }), cron({ blob, tg })]); } finally { console.log = log; console.warn = warn; }
     const good = tg.calls.filter((c) => kindOf(c.text || c.caption) === 'GOOD');
     assertEqual(good.length, 2, `one GOOD per chat, got ${good.length}`);
   });

@@ -62,7 +62,7 @@
  */
 
 import crypto from 'crypto';
-import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
+import { put as blobPut, get as blobGet, head as blobHead, del as blobDel } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { renderContextChart, TRADE_CHART_CANDLES } from '../lib/chartRender.js';
 import { updateBlob, readBlob } from '../lib/blobJsonl.js';
@@ -615,7 +615,7 @@ export default function handler(req, res) {
  */
 export async function handleTelegramCron(req, res, deps = {}) {
   const {
-    build = buildScalpContext, put = blobPut, get = blobGet, head = (deps.get || deps.put ? undefined : blobHead), fetchImpl = globalThis.fetch,
+    build = buildScalpContext, put = blobPut, get = blobGet, head = (deps.get || deps.put ? undefined : blobHead), del = (deps.get || deps.put ? undefined : blobDel), fetchImpl = globalThis.fetch,
     render = renderContextChart, now = Date.now, env = process.env
   } = deps;
   const requestId = crypto.randomUUID();
@@ -711,10 +711,11 @@ export async function handleTelegramCron(req, res, deps = {}) {
   let flowChanged = false;
   let prefs = null;
   let written = false;
+  let stateSnap = 0;
   let resetReason = null;
   let migratedFrom = null;
   try {
-    const out = await updateBlob({ get, put, head }, TELEGRAM_STATE_PATH, 'application/json', (text) => {
+    const out = await updateBlob({ get, put, head, del, fetchImpl, snapshotPaths: [TELEGRAM_STATE_PATH] }, TELEGRAM_STATE_PATH, 'application/json', (text) => {
       const m = migrateState(text);
       resetReason = m.reset ? m.reason : null;
       migratedFrom = m.migrated ? m.fromVersion : null;
@@ -785,6 +786,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
       return diff.changed || locksChanged || flowChanged || m.migrated || resetReason || livePositionsChanged || trailChanged || retest1hChanged || slowTrendChanged || htfChanged || predictionsChanged || trackedTrailChanged ? `${JSON.stringify(diff.state, null, 2)}\n` : null;
     });
     written = out.written;
+    stateSnap = out.snapshot ? 1 : 0;
   } catch (err) {
     // Could not claim the transition: send nothing rather than risk a duplicate.
     const reason = `state_write_${err && err.name ? err.name : 'Error'}`;
@@ -894,6 +896,6 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const logged = await recordTelegramLogs({ alerts: alertLines, transitions }, { store: { get, put, head }, env, nowMs });
 
   const kinds = alerts.map((a) => `${a.kind}${a.symbol ? `:${a.symbol}` : ''}`);
-  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} silent=${silent} stateWritten=${written} logAlerts=${logged.alerts} logTransitions=${logged.transitions}${logged.skipped && logged.skipped !== 'nothing' ? ` logSkipped=${logged.skipped}` : ''}${health.message ? ' healthAlert=recovered' : ''}`);
+  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} silent=${silent} stateWritten=${written} stateSnap=${stateSnap} logAlerts=${logged.alerts} logTransitions=${logged.transitions}${logged.skipped && logged.skipped !== 'nothing' ? ` logSkipped=${logged.skipped}` : ''}${health.message ? ' healthAlert=recovered' : ''}`);
   return res.status(200).json({ ok: true, alerts: alerts.length, kinds, sent, failed, silent, stateWritten: written });
 }

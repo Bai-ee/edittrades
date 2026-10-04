@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { validateJournalEntry, journalDay, parseJournalLines, KINDS, RECORD_KEYS, MAX_RECORD_BYTES } from './lib/journalSchema.js';
 import { handleJournal, resetRateLimit, RATE_LIMIT } from './api/journal.js';
-import { updateBlob, isOverwriteConflict, WRITE_ATTEMPTS } from './lib/blobJsonl.js';
+import { updateBlob, isOverwriteConflict, WRITE_ATTEMPTS, readBlobSnapshot, snapshotPathOf } from './lib/blobJsonl.js';
 
 let passed = 0;
 let failed = 0;
@@ -294,6 +294,44 @@ async function run() {
     await updateBlob({ get, put: put2, head, fetchImpl: freshFetch }, 'x.json', 'application/json', (text) => text + '\n');
     assertEqual(seen, '"fresh"', 'head etag wins over the get etag');
     assertEqual(body, '{"a":2}\n', 'change applied to the fresh body');
+  });
+
+  await test('snapshot-addressed state: with every fixed-path read stale (CDN ignores ?nocache), successive writes keep each other and old snapshots are deleted', async () => {
+    const B = 'https://store.public.blob.vercel-storage.com';
+    const P = 'telegram/state.json';
+    const files = new Map(); // origin truth: path -> {text, etag, contentType}
+    const cdn = new Map(); // what a fixed URL serves (only refreshed by hand below = always stale)
+    let n = 0;
+    const put = async (p, body, opts) => {
+      const cur = files.get(p);
+      if (opts.ifMatch && (!cur || cur.etag !== opts.ifMatch)) { const e = new Error('Precondition failed'); e.name = 'BlobPreconditionFailedError'; throw e; }
+      if (!opts.ifMatch && opts.allowOverwrite === false && cur) { const e = new Error('This blob already exists'); e.name = 'BlobAccessError'; throw e; }
+      files.set(p, { text: String(body), etag: `"v${++n}"`, contentType: opts.contentType });
+      return { url: `${B}/${p}` };
+    };
+    const get = async (p) => { const f = cdn.get(p) || files.get(p); return f ? { stream: new Response(f.text).body, blob: { etag: f.etag, url: `${B}/${p}` } } : null; };
+    const head = async (p) => { const f = files.get(p); return f ? { etag: f.etag, url: `${B}/${p}`, contentType: f.contentType } : null; };
+    const deleted = [];
+    const del = async (p) => { deleted.push(p); files.delete(p); };
+    // The cache-busted fetch of the fixed path returns the CDN copy; a snapshot path (never requested before) is the origin.
+    const fetchImpl = async (url) => {
+      const p = String(url).replace(`${B}/`, '').split('?')[0];
+      const f = p === P ? (cdn.get(p) || files.get(p)) : files.get(p);
+      return f ? new Response(f.text, { headers: { etag: f.etag } }) : new Response('nf', { status: 404 });
+    };
+    const store = { get, put, head, del, fetchImpl, snapshotPaths: [P] };
+    files.set(P, { text: '{"locks":[]}', etag: '"v0"', contentType: 'application/json' }); // pre-scheme blob
+    await updateBlob(store, P, 'application/json', (t) => JSON.stringify({ ...JSON.parse(t), cron: 1 })); // bootstrap write
+    cdn.set(P, files.get(P)); // the CDN now holds this version and keeps serving it
+    await updateBlob(store, P, 'application/json', (t) => { const st = JSON.parse(t); st.locks.push('L1'); return JSON.stringify(st); }); // webhook: Lock
+    await updateBlob(store, P, 'application/json', (t) => JSON.stringify({ ...JSON.parse(t), cron: 2 })); // next cron tick
+    const final = JSON.parse(files.get(P).text);
+    assertEqual(JSON.stringify(final), JSON.stringify({ locks: ['L1'], cron: 2 }), 'the lock survives the next cron write');
+    const exact = await readBlobSnapshot({ head, fetchImpl }, P);
+    assertEqual(exact.text, files.get(P).text, 'snapshot read = origin body while the fixed URL is stale');
+    assert(deleted.length === 2 && deleted.every((p) => p.startsWith('telegram/state.v/')), `old snapshots deleted: ${deleted}`);
+    assertEqual([...files.keys()].filter((k) => k.startsWith('telegram/state.v/')).length, 1, 'one live snapshot');
+    assert(snapshotPathOf(P, 'abc123') === 'telegram/state.v/abc123.json', 'snapshot path');
   });
 
   await test('lost update (2026-10-03 locks vanished): a cache-busted body still at the OLD version is never written under the new ETag', async () => {

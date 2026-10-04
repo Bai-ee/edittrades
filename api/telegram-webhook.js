@@ -45,12 +45,12 @@
  */
 
 import crypto from 'crypto';
-import { put as blobPut, get as blobGet, head as blobHead } from '@vercel/blob';
+import { put as blobPut, get as blobGet, head as blobHead, del as blobDel } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { parseChartArg, renderContextChart, ChartRequestError, TRADE_CHART_CANDLES, CHART_TIMEFRAMES } from '../lib/chartRender.js';
 import { validateJournalEntry } from '../lib/journalSchema.js';
 import { classifyTier } from '../lib/tier.js';
-import { readBlob, readBlobFresh, readBlobOrigin, updateBlob } from '../lib/blobJsonl.js';
+import { readBlob, readBlobFresh, readBlobOrigin, readBlobSnapshot, updateBlob } from '../lib/blobJsonl.js';
 import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
@@ -225,7 +225,7 @@ export async function sendFlagAlbums({ bot, chatId, payload, only = null, render
  */
 export async function handleTelegramWebhook(req, res, deps = {}) {
   const {
-    build = buildScalpContext, put = blobPut, get = blobGet, head = (deps.get || deps.put ? undefined : blobHead), fetchImpl = globalThis.fetch,
+    build = buildScalpContext, put = blobPut, get = blobGet, head = (deps.get || deps.put ? undefined : blobHead), del = (deps.get || deps.put ? undefined : blobDel), fetchImpl = globalThis.fetch,
     render = renderContextChart, now = Date.now, env = process.env
   } = deps;
   const requestId = crypto.randomUUID();
@@ -272,7 +272,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
   // Every plain reply re-sends the persistent menu keyboard; inline pickers replace it.
   const reply = (text, markup = menuKeyboard()) => bot.sendMessage(chatId, text, { replyMarkup: markup });
   const hasStore = Boolean(deps.put || deps.get || env.BLOB_READ_WRITE_TOKEN);
-  const store = { put, get, head, fetchImpl };
+  const store = { put, get, head, del, fetchImpl, snapshotPaths: [TELEGRAM_STATE_PATH] };
   const secrets = [env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_WEBHOOK_SECRET, env.BLOB_READ_WRITE_TOKEN];
   const errMsg = (err) => ` reason=state_read_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`;
   /** State from Blob; never throws (read failure -> null, logged). Logs a reset/migration. */
@@ -281,7 +281,8 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       // Origin read (body + ETag past the CDN): a plain public `get` can serve the copy from
       // before the last write for up to 60 s, so a button tapped right after Lock saw no lock
       // (2026-10-03 / 10-04: I'm in / Now? -> "Not locked"). Falls back to `get` on failure.
-      const blob = await readBlobOrigin({ get, head, fetchImpl }, TELEGRAM_STATE_PATH);
+      // Exact read first (head -> snapshot, never a CDN copy); the origin read is the fallback.
+      const blob = (await readBlobSnapshot({ head, fetchImpl }, TELEGRAM_STATE_PATH).catch(() => null)) || await readBlobOrigin({ get, head, fetchImpl }, TELEGRAM_STATE_PATH);
       if (blob && blob.source !== 'origin' && typeof head === 'function') log('state', ' reason=state_read_fallback_get');
       const m = migrateState(blob ? blob.text : null);
       if (m.reset) log('state', ` reason=state_reset cause=${m.reason}`);
