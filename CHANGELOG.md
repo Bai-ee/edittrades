@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-04 — Taken locks show in Focus and /positions
+
+Owner screenshot: ETH 1h locked and taken (🔒 IN), but Focus read "auto (no position)" and /positions "[NO OPEN TRADES]" (both only knew on-chain positions and the journal). Focus status now reads "auto (in ETH 1h · only its updates send)" while a taken lock is open (Focus button, /alerts, /status, /exec); /positions shows a "🔒 LOCKED TRADES" block (live R, entry, SL, TP) above the journal. Test: telegram trade-focus case.
+
 ## 2026-10-04 — Trade focus; alert log keeps writing
 
 Owner: "locked in on a taken trade I don't see the focus setting where I don't get bothered". Focus (`/alerts focus auto`, the default) only counted on-chain positions. Now a taken lock (I'm in) also focuses: only that trade's LOCK updates and health/data alerts send; LOCK NOW, BREAKING, other locks and classic alerts are held (logged `suppressed:focus` for the tracker). When the trade closes: "🔎 Focus off — trade closed, all alerts resumed." Focus off still sends everything. Also: the append-only alert log is not snapshot-addressed, and the strict stale check had it skipping lines (`logSkipped=error:BlobStaleRead`); it keeps its long-standing last-resort write again. Tests: telegram trade-focus case, journal.

@@ -72,7 +72,7 @@ import {
   parseState, shortRef, ALERT_MODES
 } from '../lib/telegram.js';
 import { formatMyTrades } from '../lib/myTrades.js';
-import { applyLockChange, formatLockCard, formatLocksList, lockKeyboard, parseManualLock } from '../lib/telegramLock.js';
+import { applyLockChange, formatLockCard, formatLocksList, formatTakenLocks, lockKeyboard, parseManualLock } from '../lib/telegramLock.js';
 import { flowBoardMessage } from '../lib/telegramFlow.js';
 import { rankFlags, snapshotOf } from '../lib/flagFlow.js';
 import { createLock, evaluateLock, normalizeLocks, openLocks } from '../lib/tradeLock.js';
@@ -1004,6 +1004,7 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       else {
         let prefs = null;
         let livePositions = null;
+        let focusLocks = null;
         let saved = true;
         try {
           await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => {
@@ -1012,13 +1013,14 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
             const migrated = migrateState(next).state;
             prefs = migrated.prefs;
             livePositions = migrated.livePositions;
+            focusLocks = migrated.locks;
             return next;
           });
         } catch (err) {
           saved = false;
           log('state', ` reason=state_write_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`);
         }
-        if (saved) await reply(`Focus: <b>${formatFocusState(prefs, livePositions)}</b>`, alertsKeyboard());
+        if (saved) await reply(`Focus: <b>${formatFocusState(prefs, livePositions, focusLocks)}</b>`, alertsKeyboard());
         else await reply('Focus setting could not be saved; try again in a minute.');
       }
     } else if (cmd === 'button_log') {
@@ -1236,18 +1238,23 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
       if (!hasStore) await reply('Journal store unavailable.');
       else {
         let opens = openPositions(await readRecent(store, 50));
+        // Taken locks (I'm in) are manual trades: list them above the journal.
+        const lockState = await readState();
+        const hasTaken = Boolean(lockState && formatTakenLocks(lockState.locks, {}, now()));
         if (!ex) {
-          const payload = opens.length ? filterPayload(await build(), { compact: true }) : null;
-          await reply(formatPositions(opens, payload, now()), positionsKeyboard(opens) || menuKeyboard());
+          const payload = opens.length || hasTaken ? filterPayload(await build(), { compact: true }) : null;
+          const lockBlock = hasTaken ? formatTakenLocks(lockState.locks, payload && payload.symbols, now()) : null;
+          await reply(`${lockBlock ? `${lockBlock}\n${RULE}\n` : ''}${formatPositions(opens, payload, now())}`, positionsKeyboard(opens) || menuKeyboard());
         } else {
           // Live chain read first (manage buttons), then journal opens the chain does not already show.
           const [chain, status, tgState] = await Promise.all([chainPositions(), safeStatus(), readState()]);
           const onChain = new Set((chain || []).map((p) => `${p.symbol}|${p.direction}`));
           opens = opens.filter((o) => !(o.source === 'execution' && onChain.has(`${o.symbol}|${o.direction}`)));
-          const payload = opens.length ? filterPayload(await build(), { compact: true }) : null;
+          const payload = opens.length || hasTaken ? filterPayload(await build(), { compact: true }) : null;
+          const lockBlock = hasTaken ? formatTakenLocks(lockState.locks, payload && payload.symbols, now()) : null;
           const trailInfo = tgState ? { pref: tgState.prefs && tgState.prefs.trail, byPosition: tgState.trail } : null;
           const chainText = chain ? formatChainPositions(chain, { mode: execMode(status), trail: trailInfo }) : '⛓ <b>ON CHAIN</b>\nChain read unavailable; try again in a minute.';
-          const text = `${chainText}\n${RULE}\n<b>JOURNAL</b>\n${formatPositions(opens, payload, now())}`;
+          const text = `${chainText}\n${RULE}\n${lockBlock ? `${lockBlock}\n${RULE}\n` : ''}<b>JOURNAL</b>\n${formatPositions(opens, payload, now())}`;
           const rows = [...chainPositionsKeyboardRows(chain || []), ...((positionsKeyboard(opens) || {}).inline_keyboard || [])];
           await execSend(text, rows.length ? { inline_keyboard: rows } : null, { event: 'positions', mode: execMode(status) });
         }
