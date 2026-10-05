@@ -889,6 +889,25 @@
           "schemaSince": null
         },
         {
+          "path": "lib/dayBrief.js",
+          "name": "dayBrief",
+          "role": "24h Brief (Telegram button): per asset the last 24h to the live price (change, range, volume vs the prior 24h, 4h/1d trend) and the likely next 24h (lean from 1d/4h/1h trend + 4h EMA200, expected range = one daily ATR, nearest 1h/4h support / resistance, 4h Stoch stretch, 1h/4h flags forming); structure, not a forecast; pure.",
+          "publishes": [
+            "24h brief"
+          ],
+          "consumes": [
+            "timeframes",
+            "geometryContext",
+            "flagBoard"
+          ],
+          "tests": [
+            "test:brief",
+            "test:telegram"
+          ],
+          "since": "2026-10-04",
+          "schemaSince": null
+        },
+        {
           "path": "lib/tradeUpdate.js",
           "name": "tradeUpdate",
           "role": "In-trade updates for a taken lock (I'm in): four per candle of the lock timeframe (5-30 min), % and R since entry, TP / SL distance, and a 0-100 confidence (checklist share, next timeframe, EMA21 side, Stoch, divergence, RSI) read as HOLD / WATCH / EXIT?; also the Now? reply in a trade; display only; pure.",

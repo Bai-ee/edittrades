@@ -61,6 +61,7 @@
     "test:mytrades": "node test-my-trades.js",
     "test:flowevidence": "node test-flow-evidence.js",
     "test:tradeupdate": "node test-trade-update.js",
+    "test:brief": "node test-day-brief.js",
     "test:execution": "node test-execution.js",
     "test:retest1h": "node test-retest1h-live.js",
     "test:htfrule": "node test-htf-entry-rule.js",

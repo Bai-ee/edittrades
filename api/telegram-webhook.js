@@ -55,7 +55,7 @@ import { appendRecord, readRecent } from './journal.js';
 import {
   createBotClient, parseAllowedIds, isAllowed, parseCommand, parseSymbol, parseJournalN, parseLogText,
   formatSignals, formatWhy, formatFlags, formatWallet, formatJournal, formatStatus, formatHelp, formatGoodAlert,
-  migrateState, parseHealth, errText, TELEGRAM_HEALTH_PATH, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, formatFocusState, fmtQuiet,
+  migrateState, parseHealth, errText, TELEGRAM_HEALTH_PATH, escapeHtml, TELEGRAM_STATE_PATH, parseAlertsArgs, applyPrefsChange, formatAlertPrefs, formatFocusState, fmtQuiet, tfsKeyboard, formatTfsState, nextFlowTfs,
   TRAIL_MODES,
   parseMenuLabel, menuKeyboard, chartsKeyboard, alertsKeyboard, signalsKeyboard, parseCallbackData, buttonLogBody, findButtonSnapshot,
   collectLiveFlags, capFlagCharts, formatFlagCaption, formatNoLiveFlags, chunkMediaGroup, albumSeries, MAX_FLAG_CHARTS, FLAG_CHART_BUDGET_MS,
@@ -76,6 +76,7 @@ import { applyLockChange, formatLockCard, formatLocksList, formatTakenLocks, loc
 import { flowBoardMessage } from '../lib/telegramFlow.js';
 import { rankFlags, snapshotOf } from '../lib/flagFlow.js';
 import { formatTradeUpdate, lockEvidence } from '../lib/tradeUpdate.js';
+import { formatDayBrief } from '../lib/dayBrief.js';
 import { createLock, evaluateLock, normalizeLocks, openLocks } from '../lib/tradeLock.js';
 import { execLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 // T-20 HTF-anchored entry (owner-approved "ships live-capable" 2026-09-27). Open resolves
@@ -998,6 +999,34 @@ export async function handleTelegramWebhook(req, res, deps = {}) {
         if (saved) await reply(`Saved.\n${formatAlertPrefs(prefs)}`, alertsKeyboard());
         else await reply('Alert settings could not be saved; try again in a minute.');
       }
+    } else if (cmd === 'tfs') {
+      // Timeframes picker: which flag timeframes may send LOCK NOW / BREAKING (prefs.flowTfs).
+      if (!hasStore) await reply('Alert settings store unavailable.');
+      else {
+        let prefs = null;
+        let saved = true;
+        if (parsed.args.length) {
+          try {
+            await updateBlob(store, TELEGRAM_STATE_PATH, 'application/json', (text) => {
+              const next = applyPrefsChange(text, { flowTfs: nextFlowTfs(migrateState(text).state.prefs, parsed.args) });
+              prefs = migrateState(next).state.prefs;
+              return next;
+            });
+          } catch (err) {
+            saved = false;
+            log('state', ` reason=state_write_${err && err.name ? err.name : 'Error'} msg=${JSON.stringify(errText(err, secrets))}`);
+          }
+        } else {
+          const st = await readState();
+          prefs = st ? st.prefs : null;
+        }
+        if (!saved) await reply('Timeframes could not be saved; try again in a minute.');
+        else if (cq && parsed.args.length && cq.message && cq.message.message_id !== undefined) await bot.editMessageText(chatId, cq.message.message_id, formatTfsState(prefs), { replyMarkup: tfsKeyboard(prefs) });
+        else await reply(formatTfsState(prefs), tfsKeyboard(prefs));
+      }
+    } else if (cmd === 'brief') {
+      // 24h Brief: last 24h + likely next 24h per asset (lib/dayBrief.js), board setups included.
+      await reply(formatDayBrief(await build({ includeFlagBoard: true }), now()));
     } else if (cmd === 'focus') {
       // The persistent-menu Focus button: toggles auto <-> off and replies with the new
       // state (unlike /alerts focus auto|off, which sets it explicitly).

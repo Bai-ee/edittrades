@@ -910,7 +910,7 @@ async function run() {
   });
 
   await test('prefs persist in state: normalize, apply, parseState keeps off, diffAlerts carries prefs', () => {
-    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"flow","risk":{}}', 'garbage -> defaults');
+    assertEqual(JSON.stringify(normalizePrefs({ level: 'loud', quiet: { start: 3, end: 3 } })), '{"level":"setup","quiet":{"start":1,"end":5},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"flow","risk":{},"flowTfs":["1m","3m","5m","15m","1h","4h"]}', 'garbage -> defaults');
     assertEqual(normalizePrefs({ focus: 'off' }).focus, 'off', 'focus off is kept');
     assertEqual(normalizePrefs({ focus: 'bogus' }).focus, 'auto', 'unknown focus -> auto');
     const off = parseState(applyPrefsChange(null, { quiet: null }));
@@ -918,7 +918,7 @@ async function run() {
     const lv = parseState(applyPrefsChange(JSON.stringify({ ...emptyState(), symbols: { BTC: { goodIds: ['k'] } } }), { level: 'watch' }));
     assertEqual(`${lv.prefs.level}|${lv.symbols.BTC.goodIds[0]}`, 'watch|k', 'level saved, alert memory kept');
     const d = diffAlerts(withPrefs('good', null), payload(), T0);
-    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{}}', 'diff keeps prefs');
+    assertEqual(JSON.stringify(d.state.prefs), '{"level":"good","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{},"flowTfs":["1m","3m","5m","15m","1h","4h"]}', 'diff keeps prefs');
     assert(formatAlertPrefs(d.state.prefs).includes('Alert level: <b>good</b>') && formatAlertPrefs(d.state.prefs).includes('Quiet hours: off'), 'prefs text');
   });
 
@@ -930,7 +930,7 @@ async function run() {
     assert(set.tg.calls[0].text.startsWith('Saved.') && set.tg.calls[0].text.includes('<b>watch</b>'), set.tg.calls[0].text);
     await hook({ text: '/alerts quiet 22-06', blob });
     let st = JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text);
-    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{}}', 'persisted');
+    assertEqual(JSON.stringify(st.prefs), '{"level":"watch","quiet":{"start":22,"end":6},"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{},"flowTfs":["1m","3m","5m","15m","1h","4h"]}', 'persisted');
     const q = await hook({ text: '/alerts quiet', blob });
     assertEqual(q.tg.calls[0].text, 'Quiet hours: 22:00–06:00 America/Chicago, every day (alerts arrive silently)', 'quiet show');
     await hook({ text: '/alerts quiet off', blob });
@@ -1087,7 +1087,7 @@ async function run() {
   await test('reply keyboard: persistent, resized, the five owner rows; on /start, /menu and every plain reply', async () => {
     const kb = menuKeyboard();
     assertEqual(JSON.stringify(kb.keyboard.map((r) => r.map((b) => b.text))), JSON.stringify(MENU_ROWS), 'rows');
-    assertEqual(JSON.stringify(MENU_ROWS), '[["Signals","Flags","Market"],["Why BTC","Why ETH","Why SOL"],["Charts","Wallet","Positions","Exec"],["Journal","Status","Alerts","Tracking"],["Focus"]]', 'owner layout');
+    assertEqual(JSON.stringify(MENU_ROWS), '[["Signals","Flags","Market"],["Why BTC","Why ETH","Why SOL"],["Charts","Wallet","Positions","Exec"],["Journal","Status","Alerts","Tracking"],["Focus","Timeframes","24h Brief"]]', 'owner layout');
     assert(kb.resize_keyboard === true && kb.is_persistent === true, 'flags');
     for (const text of ['/start', '/menu', '/help', '/status', '/wallet', 'hello']) {
       const r = await hook({ text });
@@ -1098,7 +1098,7 @@ async function run() {
 
   await test('menu labels map to commands (case-insensitive, exact label only)', async () => {
     const m = (t) => { const p = parseMenuLabel(t); return p ? `${p.cmd}${p.args.length ? ` ${p.args.join(' ')}` : ''}` : null; };
-    const want = { Signals: 'signals', Flags: 'flags', 'Why BTC': 'why BTC', 'Why ETH': 'why ETH', 'Why SOL': 'why SOL', Charts: 'charts', Wallet: 'wallet', Journal: 'journal', Status: 'status', Alerts: 'alerts', Positions: 'positions', Tracking: 'tracking', Market: 'market', Exec: 'exec', Focus: 'focus' };
+    const want = { Signals: 'signals', Flags: 'flags', 'Why BTC': 'why BTC', 'Why ETH': 'why ETH', 'Why SOL': 'why SOL', Charts: 'charts', Wallet: 'wallet', Journal: 'journal', Status: 'status', Alerts: 'alerts', Positions: 'positions', Tracking: 'tracking', Market: 'market', Exec: 'exec', Focus: 'focus', Timeframes: 'tfs', '24h Brief': 'brief' };
     for (const label of MENU_ROWS.flat()) assertEqual(m(label), want[label], label);
     assertEqual(m('why btc'), 'why BTC', 'lower case');
     assertEqual(m('  SIGNALS '), 'signals', 'upper, padded');
@@ -1221,7 +1221,7 @@ async function run() {
     const blob = fakeBlob();
     await tap({ data: 'alerts:watch', blob });
     await tap({ data: 'alerts:quiet:off', blob });
-    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{}}', 'level + off');
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs), '{"level":"watch","quiet":null,"alertTimeframes":["3m","5m"],"focus":"auto","trail":"on","mode":"classic","risk":{},"flowTfs":["1m","3m","5m","15m","1h","4h"]}', 'level + off');
     const on = await tap({ data: 'alerts:quiet:on', blob });
     assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.quiet), '{"start":1,"end":5}', 'on = default');
     assert(on.tg.calls[1].replyMarkup.inline_keyboard, 'alerts buttons again');
@@ -1309,7 +1309,7 @@ async function run() {
     const v1 = toV1(first);
     const m = migrateState(JSON.stringify(v1));
     assertEqual(`${m.fromVersion}|${m.migrated}|${m.reset}|${m.state.stateVersion}`, `1|true|false|${STATE_VERSION}`, 'migration flags');
-    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', trail: 'on', mode: 'flow', risk: {} }), 'default prefs');
+    assertEqual(JSON.stringify(m.state.prefs), JSON.stringify({ level: 'setup', quiet: { start: 1, end: 5 }, alertTimeframes: ['3m', '5m'], focus: 'auto', trail: 'on', mode: 'flow', risk: {}, flowTfs: ['1m', '3m', '5m', '15m', '1h', '4h'] }), 'default prefs');
     assertEqual(`${m.state.watch.ids.length}|${JSON.stringify(m.state.buttons)}|${m.state.symbols.BTC.breakoutIds.length}`, '0|{}|0', 'missing memory -> empty');
     const next = payload({ BTC: goodSym(), ETH: watchSym(setupEth), SOL: badSym() });
     const fromV1 = diffAlerts(m.state, next, T0 + MIN);
@@ -3378,6 +3378,19 @@ async function run() {
     const texts = done.tg.calls.map((x) => String(x.text || x.caption));
     assert(texts.some((t) => t.includes('DONE · STOPPED')), texts.join(' | '));
     assert(texts.some((t) => t.includes('Focus off — trade closed')), texts.join(' | '));
+  });
+
+  await test('Timeframes button: picker shows, a tap saves prefs.flowTfs and edits the picker in place; 24h Brief replies', async () => {
+    const blob = fakeBlob();
+    const shown = await hook({ text: 'Timeframes', blob });
+    const pick = shown.tg.calls.find((x) => x.method === 'sendMessage');
+    assert(pick && pick.text.includes('Timeframes') && allCallbackData(pick.replyMarkup).includes('ftf:htf'), pick && pick.text);
+    const tapped = await tap({ data: 'ftf:htf', blob });
+    assertEqual(JSON.stringify(JSON.parse(blob.files.get(TELEGRAM_STATE_PATH).text).prefs.flowTfs), '["1h","4h"]', 'saved');
+    const edit = tapped.tg.calls.find((x) => x.method === 'editMessageText');
+    assert(edit && edit.text.includes('1m 3m 5m 15m muted'), edit && edit.text);
+    const brief = await hook({ text: '24h Brief', blob });
+    assert(brief.tg.calls.some((x) => x.method === 'sendMessage' && String(x.text).includes('24H BRIEF')), 'brief sent');
   });
 
   await test('in-trade update: a taken 5m lock gets one % / confidence update per 5 min, passing focus', async () => {

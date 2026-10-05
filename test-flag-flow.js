@@ -299,5 +299,22 @@ await test('alignment (owner 2026-10-03): next timeframe up must agree; low tota
   assert(no.stage === 'watch', `next timeframe against -> watching: ${no.stage}`);
 });
 
+await test('Timeframes picker: a muted timeframe sends no LOCK NOW and is not marked sent', async () => {
+  const { diffFlow } = await import('./lib/telegramFlow.js');
+  const { nextFlowTfs, tfsKeyboard } = await import('./lib/telegram.js');
+  const payload = { dataStatus: 'complete', flagBoard: { BTC: [cand(1, { st: 'triggering' })] }, symbols: { BTC: { timeframes: timeframes(1, 86400), price: 86400 } } };
+  const muted = { prefs: { flowTfs: ['4h'] } };
+  const a = diffFlow(muted, payload, T0);
+  assert(!a.alerts.some((x) => x.kind === 'LOCK_OPPORTUNITY') && !Object.keys(muted.flow.opps).length, `muted 1h: ${a.alerts.map((x) => x.kind)}`);
+  const on = { prefs: { flowTfs: ['1h', '4h'] } };
+  assert(diffFlow(on, payload, T0).alerts.some((x) => x.kind === 'LOCK_OPPORTUNITY'), '1h on -> LOCK NOW');
+  assert(JSON.stringify(nextFlowTfs({}, ['set', '1h,4h'])) === '["1h","4h"]', 'preset');
+  assert(JSON.stringify(nextFlowTfs({ flowTfs: ['1h', '4h'] }, ['toggle', '1h'])) === '["4h"]', 'toggle off');
+  assert(JSON.stringify(nextFlowTfs({ flowTfs: ['4h'] }, ['toggle', '4h'])) === '["4h"]', 'never all off');
+  assert(JSON.stringify(nextFlowTfs({ flowTfs: ['4h'] }, ['set', 'all'])) === '["1m","3m","5m","15m","1h","4h"]', 'all');
+  const kb = tfsKeyboard({ flowTfs: ['4h'] }).inline_keyboard.flat().map((b) => b.text);
+  assert(kb.includes('✅ 4h') && kb.includes('🔕 1h') && kb.includes('1h + 4h only'), kb.join());
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

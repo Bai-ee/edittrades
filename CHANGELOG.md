@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-04 — Timeframes picker and 24h Brief (Telegram buttons)
+
+Owner: "turn on and off tf to be alerted… just 4 hour or 1 hour calls, all other tf muted" and "a button to get the past 24 hours of market action and the next 24 hours likely breakdown".
+- **Timeframes** (menu button, `/tfs`): toggles per flag timeframe 1m-4h (✅ on / 🔕 muted) plus presets "1h + 4h only" and "All"; stored as `prefs.flowTfs` (default all, never empty). A muted timeframe sends no LOCK NOW / BREAKING and is not marked sent (unmute and a live flag can still alert). Flags are detected 1m-4h, so 1d is not offered. Taken trades keep their updates.
+- **24h Brief** (menu button, `/brief`, new `lib/dayBrief.js`): per asset, last 24h to the live price (change, range, volume vs the prior 24h, 4h/1d trend) and the likely next 24h (lean from 1d/4h/1h trend + 4h EMA200, range = one daily ATR, nearest 1h/4h support / resistance, 4h Stoch stretch, 1h/4h flags forming). Labeled as structure, not a forecast.
+- Menu last row: Focus · Timeframes · 24h Brief. Tests: test:brief 3 (new), flow picker case, telegram picker + brief case.
+
 ## 2026-10-04 — In-trade updates: four per candle
 
 Owner: hourly felt too sparse on a 1h trade ("yes do that 4 times per"). Spacing is now a quarter of the lock timeframe, clamped 5-30 min: 1m-15m every 5 min, 1h every 15, 4h and 1d every 30.
