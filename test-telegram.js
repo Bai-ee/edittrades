@@ -1116,7 +1116,7 @@ async function run() {
       'chart:BTC:1m,chart:BTC:3m,chart:BTC:5m,chart:BTC:15m,chart:BTC:1h | chart:ETH:1m,chart:ETH:3m,chart:ETH:5m,chart:ETH:15m,chart:ETH:1h | chart:SOL:1m,chart:SOL:3m,chart:SOL:5m,chart:SOL:15m,chart:SOL:1h | flags:all', 'grid');
     const a = await hook({ text: 'Alerts' });
     assertEqual(a.tg.calls[0].replyMarkup.inline_keyboard.map((r) => r.map((b) => `${b.text}=${b.callback_data}`).join(',')).join(' | '),
-      'Good=alerts:good,Setup=alerts:setup,Watch=alerts:watch | Quiet on=alerts:quiet:on,Quiet off=alerts:quiet:off | 3m+5m=alerts:tf:3m5m,5m only=alerts:tf:5m,all=alerts:tf:all | Focus auto=alerts:focus:auto,Focus off=alerts:focus:off', 'alerts buttons');
+      '⏱ Timeframes=ftf:show,📅 24h Brief=brief:now | Good=alerts:good,Setup=alerts:setup,Watch=alerts:watch | Quiet on=alerts:quiet:on,Quiet off=alerts:quiet:off | 3m+5m=alerts:tf:3m5m,5m only=alerts:tf:5m,all=alerts:tf:all | Focus auto=alerts:focus:auto,Focus off=alerts:focus:off', 'alerts buttons');
     assert(a.tg.calls[0].text.includes('Alert level: <b>setup</b>'), 'shows prefs');
     const focusBlob = fakeBlob();
     const focus = await hook({ text: 'Focus', blob: focusBlob });

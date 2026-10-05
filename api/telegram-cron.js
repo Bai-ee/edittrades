@@ -65,7 +65,7 @@ import crypto from 'crypto';
 import { put as blobPut, get as blobGet, head as blobHead, del as blobDel } from '@vercel/blob';
 import { buildScalpContext, filterPayload } from '../services/scalpContext.js';
 import { renderContextChart, TRADE_CHART_CANDLES } from '../lib/chartRender.js';
-import { updateBlob, readBlob } from '../lib/blobJsonl.js';
+import { updateBlob, readBlob, lastSnapshotMiss } from '../lib/blobJsonl.js';
 import { readRecent } from './journal.js';
 import { alertLogLine, recordTelegramLogs } from '../lib/telegramLog.js';
 import {
@@ -715,6 +715,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
   let takenNow = [];
   let takenBefore = [];
   let stateSnap = 0;
+  let stateRead = '-';
   let resetReason = null;
   let migratedFrom = null;
   try {
@@ -803,6 +804,7 @@ export async function handleTelegramCron(req, res, deps = {}) {
     });
     written = out.written;
     stateSnap = out.snapshot ? 1 : 0;
+    stateRead = out.readFrom || '-';
   } catch (err) {
     // Could not claim the transition: send nothing rather than risk a duplicate.
     const reason = `state_write_${err && err.name ? err.name : 'Error'}`;
@@ -924,6 +926,6 @@ export async function handleTelegramCron(req, res, deps = {}) {
   const logged = await recordTelegramLogs({ alerts: alertLines, transitions }, { store: { get, put, head }, env, nowMs });
 
   const kinds = alerts.map((a) => `${a.kind}${a.symbol ? `:${a.symbol}` : ''}`);
-  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} silent=${silent} stateWritten=${written} stateSnap=${stateSnap} logAlerts=${logged.alerts} logTransitions=${logged.transitions}${logged.skipped && logged.skipped !== 'nothing' ? ` logSkipped=${logged.skipped}` : ''}${health.message ? ' healthAlert=recovered' : ''}`);
+  log(200, ` dataStatus=${compact && compact.dataStatus} alerts=${alerts.length} kinds=${kinds.join(',') || '-'} sent=${sent} failed=${failed} silent=${silent} stateWritten=${written} stateSnap=${stateSnap} stateRead=${stateRead}${stateRead === 'get' && lastSnapshotMiss ? ` snapMiss=${lastSnapshotMiss}` : ''} logAlerts=${logged.alerts} logTransitions=${logged.transitions}${logged.skipped && logged.skipped !== 'nothing' ? ` logSkipped=${logged.skipped}` : ''}${health.message ? ' healthAlert=recovered' : ''}`);
   return res.status(200).json({ ok: true, alerts: alerts.length, kinds, sent, failed, silent, stateWritten: written });
 }
